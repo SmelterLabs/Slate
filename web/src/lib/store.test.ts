@@ -1,0 +1,263 @@
+// @vitest-environment happy-dom
+// The store's stream lifecycle (docs/board.md "Live stream and catch-up"): the stream opens
+// first and buffers, the REST load follows, a failed start retries, and reloads coalesce.
+// `fetch` and `EventSource` are the only things faked; the api layer and the reducer are real.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LIST, ev, item } from './fixtures';
+import type { Item, Me, SlateEvent } from './types';
+
+class FakeEventSource {
+  static all: FakeEventSource[] = [];
+  static get last() {
+    return FakeEventSource.all.at(-1)!;
+  }
+  onopen: ((e: Event) => void) | null = null;
+  onmessage: ((m: MessageEvent) => void) | null = null;
+  onerror: ((e: Event) => void) | null = null;
+  closed = false;
+  #listeners = new Map<string, Set<(m: MessageEvent) => void>>();
+  constructor(public url: string) {
+    FakeEventSource.all.push(this);
+  }
+  addEventListener(type: string, fn: (m: MessageEvent) => void) {
+    (this.#listeners.get(type) ?? this.#listeners.set(type, new Set()).get(type)!).add(fn);
+  }
+  close() {
+    this.closed = true;
+  }
+  open() {
+    this.onopen?.(new Event('open'));
+  }
+  fail() {
+    this.onerror?.(new Event('error'));
+  }
+  emit(e: SlateEvent) {
+    for (const fn of this.#listeners.get(e.type) ?? []) fn({ data: JSON.stringify(e) } as MessageEvent);
+  }
+}
+
+const ME: Me = {
+  account: { id: 'A_alex', handle: 'alex', display_name: 'Alex', kind: 'person' },
+  scopes: ['read', 'write'],
+  token_id: 'T1',
+  prefs: {},
+  timezone: 'America/Chicago',
+};
+
+/** A route's answer: the JSON body (or a promise of it), or `{status, body}` for an error. */
+type Answer = unknown;
+type Failure = { status: number; body?: unknown };
+const failed = (a: Answer): a is Failure => !!a && typeof a === 'object' && typeof (a as Failure).status === 'number';
+/** Answers per `/api/v1` path (the newest wins); anything else is an empty list. */
+const routes = new Map<string, () => Answer>();
+const calls: string[] = [];
+async function fetchStub(url: string): Promise<Response> {
+  const path = url.replace(/^\/api\/v1/, '').split('?')[0];
+  calls.push(path);
+  const answer = routes.get(path)?.() ?? [];
+  const status = failed(answer) ? answer.status : 200;
+  const body = await (failed(answer) ? answer.body : answer);
+  return { ok: status < 300, status, statusText: '', json: async () => body } as unknown as Response;
+}
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((yes) => (resolve = yes));
+  return { promise, resolve };
+}
+/** Enough microtask turns for a chain of fetches to settle; no real time passes. */
+async function settle() {
+  for (let i = 0; i < 80; i++) await Promise.resolve();
+}
+
+let board: typeof import('./store.svelte').board;
+
+beforeEach(async () => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  FakeEventSource.all = [];
+  routes.clear();
+  calls.length = 0;
+  routes.set('/me', () => ME);
+  routes.set('/lists', () => [LIST]);
+  routes.set('/items', () => [item()]);
+  localStorage.setItem('slate.token', 'tok');
+  vi.stubGlobal('EventSource', FakeEventSource);
+  vi.stubGlobal('fetch', fetchStub);
+  ({ board } = await import('./store.svelte'));
+});
+afterEach(() => {
+  board.signOut();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
+
+/** start(), with the stream opening at once, as the server does. */
+async function startLive() {
+  const started = board.start();
+  FakeEventSource.last.open();
+  await started;
+}
+
+describe('start', () => {
+  it('waits for the stream to open before reading anything over REST', async () => {
+    const started = board.start();
+    await settle();
+    expect(calls).toEqual([]);
+    FakeEventSource.last.open();
+    await started;
+    expect(calls[0]).toBe('/me');
+    expect(board.ready).toBe(true);
+    expect(board.items.I1.title).toBe('Fix gutter');
+  });
+
+  it('retries a failed first load with backoff instead of staying blank until a reload', async () => {
+    routes.set('/me', () => ({ status: 503, body: { detail: 'restarting' } }));
+    await startLive();
+    expect(board.ready).toBe(false);
+    expect(board.toast).toContain('restarting');
+    expect(board.conn).toBe('reconnecting');
+    expect(FakeEventSource.last.closed).toBe(true); // the stream from the failed start is dropped
+
+    routes.set('/me', () => ME);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(FakeEventSource.all).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await settle(); // the retry checks /me first, then starts over with a new stream
+    expect(FakeEventSource.all).toHaveLength(2);
+    FakeEventSource.last.open();
+    await vi.waitFor(() => expect(board.ready).toBe(true));
+    expect(board.conn).toBe('live');
+    expect(board.items.I1.title).toBe('Fix gutter');
+    // Only the retry's stream buffers from here on.
+    FakeEventSource.last.emit(ev({ field: 'title', after: 'Live' }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(board.items.I1.title).toBe('Live');
+  });
+
+  it('backs off 1 s, 2 s, 4 s while the load keeps failing, and signOut cancels the retry', async () => {
+    routes.set('/items', () => ({ status: 500, body: {} }));
+    await startLive();
+    for (const wait of [1000, 2000, 4000]) {
+      const before = FakeEventSource.all.length;
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      await settle();
+      expect(FakeEventSource.all).toHaveLength(before);
+      await vi.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(FakeEventSource.all).toHaveLength(before + 1);
+      FakeEventSource.last.open();
+      await settle();
+      expect(board.ready).toBe(false);
+    }
+    const streams = FakeEventSource.all.length;
+    const meCalls = calls.filter((p) => p === '/me').length;
+    board.signOut();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeEventSource.all).toHaveLength(streams);
+    expect(calls.filter((p) => p === '/me')).toHaveLength(meCalls);
+  });
+
+  it('a stream that fails before opening starts over, without a REST read in between', async () => {
+    void board.start();
+    FakeEventSource.last.fail();
+    await settle();
+    expect(calls).toEqual([]);
+    expect(board.conn).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(FakeEventSource.all).toHaveLength(2);
+    FakeEventSource.last.open();
+    await vi.waitFor(() => expect(board.ready).toBe(true));
+  });
+
+  it('a stream the server refuses (a revoked token) signs out instead of retrying forever', async () => {
+    routes.set('/me', () => ({ status: 401, body: {} }));
+    void board.start();
+    FakeEventSource.last.fail(); // EventSource reports a 401 as an error, never as open
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle(); // the retry asks /me first
+    expect(board.token).toBeNull();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeEventSource.all).toHaveLength(1);
+  });
+
+  it('coming back online while a start waits to retry starts over at once, not a bare stream', async () => {
+    routes.set('/me', () => ({ status: 503, body: {} }));
+    await startLive();
+    expect(board.conn).toBe('reconnecting');
+    routes.set('/me', () => ME);
+    window.dispatchEvent(new Event('online'));
+    await settle(); // the reconnect's /me check, then start()
+    FakeEventSource.last.open();
+    await vi.waitFor(() => expect(board.ready).toBe(true));
+    expect(board.items.I1.title).toBe('Fix gutter');
+  });
+
+  it('a 401 signs out and does not retry', async () => {
+    routes.set('/me', () => ({ status: 401, body: {} }));
+    await startLive();
+    expect(board.token).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeEventSource.all).toHaveLength(1);
+  });
+});
+
+describe('buffer', () => {
+  it('applies events that arrived during the load exactly once, after it', async () => {
+    const items = deferred<Item[]>();
+    routes.set('/items', () => items.promise);
+    const seen: SlateEvent[] = [];
+    board.onEvent((e) => seen.push(e));
+    const started = board.start();
+    FakeEventSource.last.open();
+    await settle(); // /me answered; /items still pending
+    const renamed = ev({ field: 'title', before: 'Fix gutter', after: 'Fixed' });
+    FakeEventSource.last.emit(renamed);
+    FakeEventSource.last.emit(renamed); // the server's replay may repeat an id: dropped by cursor
+    expect(seen).toEqual([]);
+    expect(board.lastEventId).toBe(renamed.id);
+    items.resolve([item()]);
+    await started;
+    expect(board.ready).toBe(true);
+    expect(seen).toEqual([renamed]);
+    expect(board.items.I1.title).toBe('Fixed');
+    // Live now: the next event is applied straight away, not buffered.
+    FakeEventSource.last.emit(ev({ field: 'title', after: 'Live' }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(seen).toHaveLength(2);
+    expect(board.items.I1.title).toBe('Live');
+  });
+});
+
+describe('reload', () => {
+  it('coalesces a burst of events that each ask for a full reload into one', async () => {
+    await startLive();
+    const loads = () => calls.filter((p) => p === '/lists').length;
+    expect(loads()).toBe(1);
+    for (let i = 0; i < 3; i++) FakeEventSource.last.emit(ev({ type: 'list.statuses_changed', item_id: null, subject_id: 'L1' }));
+    await vi.advanceTimersByTimeAsync(1); // the drain applies the batch
+    expect(loads()).toBe(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(loads()).toBe(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(loads()).toBe(2);
+  });
+
+  it('an older load that answers late never overwrites a newer one', async () => {
+    await startLive();
+    const slow = deferred<Item[]>();
+    let answers: (() => Answer)[] = [() => slow.promise, () => [item({ title: 'Newer' })]];
+    routes.set('/items', () => (answers.shift() ?? (() => []))());
+    FakeEventSource.last.emit(ev({ type: 'list.unarchived', item_id: null, subject_id: 'L1' }));
+    await vi.advanceTimersByTimeAsync(101); // the reload is under way, waiting on /items
+    const refreshed = board.refresh(); // pull to refresh: a second full load behind a new stream
+    FakeEventSource.last.open();
+    await refreshed;
+    expect(board.items.I1.title).toBe('Newer');
+    slow.resolve([item({ title: 'Older' })]);
+    await settle();
+    expect(board.items.I1.title).toBe('Newer');
+    answers = [];
+  });
+});

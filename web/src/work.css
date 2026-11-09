@@ -1,0 +1,531 @@
+/* Productivity pieces: command palette, My Work, Inbox, search entry, j/k focus. Uses the
+   tokens in app.css only, so light, dark and the phone layout follow automatically. */
+
+/* --- search entry (nav) and top bar buttons --- */
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  text-align: left;
+}
+.nav-search:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.nav-search .grow {
+  flex: 1;
+}
+.nav-search kbd,
+.palette kbd,
+.work-head kbd {
+  font-size: 0.72rem;
+  padding: 1px 5px;
+}
+.topbar .top-search {
+  margin-left: auto;
+}
+.topbar .top-inbox {
+  position: relative;
+}
+.topbar .badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--overdue);
+  color: #fff;
+  font-size: 0.65rem;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* --- j / k cursor --- */
+[data-item].kb-focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+
+/* --- quick add preview --- */
+.qa-preview .chip.warn {
+  color: var(--danger);
+}
+
+/* --- command palette --- */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(0 0 0 / 0.35);
+  border: 0;
+}
+.palette {
+  position: fixed;
+  z-index: 41;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+  animation: palette-in 120ms ease-out;
+}
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px) scale(0.98);
+  }
+}
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.palette-icon {
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+.palette-input input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 1.05rem;
+  padding: 4px 0;
+}
+.palette-results {
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-section {
+  padding: 6px 10px 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+.palette-row.active {
+  background: var(--card-hover);
+}
+.palette-kind {
+  flex: none;
+  min-width: 64px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.palette-kind.kind-action {
+  color: var(--accent);
+}
+.palette-kind.kind-create {
+  color: var(--kind-done);
+}
+.palette-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-label mark {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+.palette-hint {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.palette-foot {
+  display: flex;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+}
+.palette-foot kbd + kbd {
+  margin-left: 2px;
+}
+.pad-row {
+  padding: 10px 12px;
+}
+
+/* --- My Work and Inbox pages --- */
+.work-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.work-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.work-head h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+.work-head p {
+  margin: 4px 0 0;
+}
+.work-head .inline {
+  display: flex;
+  gap: 8px;
+}
+.secondary {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--card);
+}
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.work-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+.work-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.work-tile .n {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.work-tile .l {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.work-tile.hot .n {
+  color: var(--overdue);
+}
+a.work-tile:hover {
+  border-color: var(--accent);
+}
+.work-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.work-main,
+.work-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.work-group,
+.work-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.work-card {
+  padding: 12px 12px 6px;
+}
+.work-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+}
+.work-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+}
+.work-group-head .caret {
+  display: inline-flex;
+  transition: rotate var(--dur-1, 120ms) var(--ease, ease);
+  color: var(--muted);
+}
+.work-group-head .caret.open {
+  rotate: 90deg;
+}
+.work-group-head .work-late {
+  color: var(--overdue);
+}
+.work-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+}
+.work-card .work-row {
+  padding: 6px 2px;
+}
+.work-row:hover {
+  background: var(--card-hover);
+}
+.work-row.closed .t {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.work-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--kind-open);
+  background: transparent;
+  padding: 0;
+}
+.work-check:hover,
+.work-check.done {
+  border-color: var(--kind-done);
+  background: var(--kind-done);
+}
+.work-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+}
+.work-title .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-list {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.work-prio {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  align-self: center;
+}
+.work-prio.prio-urgent {
+  background: var(--prio-urgent);
+}
+.work-prio.prio-high {
+  background: var(--prio-high);
+}
+.work-prio.prio-low {
+  background: var(--prio-low);
+}
+.work-tags {
+  display: flex;
+  gap: 4px;
+}
+.work-due {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.work-due.late {
+  color: var(--overdue);
+  font-weight: 600;
+}
+.work-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+}
+.work-note:hover {
+  background: var(--card-hover);
+}
+
+.inbox-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.inbox-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.inbox-tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.inbox-list {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+.inbox-row:first-child {
+  border-top: 0;
+}
+.inbox-row:hover {
+  background: var(--card-hover);
+}
+.inbox-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 50%;
+}
+.inbox-row.unread .inbox-dot {
+  background: var(--accent);
+}
+.inbox-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+}
+.inbox-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.inbox-row.unread .inbox-title .t {
+  font-weight: 700;
+}
+.inbox-line {
+  display: flex;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.inbox-line {
+  align-items: center;
+}
+.inbox-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+}
+.inbox-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.inbox-empty {
+  padding: 48px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+.inbox-empty .big {
+  font-size: 2.4rem;
+  color: var(--kind-done);
+}
+
+.work-head .primary kbd {
+  background: rgb(255 255 255 / 0.2);
+  border-color: rgb(255 255 255 / 0.35);
+  color: #fff;
+}
+.work-side .work-tags,
+.work-side .work-list {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .work-page {
+    padding: 14px 12px 40px;
+  }
+  .work-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .work-cols {
+    grid-template-columns: 1fr;
+  }
+  .work-tags,
+  .work-list {
+    display: none;
+  }
+  .palette {
+    top: max(12px, env(safe-area-inset-top));
+    max-height: calc(100dvh - 24px);
+  }
+}

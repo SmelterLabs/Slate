@@ -1,0 +1,15 @@
+# Optional: one account's Slate notifications posted to a push-notification webhook
+# (integrations/push). Not installed by deploy.sh: copy it to ~/.config/systemd/user/, replace
+# the broker URL, board URL and file paths with yours, then
+# `systemctl --user daemon-reload && systemctl --user enable --now slate-push.service`.
+[Unit]
+Description=Slate -> push webhook: one account's notifications as alerts at the card's priority
+After=slate.service network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/slate/repo/integrations/push/bridge.py --slate http://127.0.0.1:18448 --token-file /opt/slate/secrets/push.token --broker https://push.example.com --key-file /opt/slate/secrets/push-key --board-url https://slate.example.com --state /opt/slate/data/push-bridge.json
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

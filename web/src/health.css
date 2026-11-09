@@ -1,0 +1,290 @@
+/* --- Health (#/health): verdict, checks, background jobs, agents, latency, queues ---
+ * One layout on every screen: cards and tiles flow into as many columns as fit, and the
+ * per-token table turns each row into a small card on a narrow screen (same fields, labelled),
+ * so the phone shows exactly what the desktop shows. Status colours: ok success, warn warning,
+ * fail danger, off faint. */
+.health-page {
+  --h-ok: var(--success);
+  --h-warn: var(--warning);
+  --h-fail: var(--danger);
+  --h-off: var(--faint);
+}
+.health-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--h-off);
+}
+.health-dot.big {
+  width: 14px;
+  height: 14px;
+}
+.health-dot[data-status='ok'] {
+  background: var(--h-ok);
+}
+.health-dot[data-status='warn'] {
+  background: var(--h-warn);
+}
+.health-dot[data-status='fail'] {
+  background: var(--h-fail);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--h-fail) 25%, transparent);
+}
+.health-verdict {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--h-ok);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.health-verdict[data-status='warn'] {
+  border-left-color: var(--h-warn);
+}
+.health-verdict[data-status='fail'] {
+  border-left-color: var(--h-fail);
+}
+.health-verdict div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.health-verdict strong {
+  font-size: var(--fs-lg);
+}
+.health-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.health-block h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+.health-block h3 {
+  margin: 4px 0 0;
+  font-size: var(--fs-md);
+}
+.health-block p {
+  margin: 0;
+}
+.health-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.health-checks li {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 220px) 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.health-checks li:last-child {
+  border-bottom: 0;
+}
+.health-checks.compact li {
+  padding: 6px 14px;
+}
+.health-label {
+  font-weight: 600;
+}
+.health-detail {
+  overflow-wrap: anywhere;
+}
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.health-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.health-card[data-status='fail'] {
+  border-color: color-mix(in srgb, var(--h-fail) 60%, var(--line));
+}
+.health-card[data-status='warn'] {
+  border-color: color-mix(in srgb, var(--h-warn) 60%, var(--line));
+}
+.health-card[data-status='off'] {
+  opacity: 0.75;
+}
+.health-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.health-badge {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--chip);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.health-badge[data-status='ok'] {
+  color: var(--h-ok);
+}
+.health-badge[data-status='warn'] {
+  color: var(--h-warn);
+}
+.health-badge[data-status='fail'] {
+  color: var(--h-fail);
+}
+.health-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.health-card dt {
+  color: var(--muted);
+}
+.health-card dd {
+  margin: 0;
+}
+.health-error {
+  color: var(--h-fail);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.health-table {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.health-tr {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(60px, 0.6fr)) minmax(110px, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.health-tr:last-child {
+  border-bottom: 0;
+}
+.health-tr.head {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.health-tr.bad {
+  background: color-mix(in srgb, var(--h-fail) 7%, transparent);
+}
+.health-tr .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.health-k {
+  display: none;
+}
+.health-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.health-calls {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.health-calls li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.health-calls .mono {
+  overflow-wrap: anywhere;
+}
+.health-calls .health-error {
+  flex-basis: 100%;
+}
+.health-code {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--h-warn) 18%, transparent);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.health-code.server {
+  background: color-mix(in srgb, var(--h-fail) 20%, transparent);
+}
+.health-code.slow {
+  background: var(--chip);
+}
+.health-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.health-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.health-tile strong {
+  font-size: var(--fs-lg);
+  font-variant-numeric: tabular-nums;
+}
+.health-off {
+  margin-top: 2px;
+}
+
+@media (max-width: 720px) {
+  .health-checks li {
+    grid-template-columns: auto 1fr;
+  }
+  .health-checks li .health-detail {
+    grid-column: 2;
+  }
+  .health-tr.head {
+    display: none;
+  }
+  .health-tr {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 12px;
+  }
+  .health-tr .who {
+    grid-column: 1 / -1;
+  }
+  .health-k {
+    display: inline;
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    margin-right: 6px;
+  }
+}

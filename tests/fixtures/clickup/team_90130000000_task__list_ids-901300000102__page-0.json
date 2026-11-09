@@ -1,0 +1,196 @@
+{
+ "tasks": [
+  {
+   "id": "86a000063",
+   "custom_id": null,
+   "custom_item_id": 0,
+   "name": "Course: RL from human feedback",
+   "text_content": "",
+   "description": "",
+   "markdown_description": "",
+   "status": {
+    "id": "sc_not_started",
+    "status": "not started",
+    "type": "open",
+    "orderindex": 0,
+    "color": "#87909e"
+   },
+   "orderindex": "63.00000000000000000000000000000000",
+   "date_created": "1760000000000",
+   "date_updated": "1760000000000",
+   "date_closed": null,
+   "date_done": null,
+   "archived": false,
+   "creator": {
+    "id": 10000001,
+    "username": "Alex",
+    "color": "#7b68ee",
+    "initials": "A",
+    "email": "alex@example.com",
+    "profilePicture": null
+   },
+   "assignees": [
+    {
+     "id": 10000001,
+     "username": "Alex",
+     "color": "#7b68ee",
+     "initials": "A",
+     "email": "alex@example.com",
+     "profilePicture": null
+    }
+   ],
+   "group_assignees": [],
+   "watchers": [
+    {
+     "id": 10000001,
+     "username": "Alex",
+     "color": "#7b68ee",
+     "initials": "A",
+     "email": "alex@example.com",
+     "profilePicture": null
+    }
+   ],
+   "checklists": [],
+   "tags": [
+    {
+     "name": "ai project",
+     "tag_fg": "#800000",
+     "tag_bg": "#800000",
+     "creator": 10000001
+    }
+   ],
+   "parent": null,
+   "top_level_parent": null,
+   "priority": null,
+   "due_date": null,
+   "due_date_time": false,
+   "start_date": null,
+   "start_date_time": false,
+   "points": null,
+   "time_estimate": null,
+   "custom_fields": [],
+   "dependencies": [],
+   "linked_tasks": [],
+   "locations": [],
+   "team_id": "90130000000",
+   "url": "https://app.clickup.com/t/86a000063",
+   "sharing": {
+    "public": false
+   },
+   "permission_level": "create",
+   "list": {
+    "id": "901300000102",
+    "name": "Learning",
+    "access": true
+   },
+   "project": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000002"
+   }
+  },
+  {
+   "id": "86a000064",
+   "custom_id": null,
+   "custom_item_id": 0,
+   "name": "Read: a databases textbook",
+   "text_content": "",
+   "description": "",
+   "markdown_description": "",
+   "status": {
+    "id": "sc_complete",
+    "status": "complete",
+    "type": "closed",
+    "orderindex": 1,
+    "color": "#87909e"
+   },
+   "orderindex": "64.00000000000000000000000000000000",
+   "date_created": "1760000000000",
+   "date_updated": "1760000000000",
+   "date_closed": "1761000000000",
+   "date_done": "1761000000000",
+   "archived": false,
+   "creator": {
+    "id": 10000001,
+    "username": "Alex",
+    "color": "#7b68ee",
+    "initials": "A",
+    "email": "alex@example.com",
+    "profilePicture": null
+   },
+   "assignees": [
+    {
+     "id": 10000001,
+     "username": "Alex",
+     "color": "#7b68ee",
+     "initials": "A",
+     "email": "alex@example.com",
+     "profilePicture": null
+    }
+   ],
+   "group_assignees": [],
+   "watchers": [
+    {
+     "id": 10000001,
+     "username": "Alex",
+     "color": "#7b68ee",
+     "initials": "A",
+     "email": "alex@example.com",
+     "profilePicture": null
+    }
+   ],
+   "checklists": [],
+   "tags": [],
+   "parent": null,
+   "top_level_parent": null,
+   "priority": null,
+   "due_date": null,
+   "due_date_time": false,
+   "start_date": null,
+   "start_date_time": false,
+   "points": null,
+   "time_estimate": null,
+   "custom_fields": [],
+   "dependencies": [],
+   "linked_tasks": [],
+   "locations": [],
+   "team_id": "90130000000",
+   "url": "https://app.clickup.com/t/86a000064",
+   "sharing": {
+    "public": false
+   },
+   "permission_level": "create",
+   "list": {
+    "id": "901300000102",
+    "name": "Learning",
+    "access": true
+   },
+   "project": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000002"
+   }
+  }
+ ],
+ "last_page": true
+}

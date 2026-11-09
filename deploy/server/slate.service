@@ -1,0 +1,22 @@
+# Slate (task board). User unit of the service user: ~/.config/systemd/user/slate.service
+# Installed and started by deploy.sh, which rewrites /opt/slate to $SLATE_HOME when it differs.
+# `-p slate` everywhere so there is only ever one project.
+[Unit]
+Description=Slate task board (docker compose)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=SLATE_HOME=/opt/slate
+WorkingDirectory=/opt/slate/repo/deploy/server
+# A user manager cannot order itself after the system docker.service, so wait for the daemon
+# (up to 2 min). `$$` is a literal `$` in unit files.
+ExecStartPre=/bin/sh -c 'for i in $$(seq 60); do docker info >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
+ExecStart=/usr/bin/docker compose -p slate up -d --build --remove-orphans
+ExecReload=/usr/bin/docker compose -p slate up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose -p slate down
+# The first build pulls base images and builds the board; give it room.
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=default.target

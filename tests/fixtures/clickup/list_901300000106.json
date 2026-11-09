@@ -1,0 +1,42 @@
+{
+ "id": "901300000106",
+ "name": "Project Ideas",
+ "orderindex": 0,
+ "content": "",
+ "status": null,
+ "priority": null,
+ "assignee": null,
+ "task_count": null,
+ "due_date": null,
+ "start_date": null,
+ "folder": {
+  "id": "0",
+  "name": "hidden",
+  "hidden": true,
+  "access": true
+ },
+ "space": {
+  "id": "90131000001",
+  "name": "Todo",
+  "access": true
+ },
+ "archived": false,
+ "override_statuses": true,
+ "permission_level": "create",
+ "statuses": [
+  {
+   "id": "sc_to_do",
+   "status": "to do",
+   "type": "open",
+   "orderindex": 0,
+   "color": "#87909e"
+  },
+  {
+   "id": "sc_complete",
+   "status": "complete",
+   "type": "closed",
+   "orderindex": 1,
+   "color": "#87909e"
+  }
+ ]
+}

@@ -1,0 +1,27 @@
+{
+ "comments": [
+  {
+   "id": "90010001",
+   "comment": [
+    {
+     "text": "They open at 8; ask for a Tuesday."
+    }
+   ],
+   "comment_text": "They open at 8; ask for a Tuesday.",
+   "user": {
+    "id": 10000001,
+    "username": "Alex",
+    "color": "#7b68ee",
+    "initials": "A",
+    "email": "alex@example.com",
+    "profilePicture": null
+   },
+   "resolved": false,
+   "assignee": null,
+   "assigned_by": null,
+   "reactions": [],
+   "date": "1792505700000",
+   "reply_count": "0"
+  }
+ ]
+}

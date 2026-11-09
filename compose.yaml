@@ -1,0 +1,28 @@
+# Portable local installation. A server deployment (systemd, backups) is in deploy/server/.
+name: slate-portable
+services:
+  slate:
+    build:
+      context: .
+      args:
+        SLATE_REV: ${SLATE_REV:-}
+        SLATE_COMMIT: ${SLATE_COMMIT:-}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    ports:
+      - "127.0.0.1:${SLATE_PORT:-8000}:8000"
+    volumes:
+      - slate-data:/data
+    environment:
+      SLATE_DATABASE_PATH: /data/slate.db
+      SLATE_TIMEZONE: ${SLATE_TIMEZONE:-UTC}
+      SLATE_SECRET_KEY: ${SLATE_SECRET_KEY:?Set SLATE_SECRET_KEY in .env before starting}
+      SLATE_WEBHOOK_PRIVATE_TARGETS: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  slate-data:

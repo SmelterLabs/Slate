@@ -1,0 +1,9 @@
+# Nightly Slate database backup. User unit: ~/.config/systemd/user/slate-backup.service
+# deploy.sh rewrites /opt/slate to $SLATE_HOME when it installs this.
+[Unit]
+Description=Slate SQLite online backup (keeps 30 days)
+
+[Service]
+Type=oneshot
+Environment=SLATE_HOME=/opt/slate
+ExecStart=/bin/bash /opt/slate/repo/deploy/server/backup.sh

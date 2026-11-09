@@ -1,0 +1,177 @@
+{
+ "lists": [
+  {
+   "id": "901300000104",
+   "name": "Tasks",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000001",
+    "name": "Todo",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_todo",
+     "status": "todo",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_in_progress",
+     "status": "in progress",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ]
+  },
+  {
+   "id": "901300000105",
+   "name": "To read/watch",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000001",
+    "name": "Todo",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_not_read",
+     "status": "not read",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_idea",
+     "status": "idea",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_read",
+     "status": "read",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ]
+  },
+  {
+   "id": "901300000106",
+   "name": "Project Ideas",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000001",
+    "name": "Todo",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create"
+  },
+  {
+   "id": "901300000199",
+   "name": "Archive 2025",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": "12",
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000001",
+    "name": "Todo",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_todo",
+     "status": "todo",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_in_progress",
+     "status": "in progress",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ]
+  }
+ ]
+}

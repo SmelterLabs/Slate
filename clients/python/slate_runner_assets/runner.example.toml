@@ -1,0 +1,16 @@
+# Harmless local smoke executor, not an AI runtime. Paths are relative to this file.
+# Use a fresh agent account with only access to a disposable test list.
+url = "http://127.0.0.1:8000"
+state_dir = "."
+parallel = 1
+
+[[agent]]
+name = "local-example"
+token_env = "SLATE_TOKEN"
+# Replace python with your venv's interpreter if it is not on PATH (quote paths with spaces).
+exec = "python run_one_example.py"
+# After the smoke test, choose ONE separately configured runtime adapter instead:
+# exec = "python hermes/run_task.py"
+# exec = "python hermes/run_task_cli.py"
+# exec = "python runner-example/run_task.py"
+# Configure runtime credentials in your process environment; never put tokens here.

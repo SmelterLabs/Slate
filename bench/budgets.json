@@ -1,0 +1,13 @@
+{
+  "config": {"items": 5000, "lists": 20, "agents": 5, "boards": 2, "seconds": 15, "think": 0.25},
+  "calls": {
+    "GET /items (all, owner)": {"p50": 1000},
+    "GET /items?list_id= (one list)": {"p50": 100},
+    "agent GET /checkin?since=": {"p50": 80, "p95": 400},
+    "agent POST /batch (5 changes)": {"p50": 150, "p95": 500}
+  },
+  "fanout_ms": {"p50": 50, "p95": 300},
+  "events_missed": 0,
+  "errors": 0,
+  "rss_mb_peak": 400
+}

@@ -1,0 +1,33 @@
+# Secrets are checked on pull requests and direct pushes. Code review scans PR changes.
+name: security
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  secrets:
+    name: leaked secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Scan reachable history for passwords, keys and tokens
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks git --redact --verbose --exit-code 1
+  code:
+    if: github.event_name == 'pull_request'
+    name: security mistakes (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Scan the PR's changes for common security mistakes
+        run: |
+          pip install --quiet semgrep
+          semgrep scan --config p/default --baseline-commit "${{ github.event.pull_request.base.sha }}" --error --metrics off

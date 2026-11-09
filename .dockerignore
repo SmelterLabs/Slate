@@ -1,0 +1,26 @@
+.venv
+data
+*.db*
+web/node_modules
+web/dist
+tests
+docs
+.pytest_cache
+.ruff_cache
+web/.e2e
+web/test-results
+web/playwright-report
+.worktrees
+.env
+.env.*
+**/.env
+**/.env.*
+**/__pycache__
+**/*.pyc
+dist
+build
+.hypothesis
+# Keep .git available ONLY to the isolated revision stage for existing clone deployments.
+.git/hooks
+.git/logs
+src/slate/build.json

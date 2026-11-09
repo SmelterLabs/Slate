@@ -1,0 +1,42 @@
+# Slate on a single Linux host. Run only through the slate.service user unit or deploy.sh, which
+# always pass `-p slate`; the explicit name below means a run from any directory still targets
+# one project. SLATE_HOME is the install dir (default /opt/slate); slate.service sets it.
+name: slate
+
+services:
+  slate:
+    build:
+      context: ../..          # repo root; the Dockerfile builds the board in a Node stage
+    image: slate:local
+    container_name: slate
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s    # let the scheduler tick and webhook sends finish
+    ports:
+      - "127.0.0.1:18448:8000"  # loopback only; a TLS reverse proxy (or Tailscale Serve) is the way in
+    volumes:
+      - ${SLATE_HOME:-/opt/slate}/data:/data
+    extra_hosts:
+      # AI add (SLATE_AI_URL) can reach an Ollama on the host here; allow its port from this
+      # compose network only (RUNBOOK.md, "AI add").
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ${SLATE_HOME:-/opt/slate}/.env
+        required: true
+    environment:
+      # The reverse proxy reaches the container over the Docker bridge, not loopback, so uvicorn
+      # must be told to trust its X-Forwarded-Proto/For. Only a process on this host can reach
+      # the loopback-published port, so "*" is safe here; it makes browser-session cookies Secure
+      # and same-origin checks see the https address the browser sees.
+      FORWARDED_ALLOW_IPS: "*"
+    healthcheck:              # same probe as the Dockerfile HEALTHCHECK
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

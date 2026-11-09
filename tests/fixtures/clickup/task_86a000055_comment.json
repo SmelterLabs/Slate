@@ -1,0 +1,50 @@
+{
+ "comments": [
+  {
+   "id": "90010003",
+   "comment": [
+    {
+     "text": "Logs attached."
+    }
+   ],
+   "comment_text": "Logs attached.",
+   "user": {
+    "id": 61234567,
+    "username": "Guest",
+    "color": "#e5484d",
+    "initials": "G",
+    "email": "guest@example.com",
+    "profilePicture": null
+   },
+   "resolved": false,
+   "assignee": null,
+   "assigned_by": null,
+   "reactions": [],
+   "date": "1792589400000",
+   "reply_count": "1"
+  },
+  {
+   "id": "90010002",
+   "comment": [
+    {
+     "text": "Seen again after the update."
+    }
+   ],
+   "comment_text": "Seen again after the update.",
+   "user": {
+    "id": 10000001,
+    "username": "Alex",
+    "color": "#7b68ee",
+    "initials": "A",
+    "email": "alex@example.com",
+    "profilePicture": null
+   },
+   "resolved": false,
+   "assignee": null,
+   "assigned_by": null,
+   "reactions": [],
+   "date": "1792461840000",
+   "reply_count": "0"
+  }
+ ]
+}

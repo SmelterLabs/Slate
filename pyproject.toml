@@ -1,0 +1,67 @@
+[project]
+name = "slate"
+version = "0.1.0"
+description = "Slate: an agent-native task board"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-dateutil>=2.9",
+    "httpx>=0.27",
+    "sse-starlette>=2.1",
+    "mcp>=1.2",
+    "tzdata>=2024.1",
+    "cryptography>=50.0.2",
+    "openpyxl>=3.1.5",
+    "pypdf>=6.21.4",
+]
+
+[project.scripts]
+slate = "slate.cli:main"
+slate-mcp = "slate.mcp_server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6",
+    "ruff>=0.5",
+    "freezegun>=1.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slate"]
+exclude = ["src/slate/static", "src/slate/build.json"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"alembic" = "slate/migrations"
+
+# A Python sdist is not a repository backup: never sweep in local credentials,
+# frontend dependencies, generated assets or nested worktrees.
+[tool.hatch.build.targets.sdist]
+only-include = ["src/slate", "alembic", "alembic.ini", "README.md", "pyproject.toml", "uv.lock"]
+exclude = ["src/slate/static", "src/slate/build.json", "**/__pycache__", "**/*.pyc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:slate.*"]
+markers = ["perf: timing tests; skip with -m \"not perf\""]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]

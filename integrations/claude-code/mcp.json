@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "slate": {
+      "type": "http",
+      "url": "https://slate.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SLATE_TOKEN}",
+        "X-Slate-Session-Ref": "${SLATE_SESSION_REF:-claude-code}"
+      }
+    }
+  }
+}

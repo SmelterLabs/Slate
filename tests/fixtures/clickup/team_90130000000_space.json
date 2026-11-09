@@ -1,0 +1,64 @@
+{
+ "spaces": [
+  {
+   "id": "90131000001",
+   "name": "Todo",
+   "private": false,
+   "archived": false,
+   "statuses": [
+    {
+     "id": "sc_todo",
+     "status": "todo",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_in_progress",
+     "status": "in progress",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ],
+   "multiple_assignees": true
+  },
+  {
+   "id": "90131000002",
+   "name": "AI",
+   "private": false,
+   "archived": false,
+   "statuses": [
+    {
+     "id": "sc_not_started",
+     "status": "not started",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_in_progress",
+     "status": "in progress",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ],
+   "multiple_assignees": true
+  }
+ ]
+}

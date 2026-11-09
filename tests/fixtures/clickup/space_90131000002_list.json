@@ -1,0 +1,137 @@
+{
+ "lists": [
+  {
+   "id": "901300000107",
+   "name": "Projects",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000002",
+    "name": "AI",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_not_started",
+     "status": "not started",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_in_progress",
+     "status": "in progress",
+     "type": "custom",
+     "orderindex": 1,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 2,
+     "color": "#87909e"
+    }
+   ]
+  },
+  {
+   "id": "901300000102",
+   "name": "Learning",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000002",
+    "name": "AI",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_not_started",
+     "status": "not started",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 1,
+     "color": "#87909e"
+    }
+   ]
+  },
+  {
+   "id": "901300000103",
+   "name": "Design",
+   "orderindex": 0,
+   "content": "",
+   "status": null,
+   "priority": null,
+   "assignee": null,
+   "task_count": null,
+   "due_date": null,
+   "start_date": null,
+   "folder": {
+    "id": "0",
+    "name": "hidden",
+    "hidden": true,
+    "access": true
+   },
+   "space": {
+    "id": "90131000002",
+    "name": "AI",
+    "access": true
+   },
+   "archived": false,
+   "override_statuses": true,
+   "permission_level": "create",
+   "statuses": [
+    {
+     "id": "sc_not_started",
+     "status": "not started",
+     "type": "open",
+     "orderindex": 0,
+     "color": "#87909e"
+    },
+    {
+     "id": "sc_complete",
+     "status": "complete",
+     "type": "closed",
+     "orderindex": 1,
+     "color": "#87909e"
+    }
+   ]
+  }
+ ]
+}
