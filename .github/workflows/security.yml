@@ -1,6 +1,7 @@
 # Secrets are checked on pull requests and direct pushes. Code review scans PR changes.
 name: security
 on:
+  workflow_dispatch:   # run by hand from the Actions tab
   pull_request:
   push:
     branches: [main]
