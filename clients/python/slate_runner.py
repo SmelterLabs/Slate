@@ -93,6 +93,10 @@ import httpx
 
 # Raise with slate.runner_compat.MIN_RUNNER_PROTOCOL when an API change breaks older runners.
 RUNNER_PROTOCOL = 3
+# The server pings every live stream every 15 s. A stream that hears nothing (not even a ping)
+# for this long is a dead connection that never closed (a sleeping host, a dropped tunnel), so it
+# is abandoned and reconnected instead of waiting forever.
+STREAM_READ_TIMEOUT = 60.0
 __version__ = "0.3.0"  # 0.<RUNNER_PROTOCOL>.<patch>; the package version (pyproject)
 
 TAIL = 2000
@@ -854,7 +858,11 @@ class Runner:
         params = {"since": self.cursor()} if self.cursor() else {}
         headers = {**self.headers, "Accept": "text/event-stream"}
         with self.http.stream(
-            "GET", self.api + "/checkin/stream", params=params, headers=headers, timeout=None
+            "GET",
+            self.api + "/checkin/stream",
+            params=params,
+            headers=headers,
+            timeout=httpx.Timeout(30.0, read=STREAM_READ_TIMEOUT),
         ) as r:
             if r.status_code >= 400:
                 r.read()
