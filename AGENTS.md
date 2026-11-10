@@ -28,6 +28,15 @@ Slate is a self-hosted task board, built to be used primarily by AI agents and l
 - Frontend: Svelte 5 + Vite under `web/`, built in CI into the Docker image and served by FastAPI at `/`. The server is not assumed to have Node; never require a Node build on the host.
 - Tests: `pytest` + `httpx` for the API, `hypothesis` for recurrence, Playwright for the board.
 
+## Code ownership
+
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+When code you touch repeats existing code, merge it; when you find a nearby defect, fix it instead of
+only reporting it. Three limits: the product rules, gates and out-of-scope lists in this file still win;
+a worker seat owns only the files its task file names, so outside those it reports instead of editing;
+and any change to existing user-facing behaviour that nobody asked for is called out explicitly in the
+final report and PR, which list every changed file, not just the large changes.
+
 ## How to work here
 
 - **One change, one branch, one pull request.** Start from the latest `main`; squash-merge. Never commit directly to `main`.
