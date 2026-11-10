@@ -544,3 +544,41 @@ def test_runner_config_refuses_a_missing_token_or_a_repeated_name(tmp_path):
     (tmp_path / "t").write_text("tok")
     with pytest.raises(ValueError, match="unique name"):
         load_config(cfg)
+
+
+# --- live streams give up on a silent connection -----------------------------------------------
+
+
+def _timeouts_seen(call):
+    """Run `call(client)` against a transport that records each request's read timeout."""
+    import httpx
+
+    seen: list = []
+
+    def handler(request):
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+
+    call(httpx.Client(transport=httpx.MockTransport(handler)))
+    return seen
+
+
+def test_streams_have_a_finite_read_timeout(tmp_path):
+    """The server pings every 15 s, so a stream that hears nothing for a minute is dead. A stream
+    read with no timeout waits forever on a connection that dropped without a close, and the
+    runner then never hears new work until someone restarts it."""
+    import slate_runner
+
+    def runner(c):
+        r = Runner("http://x", "t", "true", client=c, state_path=tmp_path / "s.json")
+        list(r.stream())
+
+    def client_events(c):
+        list(Slate("http://x", "t", client=c).stream())
+
+    def client_agent(c):
+        list(Slate("http://x", "t", client=c).agent_stream())
+
+    for call in (runner, client_events, client_agent):
+        (read,) = _timeouts_seen(call)
+        assert read is not None and read <= slate_runner.STREAM_READ_TIMEOUT

@@ -52,6 +52,13 @@ __all__ = [
 ]
 
 
+# The server pings every live stream every 15 s. A stream that hears nothing (not even a ping)
+# for this long is a dead connection that never closed (a sleeping host, a dropped tunnel), so it
+# is abandoned and reconnected instead of waiting forever.
+STREAM_READ_TIMEOUT = 60.0
+_STREAM_TIMEOUT = httpx.Timeout(30.0, read=STREAM_READ_TIMEOUT)
+
+
 class SlateError(Exception):
     def __init__(self, status: int, detail: Any, failed_op: int | None = None) -> None:
         self.status = status
@@ -289,7 +296,11 @@ class Slate:
         query = {k: _param(v) for k, v in {"since": since, **filters}.items() if v is not None}
         headers = {**self.headers, "Accept": "text/event-stream"}
         with self.http.stream(
-            "GET", self.api + "/events/stream", params=query, headers=headers, timeout=None
+            "GET",
+            self.api + "/events/stream",
+            params=query,
+            headers=headers,
+            timeout=_STREAM_TIMEOUT,
         ) as r:
             if r.status_code >= 400:
                 r.read()
@@ -312,7 +323,11 @@ class Slate:
         query = {k: _param(v) for k, v in {"since": since, "pool": pool}.items() if v is not None}
         headers = {**self.headers, "Accept": "text/event-stream"}
         with self.http.stream(
-            "GET", self.api + "/checkin/stream", params=query, headers=headers, timeout=None
+            "GET",
+            self.api + "/checkin/stream",
+            params=query,
+            headers=headers,
+            timeout=_STREAM_TIMEOUT,
         ) as r:
             if r.status_code >= 400:
                 r.read()
