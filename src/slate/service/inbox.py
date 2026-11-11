@@ -299,7 +299,14 @@ def entries(
             (Event.type == "item.created")
             & func.json_extract(Event.after_json, "$.parent_id").in_(f.watched)
         )
-    q = select(Event).where(Event.at >= since, Event.actor_id != account.id, or_(*conds))
+    from slate.service.comments import not_about_deleted_comment  # noqa: PLC0415
+
+    q = select(Event).where(
+        Event.at >= since,
+        Event.actor_id != account.id,
+        not_about_deleted_comment(),
+        or_(*conds),
+    )
     if state and state.cleared_through:
         q = q.where(Event.id > state.cleared_through)
     q = q.order_by(Event.id.desc()).limit(MAX_ENTRIES * 4)

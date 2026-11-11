@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   commentFiles,
+  canDeleteComment,
+  deleteCommentQuestion,
   entriesFrom,
   fileLine,
   highlightMentions,
@@ -14,7 +16,7 @@ import {
 } from './activity';
 import { renderMarkdown } from './markdown';
 import { ev } from './fixtures';
-import type { ActivityEntry, Comment } from './types';
+import type { ActivityEntry, Comment, Me } from './types';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 18, min)).toISOString();
 
@@ -146,5 +148,23 @@ describe('commentFiles', () => {
   it('picks the newest attachment of a repeated name', () => {
     const again = { id: 'A3', filename: shot.filename };
     expect(commentFiles(fileLine(shot.filename), [shot, again]).files).toEqual([again]);
+  });
+});
+
+describe('deleting a comment', () => {
+  const me = (id: string, role: Me['account']['role']) => ({ account: { id, role } }) as Me;
+
+  it('is for its author or an owner or admin', () => {
+    expect(canDeleteComment(comment, me('acc_alex', 'member'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_other', 'member'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_other', 'guest'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_other', 'admin'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_other', 'owner'))).toBe(true);
+    expect(canDeleteComment(comment, null)).toBe(false);
+  });
+
+  it('asks whose comment goes', () => {
+    expect(deleteCommentQuestion(comment, 'acc_alex', 'Alex')).toMatch(/^Delete your comment\?/);
+    expect(deleteCommentQuestion(comment, 'acc_other', 'Alex')).toMatch(/^Delete Alex’s comment\?/);
   });
 });

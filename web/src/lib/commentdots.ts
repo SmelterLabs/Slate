@@ -16,7 +16,13 @@ export const DOT_TITLE: Record<CommentDot, string> = {
 };
 
 // Events after which this account's dots may have changed.
-const COMMENT_NEWS = new Set(['item.commented', 'comment.edited', 'item.mentioned', 'comment.assigned']);
+const COMMENT_NEWS = new Set([
+  'item.commented',
+  'comment.edited',
+  'comment.deleted',
+  'item.mentioned',
+  'comment.assigned',
+]);
 
 /** Whether `ev` means the dots should be reloaded for account `me`. */
 export function dotsChangedBy(ev: SlateEvent, me: string | undefined): boolean {

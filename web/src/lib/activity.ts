@@ -3,7 +3,7 @@
 // into one line (an autosaving description would otherwise fill the column).
 
 import { workspaceFormatter } from './timezone';
-import type { ActivityEntry, Comment, SlateEvent, Status } from './types';
+import type { ActivityEntry, Comment, Me, SlateEvent, Status } from './types';
 
 export const FOLD_WINDOW_MS = 10 * 60_000;
 
@@ -199,4 +199,17 @@ export function commentFiles<T extends { filename: string }>(body: string, attac
     else if (!hit) kept.push(line);
   }
   return { text: kept.join('\n').trim(), files };
+}
+
+/** Whether `me` may delete comment `c`: its author, or a workspace owner or admin (the server
+ * decides the same way: service/comments.py delete_comment). */
+export function canDeleteComment(c: Comment, me: Me | null | undefined): boolean {
+  if (!me) return false;
+  return c.author_id === me.account.id || me.account.role === 'owner' || me.account.role === 'admin';
+}
+
+/** The question asked before a comment is deleted. */
+export function deleteCommentQuestion(c: Comment, me: string, authorName: string | undefined): string {
+  const whose = c.author_id === me ? 'your comment' : `${authorName ?? 'this person'}’s comment`;
+  return `Delete ${whose}? It goes for good; the history keeps a record that it was deleted.`;
 }

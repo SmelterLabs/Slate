@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
@@ -59,6 +59,14 @@ def edit_comment(comment_id: str, body: CommentPatch, auth: WriteAuth, session: 
     if "assignee" in sent:
         comment = comments.assign_comment(session, auth.actor, comment_id, body.assignee)
     return _out(session, comment)
+
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_comment(comment_id: str, auth: WriteAuth, session: DbSession) -> Response:
+    """Delete a comment for good: your own, or anyone's if you are an owner or admin (403
+    otherwise). Its reactions go too; the `comment.deleted` event keeps what it said."""
+    comments.delete_comment(session, auth.actor, comment_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/comments/{comment_id}/resolve", response_model=CommentOut)

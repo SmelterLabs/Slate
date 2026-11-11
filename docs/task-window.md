@@ -11,7 +11,14 @@ it:
 
 - **Comments**: `GET /items/{id}/comments`; `POST /comments/{id}/reactions {emoji}` and `DELETE
   /comments/{id}/reactions/{emoji}` (one emoji per account per comment, idempotent; table
-  `comment_reactions`). `CommentOut` carries `reactions [{emoji, account_ids}]` and `mentions`
+  `comment_reactions`). `DELETE /comments/{id}` (`comments.delete_comment`, 204) hard-deletes a
+  comment for its author or an owner/admin (403 otherwise) with its reactions, and records one
+  `comment.deleted` whose `before` is the comment's snapshot plus `reactions`: the audit log keeps
+  the text, the activity line (`history.verb`) shows only whose it was. An open Ask closes with
+  the row. `comments.not_about_deleted_comment()` drops every event about a deleted comment from
+  the inbox and check-in news. Guests: `access._hidden_comments` also lists deleted comments that
+  were by or to a workspace agent (read from the event's `before`, the row being gone), and
+  `EventGate._for_guest` drops their live `comment.deleted`. `CommentOut` carries `reactions [{emoji, account_ids}]` and `mentions`
   (handles). A mention is `@handle` of a real account (`comments.MENTION_RE`). `item.commented`'s
   `after` carries `mentions`; an edit that adds a mention records `item.mentioned {comment_id,
   mentions}` for the new ones only.

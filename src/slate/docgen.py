@@ -140,6 +140,8 @@ EVENT_DOCS: dict[str, str] = {
     "item.due": "Scheduler: the item's due time has arrived. A `work` hint for its agents.",
     "item.overdue": "Scheduler: the item is an hour past due and not done.",
     "comment.edited": "A comment's text changed.",
+    "comment.deleted": "A comment was deleted for good, by its author or an admin (`before` = "
+    "the comment, with `reactions`). Inboxes and check-in news drop every entry about it.",
     "item.work_started": "A work take's immutable Ask dispatch boundary (this event id). "
     "Resume and heartbeat do not move it.",
     "item.work_finished": "An agent finished a taken turn (`after.through` = its work-start "

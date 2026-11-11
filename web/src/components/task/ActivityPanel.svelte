@@ -2,11 +2,14 @@
   import type { Snippet } from 'svelte';
   // The right-hand column: comments as cards, history as small gray lines between them, all in
   // time order (ClickUp's activity). Live: the detail refreshes on every event for the item,
-  // and this reloads the feed. Comments react, edit (your own) and reply (an @mention).
+  // and this reloads the feed. Comments react, edit (your own), delete (your own; an admin
+  // anyone's) and reply (an @mention).
   import { tick, untrack } from 'svelte';
   import {
     QUICK_REACTIONS,
     commentFiles,
+    canDeleteComment,
+    deleteCommentQuestion,
     entriesFrom,
     fileSize,
     highlightMentions,
@@ -205,6 +208,11 @@
     return `${who} ${what}${times > 1 && ev.field === 'body_md' ? ` (${times} saves)` : ''}`;
   }
 
+  async function removeComment(c: Comment) {
+    if (!window.confirm(deleteCommentQuestion(c, task.me, board.accountName(c.author_id)))) return;
+    if (await task.deleteComment(c.id)) saveDraft(draftKey.editComment(c.id), '');
+  }
+
   async function saveEdit(c: Comment) {
     const t = editText.trim();
     if (t && t !== c.body_md && !(await task.editComment(c.id, t))) return;
@@ -381,6 +389,9 @@
             {/if}
             {#if c.author_id === task.me && editing !== c.id}
               <button class="act" onclick={() => startEdit(c)}>Edit</button>
+            {/if}
+            {#if canDeleteComment(c, board.me) && editing !== c.id}
+              <button class="act" onclick={() => removeComment(c)}>Delete</button>
             {/if}
           </div>
         </article>

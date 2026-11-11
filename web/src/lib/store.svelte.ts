@@ -2246,6 +2246,7 @@ export const EVENT_TYPES = [
   'item.commented',
   'item.mentioned',
   'comment.edited',
+  'comment.deleted',
   'comment.assigned',
   'comment.resolved',
   'comment.reacted',

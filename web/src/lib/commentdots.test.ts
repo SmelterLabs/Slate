@@ -18,7 +18,7 @@ const ev = (type: string, actor_id: string, subject_id: string | null = null): S
 
 describe('dotsChangedBy', () => {
   it('reloads on someone else commenting, mentioning or asking', () => {
-    for (const t of ['item.commented', 'comment.edited', 'item.mentioned', 'comment.assigned']) {
+    for (const t of ['item.commented', 'comment.edited', 'comment.deleted', 'item.mentioned', 'comment.assigned']) {
       expect(dotsChangedBy(ev(t, 'agent'), 'me')).toBe(true);
     }
   });

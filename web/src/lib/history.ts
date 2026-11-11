@@ -86,6 +86,10 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return `split this into ${arr(ev.after).length} subtasks`;
     case 'item.commented':
       return 'commented';
+    case 'comment.deleted': {
+      const author = obj(ev.before).author_id;
+      return author && author !== ev.actor_id ? `deleted ${ctx.name(author) ?? 'someone'}’s comment` : 'deleted a comment';
+    }
     case 'message.posted':
     case 'message.edited': {
       const a = (ev.after ?? {}) as { body_md?: string; parent_id?: string | null; channel_name?: string };

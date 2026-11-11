@@ -1,4 +1,4 @@
-"""Comments on items. Authors may edit their own; nobody deletes them.
+"""Comments on items. Authors may edit their own; authors delete their own, admins anyone's.
 
 A comment's `@handle` mentions are resolved to accounts when it is written and carried in the
 `item.commented` / `comment.edited` event as `mentions` (handles), so webhooks can route a
@@ -45,7 +45,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
@@ -398,6 +398,41 @@ def edit_comment(session: Session, actor: Actor, comment_id: str, *, body_md: st
                 after={"comment_id": comment.id, "mentions": added},
             )
     return comment
+
+
+def delete_comment(session: Session, actor: Actor, comment_id: str) -> None:
+    """Delete a comment for good: its author may delete their own, an owner or admin anyone's.
+    Its reactions go with it, and an open Ask it carried closes with it. One `comment.deleted`
+    event keeps what it said (`before` = the comment and its reactions), so the history and the
+    audit log still hold it; inboxes and check-in news drop every entry about it."""
+    comment = get_comment(session, comment_id)
+    if comment.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+        raise Forbidden("only a comment's author or an admin can delete it")
+    reactions = list(
+        session.scalars(select(CommentReaction).where(CommentReaction.comment_id == comment.id))
+    )
+    with apply_change(session, actor) as cx:
+        cx.record(
+            "comment.deleted",
+            item_id=comment.item_id,
+            subject_id=comment.id,
+            before={
+                **snapshot(comment),
+                "reactions": [{"emoji": r.emoji, "account_id": r.account_id} for r in reactions],
+            },
+            covers=[comment, *reactions],
+        )
+        for r in reactions:
+            cx.session.delete(r)
+        cx.session.flush()  # the reactions first: the comment's ON DELETE CASCADE would beat them
+        cx.session.delete(comment)
+
+
+def not_about_deleted_comment() -> Any:
+    """An events filter: not about a deleted comment (one whose `comment.deleted` event exists).
+    Inboxes and check-in news use it, so a deleted comment is no longer anyone's news."""
+    gone = select(Event.subject_id).where(Event.type == "comment.deleted")
+    return or_(Event.subject_id.is_(None), Event.subject_id.not_in(gone))
 
 
 def _emoji(value: str) -> str:

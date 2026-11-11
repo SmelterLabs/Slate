@@ -1231,6 +1231,10 @@ async def test_comments_checklists_attachments_and_activity_through_mcp(alex):
         edited = ok(await call(client, "slate_comment", "edit", id=c["id"], body_md="hello"))
         assert edited["edited_at"]
         assert len(ok(await call(client, "slate_comment", "list", id=item["id"]))) == 1
+        gone = ok(await call(client, "slate_comment", "add", id=item["id"], body_md="oops"))
+        deleted = ok(await call(client, "slate_comment", "delete", id=gone["id"]))
+        assert deleted == {"deleted": gone["id"]}
+        assert len(ok(await call(client, "slate_comment", "list", id=item["id"]))) == 1
 
         cl = ok(
             await call(
