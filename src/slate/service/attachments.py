@@ -93,9 +93,9 @@ def add_attachment(
         return _attach(cx, item, filename, data, content_type)
 
 
-def _attach(
-    cx: Change, item: Item, filename: str, data: bytes, content_type: str | None
-) -> Attachment:
+def clean(filename: str | None, data: bytes, content_type: str | None) -> tuple[str, str]:
+    """The stored name and type of an upload, or `Invalid` (no name, empty, over the cap).
+    Chat files (service/chat_files.py) are checked by the same rules."""
     name = _filename(filename)
     if not data:
         raise Invalid("attachment is empty")
@@ -105,12 +105,19 @@ def _attach(
     if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
         # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return name, ctype[:127]
+
+
+def _attach(
+    cx: Change, item: Item, filename: str, data: bytes, content_type: str | None
+) -> Attachment:
+    name, ctype = clean(filename, data, content_type)
     att_id = new_id()
     att = Attachment(
         id=att_id,
         item_id=item.id,
         filename=name,
-        content_type=ctype[:127],
+        content_type=ctype,
         size=len(data),
         path=f"db:{att_id}",
         uploaded_by=cx.actor.account_id,

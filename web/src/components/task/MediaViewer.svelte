@@ -1,8 +1,8 @@
 <script lang="ts">
-  // The full-screen viewer for a task's images, videos, PDFs and documents (Word, Excel, CSV,
-  // text: DocumentPreview): open from an attachment thumbnail, step through the task's files
-  // with the arrows or ← →, close with Escape, the × or a click outside. Lives above the task
-  // window.
+  // The full-screen viewer for images, videos, PDFs and documents (Word, Excel, CSV, text:
+  // DocumentPreview): open from a task's attachment thumbnail or a chat message's file, step
+  // through that task's or message's files with the arrows or ← →, close with Escape, the × or
+  // a click outside. Lives above the task window.
   import { fileSize } from '../../lib/activity';
   import { viewerKind } from '../../lib/docs';
   import { isDocumentKind } from '../../lib/office';

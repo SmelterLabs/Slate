@@ -4,7 +4,7 @@
 // loaded, and the counts refresh; this account's channel.read refreshes them at once, so phone
 // and PC always show the same unread badges.
 
-import { api, get, patch, post } from './api';
+import { ApiError, api, authHeaders, get, patch, post } from './api';
 import { toggleReaction } from './activity';
 import {
   TURN_EVENTS,
@@ -13,9 +13,12 @@ import {
   upsert,
   type AgentTurn,
   type Channel,
+  type ChatFile,
   type ChatMessage,
+  pastedName,
 } from './chat';
 import { board } from './store.svelte';
+import { task } from './task.svelte';
 import type { Item, SlateEvent } from './types';
 
 const PAGE = 50;
@@ -227,8 +230,58 @@ class Chat {
     }
   }
 
+  // --- files ------------------------------------------------------------------------------
+
+  /** Object URLs of image files, by file id (fetched once, with the token). */
+  thumbs = $state<Record<string, string>>({});
+
+  /** Upload a pasted, dropped or picked file to a channel. It is sent when a message names it. */
+  async upload(key: string, file: File): Promise<ChatFile | null> {
+    const name = pastedName(file.name, file.type, new Date());
+    try {
+      const res = await fetch(`/api/v1/channels/${encodeURIComponent(key)}/files?filename=${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { ...authHeaders(board.token), 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new ApiError(res.status, (data as { detail?: string })?.detail ?? res.statusText);
+      const f = data as ChatFile;
+      // The picture is already here: show it without fetching it back.
+      if (f.content_type.startsWith('image/')) this.thumbs[f.id] = URL.createObjectURL(file);
+      return f;
+    } catch (e) {
+      board.flash(`Could not attach ${name}: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  /** Take back an upload that was not sent. */
+  async discard(f: ChatFile) {
+    try {
+      await api<void>('DELETE', `/message-files/${f.id}`);
+    } catch {
+      // the server sweeps what is never sent
+    }
+  }
+
+  async thumb(f: ChatFile) {
+    if (this.thumbs[f.id] || !f.content_type.startsWith('image/')) return;
+    try {
+      const res = await fetch(`/api/v1/message-files/${f.id}`, { headers: authHeaders(board.token) });
+      if (res.ok) this.thumbs[f.id] = URL.createObjectURL(await res.blob());
+    } catch {
+      // leave the file chip
+    }
+  }
+
+  /** Open a message's file in the full-screen viewer (or download what it cannot show). */
+  openFile(f: ChatFile, among: ChatFile[]) {
+    void task.open(f, { files: among, path: (id) => `/message-files/${id}` });
+  }
+
   /** Post (or reply). Shows at once; the server's copy replaces the placeholder. */
-  async send(key: string, body: string, parentId: string | null = null): Promise<boolean> {
+  async send(key: string, body: string, parentId: string | null = null, files: ChatFile[] = []): Promise<boolean> {
     const temp: ChatMessage = {
       id: `~${Date.now()}`,
       channel: key,
@@ -245,6 +298,7 @@ class Chat {
       last_reply_at: null,
       reply_author_ids: [],
       linked_items: [],
+      files,
     };
     const drop = () => {
       if (this.pages[key]) this.pages[key] = this.pages[key].filter((m) => m.id !== temp.id);
@@ -261,6 +315,7 @@ class Chat {
       const msg = await post<ChatMessage>(`/channels/${encodeURIComponent(key)}/messages`, {
         body_md: body,
         ...(parentId ? { parent_id: parentId } : {}),
+        ...(files.length ? { file_ids: files.map((f) => f.id) } : {}),
       });
       drop();
       this.#place(msg);

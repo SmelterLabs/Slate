@@ -27,6 +27,7 @@ from slate.service import (
     attachments,
     automations,
     chat,
+    chat_files,
     checklists,
     comments,
     doc_compare,
@@ -141,7 +142,9 @@ READS = {
         "agent_turns",
         "channel_view",
         "default_title",
+        "writable",
     },
+    "slate.service.chat_files": {"view", "files_of", "unsent", "read_bytes"},
     "slate.service.checklists": {"get_checklist", "get_entry", "checklists_of"},
     "slate.service.attachments": {
         "decode_base64",
@@ -149,6 +152,7 @@ READS = {
         "attachments_of",
         "read_bytes",
         "split_pasted",
+        "clean",
     },
     "slate.service.watchers": {"watchers_of", "watcher_ids", "auto_watches"},
     "slate.service.reports": {
@@ -457,6 +461,10 @@ def _checklist(db, actor):
 
 def _entry(db, actor):
     return checklists.add_entry(db, actor, _checklist(db, actor).id, title="call")
+
+
+def _chat_file(db, actor):
+    return chat_files.upload(db, actor, "general", filename="a.png", data=b"png")
 
 
 def _attachment(db, actor):
@@ -915,6 +923,10 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "make_task": lambda db, a, p: chat.make_task(db, a, _message(db, a).id),
         "mark_read": lambda db, a, p: chat.mark_read(db, a, _message(db, a).channel),
         "mark_all_read": lambda db, a, p: _message(db, a) and chat.mark_all_read(db, a),
+    },
+    "slate.service.chat_files": {
+        "upload": lambda db, a, p: _chat_file(db, a),
+        "discard": lambda db, a, p: chat_files.discard(db, a, _chat_file(db, a).id),
     },
     "slate.service.chatwake": {
         # Only an agent mentioned by a person holds a turn; the walk's actor is a person.

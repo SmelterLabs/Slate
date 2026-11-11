@@ -1587,8 +1587,24 @@ CHAT_ACTIONS = {
         rest=lambda p: Rest("GET", f"/messages/{_q(p.id)}/thread"),
         local=via(chat_api.get_thread, message_id="id"),
     ),
+    "upload_file": Action(
+        "upload a file (base64) to a channel, then send it: post with its id in file_ids",
+        "write",
+        with_id(attachments_api.Base64In, "channel", CHANNEL_DOC),
+        rest=lambda p: Rest(
+            "POST", f"/channels/{_q(p.channel)}/files/base64", body=_fields(p, "channel")
+        ),
+        local=via(chat_api.upload_file_base64, key="channel"),
+    ),
+    "discard_file": Action(
+        "take back an upload you have not sent",
+        "write",
+        MessageRef,
+        rest=lambda p: Rest("DELETE", f"/message-files/{_q(p.id)}", empty={"deleted": p.id}),
+        local=via(chat_api.discard_file, file_id="id", empty=_deleted("deleted")),
+    ),
     "post": Action(
-        "post to a channel, or reply in a thread with parent_id",
+        "post to a channel, or reply in a thread with parent_id; file_ids sends your uploads",
         "write",
         with_id(MessageIn, "channel", CHANNEL_DOC),
         rest=lambda p: Rest(
@@ -2311,7 +2327,8 @@ TOOLS: dict[str, ToolSpec] = {
             "@mentions. Use it to talk with people and other agents about a list's work, answer a "
             "mention or thread reply from check-in, or turn a message into a task. Your own chat "
             "(`agent:<your id>`) is where a person talks to you outside any card: every message "
-            "they post there mentions you; answer there.",
+            "they post there mentions you; answer there. A message's `files` are what was sent "
+            "with it (a screenshot, a PDF): read one with GET /api/v1/message-files/<id>.",
             {"action": "post", "params": {"channel": "general", "body_md": "On it, @alex"}},
             CHAT_ACTIONS,
             destructive=True,

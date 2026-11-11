@@ -189,6 +189,8 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `message.agent_turn` | An agent's chat turn (`after.agent`): `state` started (taken with /work/next), done (`reply_id` = its message, or none), released (given up, nothing posted) or expired (the lease ran out; actor `slate`); `pending` true when a mention arrived during the turn and waits for the next take. |
 | `message.deleted` | A chat message was deleted by its author (the text goes, the thread stays). |
 | `message.edited` | A chat message's text changed (`after.mentions` = handles the edit added). |
+| `message.file_discarded` | An upload that was never sent was taken back or swept. |
+| `message.file_uploaded` | A file was uploaded to send with a chat message (`after` = its metadata, no channel: until it is sent only its uploader hears of it; a sent message carries its files in `message.posted` `after.files`). |
 | `message.mentioned_agent` | A person @mentioned agents whose runner Slate can wake (wake `push`, and they may post in the channel) in a chat message: `after.for` = their account ids (a `work` hint with `channel`, `thread_id`, `message_id` on each one's stream; a runner takes it with `POST /work/next {channel, thread_id}`), `after.queued` = agents whose turn there is already open (the mention joins it, no second run). An agent's mention of an agent never wakes it. |
 | `message.posted` | A chat message was posted (`after` = the message, `channel`, `channel_name`, `mentions`; a reply also carries `thread_followers`, the account ids of the thread's earlier authors). Check-in news `mentioned` or `reply`. |
 | `message.reacted` | An emoji reaction was added to a chat message. |

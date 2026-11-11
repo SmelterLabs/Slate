@@ -3,8 +3,12 @@
   // `@` picks a person or agent to mention; `#` picks a task (the message then shows it as a
   // card), a page or a list to link (`[[doc:<id>]]` / `[[list:<id>]]`, rendered as the page's
   // title or the list's name). Mentioned accounts hear it in their inbox, check-in and phone.
-  import { insertMention, mentionAt } from '../../lib/activity';
-  import { hashPicks, insertHashPick, taskRefAt, type HashPick } from '../../lib/chat';
+  // Files: paste (a screenshot from the clipboard), drop, or pick with the paperclip. Each
+  // uploads at once and waits above the box as a chip; Send posts them with the message, and a
+  // message can be files alone.
+  import { fileSize, insertMention, mentionAt } from '../../lib/activity';
+  import { hashPicks, insertHashPick, taskRefAt, type ChatFile, type HashPick } from '../../lib/chat';
+  import { untrack } from 'svelte';
   import { draftKey } from '../../lib/drafts';
   import { persisted } from '../../lib/drafts.svelte';
   import { chat } from '../../lib/chat.svelte';
@@ -26,6 +30,64 @@
   let mention = $state<{ start: number; query: string } | null>(null);
   let taskRef = $state<{ start: number; query: string } | null>(null);
   let active = $state(0);
+
+  // Files waiting to go with the next message, and how many are still uploading. They belong
+  // to this box's channel: moving to another channel takes back what was not sent.
+  let files = $state<ChatFile[]>([]);
+  let uploading = $state(0);
+  let dragging = $state(false);
+  let picker = $state<HTMLInputElement>();
+  const MAX_FILES = 10;
+  let boxKey = $derived(`${channel}|${parentId ?? ''}`);
+  $effect(() => {
+    void boxKey;
+    return () => {
+      for (const f of untrack(() => files)) void chat.discard(f);
+      files = [];
+    };
+  });
+
+  async function attach(list: Iterable<File>) {
+    for (const file of list) {
+      if (files.length + uploading >= MAX_FILES) {
+        board.flash(`A message carries at most ${MAX_FILES} files.`);
+        break;
+      }
+      const at = boxKey;
+      uploading += 1;
+      const f = await chat.upload(channel, file);
+      uploading -= 1;
+      if (!f) continue;
+      // The box moved to another channel while this uploaded: it is not that channel's file.
+      if (at !== boxKey) void chat.discard(f);
+      else files = [...files, f];
+    }
+    area?.focus();
+  }
+
+  function unattach(f: ChatFile) {
+    files = files.filter((x) => x.id !== f.id);
+    void chat.discard(f);
+  }
+
+  // A screenshot on the clipboard arrives as a file with no text; text pastes as ever.
+  function paste(e: ClipboardEvent) {
+    const pasted = [...(e.clipboardData?.files ?? [])];
+    if (!pasted.length) return;
+    e.preventDefault();
+    void attach(pasted);
+  }
+
+  function hasFiles(e: DragEvent): boolean {
+    return [...(e.dataTransfer?.types ?? [])].includes('Files');
+  }
+
+  function drop(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragging = false;
+    void attach([...(e.dataTransfer?.files ?? [])]);
+  }
 
   const people = $derived.by(() => {
     if (!mention) return [] as Account[];
@@ -104,12 +166,19 @@
     if (taskRef && area) place(insertHashPick(draft.value, taskRef.start, area.selectionStart, p));
   }
 
+  const ready = $derived(!uploading && (!!draft.value.trim() || files.length > 0));
+
   async function send() {
     const body = draft.value.trim();
-    if (!body) return;
+    if (uploading || (!body && !files.length)) return;
+    const sending = files;
     draft.value = '';
+    files = [];
     queueMicrotask(autosize);
-    if (!(await chat.send(channel, body, parentId))) draft.value = body;
+    if (!(await chat.send(channel, body, parentId, sending))) {
+      draft.value = body;
+      files = sending;
+    }
   }
 
   function keys(e: KeyboardEvent) {
@@ -151,7 +220,31 @@
   }
 </script>
 
-<div class="chat-composer">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="chat-composer"
+  class:dragging
+  ondragover={(e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragging = true;
+  }}
+  ondragleave={(e) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dragging = false;
+  }}
+  ondrop={drop}
+>
+  <input
+    bind:this={picker}
+    type="file"
+    multiple
+    hidden
+    aria-label="Attach files"
+    onchange={(e) => {
+      const input = e.currentTarget;
+      void attach([...(input.files ?? [])]).then(() => (input.value = ''));
+    }}
+  />
   {#if mention}<p class="muted small" role="note">Directory suggestions do not confirm access to this channel. Check sharing before relying on a mention; mentioning someone does not grant access.</p>{/if}
   {#if picking === 'people'}
     <ul class="chat-pick" role="listbox" aria-label="Mention someone">
@@ -181,6 +274,25 @@
       {/each}
     </ul>
   {/if}
+  {#if files.length || uploading}
+    <ul class="chat-attach" aria-label="Files to send">
+      {#each files as f (f.id)}
+        <li class:image={!!chat.thumbs[f.id]}>
+          {#if chat.thumbs[f.id]}
+            <img src={chat.thumbs[f.id]} alt={f.filename} title={f.filename} />
+          {:else}
+            <Icon name="clip" size={14} />
+            <span class="chat-attach-name" title={f.filename}>{f.filename}</span>
+            <span class="muted small">{fileSize(f.size)}</span>
+          {/if}
+          <button class="chat-attach-x" type="button" aria-label="Remove {f.filename}" title="Remove" onclick={() => unattach(f)}
+            ><Icon name="x" size={12} /></button
+          >
+        </li>
+      {/each}
+      {#if uploading}<li class="chat-attach-busy muted small" role="status">Uploading…</li>{/if}
+    </ul>
+  {/if}
   <textarea
     bind:this={area}
     bind:value={draft.value}
@@ -193,6 +305,7 @@
     }}
     onclick={track}
     onkeydown={keys}
+    onpaste={paste}
     onkeyup={(e) => (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && track()}
     onblur={() =>
       setTimeout(() => {
@@ -207,7 +320,10 @@
     <button class="icon" type="button" title="Link a task, page or list" aria-label="Link a task, page or list" onclick={() => insert('#')}
       ><Icon name="hash" size={15} /></button
     >
+    <button class="icon" type="button" title="Attach a file (or paste a screenshot)" aria-label="Attach a file" onclick={() => picker?.click()}
+      ><Icon name="clip" size={15} /></button
+    >
     <span class="hint muted">Enter to send · Shift+Enter for a new line</span>
-    <button class="send" disabled={!draft.value.trim()} onclick={send} aria-label="Send"><Icon name="send" size={14} /></button>
+    <button class="send" disabled={!ready} onclick={send} aria-label="Send"><Icon name="send" size={14} /></button>
   </div>
 </div>

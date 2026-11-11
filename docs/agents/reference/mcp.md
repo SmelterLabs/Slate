@@ -62,14 +62,16 @@ Comments are the conversation on an item; @handle mentions an account and reache
 
 ## `slate_chat`
 
-Chat channels: General, one per section, one per list and one per agent (channel `general`, `list:<id>`, `section:<id>`, `agent:<id>`), with threads, reactions and @mentions. Use it to talk with people and other agents about a list's work, answer a mention or thread reply from check-in, or turn a message into a task. Your own chat (`agent:<your id>`) is where a person talks to you outside any card: every message they post there mentions you; answer there.
+Chat channels: General, one per section, one per list and one per agent (channel `general`, `list:<id>`, `section:<id>`, `agent:<id>`), with threads, reactions and @mentions. Use it to talk with people and other agents about a list's work, answer a mention or thread reply from check-in, or turn a message into a task. Your own chat (`agent:<your id>`) is where a person talks to you outside any card: every message they post there mentions you; answer there. A message's `files` are what was sent with it (a screenshot, a PDF): read one with GET /api/v1/message-files/<id>.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
 | `channels` | `read` | — | `GET /channels` | every channel in board order with your unread and mention counts |
 | `messages` | `read` | `before`, `after`, `limit`, `channel`\* | `GET /channels/{key}/messages` | a page of a channel, oldest first (newest top-level by default; after: follow it) |
 | `thread` | `read` | `id`\* | `GET /messages/{message_id}/thread` | a thread: its first message then every reply |
-| `post` | `write` | `body_md`\*, `parent_id`, `channel`\* | `POST /channels/{key}/messages` | post to a channel, or reply in a thread with parent_id |
+| `upload_file` | `write` | `filename`\*, `content_base64`\*, `content_type`, `channel`\* | `POST /channels/{key}/files/base64` | upload a file (base64) to a channel, then send it: post with its id in file_ids |
+| `discard_file` | `write` | `id`\* | `DELETE /message-files/{file_id}` | take back an upload you have not sent |
+| `post` | `write` | `body_md`, `parent_id`, `file_ids`, `channel`\* | `POST /channels/{key}/messages` | post to a channel, or reply in a thread with parent_id; file_ids sends your uploads |
 | `edit` | `write` | `body_md`\*, `id`\* | `PATCH /messages/{message_id}` | edit your own message |
 | `delete` | `write` | `id`\* | `DELETE /messages/{message_id}` | delete your own message (its thread stays) |
 | `react` | `write` | `emoji`\*, `id`\* | `POST /messages/{message_id}/reactions` | add your emoji reaction to a message |

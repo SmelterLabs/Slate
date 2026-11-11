@@ -68,6 +68,7 @@ from slate.models import (
     ItemLink,
     List,
     Message,
+    MessageFile,
     MessageReaction,
     Role,
     ScopeKind,
@@ -695,6 +696,7 @@ _COMMENT_MODELS = frozenset(
         "Comment",
         "CommentReaction",
         "Message",
+        "MessageFile",
         "MessageReaction",
         "ChatWake",
         "DocComment",
@@ -819,7 +821,7 @@ def check_object(
         if access.list_level(obj.id) < EDIT:
             raise _deny(EDIT, "change this list")
         return
-    if isinstance(obj, Message | ChannelRead | ChatWake):
+    if isinstance(obj, Message | MessageFile | ChannelRead | ChatWake):
         if access.channel_level(obj.channel) < need:
             raise _deny(need, "post in this channel")
         return

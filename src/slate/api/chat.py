@@ -1,17 +1,25 @@
 """/channels and /messages: chat per list and section, General, and each agent's own chat
-(service/chat.py)."""
+(service/chat.py), and the files on messages (/channels/{key}/files, /message-files/{id};
+service/chat_files.py).
+
+A file is uploaded like an attachment: the raw file as the request body (`Content-Type` is the
+file's type) with the name in `?filename=`, or base64 in JSON for clients that can only send
+JSON. The answer's `id` then goes in a message's `file_ids`.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from slate.api.attachments import Base64In
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import ItemOut, ReactionIn, ReactionOut
-from slate.service import chat, items
+from slate.api.uploads import file_response, read_body
+from slate.service import attachments, chat, chat_files, items
 
 router = APIRouter(tags=["chat"])
 
@@ -71,12 +79,19 @@ class LinkedItemOut(BaseModel):
     done: bool
 
 
+class MessageFileOut(BaseModel):
+    id: str = Field(description="Read the bytes at `GET /message-files/{id}`")
+    filename: str
+    content_type: str
+    size: int
+
+
 class MessageOut(BaseModel):
     id: str = Field(description="Time-ordered: also the read cursor")
     channel: str
     parent_id: str | None = Field(description="The thread's first message, for a reply")
     author_id: str
-    body_md: str = Field(description="Empty once deleted")
+    body_md: str = Field(description="Empty once deleted, or when the message is files alone")
     mentions: list[str] = Field(description="Handles @mentioned")
     item_id: str | None = Field(description="The task made from this message")
     created_at: datetime
@@ -94,19 +109,34 @@ class MessageOut(BaseModel):
     linked_items: list[LinkedItemOut] = Field(
         description="Items the message names (`?task=<id>` links, `#<id>`) or was made into"
     )
+    files: list[MessageFileOut] = Field(
+        default_factory=list,
+        description="Files sent with the message (a screenshot, a PDF): read each at "
+        "`GET /message-files/{id}`",
+    )
 
 
 class MessageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    body_md: str = Field(min_length=1, max_length=chat.MAX_BODY)
+    body_md: str = Field(
+        default="", max_length=chat.MAX_BODY, description="The text; may be empty with file_ids"
+    )
     parent_id: str | None = Field(default=None, description="Reply in this message's thread")
+    file_ids: list[str] = Field(
+        default_factory=list,
+        max_length=chat_files.MAX_FILES,
+        description="Your unsent uploads to this channel (`POST /channels/{key}/files`) to "
+        "send with the message",
+    )
 
 
 class MessagePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    body_md: str = Field(min_length=1, max_length=chat.MAX_BODY)
+    body_md: str = Field(
+        max_length=chat.MAX_BODY, description="Empty only for a message that has files"
+    )
 
 
 class ReadIn(BaseModel):
@@ -194,9 +224,83 @@ def list_messages(
 def post_message(key: str, body: MessageIn, auth: WriteAuth, session: DbSession) -> dict:
     """Post to the channel; `parent_id` replies in that message's thread. `@handle` mentions
     an account (its inbox, check-in and phone hear it); a board task link or `#<item id>`
-    shows the task as a card."""
-    msg = chat.post(session, auth.actor, key, body_md=body.body_md, parent_id=body.parent_id)
+    shows the task as a card. `file_ids` sends files you uploaded to this channel with it."""
+    msg = chat.post(
+        session,
+        auth.actor,
+        key,
+        body_md=body.body_md,
+        parent_id=body.parent_id,
+        file_ids=body.file_ids,
+    )
     return _one(session, msg)
+
+
+@router.post(
+    "/channels/{key}/files",
+    status_code=status.HTTP_201_CREATED,
+    response_model=MessageFileOut,
+    openapi_extra={
+        "requestBody": {"content": {"application/octet-stream": {"schema": {"type": "string"}}}}
+    },
+)
+async def upload_file(
+    key: str,
+    request: Request,
+    filename: Annotated[str, Query(min_length=1, max_length=255)],
+    auth: WriteAuth,
+    session: DbSession,
+) -> dict:
+    """Upload a file to send with a message (raw body, up to 25 MB). Until you post a message
+    with its `id` in `file_ids`, only you can read it."""
+    limit = attachments.MAX_BYTES
+    data = await read_body(request, limit)
+    return chat_files.view(
+        chat_files.upload(
+            session,
+            auth.actor,
+            key,
+            filename=filename,
+            data=data,
+            content_type=request.headers.get("content-type"),
+        )
+    )
+
+
+@router.post(
+    "/channels/{key}/files/base64",
+    status_code=status.HTTP_201_CREATED,
+    response_model=MessageFileOut,
+)
+def upload_file_base64(key: str, body: Base64In, auth: WriteAuth, session: DbSession) -> dict:
+    """The same as the raw upload, for clients that can only send JSON (the MCP stdio bridge)."""
+    return chat_files.view(
+        chat_files.upload(
+            session,
+            auth.actor,
+            key,
+            filename=body.filename,
+            data=attachments.decode_base64(body.content_base64),
+            content_type=body.content_type,
+        )
+    )
+
+
+@router.get("/message-files/{file_id}", response_class=Response)
+def download_file(
+    file_id: str, auth: ReadAuth, session: DbSession, download: bool = False
+) -> Response:
+    """A chat file's bytes, for whoever can read its message. Images and PDFs show inline
+    unless `?download=true`."""
+    f, data = chat_files.read_bytes(session, auth.account.id, file_id)
+    return file_response(f.filename, f.content_type, data, download=download)
+
+
+@router.delete("/message-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def discard_file(file_id: str, auth: WriteAuth, session: DbSession) -> Response:
+    """Take back an upload you have not sent. A sent file goes when its message is deleted."""
+    chat_files.discard(session, auth.actor, file_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/channels/{key}/read", response_model=ReadOut)

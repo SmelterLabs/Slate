@@ -88,6 +88,23 @@ export interface LinkedItem {
   done: boolean;
 }
 
+/** A file sent with a message (a pasted screenshot, a PDF): bytes at `/message-files/{id}`. */
+export interface ChatFile {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+}
+
+/** A name for a pasted file: a clipboard image has none, or the same `image.png` every time. */
+export function pastedName(name: string, type: string, at: Date): string {
+  if (name && !/^image\.[a-z0-9]+$/i.test(name)) return name;
+  const ext = /^image\/([a-z0-9]+)/i.exec(type)?.[1]?.replace('jpeg', 'jpg') ?? 'png';
+  const p = (n: number) => String(n).padStart(2, '0');
+  const day = `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
+  return `Screenshot ${day} ${p(at.getHours())}.${p(at.getMinutes())}.${p(at.getSeconds())}.${ext}`;
+}
+
 export interface ChatMessage {
   id: string;
   channel: string;
@@ -106,6 +123,7 @@ export interface ChatMessage {
   last_reply_at: string | null;
   reply_author_ids: string[];
   linked_items: LinkedItem[];
+  files: ChatFile[];
 }
 
 export const GENERAL = 'general';

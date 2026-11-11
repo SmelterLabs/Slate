@@ -308,6 +308,8 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
         # A chat message: open its channel at the message (or its thread).
         where = chat.place(after.get("channel"), after.get("channel_name"))
         text = chat.readable(session, after.get("body_md") or "")[:140]
+        if not text and after.get("files"):
+            text = "📎 " + ", ".join(str(f.get("filename")) for f in after["files"])[:138]
         thread = after.get("parent_id") or after.get("id") or ev.subject_id
         url = f"/#/chat/{after.get('channel') or 'general'}?thread={thread}"
         head = f"{who} replied in {where}" if reason == "reply" else f"{who} mentioned you"

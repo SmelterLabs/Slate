@@ -1,10 +1,11 @@
 <script lang="ts">
   // One chat message: who and when (folded under the previous one by the same author), the body
-  // with @mentions and task links, task cards for every task it names or became, reactions, the
+  // with @mentions and task links, the files sent with it (images shown, the rest as chips; a
+  // click opens the full-screen viewer), task cards for every task it names or became, reactions, the
   // thread summary, and a hover toolbar (react, reply in thread, make a task, edit, delete, copy
   // link). On touch screens the toolbar is always shown, so the phone has every action too.
   import { untrack } from 'svelte';
-  import { QUICK_REACTIONS, stamp } from '../../lib/activity';
+  import { QUICK_REACTIONS, fileSize, stamp } from '../../lib/activity';
   import { chatHref, renderBody, type ChatMessage, type LinkedItem } from '../../lib/chat';
   import { chat } from '../../lib/chat.svelte';
   import { exposure } from '../../lib/exposure';
@@ -46,6 +47,11 @@
       liveRefs(),
     ),
   );
+  // Older pages cached before files existed carry none.
+  const files = $derived(m.files ?? []);
+  $effect(() => {
+    if (!m.deleted_at) for (const f of files) void chat.thumb(f);
+  });
   const mentionsMe = $derived(!!handle && m.mentions.includes(handle) && !mine);
 
   // An edit left open (card closed, page reloaded) comes back open with what was typed.
@@ -96,7 +102,8 @@
 
   async function saveEdit() {
     const body = draft.trim();
-    if (!body || body === m.body_md) {
+    // A message with files may lose all its text; one without cannot be saved empty.
+    if ((!body && !files.length) || body === m.body_md) {
       stopEdit();
       return;
     }
@@ -152,7 +159,7 @@
   class:mentions-me={mentionsMe}
   class:menu-open={menuOpen || picking}
   data-message={m.id}
-  aria-label="{name}: {m.deleted_at ? 'deleted message' : m.body_md.slice(0, 80)}"
+  aria-label="{name}: {m.deleted_at ? 'deleted message' : m.body_md.slice(0, 80) || files.map((f) => f.filename).join(', ')}"
 >
   <div class="chat-gutter">
     {#if head}
@@ -187,6 +194,26 @@
       <div class="chat-body md" onclick={bodyClick}>
         {@html html}{#if m.edited_at}<span class="muted small chat-edited"> (edited)</span>{/if}{#if m.members_only}<span class="muted small chat-edited" title="Guests on this project do not see this message"> · hidden from guests</span>{/if}
       </div>
+    {/if}
+
+    {#if !m.deleted_at && files.length}
+      <ul class="chat-files" aria-label="Files">
+        {#each files as f (f.id)}
+          <li>
+            {#if chat.thumbs[f.id]}
+              <button class="chat-file-image" title="Open {f.filename}" aria-label="Open {f.filename}" onclick={() => chat.openFile(f, files)}>
+                <img src={chat.thumbs[f.id]} alt={f.filename} loading="lazy" />
+              </button>
+            {:else}
+              <button class="chat-file" title="Open {f.filename}" aria-label="Open {f.filename}" onclick={() => chat.openFile(f, files)}>
+                <Icon name="clip" size={14} />
+                <span class="chat-file-name">{f.filename}</span>
+                <span class="muted small">{fileSize(f.size)}</span>
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
     {/if}
 
     {#if !m.deleted_at && m.linked_items.length}

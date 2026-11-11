@@ -68,8 +68,12 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
 - **Attachments inside the share work for guests** (`access.check_object`): the blob row has
   no `item_id`, so it is checked through its attachment's task instead of hitting the guest
   catch-all; outside the share an upload is still refused (`tests/test_guest_scope.py`).
-- **Upload bodies are counted, not trusted** (`api/uploads.read_body`): attachments and both doc
-  upload routes stream `request.stream()` with a running count and stop at the cap with a 422,
+- **Chat files follow their message** (`chat_files.read_bytes`): a file is read through the
+  caller's read filter on its message, so a guest reads the files of the messages it can read
+  and no others (a members-only message's file is a 404), and an unsent upload is its
+  uploader's alone (`tests/test_chat_files.py`).
+- **Upload bodies are counted, not trusted** (`api/uploads.read_body`): attachments, chat files
+  and both doc upload routes stream `request.stream()` with a running count and stop at the cap with a 422,
   so a chunked request (no `Content-Length`) cannot skip the pre-check and be buffered whole; a
   non-numeric length is a 422, not a 500.
 

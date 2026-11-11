@@ -997,6 +997,28 @@ class Message(Base):
     members_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
 
+class MessageFile(Base):
+    """A file on a chat message (service/chat_files.py): a pasted screenshot, a dropped PDF.
+    Uploaded to a channel first (`message_id` null: unsent, its uploader's alone), then sent
+    with a message, which is when the channel reads it. The bytes stay in the database like
+    attachment blobs, so the nightly backup covers them; events carry the metadata, never
+    `data`. Deleting the message deletes its files."""
+
+    __tablename__ = "message_files"
+
+    id: Mapped[str] = _pk()
+    channel: Mapped[str] = mapped_column(String(40))
+    message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(127))
+    size: Mapped[int] = mapped_column(Integer)
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    uploaded_by: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
+    created_at: Mapped[datetime] = _created()
+
+
 class MessageReaction(Base):
     """One emoji from one account on one chat message."""
 

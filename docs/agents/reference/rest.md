@@ -2,7 +2,7 @@
 
 # REST reference
 
-231 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+235 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -21,7 +21,7 @@
 - [views](#views) (6)
 - [favorites](#favorites) (4)
 - [inbox](#inbox) (4)
-- [chat](#chat) (13)
+- [chat](#chat) (17)
 - [webhooks](#webhooks) (6)
 - [links](#links) (3)
 - [stats](#stats) (1)
@@ -1009,10 +1009,46 @@ A page of the channel, oldest first. Default: the newest top-level messages, eac
 
 Scope: `write` · MCP: `slate_chat post`
 
-Post to the channel; `parent_id` replies in that message's thread. `@handle` mentions an account (its inbox, check-in and phone hear it); a board task link or `#<item id>` shows the task as a card.
+Post to the channel; `parent_id` replies in that message's thread. `@handle` mentions an account (its inbox, check-in and phone hear it); a board task link or `#<item id>` shows the task as a card. `file_ids` sends files you uploaded to this channel with it.
 
-- Body: `MessageIn`: `body_md`\*, `parent_id`
+- Body: `MessageIn`: `body_md`, `parent_id`, `file_ids`
 - Returns: `201` [MessageOut](#messageout)
+
+### `POST /channels/{key}/files`
+
+Scope: `write`
+
+Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it.
+
+- Query: `filename`\*
+- Body: `application/octet-stream`
+- Returns: `201` [MessageFileOut](#messagefileout)
+
+### `POST /channels/{key}/files/base64`
+
+Scope: `write` · MCP: `slate_chat upload_file`
+
+The same as the raw upload, for clients that can only send JSON (the MCP stdio bridge).
+
+- Body: `Base64In`: `filename`\*, `content_base64`\*, `content_type`
+- Returns: `201` [MessageFileOut](#messagefileout)
+
+### `GET /message-files/{file_id}`
+
+Scope: `read`
+
+A chat file's bytes, for whoever can read its message. Images and PDFs show inline unless `?download=true`.
+
+- Query: `download`
+- Returns: `200`
+
+### `DELETE /message-files/{file_id}`
+
+Scope: `write` · MCP: `slate_chat discard_file`
+
+Take back an upload you have not sent. A sent file goes when its message is deleted.
+
+- Returns: `204`
 
 ### `POST /channels/{key}/read`
 
@@ -2227,7 +2263,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### MessageOut
 
-`id`: string, `channel`: string, `parent_id`: string?, `author_id`: string, `body_md`: string, `mentions`: [string], `item_id`: string?, `created_at`: date-time, `edited_at`: date-time?, `deleted_at`: date-time?, `members_only`: boolean, `reactions`: [ReactionOut], `reply_count`: integer, `last_reply_at`: date-time?, `reply_author_ids`: [string], `linked_items`: [LinkedItemOut]
+`id`: string, `channel`: string, `parent_id`: string?, `author_id`: string, `body_md`: string, `mentions`: [string], `item_id`: string?, `created_at`: date-time, `edited_at`: date-time?, `deleted_at`: date-time?, `members_only`: boolean, `reactions`: [ReactionOut], `reply_count`: integer, `last_reply_at`: date-time?, `reply_author_ids`: [string], `linked_items`: [LinkedItemOut], `files`: [MessageFileOut]
+
+### MessageFileOut
+
+`id`: string, `filename`: string, `content_type`: string, `size`: integer
 
 ### ReadOut
 
