@@ -33,6 +33,9 @@ wake only newly added explicit mentions (service/chatwake.py).
 
 Task links: a body that names an item, as a board link (`...?task=<id>`) or `#<id>`, carries
 that item in `linked_items`, which the board renders as a card.
+
+Files: a message carries the files sent with it (`files`, service/chat_files.py): uploaded to
+the channel first, then named in `post(file_ids=...)`. A message may be files alone.
 """
 
 from __future__ import annotations
@@ -55,6 +58,7 @@ from slate.models import (
     Item,
     List,
     Message,
+    MessageFile,
     MessageReaction,
     Role,
     Section,
@@ -62,7 +66,7 @@ from slate.models import (
     StatusKind,
     utcnow,
 )
-from slate.service import access, guests
+from slate.service import access, attachments, chat_files, guests
 from slate.service import items as items_svc
 from slate.service.comments import mentions_in
 from slate.service.core import Actor, apply_change, snapshot
@@ -144,16 +148,18 @@ def parse_channel(session: Session, key: str) -> Channel:
     )
 
 
-def _writable(session: Session, key: str) -> Channel:
+def writable(session: Session, key: str) -> Channel:
+    """The channel named by `key`, for a post or an upload: an archived one is refused."""
     ch = parse_channel(session, key)
     if ch.archived:
         raise Invalid(f"#{ch.name} is archived; restore it to post there")
     return ch
 
 
-def _body(value: str | None) -> str:
+def _body(value: str | None, *, files: bool = False) -> str:
+    """A message's text. Empty only when the message has `files` to show instead."""
     body = (value or "").strip()
-    if not body:
+    if not body and not files:
         raise Invalid("message is empty")
     if len(body) > MAX_BODY:
         raise Invalid(f"message is longer than {MAX_BODY} characters")
@@ -223,9 +229,10 @@ def _linked_items(session: Session, ids: set[str]) -> dict[str, dict[str, Any]]:
 
 
 def message_views(session: Session, msgs: Sequence[Message]) -> list[dict[str, Any]]:
-    """Messages as dicts: reactions, reply summary (count, last reply, who replied) and the
-    items they link."""
+    """Messages as dicts: reactions, reply summary (count, last reply, who replied), the
+    items they link and their files."""
     ids = [m.id for m in msgs]
+    files = chat_files.files_of(session, ids)
     reactions: dict[str, dict[str, list[str]]] = defaultdict(dict)
     replies: dict[str, dict[str, Any]] = {}
     if ids:
@@ -289,6 +296,7 @@ def message_views(session: Session, msgs: Sequence[Message]) -> list[dict[str, A
                     for i in dict.fromkeys([*([m.item_id] if m.item_id else []), *refs[m.id]])
                     if i in linked
                 ],
+                "files": files.get(m.id, []),
             }
         )
     return out
@@ -559,9 +567,12 @@ def post(
     *,
     body_md: str,
     parent_id: str | None = None,
+    file_ids: Sequence[str] | None = None,
 ) -> Message:
-    """Post to a channel, or reply in a thread (`parent_id`: any message of the thread)."""
-    body = _body(body_md)
+    """Post to a channel, or reply in a thread (`parent_id`: any message of the thread).
+    `file_ids`: the caller's unsent uploads to this channel (service/chat_files.py), which
+    the message then carries; with files, the text may be empty."""
+    body = _body(body_md, files=bool(file_ids))
     followers: list[str] = []
     root = None
     if parent_id is not None:
@@ -583,7 +594,8 @@ def post(
             )
         )
         followers = [a for a in followers if a != actor.account_id]
-    ch = _writable(session, key)
+    ch = writable(session, key)
+    files = chat_files.unsent(session, actor.account_id, ch.key, file_ids or [])
     mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
     if ch.kind == AGENT and ch.account_id != actor.account_id:
         # Workspace agents retain direct-chat addressing. A guest-role project agent shares
@@ -604,10 +616,19 @@ def post(
             members_only=hidden,
         )
         cx.session.add(msg)
-        after = {**snapshot(msg), "mentions": mentions, "channel_name": ch.name}
+        after = {
+            **snapshot(msg),
+            "mentions": mentions,
+            "channel_name": ch.name,
+            "files": [chat_files.view(f) for f in files],
+        }
         if root is not None:
             after["thread_followers"] = followers
-        cx.record("message.posted", subject_id=msg.id, after=after, covers=[msg])
+        cx.record("message.posted", subject_id=msg.id, after=after, covers=[msg, *files])
+        if files:
+            cx.session.flush()  # the message is in its table before its files point at it
+            for f in files:
+                f.message_id = msg.id
         # A person's mention of a push agent wakes its runner; an agent's post answers its turn.
         from slate.service import chatwake  # noqa: PLC0415 (chatwake reads this module)
 
@@ -622,7 +643,7 @@ def edit(session: Session, actor: Actor, message_id: str, *, body_md: str) -> Me
         raise Forbidden("only a message's author can edit it")
     if msg.deleted_at is not None:
         raise Invalid("that message was deleted")
-    body = _body(body_md)
+    body = _body(body_md, files=bool(chat_files.files_of(session, [msg.id])))
     if body == msg.body_md:
         return msg
     before = msg.body_md
@@ -655,14 +676,18 @@ def edit(session: Session, actor: Actor, message_id: str, *, body_md: str) -> Me
 
 
 def delete(session: Session, actor: Actor, message_id: str) -> Message:
-    """The author deletes a message: the body goes, the row stays so its thread holds."""
+    """The author deletes a message: the body and its files go, the row stays so its thread
+    holds."""
     msg = get_message(session, message_id)
     if msg.author_id != actor.account_id:
         raise Forbidden("only a message's author can delete it")
     if msg.deleted_at is not None:
         return msg
+    files = list(session.scalars(select(MessageFile).where(MessageFile.message_id == msg.id)))
     with apply_change(session, actor) as cx:
         before = {"body_md": msg.body_md, "channel": msg.channel, "parent_id": msg.parent_id}
+        if files:
+            before["files"] = [chat_files.view(f) for f in files]
         msg.body_md = ""
         msg.mentions_json = []
         msg.deleted_at = utcnow()
@@ -671,8 +696,10 @@ def delete(session: Session, actor: Actor, message_id: str) -> Message:
             subject_id=msg.id,
             before=before,
             after={"channel": msg.channel, "parent_id": msg.parent_id},
-            covers=[msg],
+            covers=[msg, *files],
         )
+        for f in files:
+            cx.session.delete(f)
     return msg
 
 
@@ -736,7 +763,8 @@ def make_task(
 ) -> Item:
     """File one item from a message and link them. The item lands in `list_id`, else the
     channel's own list (General and section channels need a `list_id`). Its description quotes
-    the message and says where it came from. A message already made into a task is refused."""
+    the message and says where it came from, and the message's files are attached to it (the
+    message keeps its own). A message already made into a task is refused."""
     unknown = set(fields) - TASK_FIELDS
     if unknown:
         raise Invalid(f"unknown field(s): {', '.join(sorted(unknown))}")
@@ -752,11 +780,20 @@ def make_task(
     author = session.get(Account, msg.author_id)
     quote = "\n".join(f"> {line}" for line in msg.body_md.splitlines())
     who = author.display_name if author else "someone"
-    body = f"{quote}\n\nFrom #{ch.name} chat, posted by {who}."
+    body = f"{quote}\n\nFrom #{ch.name} chat, posted by {who}.".strip()
+    copies = [
+        attachments.Pasted(f.filename, f.content_type, f.data)
+        for f in session.scalars(
+            select(MessageFile)
+            .where(MessageFile.message_id == msg.id)
+            .order_by(MessageFile.created_at, MessageFile.id)
+        )
+    ]
     fields = {k: v for k, v in fields.items() if v is not None}
     fields.setdefault("title", default_title(msg.body_md))
     with apply_change(session, actor) as cx:
         item = items_svc.create_item(session, actor, list_id=target, body_md=body, **fields)
+        attachments.attach_pasted(cx, item, copies)
         msg.item_id = item.id
         cx.record(
             "message.task_created",

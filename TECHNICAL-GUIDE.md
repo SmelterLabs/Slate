@@ -79,6 +79,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
+| `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
 | `service/workload.py`, `health.py` | Capacities and the Box view's numbers; the health report. |
 | `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models; counted raw upload bodies; the long-poll helpers. |

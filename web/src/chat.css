@@ -524,6 +524,117 @@
   border-color: var(--accent);
   box-shadow: var(--focus-ring);
 }
+.chat-composer.dragging {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: var(--card-hover);
+}
+.chat-attach {
+  list-style: none;
+  margin: 0;
+  padding: 6px 6px 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-attach li {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: 4px 26px 4px 8px;
+  font-size: 12px;
+}
+.chat-attach li.image {
+  padding: 0;
+  overflow: hidden;
+}
+.chat-attach li.chat-attach-busy {
+  border-style: dashed;
+  padding: 4px 8px;
+}
+.chat-attach img {
+  display: block;
+  height: 64px;
+  max-width: 160px;
+  object-fit: cover;
+}
+.chat-attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attach-x {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(20, 20, 26, 0.65);
+  color: #fff;
+  cursor: pointer;
+}
+.chat-attach-x:hover {
+  background: rgba(20, 20, 26, 0.9);
+}
+.chat-files {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-files li {
+  min-width: 0;
+  max-width: 100%;
+}
+.chat-file-image {
+  display: block;
+  max-width: min(360px, 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0;
+  background: var(--bg);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.chat-file-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+}
+.chat-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.chat-file:hover,
+.chat-file-image:hover {
+  border-color: var(--accent);
+}
+.chat-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chat-composer textarea {
   width: 100%;
   border: 0;

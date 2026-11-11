@@ -47,6 +47,7 @@ from slate.models import (
     EngineCursor,
     Event,
     Item,
+    MessageFile,
     Role,
     Token,
     utcnow,
@@ -350,10 +351,11 @@ def _db(session: Session) -> dict[str, Any]:
         "disk_free_bytes": free,
         "events": session.scalar(select(func.count()).select_from(Event)) or 0,
         "items": session.scalar(select(func.count()).select_from(Item)) or 0,
-        # Bytes held by task attachments and doc files (pages' images and file docs'
-        # revisions): what grows the one SQLite file as documents are uploaded.
+        # Bytes held by task attachments, doc files (pages' images and file docs' revisions)
+        # and chat files: what grows the one SQLite file as documents are uploaded.
         "blob_bytes": (session.scalar(select(func.coalesce(func.sum(Attachment.size), 0))) or 0)
-        + (session.scalar(select(func.coalesce(func.sum(DocFile.size), 0))) or 0),
+        + (session.scalar(select(func.coalesce(func.sum(DocFile.size), 0))) or 0)
+        + (session.scalar(select(func.coalesce(func.sum(MessageFile.size), 0))) or 0),
     }
 
 

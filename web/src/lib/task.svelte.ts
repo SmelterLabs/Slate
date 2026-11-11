@@ -19,7 +19,10 @@ class TaskWindow {
   thumbs = $state<Record<string, string>>({});
   uploading = $state(0);
   /** The attachment open in the full-screen viewer (images, videos, PDFs), with its object URL. */
-  viewing = $state<{ a: Attachment; url: string; blob: Blob } | null>(null);
+  viewing = $state<{ a: Viewable; url: string; blob: Blob } | null>(null);
+  /** What the viewer steps through when it was opened somewhere other than a task (a chat
+   *  message's files): the files and where each one's bytes are. */
+  #among: Among | null = null;
   /** A request to the activity column: scroll to this comment, light it, and focus the reply box
    * (the "waiting on you" banner's Answer). `n` makes a repeat click a new request. */
   revealing = $state<{ commentId: string | null; n: number } | null>(null);
@@ -176,8 +179,8 @@ class TaskWindow {
     return doc.id;
   }
 
-  async #blob(id: string): Promise<Blob> {
-    const res = await fetch(`/api/v1/attachments/${id}`, {
+  async #blob(id: string, path: (id: string) => string = (i) => `/attachments/${i}`): Promise<Blob> {
+    const res = await fetch(`/api/v1${path(id)}`, {
       headers: authHeaders(board.token),
     });
     if (!res.ok) throw new ApiError(res.status, res.statusText);
@@ -197,12 +200,13 @@ class TaskWindow {
   /** Images, videos, PDFs and documents the board can draw (Word, Excel, CSV, text;
    *  lib/office) open in the viewer; anything else downloads. The file needs the token, so it
    *  goes through a blob either way. */
-  async open(a: Attachment) {
+  async open(a: Viewable, among: Among | null = null) {
     try {
-      const blob = await this.#blob(a.id);
+      const blob = await this.#blob(a.id, among?.path);
       const url = URL.createObjectURL(blob);
       if (isMedia(a)) {
         this.closeViewer();
+        this.#among = among;
         this.viewing = { a, url, blob };
         return;
       }
@@ -217,8 +221,8 @@ class TaskWindow {
   }
 
   /** The attachments of the open task the viewer can step through (media and documents). */
-  media(): Attachment[] {
-    return (board.detail?.attachments ?? []).filter(isMedia);
+  media(): Viewable[] {
+    return (this.#among?.files ?? board.detail?.attachments ?? []).filter(isMedia);
   }
 
   /** Step the viewer to the previous or next image or video of the task. */
@@ -226,13 +230,14 @@ class TaskWindow {
     const all = this.media();
     const at = all.findIndex((x) => x.id === this.viewing?.a.id);
     if (at < 0 || all.length < 2) return;
-    void this.open(all[(at + delta + all.length) % all.length]);
+    void this.open(all[(at + delta + all.length) % all.length], this.#among);
   }
 
   closeViewer() {
     if (!this.viewing) return;
     URL.revokeObjectURL(this.viewing.url);
     this.viewing = null;
+    this.#among = null;
   }
 
   // --- watchers -----------------------------------------------------------------------------
@@ -254,8 +259,16 @@ class TaskWindow {
   }
 }
 
+/** A stored file the viewer can show: a task's attachment or a chat message's file. */
+export type Viewable = Pick<Attachment, 'id' | 'filename' | 'content_type' | 'size'>;
+/** The set a viewed file belongs to, and the API path of each one's bytes. */
+export interface Among {
+  files: Viewable[];
+  path: (id: string) => string;
+}
+
 /** What the viewer shows: images, videos, PDFs, and the documents lib/office can draw. */
-export function isMedia(a: Attachment): boolean {
+export function isMedia(a: Viewable): boolean {
   return /^(image|video)\//.test(a.content_type) || a.content_type === 'application/pdf' || isDocumentKind(viewerKind(a.content_type, a.filename));
 }
 

@@ -12,6 +12,7 @@ import {
   insertHashPick,
   insertTaskRef,
   mentionsIn,
+  pastedName,
   renderBody,
   rows,
   taskRefAt,
@@ -38,6 +39,7 @@ const msg = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({
   last_reply_at: null,
   reply_author_ids: [],
   linked_items: [],
+  files: [],
   ...over,
 });
 
@@ -251,5 +253,18 @@ describe('agent turns (applyTurnEvent)', () => {
     const t: AgentTurn[] = [{ agent_id: 'A1', thread_id: null, state: 'working' }];
     expect(applyTurnEvent(t, { type: 'message.posted', after: { channel: 'list:L1' } })).toBe(t);
     expect(applyTurnEvent(t, { type: 'message.agent_turn', after: { state: 'done' } })).toBe(t);
+  });
+});
+
+describe('pastedName', () => {
+  const at = new Date(2026, 10, 9, 8, 5, 3);
+  it('names a clipboard screenshot by when it was pasted', () => {
+    expect(pastedName('image.png', 'image/png', at)).toBe('Screenshot 2026-11-09 08.05.03.png');
+    expect(pastedName('', 'image/jpeg', at)).toBe('Screenshot 2026-11-09 08.05.03.jpg');
+    expect(pastedName('', '', at)).toBe('Screenshot 2026-11-09 08.05.03.png');
+  });
+  it('keeps a real file name', () => {
+    expect(pastedName('floor-plan.pdf', 'application/pdf', at)).toBe('floor-plan.pdf');
+    expect(pastedName('IMG_2041.png', 'image/png', at)).toBe('IMG_2041.png');
   });
 });

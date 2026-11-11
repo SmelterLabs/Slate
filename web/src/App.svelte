@@ -447,8 +447,9 @@
     {/if}
     {#if board.openId}
       <TaskModal />
-      <MediaViewer />
     {/if}
+    <!-- Above the task window; also opened from a chat message's files, with no task open. -->
+    <MediaViewer />
     {#if palette}
       <CommandPalette
         onclose={() => (palette = false)}

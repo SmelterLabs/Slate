@@ -9,22 +9,19 @@ need nothing special. Downloads need the same bearer token as every other read.
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import AttachmentOut
-from slate.api.uploads import read_body
+from slate.api.uploads import CSP as CSP  # api/docs.py serves doc files under it too
+from slate.api.uploads import file_response, read_body
 from slate.models import Attachment
 from slate.service import attachments
 from slate.service.items import get_item
 
 router = APIRouter(tags=["attachments"])
-
-# Uploaded HTML or SVG must never run scripts as this origin.
-CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
 
 
 @router.get("/items/{item_id}/attachments", response_model=list[AttachmentOut])
@@ -96,18 +93,7 @@ def download(
 ) -> Response:
     """The file's bytes. Images and PDFs show inline unless `?download=true`."""
     att, data = attachments.read_bytes(session, attachment_id)
-    inline = not download and att.content_type.startswith(("image/", "application/pdf", "text/"))
-    disposition = "inline" if inline else "attachment"
-    return Response(
-        content=data,
-        media_type=att.content_type,
-        headers={
-            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(att.filename)}",
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-store",
-            "Content-Security-Policy": CSP,
-        },
-    )
+    return file_response(att.filename, att.content_type, data, download=download)
 
 
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)

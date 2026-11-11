@@ -160,6 +160,10 @@ EVENT_DOCS: dict[str, str] = {
     "message.edited": "A chat message's text changed (`after.mentions` = handles the edit added).",
     "message.deleted": "A chat message was deleted by its author (the text goes, the thread "
     "stays).",
+    "message.file_uploaded": "A file was uploaded to send with a chat message (`after` = "
+    "its metadata, no channel: until it is sent only its uploader hears of it; a sent "
+    "message carries its files in `message.posted` `after.files`).",
+    "message.file_discarded": "An upload that was never sent was taken back or swept.",
     "message.reacted": "An emoji reaction was added to a chat message.",
     "message.unreacted": "An emoji reaction was removed from a chat message.",
     "message.task_created": "A chat message was turned into a task (`item_id` = the new task).",

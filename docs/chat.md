@@ -1,7 +1,7 @@
 # Chat
 
 Channels per list and section, General, threads, exact read exposure, the chat panel, rich
-bodies, and each agent's own chat. A chat @mention that starts an agent is in
+bodies, files on messages, and each agent's own chat. A chat @mention that starts an agent is in
 `docs/agents-work-loop.md` ("Chat mentions wake an agent").
 
 ## Chat
@@ -189,6 +189,47 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   usual gone screen answers). Server side nothing resolves them: `chat.readable()` (push text) turns
   the tokens into "a page" / "a list", never a title, because the recipient may not see that page.
   E2E: `chat.spec.ts` "# links a page and a list".
+
+## Files on messages
+
+A message carries the files sent with it: a screenshot pasted from the clipboard, a dropped or
+picked file (`service/chat_files.py`, `message_files`, migration `b4f8d2e6a1c9`).
+
+- **Upload, then send.** `POST /channels/{key}/files?filename=` (raw body; `/files/base64` for
+  JSON-only clients, MCP `slate_chat` `upload_file`) stores a `MessageFile` with `message_id`
+  null and answers `{id, filename, content_type, size}`. `POST /channels/{key}/messages` with
+  `file_ids` sends them: `chat.post` takes only the caller's own unsent uploads to that channel
+  (anything else is a 422), at most `chat_files.MAX_FILES` (10), and sets their `message_id`
+  inside the message's change. `message.posted` `after.files` and every message view (`files`)
+  carry the metadata, so a woken agent finds the files on the mention it is handed. With files
+  the body may be empty, on post and on edit.
+- **Checked like attachments** (`attachments.clean`): a name, not empty, at most 25 MB, a plain
+  `type/subtype` content type or the one guessed from the name. Bytes live in
+  `message_files.data` (deferred), so the database backup covers them and the health report's
+  `db.blob_bytes` counts them. The body is read under the cap (`api/uploads.read_body`).
+- **Read where the message is read.** `GET /message-files/{id}` (`chat_files.read_bytes`) loads
+  the file's message through the caller's read filter, so channel access, a project agent's
+  share date and members-only apply to the file exactly as to the message; anyone else gets the
+  404 of a file that does not exist. Served by `api/uploads.file_response`: `nosniff`,
+  `no-store`, the sandbox CSP, inline only for images, PDFs and text.
+- **Unsent is private.** Until it is sent only its uploader reads or discards a file
+  (`DELETE /message-files/{id}`). `message.file_uploaded` / `message.file_discarded` have the
+  uploader as subject and no channel, so `access` shows them to nobody else. An upload never
+  sent is swept on its uploader's next upload once it is `UNSENT_KEEP` (24 h) old.
+- **Deleting the message deletes its files** (rows and bytes, in the same change;
+  `message.deleted` `before.files` keeps the metadata). **Make a task** copies the files onto
+  the task as attachments; the message keeps its own.
+- **Board.** `ChatComposer`: `onpaste` takes `clipboardData.files` (a screenshot has no text,
+  so plain text pastes as before), drop on the box, or the paperclip. Each file uploads at once
+  (`chat.upload`) and waits above the box as a chip (images as thumbnails) with a remove
+  button; Send is enabled by text or a file and is held while an upload is in flight. A
+  clipboard image arrives named `image.png`: `pastedName` names it
+  `Screenshot <date> <time>.png`. Changing channel takes back what was not sent.
+  `MessageItem` shows images inline and other files as chips; a click opens `MediaViewer`
+  (`task.open(file, {files, path})`, the same viewer as task attachments, mounted in `App`
+  whether or not a task is open) and steps through that message's files.
+- **Agents.** The Hermes adapter's chat prompt lists each message's `files` and where to read
+  them. Tests: `tests/test_chat_files.py`, `web/e2e/chat-files.spec.ts`.
 
 ## Agent chats (`agent:<id>`)
 

@@ -2268,6 +2268,8 @@ export const EVENT_TYPES = [
   'message.posted',
   'message.edited',
   'message.deleted',
+  'message.file_uploaded',
+  'message.file_discarded',
   'message.reacted',
   'message.unreacted',
   'message.task_created',
