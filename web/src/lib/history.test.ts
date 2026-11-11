@@ -30,6 +30,15 @@ describe('verb', () => {
     expect(verb(posted, withTitles)).toBe('wrote: “Picked up #Fix the gutter and #zzzzzzzzzzzz”');
   });
 
+  it('a deleted comment says whose it was, never what it said', () => {
+    expect(verb(ev({ type: 'comment.deleted', actor_id: 'c', before: { author_id: 'c', body_md: 'x' } }), ctx)).toBe(
+      'deleted a comment',
+    );
+    expect(verb(ev({ type: 'comment.deleted', actor_id: 'd', before: { author_id: 'c', body_md: 'x' } }), ctx)).toBe(
+      'deleted Alex’s comment',
+    );
+  });
+
   it('a doc mention says where and what', () => {
     const e = ev({ type: 'doc.mentioned', after: { mentions: ['agent'], title: 'Roof plan', excerpt: '@agent price it' } });
     expect(verb(e, ctx)).toBe('mentioned @agent in “Roof plan”: “@agent price it”');

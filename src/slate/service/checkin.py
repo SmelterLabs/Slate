@@ -164,8 +164,11 @@ def checkin(
         .where(ItemAssignee.account_id == account.id)
         .union(select(Watcher.item_id).where(Watcher.account_id == account.id))
     )
+    from slate.service.comments import not_about_deleted_comment  # noqa: PLC0415
+
     base = select(Event).where(
         Event.actor_id != account.id,
+        not_about_deleted_comment(),
         or_(
             Event.type.in_(
                 ("item.assigned", "item.reminder", "account.digest", "comment.assigned")

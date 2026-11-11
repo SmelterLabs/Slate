@@ -97,6 +97,11 @@ class TaskWindow {
     return (await this.#write(() => post<Comment>(`/comments/${id}/resolve`))) !== null;
   }
 
+  /** Delete a comment for good: your own, or anyone's as an owner or admin. */
+  async deleteComment(id: string): Promise<boolean> {
+    return (await this.#write(() => api<void>('DELETE', `/comments/${id}`))) !== null;
+  }
+
   async editComment(id: string, body: string): Promise<boolean> {
     return (await this.#write(() => patch<Comment>(`/comments/${id}`, { body_md: body }))) !== null;
   }

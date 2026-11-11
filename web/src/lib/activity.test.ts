@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canDeleteComment,
+  deleteCommentQuestion,
   entriesFrom,
   highlightMentions,
   insertMention,
@@ -12,7 +14,7 @@ import {
 } from './activity';
 import { renderMarkdown } from './markdown';
 import { ev } from './fixtures';
-import type { ActivityEntry, Comment } from './types';
+import type { ActivityEntry, Comment, Me } from './types';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 18, min)).toISOString();
 
@@ -124,5 +126,23 @@ describe('reactions and task boxes', () => {
     expect(stamp('2026-10-21T19:14:00Z', now)).toBe('Oct 21 at 2:14 PM');
     expect(fileSize(2_500_000)).toBe('2.4 MB');
     expect(fileSize(2048)).toBe('2 KB');
+  });
+});
+
+describe('deleting a comment', () => {
+  const me = (id: string, role: Me['account']['role']) => ({ account: { id, role } }) as Me;
+
+  it('is for its author or an owner or admin', () => {
+    expect(canDeleteComment(comment, me('acc_alex', 'member'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_blair', 'member'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_blair', 'guest'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_blair', 'admin'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_blair', 'owner'))).toBe(true);
+    expect(canDeleteComment(comment, null)).toBe(false);
+  });
+
+  it('asks whose comment goes', () => {
+    expect(deleteCommentQuestion(comment, 'acc_alex', 'Alex')).toMatch(/^Delete your comment\?/);
+    expect(deleteCommentQuestion(comment, 'acc_blair', 'Alex')).toMatch(/^Delete Alex’s comment\?/);
   });
 });

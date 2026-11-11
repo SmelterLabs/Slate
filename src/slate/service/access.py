@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, exists, false, literal, or_, select, true, union_all
+from sqlalchemy import and_, exists, false, func, literal, or_, select, true, union_all
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
 from slate.connection_models import AgentConnection
@@ -351,6 +351,7 @@ _messages = Message.__table__
 _accounts = Account.__table__
 _comments = Comment.__table__
 _doc_comments = DocComment.__table__
+_events = Event.__table__
 _docs = Doc.__table__
 # Workspace-wide things: capacities belong to no list, so they follow General
 # (members yes; guests and list-limited tokens no).
@@ -669,10 +670,19 @@ def _guest_criteria() -> list[Any]:
 
 def _hidden_comments() -> Any:
     """Card and page comments addressed to a workspace agent: hidden from guests, with their
-    events (the comment event comes before its Ask is set)."""
+    events (the comment event comes before its Ask is set). A deleted card comment that was by
+    or addressed to one stays hidden: its row is gone, so its `comment.deleted` event says."""
+    gone = _events.c.before_json
     return union_all(
         select(_comments.c.id).where(_comments.c.assignee_id.in_(_workspace_agents())),
         select(_doc_comments.c.id).where(_doc_comments.c.assignee_id.in_(_workspace_agents())),
+        select(_events.c.subject_id).where(
+            _events.c.type == "comment.deleted",
+            or_(
+                func.json_extract(gone, "$.author_id").in_(_workspace_agents()),
+                func.json_extract(gone, "$.assignee_id").in_(_workspace_agents()),
+            ),
+        ),
     )
 
 
@@ -1162,7 +1172,13 @@ class EventGate:
                     )
             if self._hidden_comment[subject]:
                 return None
-        after = payload.get("after")
+        before, after = payload.get("before"), payload.get("after")
+        if (
+            type_ == "comment.deleted"
+            and isinstance(before, dict)
+            and {before.get("author_id"), before.get("assignee_id")} & self._agents
+        ):
+            return None  # a deleted comment by it or addressed to it
         if isinstance(after, dict) and after.get("assignee_id") in self._agents:
             return None  # an Ask addressed to it
         out = payload

@@ -1545,6 +1545,13 @@ COMMENT_ACTIONS = {
         rest=lambda p: Rest("PATCH", f"/comments/{_q(p.id)}", body={"body_md": p.body_md}),
         local=via(comments_api.edit_comment, comment_id="id"),
     ),
+    "delete": Action(
+        "delete a comment for good (id is the comment id; your own, or anyone's as an admin)",
+        "write",
+        CommentRef,
+        rest=lambda p: Rest("DELETE", f"/comments/{_q(p.id)}", empty={"deleted": p.id}),
+        local=via(comments_api.delete_comment, comment_id="id", empty=_deleted("deleted")),
+    ),
     "react": Action(
         "add your emoji reaction to a comment",
         "write",
