@@ -1,4 +1,5 @@
-// Chat files: paste a screenshot into the message box (it waits as a thumbnail, then goes with
+// A screenshot pasted into a card's comment box becomes a file on the task that the comment
+// names. Chat files: paste a screenshot into the message box (it waits as a thumbnail, then goes with
 // the message and opens in the viewer), send a picked file with no text, and take one back.
 import { expect, test, type Page } from '@playwright/test';
 import { BASE_URL, seed } from './seed';
@@ -116,4 +117,27 @@ test('a picked file goes with no text; a removed one is not sent', async ({ page
   expect(msgs).toHaveLength(1);
   expect(msgs[0].body_md).toBe('');
   expect(msgs[0].files.map((f) => f.filename)).toEqual(['floor-plan.pdf']);
+});
+
+test('paste a screenshot into a card comment: it is attached and the comment names it', async ({ page }) => {
+  const listId = await scratch('Cards');
+  const item = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Fix the error' });
+  await signedIn(page, `/#/list/${listId}?task=${item.id}`);
+  const tw = page.locator('.tw');
+  const box = tw.getByLabel('Add comment');
+  await box.click();
+  await box.pressSequentially('Here is what I see');
+
+  await pasteScreenshot(page, '.tw textarea[aria-label="Add comment"]');
+  await expect(box).toHaveValue(/^Here is what I see\n📎 Screenshot \d{4}-\d\d-\d\d \d\d\.\d\d\.\d\d\.png\n$/);
+  const atts = await api<{ filename: string; content_type: string }[]>('GET', `/items/${item.id}/attachments`);
+  expect(atts).toHaveLength(1);
+  expect(atts[0].content_type).toBe('image/png');
+  expect(atts[0].filename).toMatch(/^Screenshot /);
+
+  await box.press('Enter');
+  await expect(box).toHaveValue('');
+  const brief = await api<{ text: string }>('GET', `/items/${item.id}/brief`);
+  expect(brief.text).toContain(`- ${atts[0].filename} (image/png`);
+  expect(brief.text).toContain(`📎 ${atts[0].filename}`);
 });
