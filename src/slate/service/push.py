@@ -9,7 +9,9 @@ account's prefs `push_reasons` (default `DEFAULT_REASONS`): the same entries, wo
 lock screen by `notification_for()`. One reason is push-only: `chat`, any new message in a
 channel the account can read that is not already a mention or a reply to it (`chat_reason`).
 It never lands in the Inbox: a busy channel is not news to keep, but a desktop toast for it is
-what makes chat usable from another window. `renudge()` follows it up: chat that is still
+what makes chat usable from another window. One inbox entry is never pushed: an agent's report
+that it started work (`started_work`); the report that ends the run is. `renudge()` follows
+chat up: chat that is still
 unread `chat_renudge_minutes` (prefs; default 10, 0 = off) after its newest message gets one
 more push per newest message ("Still unread: #Todo"), so a toast that slid by is not the end
 of it. The engine step runs both (slate.pusher). `process()` is the engine step: read events
@@ -480,6 +482,14 @@ FOLLOW_REASONS = inbox.FOLLOW_REASONS - {"watching"}
 EDIT_QUIET = timedelta(minutes=10)
 
 
+def started_work(ev: Event) -> bool:
+    """An agent's report that it started (`working`). It stays in the Inbox and the activity,
+    but is never pushed or emailed: it follows the watcher's own message by a second, and the
+    report that ends the run (review, done, blocked) is the one worth an interruption."""
+    after = ev.after_json if isinstance(ev.after_json, dict) else {}
+    return ev.type == "item.reported" and after.get("state") == "working"
+
+
 def wants(account: Account, reason: str | None, ev: Event, f: inbox.Follows) -> bool:
     """Whether `account` is pushed `ev` for `reason`: chosen in its push reasons, or `watching`
     chosen and this is any activity on an item it watches."""
@@ -488,6 +498,8 @@ def wants(account: Account, reason: str | None, ev: Event, f: inbox.Follows) -> 
 
 def wanted(chosen: frozenset[str], reason: str | None, ev: Event, f: inbox.Follows) -> bool:
     """`wants` for any set of chosen reasons (push or email)."""
+    if reason == "watching" and started_work(ev):
+        return False
     if reason in chosen:
         return True
     return "watching" in chosen and reason in FOLLOW_REASONS and ev.item_id in f.watched
