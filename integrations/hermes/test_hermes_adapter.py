@@ -265,6 +265,8 @@ def test_a_turn_that_ran_out_of_steps_says_so_instead_of_no_reason_given(state_f
     assert out["outcome"] == "blocked"
     assert "step limit" in out["reply"] and "60/60" in out["reply"]
     assert "no reason given" not in out["reply"]
+    # Nobody has anything to answer: the card waits on no one and Run now carries on.
+    assert out["resumable"] is True and "waiting_on" not in out
 
 
 def test_without_a_model_field_the_session_is_plain_and_a_fields_error_is_harmless(state_file):

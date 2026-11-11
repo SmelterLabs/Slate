@@ -49,6 +49,9 @@ turn, one comment on the card (the card is the conversation); `note` is the olde
 form. A task that waits on someone's answer comes back with `reply` (their comment) and
 `thread` on stdin when they answer. An explicit valid result and exit zero are both required
 for success. Missing results and nonzero exits report blocked (chat: release, never stdout).
+A `blocked` result that names nobody waits on the agent's owner, unless it carries
+`"resumable": true`: the run stopped short of needing anyone (a step limit), the card waits on
+no one, and Run now carries on.
 The retained per-attempt proof is sent on heartbeat/finish and in env `SLATE_RUN_ID`.
 `SLATE_WORK_KINDS` (a comma list of task, chat, doc; default all three) restricts admission
 before a lease is taken; connection setup must configure this to the adapter's actually
@@ -709,7 +712,8 @@ class Runner:
         else:
             note = _tail(err) or _tail(out) or f"exited with code {code}"
             body = {"outcome": "blocked", "note": f"Run failed (exit {code}): {note}"}
-        if body["outcome"] == "blocked" and not body.get("waiting_on"):
+        resumable = bool(result and code == 0 and result.get("resumable") is True)
+        if body["outcome"] == "blocked" and not body.get("waiting_on") and not resumable:
             who = self._owner(task)
             if who:
                 body["waiting_on"] = who

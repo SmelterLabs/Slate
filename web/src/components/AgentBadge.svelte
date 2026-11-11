@@ -13,6 +13,7 @@
   import { task } from '../lib/task.svelte';
   import type { AgentFlag, Item } from '../lib/types';
   import Icon from './Icon.svelte';
+  import RunNow from './RunNow.svelte';
 
   let { flag, item = null, full = false }: { flag: AgentFlag; item?: Item | null; full?: boolean } = $props();
 
@@ -88,6 +89,10 @@
         void task.clearAgentFlag(item.id);
       }}>✕ Clear</button
     >
+  {/if}
+  {#if full && item && flag.state === 'blocked' && !item.waiting_on_account_id}
+    <!-- Blocked and waiting on nobody (it stopped at a step limit): the next move is a run. -->
+    <span class="again" data-blocked-run><RunNow {item} /></span>
   {/if}
   {#if pct != null}
     <span class="bar" aria-hidden="true"><span style:width="{pct}%"></span></span>

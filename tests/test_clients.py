@@ -228,6 +228,20 @@ def test_runner_a_failing_command_finishes_blocked_waiting_on_a_person(
     assert view["waiting_on_account_id"] == me["account"]["id"]
 
 
+def test_runner_a_resumable_stop_waits_on_nobody(client, alex, todo, make_account, tmp_path):
+    """A run that only ran out of steps asks nothing of anyone: `resumable` keeps the runner
+    from naming the owner, so the card reads blocked (with Run now), not "waiting on you"."""
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo, title="Set up the mail server", who=("agent", "alex"))
+    out = "{'outcome': 'blocked', 'resumable': True, 'reply': 'Stopped at the step limit.'}"
+    cmd = f'"{sys.executable}" -c "import json; print(json.dumps({out}))"'
+
+    assert _runner(client, h, tmp_path, cmd).once(item["id"]) == 1
+    view = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert view["agent"]["state"] == "blocked"
+    assert view["waiting_on_account_id"] is None
+
+
 def test_runner_a_refused_finish_is_retained_without_unsafe_fallback(
     client, alex, todo, make_account, tmp_path
 ):

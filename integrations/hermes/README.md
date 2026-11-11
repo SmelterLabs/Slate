@@ -76,6 +76,8 @@ existing model/provider settings.
    the task outcome. `assistant.completed`, a transcript closing line and transport `done`
    do not prove execution success. Failure, cancellation, interruption, incomplete status,
    approval and step/budget limits outrank success text. Missing status means blocked.
+   A step or budget limit is reported `blocked` with `resumable: true` and no `waiting_on`:
+   the card waits on nobody and Run now continues in the same session.
 5. The generic runner writes the final reply/outcome to Slate and settles only the take's
    dispatched Asks. Adapters never bulk-resolve Asks or write task status directly.
 
