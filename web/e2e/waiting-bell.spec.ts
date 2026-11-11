@@ -56,7 +56,12 @@ test('Notifications shows the Tell me when grid and saves a row', async ({ page 
   await row.click();
   await expect(row).toBeChecked({ checked: !before });
   await page.screenshot({ path: 'test-results/notify-grid.png' });
-  const me = await api<{ prefs: { push_reasons?: string[] } }>('GET', '/me', alex);
-  expect((me.prefs.push_reasons ?? []).includes('status')).toBe(!before);
+  // The box flips before the save lands: wait for the server to have it.
+  await expect
+    .poll(async () => {
+      const me = await api<{ prefs: { push_reasons?: string[] } }>('GET', '/me', alex);
+      return (me.prefs.push_reasons ?? []).includes('status');
+    })
+    .toBe(!before);
   await row.click(); // put it back
 });
