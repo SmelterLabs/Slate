@@ -6,6 +6,7 @@ import { authHeaders } from './api';
 
 import { ApiError, api, get, patch, post, put } from './api';
 import { toggleReaction } from './activity';
+import { pastedName } from './chat';
 import { viewerKind } from './docs';
 import { isDocumentKind } from './office';
 import { board } from './store.svelte';
@@ -142,8 +143,10 @@ class TaskWindow {
     const done: Attachment[] = [];
     for (const file of files) {
       this.uploading += 1;
+      // A clipboard screenshot has no name of its own (`image.png` every time).
+      const name = pastedName(file.name, file.type, new Date());
       try {
-        const res = await fetch(`/api/v1/items/${itemId}/attachments?filename=${encodeURIComponent(file.name || 'pasted.png')}`, {
+        const res = await fetch(`/api/v1/items/${itemId}/attachments?filename=${encodeURIComponent(name)}`, {
           method: 'POST',
           headers: {
             ...authHeaders(board.token),
@@ -155,7 +158,7 @@ class TaskWindow {
         if (!res.ok) throw new ApiError(res.status, (data as { detail?: string })?.detail ?? res.statusText);
         done.push(data as Attachment);
       } catch (e) {
-        board.flash(`Could not attach ${file.name}: ${e instanceof Error ? e.message : String(e)}`);
+        board.flash(`Could not attach ${name}: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         this.uploading -= 1;
       }

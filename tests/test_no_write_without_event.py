@@ -183,7 +183,7 @@ READS = {
     "slate.service.search": {"search", "like_pattern"},
     "slate.service.chatwake": {"lease_view", "turn_view", "remaining"},
     "slate.service.docwake": {"lease_view", "turn_view", "remaining", "section_around"},
-    "slate.service.brief": {"brief", "closing_line", "default_ask"},
+    "slate.service.brief": {"brief", "closing_line", "default_ask", "files_note"},
     "slate.service.checkin": {"checkin", "queue", "why"},
     "slate.service.activity": {"activity"},
     "slate.service.favorites": {"list_favorites", "get_favorite", "favorite_out"},

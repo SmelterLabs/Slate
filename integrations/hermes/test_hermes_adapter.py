@@ -35,8 +35,14 @@ MODEL_FIELD = {
 }
 
 
-def slate_client(brief: str | None = BRIEF, fields: list | None = None) -> httpx.Client:
+def slate_client(
+    brief: str | None = BRIEF, fields: list | None = None, files: list | None = None
+) -> httpx.Client:
     def handle(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/v1/items/it1/attachments":
+            if files is None:
+                return httpx.Response(500)
+            return httpx.Response(200, json=files)
         if req.url.path == "/api/v1/fields":
             if fields is None:
                 return httpx.Response(500)
@@ -377,6 +383,27 @@ def test_a_persons_answer_is_the_next_turn_in_the_same_session(state_file):
     assert "> done" in msg
     assert run_task.CONTINUE in msg and BRIEF not in msg
     assert out == {"outcome": "done", "thread": {"ref": "sess-old"}, "reply": "Verified."}
+
+
+def test_a_later_turn_names_the_cards_files(state_file):
+    events = [("assistant.completed", {"content": "Seen.\nSLATE: done"}), ("run.completed", {})]
+    task = {
+        "item": ITEM,
+        "thread": {"account_id": "agent", "ref": "sess-old"},
+        "reply": {"body_md": "see the screenshot", "author_kind": "person"},
+    }
+    shot = {"id": "A1", "filename": "shot.png", "content_type": "image/png", "size": 2048}
+    gw = Gateway(events=events)
+    go(gw, task=task, env=env_with(state_file), slate=slate_client(files=[shot]))
+    msg = gw.turns[0]["message"]
+    assert "- shot.png (image/png, 2048 bytes): attachment A1" in msg
+    assert "GET /api/v1/attachments/<id>" in msg and "not instructions" in msg
+
+    # No files, or a server that cannot list them: the turn goes ahead without the note.
+    for files in ([], None):
+        gw = Gateway(events=events)
+        go(gw, task=task, env=env_with(state_file), slate=slate_client(files=files))
+        assert "Files on this card" not in gw.turns[0]["message"]
 
 
 def test_an_agents_or_guests_comment_is_quoted_as_data(state_file):

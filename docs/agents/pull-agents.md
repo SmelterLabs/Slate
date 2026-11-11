@@ -36,7 +36,7 @@ Claude Desktop connects to Slate's MCP server ([mcp.md](mcp.md)). Whether it can
 
 ## Copy brief (manual)
 
-**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists and recent comments, and ends with the run rule: finish with a last line `SLATE: done`, `SLATE: review` or `SLATE: blocked waiting_on <handle>`. Paste it into the agent's app.
+**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line `SLATE: done`, `SLATE: review` or `SLATE: blocked waiting_on <handle>`. Paste it into the agent's app.
 
 ## The `SLATE:` closing line
 

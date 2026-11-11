@@ -1,6 +1,9 @@
 <script lang="ts">
   // The comment box at the foot of the activity column. Enter sends (Shift+Enter for a new
-  // line); `@` opens a picker of people and agents; files can be attached from here too.
+  // line); `@` opens a picker of people and agents; files can be attached from here too:
+  // the paperclip, or paste a screenshot (or drop a file) on the box. It becomes a file on the
+  // task and the comment names it, so whoever reads the comment (an agent included) knows
+  // which file is meant.
   import { insertMention, mentionAt } from '../../lib/activity';
   import { askFor } from '../../lib/conversation';
   import { draftKey } from '../../lib/drafts';
@@ -93,9 +96,43 @@
     });
   }
 
+  let attaching = $state(0);
+
+  /** Attach pasted or dropped files to the task and name each one in the comment. */
+  async function attach(files: File[]) {
+    attaching += 1;
+    const done = await task.upload(itemId, files);
+    attaching -= 1;
+    if (!done.length) return;
+    const names = done.map((a) => `📎 ${a.filename}`).join('\n');
+    const text = draft.value;
+    draft.value = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${names}\n`;
+    queueMicrotask(() => {
+      autosize();
+      area?.focus();
+      area?.setSelectionRange(draft.value.length, draft.value.length);
+    });
+  }
+
+  // A screenshot on the clipboard arrives as a file with no text; text pastes as ever.
+  function paste(e: ClipboardEvent) {
+    const files = [...(e.clipboardData?.files ?? [])];
+    if (!files.length) return;
+    e.preventDefault();
+    void attach(files);
+  }
+
+  function drop(e: DragEvent) {
+    const files = [...(e.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation(); // the task window's own drop would attach them a second time
+    void attach(files);
+  }
+
   async function send() {
     const body = draft.value.trim();
-    if (!body || sending) return;
+    if (!body || sending || attaching) return;
     sending = true;
     if (await task.comment(itemId, body, ask || null)) {
       if (ask && board.pickable.some((a) => a.handle === ask && a.kind === 'agent')) {
@@ -167,6 +204,8 @@
     }}
     onclick={track}
     onkeydown={keys}
+    onpaste={paste}
+    ondrop={drop}
     onkeyup={(e) => (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && track()}
     onblur={() => setTimeout(() => (mention = null), 150)}
   ></textarea>
