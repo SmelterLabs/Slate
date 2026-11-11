@@ -129,7 +129,10 @@ test('paste a screenshot into a card comment: it is attached and the comment nam
   await box.pressSequentially('Here is what I see');
 
   await pasteScreenshot(page, '.tw textarea[aria-label="Add comment"]');
-  await expect(box).toHaveValue(/^Here is what I see\n📎 Screenshot \d{4}-\d\d-\d\d \d\d\.\d\d\.\d\d\.png\n$/);
+  // It waits above the box as a picture; the text typed is untouched.
+  const waiting = tw.getByRole('list', { name: 'Files to send' });
+  await expect(waiting.locator('img')).toBeVisible();
+  await expect(box).toHaveValue('Here is what I see');
   const atts = await api<{ filename: string; content_type: string }[]>('GET', `/items/${item.id}/attachments`);
   expect(atts).toHaveLength(1);
   expect(atts[0].content_type).toBe('image/png');
@@ -137,6 +140,28 @@ test('paste a screenshot into a card comment: it is attached and the comment nam
 
   await box.press('Enter');
   await expect(box).toHaveValue('');
+  await expect(waiting).toHaveCount(0);
+  // The comment shows the picture itself, not the file's name.
+  const comment = tw.locator('[data-comment]', { hasText: 'Here is what I see' }).last();
+  await expect(comment.locator('.chat-file-image img')).toBeVisible();
+  await expect(comment).not.toContainText('📎');
+  await comment.getByRole('button', { name: /^Open Screenshot/ }).click();
+  const viewer = page.getByRole('dialog', { name: /^Viewing Screenshot/ });
+  await expect(viewer.locator('.stage img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+
+  // A screenshot alone is a comment too; one taken back before sending leaves the task.
+  await pasteScreenshot(page, '.tw textarea[aria-label="Add comment"]');
+  await expect(waiting.locator('img')).toBeVisible();
+  await waiting.getByRole('button', { name: /^Remove Screenshot/ }).click();
+  await expect(waiting).toHaveCount(0);
+  await expect.poll(async () => (await api<unknown[]>('GET', `/items/${item.id}/attachments`)).length).toBe(1);
+  await pasteScreenshot(page, '.tw textarea[aria-label="Add comment"]');
+  await expect(waiting.locator('img')).toBeVisible();
+  await tw.locator('button.send').click();
+  await expect(tw.locator('.chat-file-image img')).toHaveCount(2);
+
   const brief = await api<{ text: string }>('GET', `/items/${item.id}/brief`);
   expect(brief.text).toContain(`- ${atts[0].filename} (image/png`);
   expect(brief.text).toContain(`📎 ${atts[0].filename}`);

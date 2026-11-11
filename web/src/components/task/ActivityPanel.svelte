@@ -7,9 +7,11 @@
   import { tick, untrack } from 'svelte';
   import {
     QUICK_REACTIONS,
+    commentFiles,
     canDeleteComment,
     deleteCommentQuestion,
     entriesFrom,
+    fileSize,
     highlightMentions,
     stamp,
     statusColor,
@@ -164,9 +166,18 @@
     return a ? [a] : [];
   }
 
+  // A comment names the files sent with it (`📎 <filename>` lines, written by the comment box):
+  // those lines are shown as the pictures themselves, under the rest of the text.
+  function parts(c: Comment) {
+    return commentFiles(c.body_md, item.attachments ?? []);
+  }
+  $effect(() => {
+    for (const a of item.attachments ?? []) void task.thumb(a);
+  });
+
   function body(c: Comment): string {
     return highlightMentions(
-      renderMarkdown(c.body_md, { refs: liveRefs() }),
+      renderMarkdown(parts(c).text, { refs: liveRefs() }),
       (h) => Object.values(board.accounts).some((a) => a.handle === h),
       board.me?.account.handle,
     );
@@ -325,7 +336,27 @@
               <button class="link" onclick={() => stopEdit(c)}>Cancel</button>
             </div>
           {:else}
-            <div class="md text">{@html body(c)}</div>
+            {@const sent = parts(c)}
+            {#if sent.text}<div class="md text">{@html body(c)}</div>{/if}
+            {#if sent.files.length}
+              <ul class="chat-files" aria-label="Files">
+                {#each sent.files as a (a.id)}
+                  <li>
+                    {#if task.thumbs[a.id]}
+                      <button class="chat-file-image" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
+                        <img src={task.thumbs[a.id]} alt={a.filename} loading="lazy" />
+                      </button>
+                    {:else}
+                      <button class="chat-file" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
+                        <Icon name="clip" size={14} />
+                        <span class="chat-file-name">{a.filename}</span>
+                        <span class="muted small">{fileSize(a.size)}</span>
+                      </button>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           {/if}
           <div class="foot">
             {#each c.reactions ?? [] as rx (rx.emoji)}
