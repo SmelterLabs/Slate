@@ -2,15 +2,17 @@
   // The comment box at the foot of the activity column. Enter sends (Shift+Enter for a new
   // line); `@` opens a picker of people and agents; files can be attached from here too:
   // the paperclip, or paste a screenshot (or drop a file) on the box. It becomes a file on the
-  // task and the comment names it, so whoever reads the comment (an agent included) knows
-  // which file is meant.
-  import { insertMention, mentionAt } from '../../lib/activity';
+  // task and waits above the box as a thumbnail; Send adds a `📎 <filename>` line per file to
+  // the comment, which the activity column shows as the picture (lib/activity `commentFiles`)
+  // and an agent reads as the name of the file meant.
+  import { untrack } from 'svelte';
+  import { fileLine, fileSize, insertMention, mentionAt } from '../../lib/activity';
   import { askFor } from '../../lib/conversation';
   import { draftKey } from '../../lib/drafts';
   import { persisted } from '../../lib/drafts.svelte';
   import { board } from '../../lib/store.svelte';
   import { task } from '../../lib/task.svelte';
-  import type { Account } from '../../lib/types';
+  import type { Account, Attachment } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
   import Icon from './Icon.svelte';
 
@@ -97,21 +99,34 @@
   }
 
   let attaching = $state(0);
+  /** Files pasted or dropped here, already on the task, that go with the next comment. */
+  let pending = $state<Attachment[]>([]);
+  // Another card in the same window: its box starts with nothing waiting. (Compared by value:
+  // the card's detail is replaced on every refresh, which is not another card.)
+  let pendingFor = untrack(() => itemId);
+  $effect.pre(() => {
+    if (itemId === pendingFor) return;
+    pendingFor = itemId;
+    pending = [];
+  });
+  $effect(() => {
+    for (const a of pending) void task.thumb(a);
+  });
 
-  /** Attach pasted or dropped files to the task and name each one in the comment. */
+  /** Attach pasted or dropped files to the task; they wait above the box until Send. */
   async function attach(files: File[]) {
+    const at = itemId;
     attaching += 1;
     const done = await task.upload(itemId, files);
     attaching -= 1;
-    if (!done.length) return;
-    const names = done.map((a) => `📎 ${a.filename}`).join('\n');
-    const text = draft.value;
-    draft.value = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${names}\n`;
-    queueMicrotask(() => {
-      autosize();
-      area?.focus();
-      area?.setSelectionRange(draft.value.length, draft.value.length);
-    });
+    if (at === itemId) pending = [...pending, ...done];
+    area?.focus();
+  }
+
+  /** Take a waiting file back: off the comment and off the task. */
+  function unattach(a: Attachment) {
+    pending = pending.filter((x) => x.id !== a.id);
+    void task.removeAttachment(a.id);
   }
 
   // A screenshot on the clipboard arrives as a file with no text; text pastes as ever.
@@ -130,11 +145,15 @@
     void attach(files);
   }
 
+  const ready = $derived(!attaching && (!!draft.value.trim() || pending.length > 0));
+
   async function send() {
-    const body = draft.value.trim();
-    if (!body || sending || attaching) return;
+    const text = draft.value.trim();
+    if (!ready || sending) return;
+    const body = [text, ...pending.map((a) => fileLine(a.filename))].filter(Boolean).join('\n');
     sending = true;
     if (await task.comment(itemId, body, ask || null)) {
+      pending = [];
       if (ask && board.pickable.some((a) => a.handle === ask && a.kind === 'agent')) {
         try {
           localStorage.setItem('slate.lastAsk', ask);
@@ -192,6 +211,25 @@
       {/each}
     </ul>
   {/if}
+  {#if pending.length || attaching}
+    <ul class="chat-attach" aria-label="Files to send">
+      {#each pending as a (a.id)}
+        <li class:image={!!task.thumbs[a.id]}>
+          {#if task.thumbs[a.id]}
+            <img src={task.thumbs[a.id]} alt={a.filename} title={a.filename} />
+          {:else}
+            <Icon name="clip" size={14} />
+            <span class="chat-attach-name" title={a.filename}>{a.filename}</span>
+            <span class="muted small">{fileSize(a.size)}</span>
+          {/if}
+          <button class="chat-attach-x" type="button" aria-label="Remove {a.filename}" title="Remove" onclick={() => unattach(a)}
+            ><Icon name="x" size={12} /></button
+          >
+        </li>
+      {/each}
+      {#if attaching}<li class="chat-attach-busy muted small" role="status">Uploading…</li>{/if}
+    </ul>
+  {/if}
   <textarea
     bind:this={area}
     bind:value={draft.value}
@@ -232,7 +270,7 @@
         <option value={a.handle}>{a.display_name}{a.kind === 'agent' ? ' (agent)' : ''}</option>
       {/each}
     </select>
-    <button class="send" disabled={!draft.value.trim() || sending} onclick={send}
+    <button class="send" disabled={!ready || sending} onclick={send}
       ><Icon name="send" size={14} /> {ask ? `Ask ${askName}` : 'Comment'}</button
     >
   </div>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commentFiles,
   entriesFrom,
+  fileLine,
   highlightMentions,
   insertMention,
   mentionAt,
@@ -124,5 +126,25 @@ describe('reactions and task boxes', () => {
     expect(stamp('2026-10-21T19:14:00Z', now)).toBe('Oct 21 at 2:14 PM');
     expect(fileSize(2_500_000)).toBe('2.4 MB');
     expect(fileSize(2048)).toBe('2 KB');
+  });
+});
+
+describe('commentFiles', () => {
+  const shot = { id: 'A1', filename: 'Screenshot 2026-11-11 08.18.40.png' };
+  const plan = { id: 'A2', filename: 'plan.pdf' };
+  it('takes the file lines out of the text and returns the files they name', () => {
+    const body = `Look at this\n${fileLine(shot.filename)}\n${fileLine(plan.filename)}\nthanks`;
+    expect(commentFiles(body, [shot, plan])).toEqual({ text: 'Look at this\nthanks', files: [shot, plan] });
+  });
+  it('a comment that is only a file has no text', () => {
+    expect(commentFiles(`${fileLine(shot.filename)}\n`, [shot])).toEqual({ text: '', files: [shot] });
+  });
+  it('keeps a line whose file is not on the task, and plain text', () => {
+    expect(commentFiles('📎 gone.png', [shot])).toEqual({ text: '📎 gone.png', files: [] });
+    expect(commentFiles('no files here', [shot])).toEqual({ text: 'no files here', files: [] });
+  });
+  it('picks the newest attachment of a repeated name', () => {
+    const again = { id: 'A3', filename: shot.filename };
+    expect(commentFiles(fileLine(shot.filename), [shot, again]).files).toEqual([again]);
   });
 });

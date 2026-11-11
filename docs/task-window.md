@@ -80,10 +80,14 @@ it:
   that the shipped browser bundle does not execute.
 - **Paste or drop on the comment box** (`Composer` `paste` / `drop`): files on the clipboard (a
   screenshot has no text, so text pastes as before) upload as the task's attachments (`task.upload`,
-  which names a clipboard `image.png` with `pastedName`) and a `📎 <filename>` line is appended to
-  the draft, so the comment says which file it is about. Send waits for the upload. The brief
-  (`brief.files_note`) lists the task's files with where to read them; the Hermes adapter adds the
-  same list to a later turn (`card_files`), which carries only the reply. E2E:
+  which names a clipboard `image.png` with `pastedName`) and wait above the box as thumbnails
+  (`pending`; the × removes the attachment again). Send appends one `📎 <filename>` line per file
+  (`activity.fileLine`), so a comment can be a file alone and the stored text still says which
+  file is meant. `ActivityPanel` shows those lines as the files themselves
+  (`activity.commentFiles` matches each line to the newest attachment of that name; a line whose
+  file is gone stays text): images inline, other files as chips, opening in `MediaViewer`. The
+  brief (`brief.files_note`) lists the task's files with where to read them; the Hermes adapter
+  adds the same list to a later turn (`card_files`), which carries only the reply. E2E:
   `chat-files.spec.ts` "paste a screenshot into a card comment".
 - **Pasted media** (`attachments.split_pasted` / `attach_pasted`): a base64 `data:` URI in a comment
   (add or edit) or an item body (create, update, batch update) is cut out of the text, saved as an

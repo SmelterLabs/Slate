@@ -179,3 +179,24 @@ export function fileSize(bytes: number): string {
 export function statusColor(s: Pick<Status, 'color' | 'kind'> | null | undefined): string {
   return s?.color || `var(--kind-${s?.kind ?? 'open'})`;
 }
+
+/** The line a comment carries for each file sent with it (the comment box writes these). */
+export function fileLine(filename: string): string {
+  return `📎 ${filename}`;
+}
+
+/** A comment's text and the task files it names: each `📎 <filename>` line that matches one of
+ *  the task's attachments is taken out of the text and returned as that file, so the comment
+ *  shows the picture instead of its name. A line whose file is gone stays as text. */
+export function commentFiles<T extends { filename: string }>(body: string, attachments: T[]): { text: string; files: T[] } {
+  const files: T[] = [];
+  const kept: string[] = [];
+  for (const line of body.split('\n')) {
+    const name = /^\s*📎\s+(.+?)\s*$/u.exec(line)?.[1];
+    // The newest attachment of that name: the one just pasted.
+    const hit = name ? [...attachments].reverse().find((a) => a.filename === name) : undefined;
+    if (hit && !files.includes(hit)) files.push(hit);
+    else if (!hit) kept.push(line);
+  }
+  return { text: kept.join('\n').trim(), files };
+}
