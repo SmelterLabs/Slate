@@ -119,6 +119,7 @@ READS = {
     "slate.service.comments": {
         "get_comment",
         "mentions_in",
+        "not_about_deleted_comment",
         "reactions_of",
         "comment_views",
         "open_asks",
@@ -910,6 +911,9 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db,
             a,
             comments.add_comment(db, a, _item(db, a).id, body_md="?", assignee="alex").id,
+        ),
+        "delete_comment": lambda db, a, p: comments.delete_comment(
+            db, a, comments.react(db, a, _comment(db, a).id, emoji="👍").id
         ),
     },
     "slate.service.chat": {

@@ -113,6 +113,7 @@ VERBS = {
     "item.split": "split",
     "item.reported": "reported on",
     "comment.edited": "edited a comment on",
+    "comment.deleted": "deleted a comment on",
     "share.granted": "shared {scope} with {who}",
     "share.changed": "changed {who}'s access to {scope}",
     "share.revoked": "stopped sharing {scope} with {who}",

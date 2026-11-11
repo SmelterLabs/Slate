@@ -119,8 +119,11 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     fx.today = true;
     return fx;
   }
-  if ((ev.type === 'comment.assigned' || ev.type === 'comment.resolved') && ev.item_id) {
-    // Open Asks live on the item row (open_asks: the card's "?" badge).
+  if (
+    (ev.type === 'comment.assigned' || ev.type === 'comment.resolved' || ev.type === 'comment.deleted') &&
+    ev.item_id
+  ) {
+    // Open Asks and the comment count live on the item row (open_asks: the card's "?" badge).
     if (data.items[ev.item_id]) fx.refetch.push(ev.item_id);
     return fx;
   }

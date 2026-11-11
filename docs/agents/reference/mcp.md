@@ -57,6 +57,7 @@ Comments are the conversation on an item; @handle mentions an account and reache
 | `assign` | `write` | `id`\*, `assignee`\* | `PATCH /comments/{comment_id}` | address a comment to an account, or take it off with assignee null (id is the comment id; the author or an admin) |
 | `resolve` | `write` | `id`\* | `POST /comments/{comment_id}/resolve` | close an Ask (id is the comment id; its assignee, author or an admin) |
 | `edit` | `write` | `id`\*, `body_md`\* | `PATCH /comments/{comment_id}` | edit your own comment (id is the comment id) |
+| `delete` | `write` | `id`\* | `DELETE /comments/{comment_id}` | delete a comment for good (id is the comment id; your own, or anyone's as an admin) |
 | `react` | `write` | `emoji`\*, `id`\* | `POST /comments/{comment_id}/reactions` | add your emoji reaction to a comment |
 | `unreact` | `write` | `emoji`\*, `id`\* | `DELETE /comments/{comment_id}/reactions/{emoji}` | remove your emoji reaction |
 

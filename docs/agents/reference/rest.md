@@ -2,7 +2,7 @@
 
 # REST reference
 
-235 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+236 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -13,7 +13,7 @@
 - [sections](#sections) (3)
 - [lists](#lists) (5)
 - [items](#items) (23)
-- [comments](#comments) (8)
+- [comments](#comments) (9)
 - [checklists](#checklists) (7)
 - [attachments](#attachments) (5)
 - [tags](#tags) (5)
@@ -638,6 +638,14 @@ Edit your own comment's text (403 for anyone else's), and/or address it to someo
 
 - Body: `CommentPatch`: `body_md`, `assignee`
 - Returns: `200` [CommentOut](#commentout)
+
+### `DELETE /comments/{comment_id}`
+
+Scope: `write` · MCP: `slate_comment delete`
+
+Delete a comment for good: your own, or anyone's if you are an owner or admin (403 otherwise). Its reactions go too; the `comment.deleted` event keeps what it said.
+
+- Returns: `204`
 
 ### `POST /comments/{comment_id}/resolve`
 

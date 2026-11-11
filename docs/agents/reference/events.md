@@ -71,6 +71,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `comment.assigned` | A comment was addressed to an account: an Ask, open until resolved (`after.assignee` handle, `assignee_id`, `comment_id`; `assignee` null when taken off; `reply` true when it is the waited-on person's answer to an agent that reported the item blocked on them). Check-in news `asked`, Today `asked`, and a `work` hint for an agent (with `comment_id`, and `reply`). |
+| `comment.deleted` | A comment was deleted for good, by its author or an admin (`before` = the comment, with `reactions`). Inboxes and check-in news drop every entry about it. |
 | `comment.edited` | A comment's text changed. |
 | `comment.reacted` | An emoji reaction was added to a comment. |
 | `comment.resolved` | An Ask was explicitly closed (`after.comment_id`, `by`, `reason`). A plain reply never resolves it. |
