@@ -134,15 +134,15 @@ describe('deleting a comment', () => {
 
   it('is for its author or an owner or admin', () => {
     expect(canDeleteComment(comment, me('acc_alex', 'member'))).toBe(true);
-    expect(canDeleteComment(comment, me('acc_blair', 'member'))).toBe(false);
-    expect(canDeleteComment(comment, me('acc_blair', 'guest'))).toBe(false);
-    expect(canDeleteComment(comment, me('acc_blair', 'admin'))).toBe(true);
-    expect(canDeleteComment(comment, me('acc_blair', 'owner'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_other', 'member'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_other', 'guest'))).toBe(false);
+    expect(canDeleteComment(comment, me('acc_other', 'admin'))).toBe(true);
+    expect(canDeleteComment(comment, me('acc_other', 'owner'))).toBe(true);
     expect(canDeleteComment(comment, null)).toBe(false);
   });
 
   it('asks whose comment goes', () => {
     expect(deleteCommentQuestion(comment, 'acc_alex', 'Alex')).toMatch(/^Delete your comment\?/);
-    expect(deleteCommentQuestion(comment, 'acc_blair', 'Alex')).toMatch(/^Delete Alex’s comment\?/);
+    expect(deleteCommentQuestion(comment, 'acc_other', 'Alex')).toMatch(/^Delete Alex’s comment\?/);
   });
 });
