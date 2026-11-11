@@ -95,7 +95,7 @@ DEFAULT_LEASE = 15 * 60
 MIN_LEASE = 60
 MAX_LEASE = 24 * 60 * 60
 TRIES = 5  # candidates tried per call when other agents win the race for them
-OUTCOMES = ("done", "review", "blocked", "release")
+OUTCOMES = ("done", "review", "later", "blocked", "release")
 CONTEXT_ENTRIES = 10
 # A task you reported blocked stays out of your `next` this long (unless the badge is cleared),
 # so a failing task is not retried at once; one waiting on someone else stays out until then.
@@ -557,6 +557,15 @@ def _taken(
     }
 
 
+def check_later(item: Item, now: datetime | None = None) -> None:
+    """`later` parks a task until its run time, so it needs one still to come: without it the
+    due gate would hand the task straight back (or never wake it)."""
+    if item.due_at is None:
+        raise Invalid("later needs a due time: set the task's due date, then finish later")
+    if dates.run_at(item.due_at, item.due_date_only) <= (now or utcnow()):
+        raise Invalid("later needs a due time still to come: move the due date, then finish later")
+
+
 def _already_answered(session: Session, item_id: str, account_id: str, state: str) -> bool:
     """Did the agent already report `state` with a comment of its own during this turn (its own
     Slate tool, before its runner reports the same result)? Then the runner's answer would be a
@@ -738,7 +747,10 @@ def finish(
     """Report back on a task in one transaction and give up the lease.
 
     `outcome`: `done` (completes it, or moves it to `status`), `review` (badge stays: ready for
-    a person), `blocked` (with `waiting_on`: lands in that person's Today), `release` (give it
+    a person), `later` (you did what you can now and the rest waits for the task's due time:
+    no badge, nobody waited on, you stay assigned and the due time runs you again; the task
+    needs a due time still to come), `blocked` (with `waiting_on`: lands in that person's
+    Today), `release` (give it
     up: you are un-assigned, so it goes back to its other assignees or the pool). `note` is
     posted as a comment (unless `comment=false`); `status` sets a
     status by name or id; `hand_to` (a handle) assigns the task to that account in place of
@@ -753,13 +765,17 @@ def finish(
     no Asks; a subsequent take establishes one."""
     if outcome not in OUTCOMES:
         raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
-    if hand_to is not None and outcome == "done":
-        raise Invalid("hand_to goes with review, blocked or release, not done")
+    if hand_to is not None and outcome in ("done", "later"):
+        raise Invalid(f"hand_to goes with review, blocked or release, not {outcome}")
+    if waiting_on is not None and outcome != "blocked":
+        raise Invalid("waiting_on goes with blocked")
     item = get_item(session, item_id)
     target = resolve_account(session, hand_to) if hand_to else None
     if target is not None and target.id == actor.account_id:
         raise Invalid("hand_to names you; pick another account")
-    state = {"release": "idle"}.get(outcome, outcome)
+    if outcome == "later":
+        check_later(item)
+    state = {"release": "idle", "later": "idle"}.get(outcome, outcome)
     payload = dict(
         item_id=item_id,
         outcome=outcome,

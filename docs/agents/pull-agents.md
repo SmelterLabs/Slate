@@ -46,6 +46,7 @@ Paste the agent's answer back as a comment on the task. If its last line is a `S
 |---|---|---|
 | `SLATE: done` | The agent's `done` report: clears its badge, completes the task if the agent is assigned to it | Completes the task |
 | `SLATE: review` | Sets the agent's review badge | Nothing more (the comment is the review) |
+| `SLATE: later` | Clears the agent's badge; the task stays open and assigned, and its due time (which must still be to come) runs the agent again | Nothing more |
 | `SLATE: blocked waiting_on alex` | Blocked badge, and the task waits on Alex | The task waits on Alex |
 
 The line must be the last non-empty line. It may be wrapped in backticks or bold. `waiting on` (with a space) and `@alex` work too. A line that can't apply, such as an unknown handle or a list with no done status, leaves the comment as it is. Notes that Slate writes itself, such as a report's note, are never read for the line.

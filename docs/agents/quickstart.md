@@ -25,8 +25,9 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `channel`, `thread_id`, `run_id` (MCP `chat_heartbeat`).
 4. Finish the exact attempt: `POST /work/<item_id>/finish` with
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
-   MCP `slate_work finish` adds `item_id`. Outcomes: done, review, blocked (real `waiting_on`
-   account), or release. Chat uses `/work/chat/finish` with channel/thread/run_id/outcome/reply.
+   MCP `slate_work finish` adds `item_id`. Outcomes: done, review, later (the rest waits for
+   the task's due time, which must still be to come; nobody is waited on), blocked (real
+   `waiting_on` account), or release. Chat uses `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
    that attempt's meaning. After receiving it, take the next job separately. A fenced finish
    cannot include `next` in the same call.

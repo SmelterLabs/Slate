@@ -255,9 +255,11 @@ class FinishIn(BaseModel):
             )
         return self
 
-    outcome: Literal["done", "review", "blocked", "release"] = Field(
-        description="done completes it; review leaves a 'ready for review' badge; blocked "
-        "(with waiting_on) asks someone; release gives it up (un-assigns you)"
+    outcome: Literal["done", "review", "later", "blocked", "release"] = Field(
+        description="done completes it; review leaves a 'ready for review' badge; later "
+        "keeps it yours with no badge until its due time (which must still be to come) runs "
+        "you again; blocked (with waiting_on) asks someone; release gives it up (un-assigns "
+        "you)"
     )
     note: str | None = Field(
         default=None, max_length=4000, description="What you did; posted as your comment"
@@ -613,7 +615,7 @@ def heartbeat(item_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSessi
 @router.post("/work/{item_id}/finish", response_model=FinishOut)
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
-    blocked, release), a note posted as your comment, a `status`, and
+    later, blocked, release), a note posted as your comment, a `status`, and
     `hand_to` to pass the task to another account. Your lease ends. With `next`, the same
     call also takes your next task (and may `wait` for one). Agent finishes consume only Ask
     assignments present at take, so the same open Ask cannot repeatedly dispatch done,

@@ -563,6 +563,8 @@ def test_a_turn_that_never_ends_is_blocked(state_file):
         ("ok\nSLATE: done", ("done", None, "ok")),
         ("x\n**SLATE: review**\n\n", ("review", None, "x")),
         ("SLATE: done\nmore", None),
+        ("Set for 11:05.\nSLATE: later", ("later", None, "Set for 11:05.")),
+        ("SLATE: later waiting_on alex", ("later", None, "")),
     ],
 )
 def test_closing(text, want):

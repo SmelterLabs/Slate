@@ -273,8 +273,11 @@ released.
 {"outcome": "done", "reply": "Sent the invoice.", "thread": {"ref": "sess_42"}}
 ```
 
-`outcome` is `done`, `review`, `blocked` (add `"waiting_on": "alex"` with your question in
-`reply`: the card reads *Waiting on you* and that person gets a push) or `release`. On a card you were
+`outcome` is `done`, `review`, `later` (you did what you can now and already have any go you
+need; the rest runs at the task's due time, which must still be to come: no badge, nobody waited
+on, you stay assigned; a `later` Slate refuses comes back blocked on the owner with a note),
+`blocked` (add `"waiting_on": "alex"` with your question in `reply`: the card reads *Waiting on
+you* and that person gets a push) or `release`. On a card you were
 only *asked* on (not assigned), `blocked` may wait only on the person who asked you; blocked on
 anyone else is taken as your plain answer, with no badge and no waiting-on, because it is not
 your card. `note` (a labelled comment in place of `reply`) works too. `status` and `hand_to`

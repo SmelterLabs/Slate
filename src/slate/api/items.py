@@ -404,8 +404,9 @@ def get_brief(
 ) -> Any:
     """The task as one paste-ready prompt for an agent in another product's chat ("Copy
     brief"): title, due date, description, checklists and recent comments, then the run rule,
-    which asks it to end its answer with `SLATE: done`, `SLATE: review` or `SLATE: blocked
-    waiting_on <ask>`. Post that answer back as a comment and the line
-    reports on the task. `ask` (a handle) defaults to you, or the workspace owner."""
+    which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the
+    rest waits for the due time) or `SLATE: blocked waiting_on <ask>`. Post that answer back as
+    a comment and the line reports on the task. `ask` (a handle) defaults to you, or the
+    workspace owner."""
     who = ask or brief_svc.default_ask(session, auth.actor.account_id)
     return {"text": brief_svc.brief(session, item_id, ask=who), "ask": who}

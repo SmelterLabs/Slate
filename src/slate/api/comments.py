@@ -33,9 +33,10 @@ def add_comment(item_id: str, body: CommentIn, auth: WriteAuth, session: DbSessi
     """`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it).
     `assignee` makes it an Ask: addressed to that account, open until explicitly resolved.
     Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for
-    compatibility. A last line `SLATE: done`, `SLATE: review` or `SLATE: blocked waiting_on
-    <handle>` also reports back on the task (from an agent: its report; from a person, done
-    completes it and blocked sets who it waits on)."""
+    compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later` or `SLATE:
+    blocked waiting_on <handle>` also reports back on the task (from an agent: its report,
+    later clearing its badge until the due time; from a person, done completes it and blocked
+    sets who it waits on)."""
     comment = comments.add_comment(
         session,
         auth.actor,

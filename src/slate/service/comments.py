@@ -30,11 +30,13 @@ else as data.
 
 The `SLATE:` closing line (service/brief.py): with `closing_line=True` (REST and MCP
 replies; never a comment Slate writes itself, like a report's note) a comment whose last line
-is `SLATE: done | review | blocked waiting_on <handle>` also reports back on the task, so an
+is `SLATE: done | review | later | blocked waiting_on <handle>` also reports back on the task, so an
 agent working from inside another product's chat (or the person pasting its answer) can finish
 it. From an agent account it is that agent's report (service/reports.py: done completes the
-task when the agent is assigned; review and blocked set its badge). From anyone else, `done`
-completes the task and `blocked waiting_on` sets who it waits on; `review` changes nothing.
+task when the agent is assigned; review and blocked set its badge; later clears its badge
+and leaves the task for its due time, which must still be to come). From anyone else, `done`
+completes the task and `blocked waiting_on` sets who it waits on; `review` and `later`
+change nothing.
 A line that cannot apply (no done status, an unknown handle) leaves the comment as it is.
 """
 
@@ -260,7 +262,12 @@ def _apply_closing_line(session: Session, actor: Actor, item_id: str, body: str)
     item = get_item(session, item_id)
     try:
         is_agent = account is not None and account.kind == AccountKind.agent
-        if is_agent:
+        if is_agent and line.outcome == "later":
+            from slate.service.work import check_later
+
+            check_later(item)  # parked until its run time; refused (no change) without one
+            reports.report(session, actor, item.id, state="idle", comment=False)
+        elif is_agent:
             assigned = session.get(ItemAssignee, (item.id, account.id)) is not None
             reports.report(
                 session,

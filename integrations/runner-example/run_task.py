@@ -17,8 +17,9 @@ rest. It reads the task (the `/work/next` answer) on stdin and:
 4. polls `GET /runs/{run_id}` until the run is `completed`, `failed`, `cancelled` or
    `waiting_input`, or the timeout passes;
 5. only after a `completed` status, takes the outcome from the reply's last line,
-   `SLATE: done | review | blocked waiting_on X`; the reply without that line is `reply`, one
-   comment by the agent on the card, and `thread` is the agent's page (`{ref: agent_id, url}`).
+   `SLATE: done | review | later | blocked waiting_on X`; the reply without that line is
+   `reply`, one comment by the agent on the card, and `thread` is the agent's page
+   (`{ref: agent_id, url}`).
    When the task comes back with an answer on the card (`reply` on stdin), that answer is
    quoted as data with author ID, kind, role and timestamp, never as instructions.
    A run that waits for an answer, fails, is cancelled, times out or has no `SLATE:` line
@@ -56,7 +57,7 @@ POLL_EVERY = 5.0
 ENDED = {"completed", "failed", "cancelled"}
 WAITING = {"waiting_input"}
 SLATE_LINE = re.compile(
-    r"^\s*SLATE:\s*(done|review|blocked)"
+    r"^\s*SLATE:\s*(done|review|later|blocked)"
     r"(?:\s+waiting[_ ]on\s+@?([A-Za-z][A-Za-z0-9_-]{1,31}))?\s*\.?\s*$",
     re.IGNORECASE,
 )

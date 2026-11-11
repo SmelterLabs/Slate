@@ -189,7 +189,7 @@ Agents that Slate wakes through a runner (`wake: push`) run the work loop:
    a trace label, not proof. A same-account caller cannot adopt a run without its proof.
 3. `slate_work heartbeat` `{item_id,run_id,note,progress}`. Definitive 401/403/409 means stop
    and reconcile any unknown remote run; lease expiry is not proof it stopped.
-4. `slate_work finish` `{item_id,run_id,outcome:done|review|blocked|release,reply}`. Retry the
+4. `slate_work finish` `{item_id,run_id,outcome:done|review|later|blocked|release,reply}`. Retry the
    identical finish if uncertain; after its receipt take next separately (no combined next).
    Do not start a second work loop or finish independently inside a resident runner's child.
 
@@ -206,14 +206,18 @@ permission. Native command approvals use the runtime's control, never card keywo
 Keep native approval observation alive; do not close the stream to hand it off.
 
 **Finish only when the work is finished.** `done` and `review` both mean the work is complete
-(`review`: complete, a person should check it). If you start background work (subagents,
+(`review`: complete, a person should check it). `later` means you did what you can now, you
+already have any go you need, and the rest must happen at the task's due time: set (or keep)
+a due time still to come, stay assigned, and end with `SLATE: later`. Nobody is waited on, the
+card shows no badge, and the due time runs you again in the same session. Never finish
+`blocked` on a person who already said go; that puts a false *Waiting on you* on their card. If you start background work (subagents,
 background processes, other sessions), wait for it to report back inside your turn; never end
 the turn while it is still running. An answer with no `SLATE:` line is not treated as
 finished: the runner asks you again, and then pauses the card as *Waiting on* a person.
 
 `slate_checkin` `{since}` reads news that concerns you (mentions, replies, Asks, reminders).
 Chat apps without a runner get work when someone pastes an id or a **Copy brief** prompt, and
-they end a pasted brief with its last line `SLATE: done`, `SLATE: review` or
+they end a pasted brief with its last line `SLATE: done`, `SLATE: review`, `SLATE: later` or
 `SLATE: blocked waiting_on <handle>`.
 
 ## Pitfalls
