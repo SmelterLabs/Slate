@@ -606,7 +606,7 @@ Run now: ask the item's agent assignees to start on it now instead of at its run
 
 Scope: `read` · MCP: `slate_item brief`
 
-The task as one paste-ready prompt for an agent in another product's chat ("Copy brief"): title, due date, description, checklists and recent comments, then the run rule, which asks it to end its answer with `SLATE: done`, `SLATE: review` or `SLATE: blocked waiting_on <ask>`. Post that answer back as a comment and the line reports on the task. `ask` (a handle) defaults to you, or the workspace owner.
+The task as one paste-ready prompt for an agent in another product's chat ("Copy brief"): title, due date, description, checklists and recent comments, then the run rule, which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the rest waits for the due time) or `SLATE: blocked waiting_on <ask>`. Post that answer back as a comment and the line reports on the task. `ask` (a handle) defaults to you, or the workspace owner.
 
 - Query: `ask`
 - Returns: `200` [BriefOut](#briefout)
@@ -625,7 +625,7 @@ The item's comments, oldest first, with reactions and mentions.
 
 Scope: `write` · MCP: `slate_item comment`, `slate_comment add`
 
-`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it). `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review` or `SLATE: blocked waiting_on <handle>` also reports back on the task (from an agent: its report; from a person, done completes it and blocked sets who it waits on).
+`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it). `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later` or `SLATE: blocked waiting_on <handle>` also reports back on the task (from an agent: its report, later clearing its badge until the due time; from a person, done completes it and blocked sets who it waits on).
 
 - Body: `CommentIn`: `body_md`\*, `assignee`, `keep_open`
 - Returns: `201` [CommentOut](#commentout)
@@ -1362,7 +1362,7 @@ Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progr
 
 Scope: `write` · MCP: `slate_work finish`
 
-Report back in one round trip, all in one transaction: the outcome (done, review, blocked, release), a note posted as your comment, a `status`, and `hand_to` to pass the task to another account. Your lease ends. With `next`, the same call also takes your next task (and may `wait` for one). Agent finishes consume only Ask assignments present at take, so the same open Ask cannot repeatedly dispatch done, review, blocked or released work. Asks remain visible and explicitly resolvable; only asked-only agent done resolves its taken Asks (without completing the task). New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
+Report back in one round trip, all in one transaction: the outcome (done, review, later, blocked, release), a note posted as your comment, a `status`, and `hand_to` to pass the task to another account. Your lease ends. With `next`, the same call also takes your next task (and may `wait` for one). Agent finishes consume only Ask assignments present at take, so the same open Ask cannot repeatedly dispatch done, review, blocked or released work. Asks remain visible and explicitly resolvable; only asked-only agent done resolves its taken Asks (without completing the task). New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
 
 - Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `url`, `reply`, `thread`, `next`
 - Returns: `200` [FinishOut](#finishout)

@@ -653,7 +653,8 @@ ITEM_ACTIONS = {
     "brief": Action(
         "the task as one paste-ready prompt (title, due, description, checklists, recent "
         "comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: "
-        "review` or `SLATE: blocked waiting_on <handle>`; a comment ending so reports back",
+        "review`, `SLATE: later` or `SLATE: blocked waiting_on <handle>`; a comment ending so "
+        "reports back",
         "read",
         query_model(items_api.get_brief, id=ITEM_ID),
         rest=lambda p: Rest(
@@ -1361,7 +1362,8 @@ WORK_ACTIONS = {
         local=via(work_api.heartbeat),
     ),
     "finish": Action(
-        "report back in one call: outcome done / review / blocked (waiting_on) / release, a "
+        "report back in one call: outcome done / review / later (stay assigned, no badge, the "
+        "due time still to come runs you again) / blocked (waiting_on) / release, a "
         "note posted as your comment, a status, hand_to another account; "
         "next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, "
         "not resolution; asked-only agent done explicitly resolves only its taken Asks. "

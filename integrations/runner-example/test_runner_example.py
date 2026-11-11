@@ -98,6 +98,9 @@ def test_blocked_line_and_review_line():
     assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
     out, _ = go(service_client(statuses=["completed"], reply="Draft.\n`SLATE: review`"))
     assert out["outcome"] == "review" and out["reply"] == "Draft."
+    out, _ = go(service_client(statuses=["completed"], reply="At 11:05.\nSLATE: later"))
+    assert out["outcome"] == "later" and out["reply"] == "At 11:05."
+    assert "waiting_on" not in out
 
 
 def test_status_outranks_the_reply_text():

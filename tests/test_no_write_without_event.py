@@ -167,6 +167,7 @@ READS = {
     },
     "slate.service.work": {
         "lease_seconds",
+        "check_later",
         "turn_asks",
         "pending_asks",
         "eligible",

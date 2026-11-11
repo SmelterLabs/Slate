@@ -72,7 +72,7 @@ existing model/provider settings.
    kind, role, handle, comment ID and timestamp. Unknown provenance stays unknown; a person's
    comment is not automatically an owner/admin approval. Ordinary scoped questions still work.
 4. Stream with `author: {id: "bot:slate", name: "Slate", is_bot: true}`. Only a confirmed
-   `run.completed` permits the final `SLATE: done | review | blocked waiting_on X` to decide
+   `run.completed` permits the final `SLATE: done | review | later | blocked waiting_on X` to decide
    the task outcome. `assistant.completed`, a transcript closing line and transport `done`
    do not prove execution success. Failure, cancellation, interruption, incomplete status,
    approval and step/budget limits outrank success text. Missing status means blocked.

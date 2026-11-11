@@ -305,3 +305,46 @@ def test_drain_closes_admission_but_never_kills_existing_work(
     finally:
         child.finish()
         worker.join(5)
+
+
+def _later_run(client, alex, todo, make_account, tmp_path, monkeypatch, due_at=None):
+    import slate_runner
+
+    _, h = make_account("agent")
+    make_account("member", kind="person")
+    body = {"list_id": todo["id"], "title": "Post hours", "assignees": ["agent", "member"]}
+    if due_at:
+        body["due_at"] = due_at
+    item = client.post("/api/v1/items", json=body, headers=alex).json()
+    if due_at:
+        assert client.post(f"/api/v1/items/{item['id']}/run", headers=alex).status_code == 202
+    runner = _runner(client, h, tmp_path)
+    task = runner.take(item["id"])
+    child = Child()
+    child.stdout = io.StringIO('{"outcome":"later","reply":"Posting at the due time."}\n')
+    child.finish()
+    monkeypatch.setattr(slate_runner.subprocess, "Popen", lambda *a, **k: child)
+    outcome = runner.run(task)
+    return outcome, client.get(f"/api/v1/items/{item['id']}", headers=alex).json()
+
+
+def test_runner_delivers_later(client, alex, todo, make_account, tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    due = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
+    outcome, view = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch, due)
+    assert outcome == "later"
+    assert view["agent"] is None and view["waiting_on_account_id"] is None
+    assert view["completed_at"] is None
+
+
+def test_runner_turns_a_refused_later_into_a_visible_block(
+    client, alex, todo, make_account, tmp_path, monkeypatch
+):
+    outcome, view = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch)
+    assert outcome == "blocked"  # no due time: nothing would run it again, so a person must
+    assert view["agent"]["state"] == "blocked"
+    assert view["waiting_on_account_id"] is not None
+    comments = client.get(f"/api/v1/items/{view['id']}/comments", headers=alex).json()
+    assert comments[-1]["body_md"].startswith("Posting at the due time.")
+    assert "no due time" in comments[-1]["body_md"]

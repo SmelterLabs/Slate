@@ -43,7 +43,7 @@ stdin, and env `SLATE_URL`, `SLATE_TOKEN`, `SLATE_ITEM_ID`, `SLATE_ITEM_TITLE`, 
 - the runner heartbeats every `lease/3` seconds anyway, so the task stays yours.
 
 When it exits, the last stdout line that is a JSON object with `outcome` is the result:
-`{"outcome": "done|review|blocked|release", "reply": "...", "waiting_on": "alex",
+`{"outcome": "done|review|later|blocked|release", "reply": "...", "waiting_on": "alex",
 "url": "...", "thread": {"ref": "..."}}`. `reply` is the agent's answer for this
 turn, one comment on the card (the card is the conversation); `note` is the older, labelled
 form. A task that waits on someone's answer comes back with `reply` (their comment) and
@@ -67,7 +67,7 @@ Failed result delivery is saved durably and `retry_delivery(key)` resends the id
 without relaunching the command; it never falls back to unfenced reports or comments.
 
 `--once`: take one task (`--item` for a given one), run it, exit. Exit codes: 0 the task
-finished done or review; 1 it finished blocked or released; 2 nothing was free; 3 an error.
+finished done, review or later; 1 it finished blocked or released; 2 nothing was free; 3 an error.
 
 Docs: docs/agents/runner.md. Tested in tests/test_clients.py.
 """
@@ -619,7 +619,25 @@ class Runner:
         if ref is not None:
             path = f"/work/{ref[0]}/finish"
             body.update(ref[1])
-        return self._deliver(item_id, path, body)
+        return self._deliver(item_id, path, body, refused=self._later_refused(task, body))
+
+    def _later_refused(self, task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any] | None:
+        """What to report when Slate refuses `later` (the task has no due time still to come,
+        so nothing would run it again): the same fenced finish, blocked on the owner, so the
+        agent's answer is not lost and a person sees that it needs a time."""
+        if body.get("outcome") != "later":
+            return None
+        why = (
+            "(The agent said it would carry on at the due time, but this task has no due time "
+            "still to come. Set one, or reply here.)"
+        )
+        said = str(body.get("reply") or body.get("note") or "").strip()
+        out = {**body, "outcome": "blocked", "reply": f"{said}\n\n{why}".strip()}
+        out.pop("note", None)
+        who = self._owner(task)
+        if who:
+            out["waiting_on"] = who
+        return out
 
     def _give_back(self, key: str, proof: str) -> None:
         """Release a grant for a key this runner is still busy with, without touching its
@@ -661,14 +679,19 @@ class Runner:
         self._record(key, state="delivered", remote_state="not_started")
         return "release"
 
-    def _deliver(self, key: str, path: str, body: dict[str, Any]) -> str:
-        """Retry identical results only; never translate refusal into an unfenced report."""
+    def _deliver(
+        self, key: str, path: str, body: dict[str, Any], refused: dict[str, Any] | None = None
+    ) -> str:
+        """Retry identical results only; never translate refusal into an unfenced report.
+        `refused` is the one fenced alternative for a 422 (a `later` with no due time)."""
         self._record(key, state="delivery_failed", remote_state="terminal", path=path, result=body)
         for attempt in range(3):
             try:
                 self.call("POST", path, body)
             except (SlateHTTPError, httpx.HTTPError) as exc:
                 self.log(f"finish failed: {exc}")
+                if isinstance(exc, SlateHTTPError) and exc.status == 422 and refused is not None:
+                    return self._deliver(key, path, refused)
                 if isinstance(exc, SlateHTTPError) and exc.status < 500 and exc.status != 429:
                     break
                 if attempt < 2:
@@ -699,7 +722,7 @@ class Runner:
             return self._chat_result(code, result, out, err)
         if result is not None and code == 0:
             body = {k: result[k] for k in RESULT_KEYS if result.get(k) is not None}
-            if body.get("outcome") not in ("done", "review", "blocked", "release"):
+            if body.get("outcome") not in ("done", "review", "later", "blocked", "release"):
                 body = {"outcome": "blocked", "note": f"Unknown outcome in result: {result}"}
         elif code == 0:
             body = {
@@ -788,7 +811,7 @@ class Runner:
         outcome = self.run(task)
         return (
             0
-            if outcome in ("done", "review")
+            if outcome in ("done", "review", "later")
             else (3 if outcome in ("delivery_failed", "reconciliation_required") else 1)
         )
 

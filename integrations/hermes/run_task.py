@@ -49,7 +49,7 @@ POLL_EVERY = 5.0
 NOTE_EVERY = 60.0
 DOWN_GRACE = 20.0
 SLATE_LINE = re.compile(
-    r"^\s*SLATE:\s*(done|review|blocked)"
+    r"^\s*SLATE:\s*(done|review|later|blocked)"
     r"(?:\s+waiting[_ ]on\s+@?([A-Za-z][A-Za-z0-9_-]{1,31}))?\s*\.?\s*$",
     re.IGNORECASE,
 )
@@ -62,8 +62,9 @@ NUDGE = (
     "sessions), wait for it now: keep this turn open until it reports back, then finish the "
     "task. Do not end this answer while that work is still running. When the work is finished, "
     "end with `SLATE: done` (or `SLATE: review` if a person should check the finished work). If "
-    "you need a person, end with `SLATE: blocked waiting_on {ask}`. Put that line last, on its "
-    "own."
+    "the rest must wait for the task's due time and you already have the go, end with "
+    "`SLATE: later`. If you need a person, end with `SLATE: blocked waiting_on {ask}`. Put "
+    "that line last, on its own."
 )
 PAUSED = (
     "(Paused: the agent ended its turn without saying the task is finished, so this is not "

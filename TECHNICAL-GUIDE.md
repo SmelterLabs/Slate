@@ -438,6 +438,13 @@ Design choices and the reason for each, with the alternatives that were rejected
   starts at its report moving into `working`), so an agent that finishes through its own Slate
   tool and then has its runner report the same result posts one "Done", not two. An interim
   comment ("Looking now") does not count: only a matching report plus a comment.
+- **`later` is its own finish, not a kind of `blocked`.** An agent that already has the go and
+  must act at the due time finishes `later`: badge cleared, still assigned, nobody waited on,
+  and the existing due gate and run stage bring it back. It needs a run time still to come
+  (`work.check_later`, else 422) so it can never park a task nothing will wake; the runner turns
+  that refusal into a fenced `blocked` on the owner. Rejected: reusing `blocked` (a false
+  *Waiting on you*), `review` (asks a person to check unfinished work), and a new agent state or
+  board column (rule 4: the due time already says when).
 - **Run now by the agent itself wakes its runner.** `checkin._judge` drops an agent's own events
   except `item.run_requested` (plus reminders and digests), so another session of the same agent
   can file a card and press Run now and the runner takes it. The board does not say "Waiting — X

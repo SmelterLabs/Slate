@@ -12,6 +12,7 @@ asks it to end its answer with one line Slate understands:
 
     SLATE: done
     SLATE: review
+    SLATE: later
     SLATE: blocked waiting_on alex
 
 `closing_line(text)` reads that line back; service/comments.py applies it to the task when a
@@ -51,6 +52,10 @@ RUN_RULE = (
     "gather every question into one message and end it with the line "
     "`SLATE: blocked waiting_on {ask}`. Otherwise, once the work is finished, end your answer "
     "with `SLATE: done` (finished) or `SLATE: review` (finished, ready for a person to check). "
+    "If you did what you can now and the rest must wait for the task's due time (you set or "
+    "kept a due time still to come, and you stay assigned), end with `SLATE: later`: nobody "
+    "is asked anything and the due time runs you again. Never use `blocked` for a go you "
+    "already have. "
     "If a resident runner started this turn, it owns heartbeat and finish: do not start a "
     "second work loop or independently close its execution with a report. "
     "Comments do not resolve Asks. The runner finishes the taken turn; do not bulk-resolve "
@@ -58,7 +63,7 @@ RUN_RULE = (
 )
 
 _LINE = re.compile(
-    r"^\s*SLATE:\s*(done|review|blocked)"
+    r"^\s*SLATE:\s*(done|review|later|blocked)"
     r"(?:\s+waiting[_ ]on\s+@?([A-Za-z][A-Za-z0-9_-]{1,31}))?\s*\.?\s*$",
     re.IGNORECASE,
 )
@@ -66,7 +71,7 @@ _LINE = re.compile(
 
 @dataclass(frozen=True)
 class ClosingLine:
-    outcome: str  # done | review | blocked
+    outcome: str  # done | review | later | blocked
     waiting_on: str | None  # a handle, for blocked
 
 

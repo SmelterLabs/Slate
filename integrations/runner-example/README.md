@@ -64,6 +64,6 @@ Optional: `RUNNER_AGENT_URL` (the Open link; default `<RUNNER_API_URL>/agents/<a
 2. Starts a run with the title line plus the brief (or, on a later turn, the quoted card reply).
 3. Prints a progress line with `url` = the agent's page.
 4. Polls `GET /runs/{run_id}` every 5 s until it is `completed`, `failed`, `cancelled` or `waiting_input`, or the timeout passes.
-5. Prints the result: only after confirmed completion does `SLATE: done | review | blocked waiting_on X` decide the outcome. The remaining reply is the card comment.
+5. Prints the result: only after confirmed completion does `SLATE: done | review | later | blocked waiting_on X` decide the outcome. The remaining reply is the card comment.
 
 Tests: `test_runner_example.py` runs against a fake service (`httpx.MockTransport`). CI runs `uv run pytest -q integrations` as its own step.

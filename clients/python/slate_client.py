@@ -266,7 +266,7 @@ class Slate:
     def finish(
         self, item_id: str, outcome: str = "done", note: str | None = None, **kw: Any
     ) -> dict[str, Any]:
-        """Report back in one call: outcome done | review | blocked | release; kw: status,
+        """Report back in one call: outcome done | review | later | blocked | release; kw: status,
         hand_to, waiting_on, progress, comment, next={...} (take the next task too).
         Returns `{item, next}`."""
         body = {"outcome": outcome, **kw}

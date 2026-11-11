@@ -142,6 +142,16 @@ Slate stays the doorbell: it never launches an agent.
   (due_date_only AND due_at = dates.early_date_only_due(now))` (the one 17:00 instant whose 06:00
   has passed, between 06:00 and 17:00 local). Not gated: tasks with no due date, people, pool and
   `waiting_on` tasks.
+- **`later` finish** (`work.finish`, `outcome: "later"`, closing line `SLATE: later`): the agent
+  did what it can now and the rest must happen at the due time, with any go it needs already
+  given. It reports `idle` (badge cleared), keeps its assignment, sets no `waiting_on` and
+  completes nothing; the due gate then holds the task until its run time, and the run stage
+  wakes the agent again. `work.check_later` refuses it (422) unless the task's run time is still
+  to come, because otherwise nothing would run it again (or the gate would hand it straight
+  back); `waiting_on` and `hand_to` are refused with it. The resident runner turns a refused
+  `later` into the same fenced finish `blocked` on the owner with a note, so the answer is kept
+  and a person sees the task needs a time. This is the honest ending for "scheduled, nothing
+  needed from you": `blocked` there puts a false *Waiting on you* on the person's card.
 - **Run stage** (`service/due.py`): for an item with agent assignees, `pending_stages` adds a stage
   `run` at `run_at - 1 µs` (so it sorts before `due` when they coincide) that records
   `item.run_requested` by `slate` with `reason: "due"` (and `due_at`). It rides on

@@ -69,7 +69,7 @@ export type Task = {
   context: unknown[];
   remaining: number;
 };
-export type Outcome = 'done' | 'review' | 'blocked' | 'release';
+export type Outcome = 'done' | 'review' | 'later' | 'blocked' | 'release';
 export type FinishOptions = {
   run_id?: string;
   status?: string;
