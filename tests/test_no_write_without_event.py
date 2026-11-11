@@ -316,6 +316,7 @@ READS = {
         "renudge_notification",
         "wants",
         "wanted",
+        "started_work",
         "watch_verb",
     },
     "slate.service.email": {"address", "compose", "reasons_for", "seen"},

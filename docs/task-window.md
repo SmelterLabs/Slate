@@ -103,7 +103,11 @@ it:
   sends one per author and item until a 10-minute pause (`push.EDIT_QUIET`). When the same actor's
   change also made the item wait on the account (an agent's blocked reply: comment + report +
   `waiting_on`), the follow/watching entries within 2 s are dropped and only `waiting` is told
-  (`inbox.waits`/`waiting_covers`, inbox and push). Auto-watch events are not check-in news. Push
+  (`inbox.waits`/`waiting_covers`, inbox and push). An agent's report that it started
+  (`item.reported` with state `working`) is an inbox entry but is never pushed or emailed
+  (`push.started_work`, checked in `push.wanted`): it follows the watcher's own message by a
+  second, and the report that ends the run is the one that interrupts. Auto-watch events are not
+  check-in news. Push
   reason `watching` (default on) pushes everything on a watched item, including the follow reasons,
   through `push.wants()`; push bodies come from `push.watch_verb()`. `inbox.Follows` carries
   `watched`. UI: `task/WatchersPicker.svelte` (the eye in the Activity header) and the "Watch tasks

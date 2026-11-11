@@ -324,3 +324,28 @@ def test_chat_still_unread_is_nudged_once_more(client, alex, todo, db, browser, 
     assert push.renudge(db, webpush.send, {}, now=utcnow() + timedelta(hours=1)) == 0
     bad = client.patch(f"{API}/me/prefs", json={"chat_renudge_minutes": 9999}, headers=alex)
     assert bad.status_code == 422
+
+
+def test_an_agent_starting_work_is_not_pushed(client, alex, todo, db, browser, make_account):
+    """A watcher hears that an agent finished, not that it started: the start follows the
+    watcher's own message by a second, so a toast for it is noise."""
+    client.post(f"{API}/push/subscriptions", json=browser.body(), headers=alex)
+    _, agent = make_account("agent")
+    it = item(client, alex, todo)  # filing it auto-watches it
+    push.process(db, webpush.send)
+
+    def report(**body):
+        r = client.post(f"{API}/items/{it['id']}/report", json=body, headers=agent)
+        assert r.status_code == 200, r.text
+
+    report(state="working", note="Starting", comment=False)
+    n = push.process(db, webpush.send)
+    assert (n, browser.received) == (0, [])
+
+    report(state="review", note="Drafted it", comment=False)
+    push.process(db, webpush.send)
+    assert [n["title"] for n in browser.received] == ["Agent is ready for review"]
+    # The start is still in the Inbox: only the toast is held back.
+    inbox = client.get(f"{API}/inbox", headers=alex).json()
+    states = [e["event"]["after"]["state"] for e in inbox if e["event"]["type"] == "item.reported"]
+    assert states == ["review", "working"]
