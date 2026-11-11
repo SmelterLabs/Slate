@@ -185,7 +185,7 @@ Columns with many cards show the first 25 and a "Show more" button, so a big "No
 - **My Work** (left menu, or `g h`) is the page that says what to do next: **Needs you** first, then your tasks by when they are due, what depends on another task, what you handed to others, your newest notifications and what you finished this week.
 - **Needs you:** cards that can't move until you act. Every page uses the same four words for why, on the card, in the task window and in the lists:
   - **Waiting on Alex** (your name): a person has to answer (the task's *Waiting on* field, usually set by an agent that needs you). Elsewhere it names whoever it waits on. On the board, a card that needs you has a colored ring (red for waiting or blocked), and one waiting on you carries a red **Waiting on Alex** chip under its title. Open the card and the question sits in a red box at the top: **Answer** jumps to the message that asks it and puts you in the reply box (your reply goes to that agent and the card stops waiting), and **Not waiting on me** clears it when there is nothing to answer.
-  - **Agent blocked**: an agent on your card stopped and named nobody.
+  - **Agent blocked**: an agent on your card stopped and named nobody. A run that only ran out of steps reads this way too: nothing is asked of you, and **Run now** in the red box carries it on.
   - **Asked of you**: an open question addressed to you.
   - **Ready for review**: an agent says the work is done.
 

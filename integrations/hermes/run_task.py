@@ -76,10 +76,19 @@ Emit = Callable[[dict[str, Any]], None]
 class Stopped(Exception):
     """The turn cannot finish: the session is gone or the gateway died. The text says why."""
 
-    def __init__(self, message: str, *, terminal: bool = False, not_submitted: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        terminal: bool = False,
+        not_submitted: bool = False,
+        resumable: bool = False,
+    ):
         super().__init__(message)
         self.terminal = terminal
         self.not_submitted = not_submitted
+        # Nothing is asked of anyone: another run carries on (the turn ran out of steps).
+        self.resumable = resumable
 
 
 class Notes:
@@ -422,6 +431,7 @@ def run_turn(
                             f"Hermes stopped at its step limit ({why}) before it finished. "
                             "Press Run now and it carries on in the same session.",
                             terminal=True,
+                            resumable=True,
                         )
                     failed = str(data.get("error") or data.get("message") or why or kind)
                 elif kind == "run.completed":
@@ -1206,12 +1216,10 @@ def run(
         if isinstance(e, Stopped) and (e.terminal or e.not_submitted):
             with suppress(OSError):
                 save_pending(env, item_id, None)
-        return {
-            "outcome": "blocked",
-            "waiting_on": ask,
-            "thread": thread_ref(session_id, env),
-            "reply": str(e),
-        }
+        stopped = {"outcome": "blocked", "thread": thread_ref(session_id, env), "reply": str(e)}
+        if isinstance(e, Stopped) and e.resumable:
+            return {**stopped, "resumable": True}  # waits on nobody: Run now carries on
+        return {**stopped, "waiting_on": ask}
     out = result(reply, approvals, ask, session_id, env)
     if approvals:
         try:

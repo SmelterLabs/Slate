@@ -278,7 +278,9 @@ released.
 only *asked* on (not assigned), `blocked` may wait only on the person who asked you; blocked on
 anyone else is taken as your plain answer, with no badge and no waiting-on, because it is not
 your card. `note` (a labelled comment in place of `reply`) works too. `status` and `hand_to`
-work as in `POST /work/{id}/finish`.
+work as in `POST /work/{id}/finish`. A `blocked` result that names nobody waits on the
+agent's owner; add `"resumable": true` when the run stopped short of needing anyone (a step
+limit), and the card waits on no one and offers Run now.
 
 **No result line.** Exit zero without an explicit result is not completion. Failed process
 exit outranks success-shaped stdout. Failed/missing results remain blocked/released with a

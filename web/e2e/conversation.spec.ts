@@ -168,6 +168,8 @@ test('Clear takes a blocked badge off the card', async ({ page }) => {
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await expect(tw.locator('.agent-badge')).toHaveAttribute('data-agent-state', 'blocked');
+  // Blocked and waiting on nobody: the badge itself offers the next run.
+  await expect(tw.locator('.agent-badge [data-blocked-run] .run-now')).toBeVisible();
   await tw.locator('[data-clear-blocked]').click();
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('I need the registrar login.');
