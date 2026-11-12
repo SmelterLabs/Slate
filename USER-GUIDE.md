@@ -89,7 +89,7 @@ The preview under the box shows what was understood. Anything it does not recogn
 
 **On a card an agent is on** (it is assigned, reporting, or has worked it), the conversation is the action: status, title, then the thread and the comment box, with **Ask**, **Run now** and **Hand to an agent** together by the box. Assignees, dates, tags, list, repeats, estimate and dependencies fold into one **Details** line (for example "My Agent · Due Nov 20 · High · #example") once any of them is set; click it to open them. On the phone the thread comes straight after the title. Cards with no agent show the fields in a grid under the title.
 
-- **Status**: the colored button at the top. Click it for the list's statuses; the **›** next to it moves to the next column; the **✓** square completes it (click again to reopen).
+- **Status**: the colored button at the top. Click it for the list's statuses, each shown as a whole pill in its own colour (the current one is ticked); the **›** next to it moves to the next column; the **✓** square completes it (click again to reopen).
 - **Title**: click and type; Enter or clicking away saves.
 - **Assignees**, **Priority** (flags: Urgent, High, Normal, Low), **Dates** (start → due), **Tags**, **Waiting on**, **List** and **Repeats** sit in the grid under the title.
   - Dates: click for quick picks (**Today**, **Tomorrow**, **Next Mon**, **+1 week**, **Clear**) or any day. A date alone means 5 pm workspace time; **+ time** sets another time.
