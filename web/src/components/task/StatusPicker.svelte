@@ -63,8 +63,8 @@
     <ul class="menu" role="listbox" aria-label="Statuses">
       {#each statuses as s (s.id)}
         <li role="option" aria-selected={s.id === current?.id}>
-          <button onclick={() => pick(s)}>
-            <span class="dot" style="background: {colorOf(s)}"></span>
+          <!-- Each option is a whole pill in its status colour, like the button it lands on. -->
+          <button class="option" style="--c: {colorOf(s)}" onclick={() => pick(s)}>
             {s.name}
             {#if s.id === current?.id}<span class="tick"><Icon name="check" size={14} /></span>{/if}
           </button>
@@ -141,31 +141,33 @@
     border-radius: 8px;
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
   }
-  .menu button {
+  .menu li + li {
+    margin-top: 3px;
+  }
+  .menu .option {
     width: 100%;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 8px;
+    padding: 6px 10px;
     border: 0;
     border-radius: 6px;
-    background: none;
+    background: var(--c);
+    color: #fff;
     text-align: left;
-    font-size: 13px;
+    font-size: 12px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
   }
-  .menu button:hover {
-    background: var(--card-hover);
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    flex: none;
+  .menu .option:hover,
+  .menu .option:focus-visible {
+    /* the same darkening the status button itself uses on hover */
+    background: color-mix(in srgb, var(--c) 85%, #000);
   }
   .tick {
     margin-left: auto;
-    color: var(--accent);
+    display: inline-flex;
+    color: inherit;
   }
 </style>
