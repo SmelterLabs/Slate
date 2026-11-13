@@ -314,7 +314,9 @@ list. The same tree also holds **file docs**.
   that lack them. Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
   the body through `api/uploads.read_body`, which refuses a declared length over the cap, counts
   `request.stream()` as it arrives and stops at the cap with the same 422; `Content-Length` is not
-  trusted (a chunked request has none). Board: `notIndexed` in `lib/docs.ts`, "not
+  trusted (a chunked request has none). The two doc routes are `async` only to stream the body;
+  they hand the write (and its text extraction) to `run_in_threadpool`, so an upload waiting for
+  the write lock never stalls the event loop. Board: `notIndexed` in `lib/docs.ts`, "not
   searchable" in `FileRevisions`, the compare `message` in `RevisionCompare`.
 - DOCX text extraction uses stdlib ZIP + ElementTree, reads only `word/document.xml`, never extracts
   paths/resolves relationships, rejects DTDs and bounds that part to the extraction cap plus the

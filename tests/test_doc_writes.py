@@ -453,6 +453,60 @@ def test_a_refused_step_of_to_drawer_undoes_the_new_drawer(client, alex, todo, m
     assert got["list_id"] == todo["id"] and len(got["children"]) == 1
 
 
+# --- uploads off the event loop ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("route", ["files", "revisions"])
+def test_a_doc_upload_waiting_for_the_write_lock_does_not_stall_other_requests(
+    client, alex, todo, route
+):
+    import threading
+    import time
+
+    from slate.service import core
+
+    if route == "files":
+        target = _doc(client, alex, title="Notes", list_id=todo["id"])
+        params = {"filename": "a.txt"}
+    else:
+        target = _doc(client, alex, kind="file", title="Quote")
+        params = {"filename": "a.txt", "note": "first"}
+    release = threading.Event()
+    held = threading.Event()
+
+    def hold() -> None:
+        with core._write_lock:  # any slow change holding the lock
+            held.set()
+            release.wait(5)
+
+    with client:  # one shared event loop, as under uvicorn
+        holder = threading.Thread(target=hold)
+        holder.start()
+        held.wait(2)
+        result = {}
+        up = threading.Thread(
+            target=lambda: result.setdefault(
+                "r",
+                client.post(
+                    f"{API}/docs/{target['id']}/{route}",
+                    params=params,
+                    content=b"hello",
+                    headers={**alex, "Content-Type": "text/plain"},
+                ),
+            )
+        )
+        up.start()
+        time.sleep(0.3)  # the upload is now waiting for the lock
+        t0 = time.perf_counter()
+        r = client.get("/healthz")
+        waited = time.perf_counter() - t0
+        release.set()
+        holder.join()
+        up.join()
+    assert r.status_code == 200 and waited < 1.0, waited
+    assert result["r"].status_code == 201, result["r"].text
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

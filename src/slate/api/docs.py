@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.attachments import CSP
@@ -535,7 +536,10 @@ async def add_file(
 ) -> dict:
     """Upload an image or file into the page (raw body, up to 10 MB); paste its `markdown`."""
     data = await read_body(request, docs.MAX_FILE_BYTES)
-    f = docs.add_file(
+    # The body is read on the event loop; the write (which waits for the write lock) runs in
+    # the threadpool like any sync route, so a held lock never stalls other requests.
+    f = await run_in_threadpool(
+        docs.add_file,
         session,
         auth.actor,
         doc_id,
@@ -668,7 +672,9 @@ async def add_revision(
     """Upload the next revision of a file doc (raw body, up to 25 MB). The previous revision
     stays, marked superseded. `note` says what changed; it is required."""
     data = await read_body(request, docs.MAX_REVISION_BYTES)
-    f = docs.add_revision(
+    # Reading the file's text and the write both run in the threadpool (see `add_file`).
+    f = await run_in_threadpool(
+        docs.add_revision,
         session,
         auth.actor,
         doc_id,
