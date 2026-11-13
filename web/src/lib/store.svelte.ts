@@ -11,24 +11,8 @@
 
 import { flushSync } from 'svelte';
 import { setWorkspaceTimezone, workspaceTimezone } from './timezone';
-import type { RunMode } from './types';
-import { SvelteSet } from 'svelte/reactivity';
-import { ApiError, api, configure, get, patch, post, put } from './api';
-import { describeRrule, hiddenAsFinished, isOpen } from './format';
-import { attention, byList, type Attention, type Need } from './attention';
-import { type QuickAdd, workspaceDay } from './quickadd';
-import { moveBefore } from './favorites';
-import { MAX_LAST_VIEWS, MAX_VIEW_DRAFTS, applyDiff, draftDiff, withEntry } from './lastview';
-import { agents } from './agents.svelte';
-import { pickupSince, pickupStatus, workingItems } from './pickup';
-import { affectsMyAccess, listLevel } from './permissions';
-import { applyEvent } from './reducer';
-import { type CommentDot, dotsChangedBy } from './commentdots';
-import { changeLabel, groupReverts, revertPatch } from './undo';
-import { LEAVES } from './words';
-import { applyTheme, asTheme, type Theme } from './theme';
-import { place, reorder, type StatusDraft } from './structure';
 import type {
+  RunMode,
   Level,
   Account,
   Favorite,
@@ -49,6 +33,22 @@ import type {
   Status,
   Tag,
 } from './types';
+import { SvelteSet } from 'svelte/reactivity';
+import { ApiError, api, configure, get, patch, post, put, authHeaders } from './api';
+import { describeRrule, hiddenAsFinished, isOpen } from './format';
+import { attention, byList, type Attention, type Need } from './attention';
+import { type QuickAdd, workspaceDay } from './quickadd';
+import { moveBefore } from './favorites';
+import { MAX_LAST_VIEWS, MAX_VIEW_DRAFTS, applyDiff, draftDiff, withEntry } from './lastview';
+import { agents } from './agents.svelte';
+import { pickupSince, pickupStatus, workingItems } from './pickup';
+import { affectsMyAccess, listLevel } from './permissions';
+import { applyEvent } from './reducer';
+import { type CommentDot, dotsChangedBy } from './commentdots';
+import { changeLabel, groupReverts, revertPatch } from './undo';
+import { LEAVES } from './words';
+import { applyTheme, asTheme, type Theme } from './theme';
+import { place, reorder, type StatusDraft, placeSection } from './structure';
 import {
   dayOf,
   defaultConfig,
@@ -64,10 +64,8 @@ import {
   type Scope,
   type ViewConfig,
 } from './views';
-
 import { COOKIE_SESSION, inviteSecretFrom } from './collaboration';
-import { placeSection } from './structure';
-import { authHeaders } from './api';
+import { EVENT_TYPES } from './board/events';
 
 const TOKEN_KEY = 'slate.token';
 const QA_KEY = 'slate.quickadd.';
@@ -202,7 +200,7 @@ class Board {
   }
 
   /** Re-copy one item (or drop it) after any change to `items`. */
-  #sync(id: string | null | undefined) {
+  protected sync(id: string | null | undefined) {
     if (!id) return;
     const it = this.items[id];
     if (it) this.#plain.set(id, $state.snapshot(it) as Item);
@@ -213,7 +211,7 @@ class Board {
   /** After a full load: `fresh` are the loaded items, never handed to `$state` (the store got
    * its own copy), so they are the plain mirror as they are. Snapshotting 20,000 proxies one by
    * one took about two seconds. */
-  #syncAll(fresh: Item[]) {
+  protected syncAll(fresh: Item[]) {
     this.#plain = new Map(fresh.map((i) => [i.id, i]));
     this.rev++;
   }
@@ -386,9 +384,9 @@ class Board {
       this.me = me;
       setWorkspaceTimezone(me.timezone);
       applyTheme(asTheme(me.prefs?.theme));
-      void this.#adoptLocalPrefs();
+      void this.adoptLocalPrefs();
       if (this.viewId) this.rememberView(this.selection, this.viewId);
-      await this.#loadAll();
+      await this.loadAll();
       if (gen !== this.#startGen) return;
       const buffered = this.#buffer ?? [];
       this.#buffer = null;
@@ -452,11 +450,11 @@ class Board {
     clearTimeout(this.#reloadTimer);
     this.#reloadTimer = setTimeout(() => {
       this.#reloadTimer = undefined;
-      this.#loadAll().catch((e) => this.flash(String(e)));
+      this.loadAll().catch((e) => this.flash(String(e)));
     }, 100);
   }
 
-  async #loadAll() {
+  protected async loadAll() {
     const gen = ++this.#loadGen;
     const [sections, lists, items, views, favorites] = await Promise.all([
       get<Section[]>('/sections'),
@@ -472,18 +470,18 @@ class Board {
     this.sections = sections.sort((a, b) => a.position - b.position);
     this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
     this.items = Object.fromEntries(structuredClone(items).map((i) => [i.id, i]));
-    this.#syncAll(items);
+    this.syncAll(items);
     void this.loadTags(); // tag colours on chips
     void this.loadCommentDots(); // the dot in a card's corner
     void this.loadRules(); // repeat labels on cards
     void this.loadCapacities(); // the Agents page
-    await this.#loadAccounts();
+    await this.loadAccounts();
     if (this.selection.kind === 'list' && !this.lists[this.selection.id]) {
       this.selection = { kind: 'everything' };
     }
   }
 
-  async #loadAccounts() {
+  protected async loadAccounts() {
     const known: Record<string, Account> = {};
     if (this.me) known[this.me.account.id] = this.me.account;
     if (this.me?.scopes.includes('admin')) {
@@ -529,7 +527,7 @@ class Board {
       .map((a) => a.handle);
   }
 
-  async #loadStructure() {
+  protected async loadStructure() {
     const [sections, lists] = await Promise.all([
       get<Section[]>('/sections'),
       get<List[]>('/lists'),
@@ -666,7 +664,7 @@ class Board {
     for (const fn of this.#listeners) fn(ev);
     // This account's board prefs changed, here or on another device: show the same thing.
     if (ev.type === 'account.prefs_changed' && this.me && ev.subject_id === this.me.account.id) {
-      this.me.prefs = this.#takePrefs((ev.after ?? {}) as Prefs);
+      this.me.prefs = this.takePrefs((ev.after ?? {}) as Prefs);
       applyTheme(asTheme(this.me.prefs.theme));
       return;
     }
@@ -692,10 +690,10 @@ class Board {
     const parentBefore = ev.item_id ? this.items[ev.item_id]?.parent_id : null;
     const fx = applyEvent(this, ev);
     if (ev.item_id) {
-      this.#sync(ev.item_id);
+      this.sync(ev.item_id);
       // Subtask counts live on the parent.
       const snap = (ev.after ?? ev.before) as { parent_id?: string } | null;
-      this.#sync(parentBefore ?? this.items[ev.item_id]?.parent_id ?? snap?.parent_id);
+      this.sync(parentBefore ?? this.items[ev.item_id]?.parent_id ?? snap?.parent_id);
     }
     for (const id of fx.refetch) this.#refetchQueue.add(id);
     if (fx.refetch.length) {
@@ -704,24 +702,24 @@ class Board {
     }
     if (fx.views) {
       clearTimeout(this.#viewsTimer);
-      this.#viewsTimer = setTimeout(() => void this.#loadViews(), 50);
+      this.#viewsTimer = setTimeout(() => void this.loadViews(), 50);
     }
     if (fx.tags && this.tagManagerOpen) void this.loadTags();
     // Favorites are per account: only this board's own changes reload the bar.
     if (fx.favorites && ev.actor_id === this.me?.account.id) {
       clearTimeout(this.#favoritesTimer);
-      this.#favoritesTimer = setTimeout(() => void this.#loadFavorites(), 50);
+      this.#favoritesTimer = setTimeout(() => void this.loadFavorites(), 50);
     }
     if (fx.capacities) {
       clearTimeout(this.#capacityTimer);
       this.#capacityTimer = setTimeout(() => void this.loadCapacities(), 80);
     }
     if (fx.reload) this.#scheduleReload();
-    else if (fx.structure) void this.#loadStructure();
+    else if (fx.structure) void this.loadStructure();
     // Someone joined or left a project: its names and its agents (the Ask default) changed.
     if (ev.type === 'section.participants_changed') {
       clearTimeout(this.#participantsTimer);
-      this.#participantsTimer = setTimeout(() => void this.#loadAccounts(), 100);
+      this.#participantsTimer = setTimeout(() => void this.loadAccounts(), 100);
     }
     if (ev.type.startsWith('recurrence.') && ev.subject_id) {
       this.#ruleQueue.add(ev.subject_id);
@@ -749,7 +747,7 @@ class Board {
       if (this.me) me.prefs = this.me.prefs;
       this.me = me;
       setWorkspaceTimezone(me.timezone);
-      await this.#loadAll();
+      await this.loadAll();
     } catch {
       /* the next event or reconnect retries */
     }
@@ -786,11 +784,11 @@ class Board {
       try {
         const got = await get<Item[]>(`/items?${q}`);
         const seen = new Set(got.map((it) => it.id));
-        for (const it of got) this.#store(it);
+        for (const it of got) this.storeItem(it);
         for (const id of chunk) {
           if (!seen.has(id) && this.items[id]) {
             delete this.items[id];
-            this.#sync(id);
+            this.sync(id);
           }
         }
       } catch (e) {
@@ -804,18 +802,18 @@ class Board {
       const d = await get<ItemDetail>(`/items/${id}`);
       const { subtasks: _s, comments: _c, events: _e, checklists: _k, attachments: _a, watchers: _w, ...item } =
         d;
-      this.#store(item);
+      this.storeItem(item);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         delete this.items[id];
-        this.#sync(id);
+        this.sync(id);
       }
     }
   }
 
-  #store(item: Item) {
+  protected storeItem(item: Item) {
     this.items[item.id] = item;
-    this.#sync(item.id);
+    this.sync(item.id);
     for (const a of item.assignees) this.accounts[a.id] ??= a;
   }
 
@@ -835,7 +833,7 @@ class Board {
     const pre = this.#pre.get(id) ?? (this.items[id] ? ($state.snapshot(this.items[id]) as Item) : null);
     this.#pre.delete(id);
     try {
-      this.#store(await patch<Item>(`/items/${id}`, changes));
+      this.storeItem(await patch<Item>(`/items/${id}`, changes));
       const back = pre && revertPatch(pre, changes);
       if (back) this.#remember(changeLabel(changes), () => this.#revert([[id, back]]));
       if (this.openId === id) void this.refreshDetail();
@@ -853,11 +851,11 @@ class Board {
     const before = item.status;
     this.#stash(id);
     item.status = { ...status };
-    this.#sync(id);
+    this.sync(id);
     const ok = await this.update(id, { status: status.id });
     if (!ok && this.items[id]) {
       this.items[id].status = before;
-      this.#sync(id);
+      this.sync(id);
     }
   }
 
@@ -891,7 +889,7 @@ class Board {
       this.#remember(`Added “${made.title}”`, async () => {
         await api('DELETE', `/items/${made.id}`);
         delete this.items[made.id];
-        this.#sync(made.id);
+        this.sync(made.id);
       });
       return true;
     } catch (e) {
@@ -929,7 +927,7 @@ class Board {
       this.#remember(`Added “${made.title}”`, async () => {
         await api('DELETE', `/items/${made.id}`);
         delete this.items[made.id];
-        this.#sync(made.id);
+        this.sync(made.id);
       });
       this.flash('Added. Filling in the details…');
       return true;
@@ -962,12 +960,12 @@ class Board {
   async archive(itemId: string) {
     try {
       const item = await post<Item>(`/items/${itemId}/archive`);
-      this.#store(item);
+      this.storeItem(item);
       this.close();
       this.#remember(
         `Put away “${item.title}”`,
         async () => {
-          this.#store(await post<Item>(`/items/${itemId}/unarchive`));
+          this.storeItem(await post<Item>(`/items/${itemId}/unarchive`));
         },
         true,
         LEAVES.putAway,
@@ -981,12 +979,12 @@ class Board {
   async trash(itemId: string) {
     try {
       const item = await post<Item>(`/items/${itemId}/trash`);
-      this.#store(item);
+      this.storeItem(item);
       if (this.openId === itemId) this.close();
       this.#remember(
         `Moved “${item.title}” to the trash`,
         async () => {
-          this.#store(await post<Item>(`/items/${itemId}/restore`));
+          this.storeItem(await post<Item>(`/items/${itemId}/restore`));
         },
         true,
         LEAVES.trash,
@@ -1001,7 +999,7 @@ class Board {
     const send = async (trash: boolean) => {
       for (let i = 0; i < ids.length; i += 500) {
         const out = await post<Item[]>('/items/bulk', { ids: ids.slice(i, i + 500), changes: { trash } });
-        for (const item of out) this.#store(item);
+        for (const item of out) this.storeItem(item);
       }
     };
     try {
@@ -1018,9 +1016,9 @@ class Board {
 
   /** Take an item out of the trash. Returns it (null when refused, with a toast). */
   async restore(itemId: string): Promise<Item | null> {
-    const item = await this.#attempt(() => post<Item>(`/items/${itemId}/restore`));
+    const item = await this.attempt(() => post<Item>(`/items/${itemId}/restore`));
     if (item) {
-      this.#store(item);
+      this.storeItem(item);
       if (this.openId === itemId) await this.refreshDetail();
     }
     return item ?? null;
@@ -1080,7 +1078,7 @@ class Board {
   async #revert(backs: [string, Record<string, unknown>][]) {
     for (const g of groupReverts(backs)) {
       const out = await post<Item[]>('/items/bulk', { ids: g.ids, changes: g.changes });
-      for (const item of out) this.#store(item);
+      for (const item of out) this.storeItem(item);
     }
     if (this.openId && backs.some(([id]) => id === this.openId)) await this.refreshDetail();
   }
@@ -1095,7 +1093,7 @@ class Board {
 
   // --- views, drops and bulk ----------------------------------------------------------------
 
-  async #loadViews() {
+  protected async loadViews() {
     const views = await get<SavedView[]>('/views');
     this.views = Object.fromEntries(views.map((v) => [v.id, v]));
   }
@@ -1217,7 +1215,7 @@ class Board {
   }
 
   /** Prefs from the server, keeping this device's view changes that are not saved yet. */
-  #takePrefs(incoming: Prefs): Prefs {
+  protected takePrefs(incoming: Prefs): Prefs {
     if (!this.me) return incoming;
     const sent = this.#draftsSent;
     const settled =
@@ -1331,7 +1329,7 @@ class Board {
     this.me.prefs = next as Prefs;
     try {
       const saved = await patch<Prefs>('/me/prefs', changes);
-      if (this.me) this.me.prefs = this.#takePrefs(saved);
+      if (this.me) this.me.prefs = this.takePrefs(saved);
     } catch (e) {
       this.flash(String(e));
     }
@@ -1355,7 +1353,7 @@ class Board {
 
   /** Before prefs lived on the account, each browser kept its own theme and folds. Hand any it
    *  still has to the account once, where the account has none, then forget them here. */
-  async #adoptLocalPrefs() {
+  protected async adoptLocalPrefs() {
     if (!this.me) return;
     const changes: Partial<Record<keyof Prefs, unknown>> = {};
     const stale: string[] = [];
@@ -1410,12 +1408,12 @@ class Board {
     ) as Partial<Item>;
     this.#stash(id);
     Object.assign(item, local);
-    this.#sync(id);
+    this.sync(id);
     const ok = await send();
     this.#pre.delete(id);
     if (!ok && this.items[id]) {
       Object.assign(this.items[id], before);
-      this.#sync(id);
+      this.sync(id);
     }
     return ok;
   }
@@ -1432,7 +1430,7 @@ class Board {
     for (const m of moves) {
       if (!this.items[m.id]) continue;
       this.items[m.id].position = m.position;
-      this.#sync(m.id);
+      this.sync(m.id);
     }
     try {
       for (let i = 0; i < moves.length; i += 100) {
@@ -1448,7 +1446,7 @@ class Board {
       for (const [id, pos] of before) {
         if (!this.items[id] || pos === undefined) continue;
         this.items[id].position = pos;
-        this.#sync(id);
+        this.sync(id);
       }
       this.flash(e instanceof Error ? e.message : String(e));
       return false;
@@ -1681,7 +1679,7 @@ class Board {
     try {
       for (let i = 0; i < ids.length; i += 500) {
         const out = await post<Item[]>('/items/bulk', { ids: ids.slice(i, i + 500), changes });
-        for (const item of out) this.#store(item);
+        for (const item of out) this.storeItem(item);
       }
       if (backs.length === ids.length) {
         const label = changeLabel(changes, ids.length);
@@ -1734,7 +1732,7 @@ class Board {
 
   // --- favorites bar ------------------------------------------------------------------------
 
-  async #loadFavorites() {
+  protected async loadFavorites() {
     try {
       this.favorites = await get<Favorite[]>('/favorites');
     } catch (e) {
@@ -1749,7 +1747,7 @@ class Board {
   /** Pin a target (at `position`, or last). Pinning twice is harmless. */
   async addFavorite(kind: FavoriteKind, targetId: string, position?: number) {
     if (this.favoriteOf(kind, targetId)) return;
-    const fav = await this.#attempt(() =>
+    const fav = await this.attempt(() =>
       post<Favorite>('/favorites', { kind, target_id: targetId, position }),
     );
     if (fav && !this.favorites.some((f) => f.id === fav.id)) {
@@ -1861,7 +1859,7 @@ class Board {
   shareTarget = $state<{ kind: 'section' | 'list'; id: string } | null>(null);
 
   /** Run a write; on refusal show Slate's reason and return null. */
-  async #attempt<T>(write: () => Promise<T>): Promise<T | null> {
+  protected async attempt<T>(write: () => Promise<T>): Promise<T | null> {
     try {
       return await write();
     } catch (e) {
@@ -1871,18 +1869,18 @@ class Board {
   }
 
   async reloadStructure() {
-    await this.#loadStructure();
+    await this.loadStructure();
     if (this.archivedSections.length || this.archivedLists.length) await this.loadArchived();
   }
 
   async createSection(name: string, audience: Section['audience']): Promise<Section | null> {
-    const s = await this.#attempt(() => post<Section>('/sections', { name, audience }));
+    const s = await this.attempt(() => post<Section>('/sections', { name, audience }));
     if (s) await this.reloadStructure();
     return s;
   }
 
   async updateSection(id: string, changes: Partial<Pick<Section, 'name' | 'audience'>>) {
-    if (await this.#attempt(() => patch<Section>(`/sections/${id}`, changes))) {
+    if (await this.attempt(() => patch<Section>(`/sections/${id}`, changes))) {
       await this.reloadStructure();
     }
   }
@@ -1890,7 +1888,7 @@ class Board {
   async placeSection(id: string, target: string, after: boolean) {
     const changes = placeSection(this.sections, id, target, after);
     if (!changes.length) return;
-    await this.#attempt(() => post('/batch', { ops: changes.map(r => ({ tool: 'section', action: 'update', params: { id: r.id, position: r.position } })) }));
+    await this.attempt(() => post('/batch', { ops: changes.map(r => ({ tool: 'section', action: 'update', params: { id: r.id, position: r.position } })) }));
     await this.reloadStructure();
   }
 
@@ -1901,15 +1899,15 @@ class Board {
   }
 
   async setSectionArchived(id: string, archived: boolean) {
-    if (!(await this.#attempt(() => patch(`/sections/${id}`, { archived })))) return;
+    if (!(await this.attempt(() => patch(`/sections/${id}`, { archived })))) return;
     // Restoring brings its lists' items back into the default queries: reload them.
     if (archived) await this.reloadStructure();
-    else await this.#reloadEverything();
+    else await this.reloadEverything();
   }
 
   async createList(sectionId: string, name: string, kind: 'tasks' | 'drawer' = 'tasks'): Promise<List | null> {
     // Slate's default columns: To do · In progress · Done. A drawer holds documents instead.
-    const l = await this.#attempt(() => post<List>('/lists', { section_id: sectionId, name, kind }));
+    const l = await this.attempt(() => post<List>('/lists', { section_id: sectionId, name, kind }));
     if (l) {
       this.lists[l.id] = l;
       await this.reloadStructure();
@@ -1918,13 +1916,13 @@ class Board {
   }
 
   async renameList(id: string, name: string) {
-    const l = await this.#attempt(() => patch<List>(`/lists/${id}`, { name }));
+    const l = await this.attempt(() => patch<List>(`/lists/${id}`, { name }));
     if (l) this.lists[id] = l;
   }
 
   /** Convert between a task list and a drawer (to a drawer only while it holds no tasks). */
   async setListKind(id: string, kind: 'tasks' | 'drawer') {
-    const l = await this.#attempt(() => patch<List>(`/lists/${id}`, { kind }));
+    const l = await this.attempt(() => patch<List>(`/lists/${id}`, { kind }));
     if (l) this.lists[id] = l;
     return l;
   }
@@ -1933,7 +1931,7 @@ class Board {
     const list = this.lists[id];
     if (!list) return;
     for (const r of reorder(this.listsOf(list.section_id), id, dir)) {
-      if (!(await this.#attempt(() => patch(`/lists/${r.id}`, { position: r.position })))) break;
+      if (!(await this.attempt(() => patch(`/lists/${r.id}`, { position: r.position })))) break;
     }
     await this.reloadStructure();
   }
@@ -1945,19 +1943,19 @@ class Board {
     const target = this.sortedLists.filter((l) => l.section_id === sectionId);
     for (const p of place(target, id, list.section_id, sectionId, beforeId)) {
       const { id: rid, ...changes } = p;
-      if (!(await this.#attempt(() => patch(`/lists/${rid}`, changes)))) break;
+      if (!(await this.attempt(() => patch(`/lists/${rid}`, changes)))) break;
     }
     await this.reloadStructure();
   }
 
   async setListArchived(id: string, archived: boolean) {
-    if (!(await this.#attempt(() => patch(`/lists/${id}`, { archived })))) return;
+    if (!(await this.attempt(() => patch(`/lists/${id}`, { archived })))) return;
     if (archived) await this.reloadStructure();
-    else await this.#reloadEverything();
+    else await this.reloadEverything();
   }
 
-  async #reloadEverything() {
-    await this.#loadAll();
+  protected async reloadEverything() {
+    await this.loadAll();
     await this.loadArchived();
   }
 
@@ -2002,11 +2000,11 @@ class Board {
       color: s.color,
     }));
     const body = fallback ? { statuses, fallback } : { statuses };
-    let saved = await this.#attempt(() => put<List>(`/lists/${listId}/statuses`, body));
+    let saved = await this.attempt(() => put<List>(`/lists/${listId}/statuses`, body));
     if (!saved) return false;
     const want = defaultName && saved.statuses.find((s) => s.name === defaultName.trim());
     if (want && want.id !== saved.default_status_id) {
-      saved = (await this.#attempt(() =>
+      saved = (await this.attempt(() =>
         patch<List>(`/lists/${listId}`, { default_status: want.id }),
       )) ?? saved;
     }
@@ -2025,11 +2023,11 @@ class Board {
   /** Move to another list (keeps a status of the same kind there). */
   async moveItem(id: string, listId: string) {
     const pre = this.items[id] ? ($state.snapshot(this.items[id]) as Item) : null;
-    const moved = await this.#attempt(() =>
+    const moved = await this.attempt(() =>
       post<Item[]>('/items/bulk', { ids: [id], changes: { list_id: listId } }),
     );
     if (moved) {
-      for (const i of moved) this.#store(i);
+      for (const i of moved) this.storeItem(i);
       if (this.openId === id) await this.refreshDetail();
       if (pre) {
         const back: Record<string, unknown> = { list_id: pre.list_id };
@@ -2040,9 +2038,9 @@ class Board {
   }
 
   async unarchive(id: string) {
-    const item = await this.#attempt(() => post<Item>(`/items/${id}/unarchive`));
+    const item = await this.attempt(() => post<Item>(`/items/${id}/unarchive`));
     if (item) {
-      this.#store(item);
+      this.storeItem(item);
       if (this.openId === id) await this.refreshDetail();
     }
   }
@@ -2085,7 +2083,7 @@ class Board {
 
   /** Make the item recurring: a rule from its fields; the item stays the current occurrence. */
   async createRule(item: Item, fields: Record<string, unknown>): Promise<Recurrence | null> {
-    const rule = await this.#attempt(() =>
+    const rule = await this.attempt(() =>
       post<Recurrence>('/recurrences', {
         list_id: item.list_id,
         title_template: item.title,
@@ -2106,13 +2104,13 @@ class Board {
   }
 
   async updateRule(id: string, changes: Record<string, unknown>): Promise<boolean> {
-    const rule = await this.#attempt(() => patch<Recurrence>(`/recurrences/${id}`, changes));
+    const rule = await this.attempt(() => patch<Recurrence>(`/recurrences/${id}`, changes));
     if (rule) this.recurrences[id] = rule;
     return !!rule;
   }
 
   async ruleAction(id: string, action: 'pause' | 'resume' | 'end') {
-    const rule = await this.#attempt(() =>
+    const rule = await this.attempt(() =>
       action === 'end'
         ? patch<Recurrence>(`/recurrences/${id}`, { ended: true })
         : post<Recurrence>(`/recurrences/${id}/${action}`),
@@ -2133,7 +2131,7 @@ class Board {
   /** Add or remove a dependency, from `itemId`'s side. Both items are refreshed. */
   async link(itemId: string, kind: LinkKind, otherId: string, add = true) {
     const path = `/items/${itemId}/links`;
-    const ok = await this.#attempt(() =>
+    const ok = await this.attempt(() =>
       add
         ? post(path, { kind, item_id: otherId })
         : api('DELETE', `${path}?${new URLSearchParams({ kind, other: otherId })}`),
@@ -2153,25 +2151,25 @@ class Board {
   }
 
   async updateTag(name: string, changes: { name?: string; color?: string | null }): Promise<boolean> {
-    const t = await this.#attempt(() => patch<Tag>(`/tags/${encodeURIComponent(name)}`, changes));
+    const t = await this.attempt(() => patch<Tag>(`/tags/${encodeURIComponent(name)}`, changes));
     if (t) await this.loadTags();
     return !!t;
   }
 
   async createTag(name: string, color: string | null): Promise<boolean> {
-    const t = await this.#attempt(() => post<Tag>('/tags', { name, color }));
+    const t = await this.attempt(() => post<Tag>('/tags', { name, color }));
     if (t) await this.loadTags();
     return !!t;
   }
 
   async mergeTag(name: string, into: string): Promise<boolean> {
-    const t = await this.#attempt(() => post<Tag>(`/tags/${encodeURIComponent(name)}/merge`, { into }));
+    const t = await this.attempt(() => post<Tag>(`/tags/${encodeURIComponent(name)}/merge`, { into }));
     if (t) await this.loadTags();
     return !!t;
   }
 
   async deleteTag(name: string): Promise<boolean> {
-    const ok = await this.#attempt(() => api('DELETE', `/tags/${encodeURIComponent(name)}`).then(() => true));
+    const ok = await this.attempt(() => api('DELETE', `/tags/${encodeURIComponent(name)}`).then(() => true));
     if (ok) await this.loadTags();
     return !!ok;
   }
@@ -2189,172 +2187,16 @@ class Board {
 
   /** Set some of an account's capacity fields (yours, or anyone's as an owner or admin). */
   async setCapacity(accountId: string, changes: Partial<Omit<Capacity, 'account_id' | 'custom'>>): Promise<boolean> {
-    const out = await this.#attempt(() => patch<Capacity>(`/accounts/${accountId}/capacity`, changes));
+    const out = await this.attempt(() => patch<Capacity>(`/accounts/${accountId}/capacity`, changes));
     if (out) this.capacities[accountId] = out;
     return out !== null;
   }
 
   async resetCapacity(accountId: string): Promise<boolean> {
-    const out = await this.#attempt(() => api<Capacity>('DELETE', `/accounts/${accountId}/capacity`));
+    const out = await this.attempt(() => api<Capacity>('DELETE', `/accounts/${accountId}/capacity`));
     if (out) this.capacities[accountId] = out;
     return out !== null;
   }
 }
-
-// Every event type Slate emits (TECHNICAL-GUIDE.md "Event types"). EventSource dispatches
-// named events only to listeners for that exact name.
-export const EVENT_TYPES = [
-  'agent.connection_created',
-  'agent.connection_connected',
-  'agent.connection_checked',
-  'agent.connection_revoked',
-  'item.created',
-  'item.updated',
-  'item.status_changed',
-  'item.assigned',
-  'item.archived',
-  'item.unarchived',
-  'item.split',
-  'item.moved',
-  'item.deleted',
-  'item.trashed',
-  'item.restored',
-  'item.purged',
-  'item.commented',
-  'item.mentioned',
-  'comment.edited',
-  'comment.deleted',
-  'comment.assigned',
-  'comment.resolved',
-  'comment.reacted',
-  'comment.unreacted',
-  'checklist.created',
-  'checklist.updated',
-  'checklist.deleted',
-  'checklist.entry_added',
-  'checklist.entry_updated',
-  'checklist.entry_checked',
-  'checklist.entry_unchecked',
-  'checklist.entry_removed',
-  'item.attachment_added',
-  'item.attachment_removed',
-  'item.watched',
-  'item.read',
-  'item.unwatched',
-  'inbox.read',
-  'inbox.cleared',
-  'message.posted',
-  'message.edited',
-  'message.deleted',
-  'message.file_uploaded',
-  'message.file_discarded',
-  'message.reacted',
-  'message.unreacted',
-  'message.task_created',
-  'message.mentioned_agent',
-  'message.agent_turn',
-  'doc.mentioned_agent',
-  'doc.agent_turn',
-  'channel.read',
-  'section.created',
-  'section.participants_changed',
-  'section.updated',
-  'section.archived',
-  'section.unarchived',
-  'list.created',
-  'list.updated',
-  'list.archived',
-  'list.unarchived',
-  'list.statuses_changed',
-  'tag.created',
-  'tag.updated',
-  'account.created',
-  'account.updated',
-  'account.disabled',
-  'account.enabled',
-  'account.prefs_changed',
-  'account.role_changed',
-  'share.granted',
-  'share.changed',
-  'share.revoked',
-  'invitation.created',
-  'invitation.accepted',
-  'invitation.revoked',
-  'session.created',
-  'session.expiring',
-  'session.extended',
-  'token.created',
-  'token.revoked',
-  'recurrence.created',
-  'recurrence.updated',
-  'recurrence.paused',
-  'recurrence.resumed',
-  'recurrence.ended',
-  'recurrence.spawned',
-  'recurrence.skipped',
-  'recurrence.rolled_forward',
-  'recurrence.advanced',
-  'recurrence.reopened',
-  'item.due_soon',
-  'item.due',
-  'item.overdue',
-  'webhook.created',
-  'webhook.updated',
-  'webhook.disabled',
-  'webhook.enabled',
-  'webhook.test',
-  'view.created',
-  'view.updated',
-  'view.archived',
-  'view.unarchived',
-  'item.linked',
-  'item.unlinked',
-  'item.blocked',
-  'item.unblocked',
-  'tag.deleted',
-  'favorite.added',
-  'favorite.moved',
-  'favorite.removed',
-  'item.reported',
-  'item.work_started',
-  'item.work_finished',
-  'item.run_requested',
-  'automation.created',
-  'automation.updated',
-  'automation.deleted',
-  'automation.secret_rotated',
-  'item.reminder',
-  'item.reminder_set',
-  'item.reminder_removed',
-  'account.digest',
-  'health.alert',
-  'health.recovered',
-  'push.subscribed',
-  'push.unsubscribed',
-  'push.expired',
-  'settings.changed',
-  'doc.created',
-  'doc.updated',
-  'doc.moved',
-  'doc.archived',
-  'doc.unarchived',
-  'doc.deleted',
-  'doc.version_restored',
-  'doc.file_added',
-  'doc.file_removed',
-  'doc.revision_added',
-  'doc.commented',
-  'doc.comment_edited',
-  'doc.comment_resolved',
-  'doc.comment_assigned',
-  'doc.suggestion_accepted',
-  'doc.revision_pinned',
-  'doc.revision_unpinned',
-  'doc.pinned_to_top',
-  'doc.unpinned_from_top',
-  'doc.mentioned',
-  'capacity.set',
-  'capacity.reset',
-];
 
 export const board = new Board();

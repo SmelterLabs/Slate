@@ -88,7 +88,7 @@ One `EventSource` on `/api/v1/events/stream?token=…[&since=<cursor>]` (EventSo
 
 Unit tests: `src/lib/store.test.ts` (happy-dom; `fetch` and `EventSource` faked, api layer and reducer real) covers the open-before-load order, the failed start and its backoff, the buffer applied once, the reload debounce and the generation guard.
 
-**Named events gotcha:** the server sends `event: <type>`, and EventSource only delivers a named event to a listener registered for that exact name (`onmessage` sees only unnamed ones). `EVENT_TYPES` in `store.svelte.ts` lists every type Slate emits. **A new event type must be added there**, or the board will ignore it.
+**Named events gotcha:** the server sends `event: <type>`, and EventSource only delivers a named event to a listener registered for that exact name (`onmessage` sees only unnamed ones). `EVENT_TYPES` in `lib/board/events.ts` lists every type Slate emits. **A new event type must be added there**, or the board will ignore it.
 
 **Field ≠ column gotcha:** the reducer writes `after` into the item only for `item.updated`, `item.archived`, `item.unarchived` and `item.moved` (`COLUMN_CHANGES`); any other `item.*` type that falls through refetches. Notices such as `item.due` / `item.overdue` name `field: due_at` but carry `{due_at}` as `after`; writing that object into `due_at` makes the views engine throw, and a throw there freezes the whole board until a reload (the store keeps working, so toasts still show). A new notice-style event gets its own `case` in `reducer.ts`. E2E: `e2e/complete-leaves.spec.ts`, which runs the real scheduler due step on the e2e database (`e2e/due_tick.py`) and replays it by reconnecting.
 

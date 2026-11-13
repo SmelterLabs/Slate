@@ -184,7 +184,7 @@ from `docgen.EVENT_DOCS` (`uv run slate docs`); `tests/test_agent_docs.py` fails
 has no line or a line has no code. Naming: `<table singular>.<verb past tense>`. `item.updated`
 carries `field` (`title`, `due_at`, `body_md`, `tags`, `completed_at`...); `item.assigned` and tag
 changes carry the whole before/after handle or name list; events about a non-item row put its id in
-`subject_id`. The board hears only the types listed in `store.svelte.ts` `EVENT_TYPES`
+`subject_id`. The board hears only the types listed in `lib/board/events.ts` `EVENT_TYPES`
 (`tests/test_board_event_types.py` keeps that list complete).
 
 ## Core REST and the item rules
@@ -734,8 +734,8 @@ maintainer decision. None of them has a table in the schema.
   they wait, so a request holds a connection only while it queries. Never hold a session's
   transaction open across an `await` on anything but the database. Long transactions are the
   enemy; keep service functions short.
-- The board's `EventSource` listens to an explicit list of event types (`store.svelte.ts`
-  `EVENT_TYPES`). A new event type is silently never heard until it is added there; the symptom is
+- The board's `EventSource` listens to an explicit list of event types
+  (`web/src/lib/board/events.ts` `EVENT_TYPES`). A new event type is silently never heard until it is added there; the symptom is
   "the write succeeds, nothing live-updates". `tests/test_board_event_types.py` fails when the list
   is incomplete; add the type there in the same change as `docgen.EVENT_DOCS`.
 - `apply_change()` holds the process write lock from the first write to the last publish, so never

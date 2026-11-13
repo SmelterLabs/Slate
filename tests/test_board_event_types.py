@@ -8,22 +8,22 @@ from pathlib import Path
 
 from slate import docgen
 
-STORE = Path(__file__).resolve().parents[1] / "web" / "src" / "lib" / "store.svelte.ts"
+EVENTS = Path(__file__).resolve().parents[1] / "web" / "src" / "lib" / "board" / "events.ts"
 
 
 def test_board_listens_for_every_event_type():
-    source = STORE.read_text()
+    source = EVENTS.read_text()
     block = source[source.index("export const EVENT_TYPES") :]
     block = block[: block.index("];")]
     listed = set(re.findall(r"'([a-z_]+\.[a-z_]+)'", block))
     missing = docgen.event_types_in_code() - listed
-    assert not missing, f"add to EVENT_TYPES in web/src/lib/store.svelte.ts: {sorted(missing)}"
+    assert not missing, f"add to EVENT_TYPES in web/src/lib/board/events.ts: {sorted(missing)}"
 
 
 def test_board_listens_for_no_event_type_the_server_never_sends():
-    source = STORE.read_text()
+    source = EVENTS.read_text()
     block = source[source.index("export const EVENT_TYPES") :]
     block = block[: block.index("];")]
     listed = set(re.findall(r"'([a-z_]+\.[a-z_]+)'", block))
     extra = listed - docgen.event_types_in_code()
-    assert not extra, f"remove from EVENT_TYPES in web/src/lib/store.svelte.ts: {sorted(extra)}"
+    assert not extra, f"remove from EVENT_TYPES in web/src/lib/board/events.ts: {sorted(extra)}"
