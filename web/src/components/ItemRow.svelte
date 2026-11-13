@@ -1,6 +1,7 @@
 <script lang="ts">
   import { dueLabel, isOverdue } from '../lib/format';
   import { priorityLabel } from '../lib/priority';
+  import { rowHandlers } from '../lib/itemrow';
   import { board } from '../lib/store.svelte';
   import { swipe } from '../lib/swipe';
   import type { Item } from '../lib/types';
@@ -46,25 +47,7 @@
   role="row"
   tabindex="0"
   data-item={item.id}
-  ondragstart={(e) => {
-    e.dataTransfer?.setData('text/plain', item.id);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-  }}
-  onclick={(e) => (e.shiftKey || board.selected.size ? board.toggleSelect(item.id, e.shiftKey) : board.open(item.id))}
-  onkeydown={(e) => e.key === 'Enter' && e.target === e.currentTarget && board.open(item.id)}
-  oncontextmenu={(e) => {
-    e.preventDefault();
-    armed = true;
-    menuOpen = true;
-  }}
-  onmouseenter={() => {
-    board.focusId = item.id;
-    armed = true;
-  }}
-  onfocusin={() => {
-    board.focusId = item.id;
-    armed = true;
-  }}
+  {...rowHandlers(item.id, { arm: () => (armed = true), menu: () => (menuOpen = true) })}
 >
   <span class="cell c-title" role="cell">
     <input

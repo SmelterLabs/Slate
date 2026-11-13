@@ -23,6 +23,7 @@
   import { RUN_TITLE } from '../lib/runmode';
   import { DEPENDS_ON, LEAVES, waitingOn } from '../lib/words';
   import { needOf } from '../lib/attention';
+  import { rowHandlers } from '../lib/itemrow';
 
   let {
     item,
@@ -77,11 +78,6 @@
     clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied = false), 1400);
   }
-
-  function arm() {
-    board.focusId = item.id;
-    armed = true;
-  }
 </script>
 
 <!-- A div, not a button: the circle, checkbox, pills and menu are buttons inside it. -->
@@ -102,21 +98,7 @@
   role="button"
   tabindex="0"
   data-item={item.id}
-  ondragstart={(e) => {
-    e.dataTransfer?.setData('text/plain', item.id);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-    dragging = true;
-  }}
-  ondragend={() => (dragging = false)}
-  onclick={(e) => (e.shiftKey || board.selected.size ? board.toggleSelect(item.id, e.shiftKey) : board.open(item.id))}
-  onkeydown={(e) => e.key === 'Enter' && e.target === e.currentTarget && board.open(item.id)}
-  oncontextmenu={(e) => {
-    e.preventDefault();
-    arm();
-    menuOpen = true;
-  }}
-  onmouseenter={arm}
-  onfocusin={arm}
+  {...rowHandlers(item.id, { arm: () => (armed = true), menu: () => (menuOpen = true), drag: (on) => (dragging = on) })}
 >
   <!-- Multi-select sits on the top-left corner, clear of the title and the subtask line. -->
   <span class="card-select">
