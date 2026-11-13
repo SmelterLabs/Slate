@@ -134,7 +134,26 @@ def make_engine(url: str | None = None) -> Engine:
         Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url, **kwargs)
     event.listen(engine, "connect", _configure_sqlite)
+    event.listen(engine, "first_connect", _seed_event_clock)
     return engine
+
+
+def _seed_event_clock(dbapi_connection, _record) -> None:  # noqa: ANN001
+    """Event ids continue after the newest stored one (slate.ids.seed_event_clock)."""
+    from slate.ids import seed_event_clock
+
+    cursor = dbapi_connection.cursor()
+    try:
+        newest = []
+        for table in ("events", "messages"):
+            try:
+                cursor.execute(f"SELECT max(id) FROM {table}")  # noqa: S608 (fixed names)
+                newest.append(cursor.fetchone()[0])
+            except sqlite3.OperationalError:  # not migrated yet: nothing to continue after
+                pass
+        seed_event_clock(newest)
+    finally:
+        cursor.close()
 
 
 def like_pattern(q: str) -> str:

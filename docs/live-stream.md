@@ -28,6 +28,9 @@ pick an id, lose the race to SQLite's lock, and commit after a later id: a curso
 skip it. `tests/test_write_order.py` reproduces that race (it fails without the lock). SQLite
 already serialises writers, so the lock costs nothing in throughput; it does mean **never `await` or
 block on I/O inside an `apply_change()` block**.
+Ids also never go backwards across a restart: a burst gives each id the next logical millisecond,
+so the id clock can run ahead of the wall clock, and the engine's first connection seeds it from
+the newest stored event and message id (`db._seed_event_clock`, `ids.seed_event_clock`).
 
 **Replay/subscribe race.** The stream (`_stream`) does, in order: (1) subscribe to the bus; (2)
 replay `id > since` from the table in pages of 1000, or with no `since` take the newest id as

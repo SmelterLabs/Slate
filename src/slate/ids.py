@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import Iterable
 
 ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 ID_LENGTH = 12
@@ -44,6 +45,30 @@ def new_event_id() -> str:
         ms = max(int(time.time() * 1000), _last_ms + 1)
         _last_ms = ms
     return _base62(ms, 7) + "".join(secrets.choice(ALPHABET) for _ in range(5))
+
+
+def event_id_ms(event_id: str) -> int:
+    """The millisecond an event id's first 7 characters carry (0 when it is not one)."""
+    head = event_id[:7]
+    if len(head) < 7 or any(c not in ALPHABET for c in head):
+        return 0
+    n = 0
+    for c in head:
+        n = n * 62 + ALPHABET.index(c)
+    return n
+
+
+def seed_event_clock(newest_ids: Iterable[str | None]) -> None:
+    """Continue after the newest stored ids (events, chat messages) in a new process.
+
+    A burst gives each id the next logical millisecond, so the clock can run ahead of the wall
+    clock; a restart before it catches up would otherwise hand out ids that sort below ones
+    already committed, and every `id > cursor` catch-up would skip them.
+    """
+    global _last_ms
+    newest = max((event_id_ms(i) for i in newest_ids if i), default=0)
+    with _lock:
+        _last_ms = max(_last_ms, newest)
 
 
 def slugify(name: str) -> str:
