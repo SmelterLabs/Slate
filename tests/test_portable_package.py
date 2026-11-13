@@ -34,7 +34,31 @@ def installed_server(tmp_path_factory):
     venv = outside / "venv"
     checked("uv", "venv", "--python", sys.executable, str(venv), cwd=outside)
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    checked("uv", "pip", "install", "--python", str(python), str(wheel), cwd=outside)
+    # The wheel's dependencies resolve to the versions uv.lock pins, never whatever the index
+    # has today: the floors in pyproject.toml are only lower bounds.
+    constraints = outside / "constraints.txt"
+    checked(
+        "uv",
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--no-emit-project",
+        "--no-hashes",
+        "--output-file",
+        str(constraints),
+        cwd=ROOT,
+    )
+    checked(
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(python),
+        "-c",
+        str(constraints),
+        str(wheel),
+        cwd=outside,
+    )
     env = {k: v for k, v in os.environ.items() if not k.startswith("SLATE_")}
     env.pop("PYTHONPATH", None)
     env.update(
@@ -45,6 +69,25 @@ def installed_server(tmp_path_factory):
         SLATE_SECRET_KEY="ab" * 32,
     )
     return outside, wheel, python, env
+
+
+def _pins(text: str) -> dict[str, str]:
+    pins = {}
+    for line in text.splitlines():
+        line = line.split(";")[0].split("#")[0].strip()
+        if "==" in line:
+            name, version = line.split("==", 1)
+            pins[name.strip().lower().replace("_", "-")] = version.strip()
+    return pins
+
+
+def test_installed_wheel_has_the_locked_versions(installed_server):
+    outside, _, python, _ = installed_server
+    locked = _pins((outside / "constraints.txt").read_text(encoding="utf-8"))
+    installed = _pins(checked("uv", "pip", "freeze", "--python", str(python), cwd=outside))
+    installed.pop("slate", None)
+    assert installed, "nothing installed"
+    assert {name: locked.get(name) for name in installed} == installed
 
 
 def test_installed_server_migrates_outside_checkout(installed_server):

@@ -340,7 +340,10 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **Build rather than adopt.** Existing trackers (Vikunja, Plane, Huly) were evaluated and the
   project chose to build its own: one host, one container, one SQLite file.
 - **uv** for Python dependency management (fast, lockfile, manages the interpreter; easy to install
-  locally and in CI).
+  locally and in CI). Each runtime floor in `pyproject.toml` is the version `uv.lock` pins, capped
+  below the next major, so a wheel install never gets a version the tests did not run; moving the
+  lock moves the floor. `tests/test_portable_package.py` installs the wheel with the lock's
+  versions as constraints and checks them.
 - **Svelte 5** for the board (small bundle, simple reactivity for a live board).
 - **The board hand-rolls its interactions:** HTML5 drag and drop and a small escape-first markdown
   renderer, not a DnD or markdown library (the only runtime packages are `exceljs` and `mammoth`,
