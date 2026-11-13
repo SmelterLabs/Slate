@@ -10,18 +10,20 @@ members-only), and it is deleted with the message.
 
 Bytes stay in the database (`message_files.data`), like attachment blobs, so the one backup
 covers them. Uploads are checked by the attachment rules (`attachments.clean`: a name, not
-empty, at most 25 MB, a plain content type). An upload that is never sent is swept the next
-time its uploader uploads, once it is `UNSENT_KEEP` old.
+empty, at most 25 MB, a plain content type). One account holds at most `MAX_UNSENT_FILES`
+unsent uploads, `MAX_UNSENT_BYTES` in all; past that an upload is refused until one is sent or
+taken back. An upload that is never sent is swept once it is `UNSENT_KEEP` old: on its
+uploader's next upload, and by the scheduler (`sweep_unsent`) for everyone.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
@@ -32,6 +34,9 @@ from slate.service.errors import Invalid, NotFound
 
 MAX_FILES = 10  # on one message
 UNSENT_KEEP = timedelta(hours=24)
+MAX_UNSENT_FILES = 20  # waiting to be sent, per account
+MAX_UNSENT_BYTES = 100 * 1024 * 1024
+SWEEP_BATCH = 200
 
 
 def view(f: MessageFile) -> dict[str, Any]:
@@ -125,6 +130,19 @@ def upload(
             )
         )
     )
+    gone = {old.id for old in stale}
+    count, size = session.execute(
+        select(func.count(), func.coalesce(func.sum(MessageFile.size), 0)).where(
+            MessageFile.uploaded_by == actor.account_id,
+            MessageFile.message_id.is_(None),
+            MessageFile.id.not_in(gone),
+        )
+    ).one()
+    if count >= MAX_UNSENT_FILES or size + len(data) > MAX_UNSENT_BYTES:
+        raise Invalid(
+            f"you have {count} unsent uploads; send or take back some first (at most "
+            f"{MAX_UNSENT_FILES} files and {MAX_UNSENT_BYTES // 2**20} MB wait to be sent)"
+        )
     with apply_change(session, actor) as cx:
         for old in stale:
             _discard(cx, old)
@@ -145,8 +163,29 @@ def upload(
 
 
 def _discard(cx: Change, f: MessageFile) -> None:
-    cx.record("message.file_discarded", subject_id=cx.actor.account_id, before=view(f), covers=[f])
+    cx.record("message.file_discarded", subject_id=f.uploaded_by, before=view(f), covers=[f])
     cx.session.delete(f)
+
+
+def sweep_unsent(session: Session, now: datetime) -> int:
+    """Scheduler hook: delete uploads nobody sent within `UNSENT_KEEP`, whoever made them,
+    as Slate's own account. Returns how many went."""
+    stale = list(
+        session.scalars(
+            select(MessageFile)
+            .where(MessageFile.message_id.is_(None), MessageFile.created_at < now - UNSENT_KEEP)
+            .order_by(MessageFile.created_at)
+            .limit(SWEEP_BATCH)
+        )
+    )
+    if not stale:
+        return 0
+    from slate.service.due import system_actor  # noqa: PLC0415
+
+    with apply_change(session, system_actor(session)) as cx:
+        for f in stale:
+            _discard(cx, f)
+    return len(stale)
 
 
 def discard(session: Session, actor: Actor, file_id: str) -> None:

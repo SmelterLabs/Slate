@@ -214,8 +214,12 @@ picked file (`service/chat_files.py`, `message_files`, migration `b4f8d2e6a1c9`)
   `no-store`, the sandbox CSP, inline only for images, PDFs and text.
 - **Unsent is private.** Until it is sent only its uploader reads or discards a file
   (`DELETE /message-files/{id}`). `message.file_uploaded` / `message.file_discarded` have the
-  uploader as subject and no channel, so `access` shows them to nobody else. An upload never
-  sent is swept on its uploader's next upload once it is `UNSENT_KEEP` (24 h) old.
+  uploader as subject and no channel, so `access` shows them to nobody else. One account holds
+  at most `MAX_UNSENT_FILES` (20) unsent uploads and `MAX_UNSENT_BYTES` (100 MB); past that an
+  upload is refused (422) until one is sent or discarded. An upload never sent is swept once it
+  is `UNSENT_KEEP` (24 h) old, on its uploader's next upload and by the scheduler hook
+  `chat_files.sweep_unsent` (as the `slate` account). The raw upload route reads the body on the
+  event loop and writes in the thread pool, so the write lock never stalls live streams.
 - **Deleting the message deletes its files** (rows and bytes, in the same change;
   `message.deleted` `before.files` keeps the metadata). **Make a task** copies the files onto
   the task as attachments; the message keeps its own.

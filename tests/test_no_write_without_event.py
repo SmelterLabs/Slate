@@ -940,6 +940,8 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.chat_files": {
         "upload": lambda db, a, p: _chat_file(db, a),
         "discard": lambda db, a, p: chat_files.discard(db, a, _chat_file(db, a).id),
+        # Scheduler hook, as the `slate` system agent: covered in tests/test_chat_files.py.
+        "sweep_unsent": None,
     },
     "slate.service.chatwake": {
         # Only an agent mentioned by a person holds a turn; the walk's actor is a person.
