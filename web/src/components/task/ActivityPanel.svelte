@@ -17,7 +17,7 @@
     statusColor,
     timeline,
   } from '../../lib/activity';
-  import { automationOf, automations } from '../../lib/automations.svelte';
+  import { automationNames, automationOf } from '../../lib/automationref.svelte';
   import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shownProgress, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
@@ -197,8 +197,8 @@
 
   function sourceLabel(ev: SlateEvent): string {
     const rule = automationOf(ev);
-    if (rule) automations.ensure();
-    if (rule) return `by automation${automations.name(rule) ? ` “${automations.name(rule)}”` : ''}`;
+    if (rule) automationNames.ensure();
+    if (rule) return `by automation${automationNames.name(rule) ? ` “${automationNames.name(rule)}”` : ''}`;
     return SOURCES[ev.source];
   }
 

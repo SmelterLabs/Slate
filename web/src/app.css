@@ -2034,7 +2034,7 @@ kbd {
   align-items: center;
 }
 
-/* ClickUp parity: estimates, dependencies, tag manager, table and calendar layouts. */
+/* ClickUp parity: estimates, dependencies, tag manager and the table layout. */
 
 /* the status select takes its status's colour as --opt */
 .status-select {
@@ -2325,205 +2325,6 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-/* calendar layout */
-.calendar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.cal-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.cal-title {
-  margin: 0 8px;
-  font-size: 1.05rem;
-}
-.cal-head > .link {
-  margin-left: auto;
-}
-.cal-body {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-.cal-grid {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-left: 1px solid var(--line);
-}
-.cal-wd {
-  padding: 4px 6px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-.cal-day {
-  min-height: 110px;
-  padding: 4px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.calendar.week .cal-day {
-  min-height: 60vh;
-}
-.cal-day.weekend {
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
-}
-.cal-day.other {
-  background: color-mix(in srgb, var(--panel) 50%, transparent);
-}
-.cal-day.other .cal-num {
-  color: var(--muted);
-}
-.cal-day.over {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-}
-.cal-date {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.cal-num {
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
-  padding: 0 4px;
-}
-.cal-day.today .cal-num {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 999px;
-}
-.cal-add {
-  visibility: hidden;
-}
-.cal-day:hover .cal-add {
-  visibility: visible;
-}
-.cal-add-form input {
-  width: 100%;
-  padding: 2px 4px;
-  font-size: 0.8rem;
-}
-/* A chip's right-click task menu opens at the pointer; its ⋯ trigger stays out of sight. */
-.cal-point {
-  position: fixed;
-  width: 0;
-  height: 0;
-  z-index: 30;
-}
-.cal-point .card-more {
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-.cal-chip {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  text-align: left;
-  font-size: 0.78rem;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--opt, var(--chip)) 18%, var(--card));
-  border-left: 3px solid transparent;
-}
-.cal-chip:hover {
-  background: var(--card-hover);
-}
-.cal-chip .dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-}
-.cal-chip-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cal-chip.done .cal-chip-title {
-  text-decoration: line-through;
-  color: var(--muted);
-}
-.cal-chip.overdue {
-  color: var(--overdue);
-}
-.cal-chip.cont {
-  opacity: 0.9;
-}
-/* A task with a start date runs as one bar from its start day to its due day: square ends
-   where it continues into the next cell, rounded where it starts or ends. */
-.cal-chip.span-start,
-.cal-chip.span-mid,
-.cal-chip.span-end {
-  background: color-mix(in srgb, var(--opt, var(--accent)) 18%, var(--card));
-}
-.cal-chip.span-start {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  margin-right: -5px;
-}
-.cal-chip.span-mid {
-  border-radius: 0;
-  margin-left: -5px;
-  margin-right: -5px;
-}
-.cal-chip.span-mid .dot,
-.cal-chip.span-end .dot {
-  display: none;
-}
-.cal-chip.span-end {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  margin-left: -5px;
-}
-.cal-chip-title.quiet {
-  visibility: hidden;
-}
-.cal-side {
-  width: 220px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  max-height: 75vh;
-  overflow-y: auto;
-}
-.cal-side.over {
-  outline: 2px dashed var(--accent);
-}
-.cal-side h4 {
-  margin: 0;
-}
-@media (max-width: 760px) {
-  .cal-body {
-    flex-direction: column;
-  }
-  .cal-side {
-    width: 100%;
-  }
-  .cal-day {
-    min-height: 70px;
-  }
-  .cal-chip-title {
-    font-size: 0.7rem;
-  }
-}
 /* --- phone and installed app (PWA) ---
    Shared rules for touch screens and the home-screen app (manifest + service worker in public/).
    Phone tweaks for any screen go here, so component styles stay layout-agnostic. Selectors are a
@@ -2677,8 +2478,7 @@ body {
   }
 }
 
-/* Recurrence options (on schedule / when done, skip weekends, reopen, checklists) and the
-   calendar's and timeline's future repeats. */
+/* Recurrence options (on schedule / when done, skip weekends, reopen, checklists). */
 .trigger-seg {
   justify-self: start;
 }
@@ -2691,32 +2491,6 @@ body {
   gap: 8px;
   align-items: baseline;
   font-size: 13px;
-  cursor: pointer;
-}
-.cal-chip.ghost {
-  background: transparent;
-  border: 1px dashed var(--line);
-  color: var(--muted);
-}
-.cal-chip.ghost .dot {
-  opacity: 0.5;
-}
-.tl-ghost {
-  position: absolute;
-  height: 18px;
-  border: 1px dashed var(--line);
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  padding: 0 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background: var(--bg);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  pointer-events: auto;
   cursor: pointer;
 }
 
@@ -2773,10 +2547,6 @@ html.touch-dragging .kanban {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
-  }
-  /* Timeline edges are wider under a finger. */
-  .tl-handle {
-    width: 14px;
   }
 }
 

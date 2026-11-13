@@ -1,4 +1,4 @@
-"""The Web Push loop: one asyncio task, woken by the event bus, like slate.automator.
+"""The Web Push loop: one asyncio task running `slate.engine.run`, like slate.automator.
 
 Each step runs `service.push.process()` in a worker thread, which reads events after its cursor,
 decides who hears about each (their inbox reasons, filtered by their push choices) and POSTs
@@ -13,14 +13,12 @@ start is seeded as nudged, so a restart never replays old nudges. Runs when `SLA
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 
 from slate import db as slate_db
-from slate import webpush
+from slate import engine, webpush
 from slate.service import push
-from slate.service.bus import bus
 
 log = logging.getLogger(__name__)
 
@@ -46,25 +44,7 @@ def step() -> int:
 
 
 async def run(poll_seconds: float = 5.0) -> None:
-    wake = asyncio.Event()
-    async with bus.subscribe() as sub:
-
-        async def doorbell() -> None:
-            async for _ in sub:
-                wake.set()
-
-        bell = asyncio.create_task(doorbell())
-        try:
-            while True:
-                wake.clear()
-                try:
-                    await asyncio.to_thread(step)
-                except Exception:
-                    log.exception("push step failed; retrying")
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(wake.wait(), poll_seconds)
-        finally:
-            bell.cancel()
+    await engine.run("push", step, poll_seconds=poll_seconds)
 
 
 def start() -> asyncio.Task | None:

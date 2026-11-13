@@ -103,7 +103,10 @@ class LeaseOut(BaseModel):
     item_id: str
     account_id: str
     claimed_at: datetime
-    until: datetime = Field(description="Heartbeat before this, or the task goes back")
+    until: datetime = Field(
+        description="Heartbeat before this. A lease that runs out holds the task, quarantined "
+        "(you stay assigned), until you reconcile with your run_id or a person clears its badge"
+    )
 
 
 class ChatLeaseOut(BaseModel):
@@ -512,6 +515,46 @@ def chat_reconcile(body: ChatReconcileIn, auth: WriteAuth, session: DbSession) -
 def doc_reconcile(body: DocReconcileIn, auth: WriteAuth, session: DbSession) -> dict:
     """Confirm remote termination of a doc turn with retained run proof (after it expired)."""
     return docwake.reconcile(session, auth.actor, **body.model_dump())
+
+
+class ChatClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: str = Field(description="The channel of the expired turn")
+    thread_id: str | None = Field(default=None, description="Its thread, when it was in one")
+    agent_id: str = Field(description="The agent whose turn it is")
+
+
+class DocClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    doc_id: str = Field(description="The doc of the expired turn")
+    thread_id: str | None = Field(default=None, description="Its thread, when it was in one")
+    agent_id: str = Field(description="The agent whose turn it is")
+
+
+class ClearOut(BaseModel):
+    cleared: bool
+    pending: bool = Field(
+        description="A mention waited in the turn: the agent's next take answers it"
+    )
+
+
+@router.post("/work/chat/clear", response_model=ClearOut)
+def chat_clear(body: ChatClearIn, auth: WriteAuth, session: DbSession) -> dict:
+    """Clear an agent's expired chat turn (the board's "stopped answering" line): a person
+    who may post in the channel confirms the run is over, because its runner lost the proof it
+    needs to reconcile. Records `message.agent_turn` `state: released`, `reconciled`, with you
+    as the actor; a mention that waited in the turn is the agent's next turn. 403 for an agent
+    (it reconciles its own turn with its run proof); 409 when there is no expired turn there
+    (a live turn ends when the agent finishes or its lease runs out)."""
+    return chatwake.clear(session, auth.actor, body.channel, body.thread_id, agent_id=body.agent_id)
+
+
+@router.post("/work/doc/clear", response_model=ClearOut)
+def doc_clear(body: DocClearIn, auth: WriteAuth, session: DbSession) -> dict:
+    """Clear an agent's expired doc turn, the same contract as `/work/chat/clear`: a person
+    who may comment on the doc confirms the run is over (`doc.agent_turn` `state: released`,
+    `reconciled`, by you)."""
+    return docwake.clear(session, auth.actor, body.doc_id, body.thread_id, agent_id=body.agent_id)
 
 
 @router.post("/work/{item_id}/reconcile")

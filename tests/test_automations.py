@@ -374,7 +374,7 @@ def test_engine_step_and_webhook_sender(client, db, world, monkeypatch):
     import httpx
 
     from slate import automator
-    from slate.notify import sign
+    from slate.outbound import sign
 
     seen = []
 

@@ -79,7 +79,13 @@ for ever, which would loop the tick inside the write lock), `BYMINUTE`/`BYSECOND
 stops when a rule stops advancing. `_dtstart` refuses years before `MIN_DTSTART_YEAR` (1970;
 dateutil walks from `dtstart`, so an ancient start costs seconds per view) and turns `OverflowError`
 into a 422. A rule spawns at most `MAX_SPAWN_PER_TICK` (100) per tick; the cursor stays on the next
-occurrence and the rest follow next tick.
+occurrence and the rest follow next tick. A rule whose pattern matches no day at all (February
+30, the tenth Monday of a month, every 7 days from a Thursday but only on Mondays) is refused
+with "never occurs" on create, update and preview: dateutil would walk it to year 9999 on every
+view. `_occurs` checks the pattern from a start moved by whole 400-year calendar cycles to just
+before that end, so the check itself costs a fraction of a second, and its answer is cached;
+`occurrences()` yields nothing for such a rule saved earlier. `update_recurrence` walks the new
+shape before it takes the write lock.
 
 **Scheduler** (`slate/scheduler.py`): `start()` creates one asyncio task (first tick immediately,
 then every `settings.scheduler_interval_seconds`, default 60, env
@@ -127,9 +133,8 @@ no date left ends (`recurrence.ended`). `copy_checklists` copies the previous in
 into each spawned item. `on_done` views have empty `next_occurrences`; `preview(trigger=on_done)`
 shows the chain "if each is done on its due day, from today". `GET
 /recurrences/upcoming?start&end&list_id` (≤ 400 days, ≤ 1000 rows; MCP `upcoming`) lists dates
-active `schedule` rules will fill from their cursor on, which the calendar (dashed
-`.cal-chip.ghost`) and timeline (`.tl-ghost` on the newest instance's row) draw; both refetch when
-`board.recurRev` bumps on any `recurrence.*` event. The board loads every rule at start
+active `schedule` rules will fill from their cursor on, for an agent or client that draws future
+repeats on a calendar; the board does not call it. The board loads every rule at start
 (`board.loadRules`) for the card label (`lib/rrule.ts` `shortRule`).
 
 **REST** (`/api/v1/recurrences`): `GET` (filters `list_id`, `include_ended`), `POST` (201),

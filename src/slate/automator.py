@@ -1,4 +1,4 @@
-"""The automations engine loop: one asyncio task, woken by the event bus.
+"""The automations engine: one asyncio task running `slate.engine.run`, woken by the event bus.
 
 Each step runs `service.automations.process()` in a worker thread: it reads every event after
 its stored cursor, runs the rules they fire and moves the cursor, so a restart resumes where it
@@ -12,54 +12,38 @@ The `webhook` action's signed HTTP POST happens here (`send`), outside any write
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
-import time
 from typing import Any
 
 import httpx
 
-from slate import __version__
+from slate import __version__, engine, outbound
 from slate import db as slate_db
-from slate.notify import sign
-from slate.service import automations, webhooks
-from slate.service.bus import bus
+from slate.service import automations
 
 log = logging.getLogger(__name__)
 
-RESPONSE_CAP_BYTES = 64 * 1024
 TIMEOUT_SECONDS = 5.0
 # Tests swap in an `httpx.MockTransport`; None means real network.
 transport: httpx.BaseTransport | None = None
 
 
 def send(url: str, payload: dict[str, Any], secret: str) -> tuple[bool, str]:
-    """POST one automation webhook, signed with the rule's secret. One attempt; the result goes
+    """POST one automation webhook, signed with the rule's secret (`outbound.signed_headers`).
+    One attempt through `outbound.post`, the same bounded POST webhooks use; the result goes
     in the run log."""
     body = json.dumps(payload).encode()
     headers = {
         "Content-Type": "application/json",
         "User-Agent": f"Slate/{__version__}",
         "X-Slate-Automation": payload["automation"]["id"],
-        "X-Slate-Signature": sign(secret, body),
+        **outbound.signed_headers(secret, body),
     }
     try:
-        webhooks.check_target(url)
-        deadline = time.monotonic() + TIMEOUT_SECONDS
-        with (
-            httpx.Client(
-                transport=transport, timeout=TIMEOUT_SECONDS, follow_redirects=False
-            ) as client,
-            client.stream("POST", url, content=body, headers=headers) as response,
-        ):
-            # Read a bounded amount: the body is never kept (see notify.post_capped).
-            got = 0
-            for chunk in response.iter_bytes():
-                got += len(chunk)
-                if got >= RESPONSE_CAP_BYTES or time.monotonic() > deadline:
-                    break
-            status = response.status_code
+        status = outbound.post(
+            url, body, headers, timeout=TIMEOUT_SECONDS, transport=transport
+        ).status
     except Exception as exc:  # noqa: BLE001  # httpx errors and e.g. IDNA errors
         return False, f"{type(exc).__name__}: {exc}"[:300]
     return 200 <= status < 300, f"HTTP {status}"
@@ -70,28 +54,13 @@ def step() -> int:
         return automations.process(session, send=send)
 
 
+def _start() -> None:
+    with slate_db.SessionLocal() as session:
+        automations.start(session)
+
+
 async def run(poll_seconds: float = 5.0) -> None:
-    wake = asyncio.Event()
-    async with bus.subscribe() as sub:
-        with slate_db.SessionLocal() as session:
-            await asyncio.to_thread(automations.start, session)
-
-        async def doorbell() -> None:
-            async for _ in sub:
-                wake.set()
-
-        bell = asyncio.create_task(doorbell())
-        try:
-            while True:
-                wake.clear()
-                try:
-                    await asyncio.to_thread(step)
-                except Exception:
-                    log.exception("automations step failed; retrying")
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(wake.wait(), poll_seconds)
-        finally:
-            bell.cancel()
+    await engine.run("automations", step, poll_seconds=poll_seconds, start=_start)
 
 
 def start() -> asyncio.Task:

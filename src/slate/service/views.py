@@ -48,7 +48,12 @@ FILTER_FIELDS = {
     "blocked": {"is"},
     "estimate": {"empty", "not_empty", "gt", "lt"},
 }
-LAYOUTS = ("board", "list", "table", "calendar", "timeline", "box")
+LAYOUTS = ("board", "list", "table")
+# Layouts the board no longer has. A view saved with one still reads, as a list; a write with one
+# is refused. The two settings only they used are accepted on write and dropped, so a board page
+# opened before an upgrade can still save.
+REMOVED_LAYOUTS = ("calendar", "timeline", "box")
+REMOVED_CONFIG_KEYS = ("calendar_span", "timeline_zoom")
 
 
 GROUP_BY = {
@@ -169,8 +174,7 @@ def validate_config(config: Any, *, scope_kind: str) -> dict[str, Any]:
         "hide_empty_groups",
         "density",
         "card_fields",
-        "calendar_span",
-        "timeline_zoom",
+        *REMOVED_CONFIG_KEYS,
         "title_lines",
         "collapse_empty",
     }
@@ -178,14 +182,10 @@ def validate_config(config: Any, *, scope_kind: str) -> dict[str, Any]:
         raise Invalid(f"unknown config key(s): {', '.join(sorted(unknown))}")
 
     layout = config.get("layout", "board")
+    if layout in REMOVED_LAYOUTS:
+        raise Invalid(f"the {layout} layout is no longer available; use 'board', 'list' or 'table'")
     if layout not in LAYOUTS:
         raise Invalid(f"layout must be one of {list(LAYOUTS)}")
-    calendar_span = config.get("calendar_span", "month")
-    if calendar_span not in ("month", "week"):
-        raise Invalid("calendar_span must be 'month' or 'week'")
-    timeline_zoom = config.get("timeline_zoom", "week")
-    if timeline_zoom not in ("day", "week", "month"):
-        raise Invalid("timeline_zoom must be 'day', 'week' or 'month'")
     group_by = config.get("group_by", "none")
     if group_by not in GROUP_BY:
         raise Invalid(f"group_by must be one of {sorted(GROUP_BY)}")
@@ -232,8 +232,6 @@ def validate_config(config: Any, *, scope_kind: str) -> dict[str, Any]:
         "hide_empty_groups": config.get("hide_empty_groups", False),
         "density": density,
         "card_fields": list(card_fields),
-        "calendar_span": calendar_span,
-        "timeline_zoom": timeline_zoom,
         "title_lines": title_lines,
         "collapse_empty": config.get("collapse_empty", True),
     }
@@ -261,13 +259,23 @@ def _check_filter(node: Any, *, depth: int) -> None:
             raise Invalid(f"filter {rule['field']} does not support cmp {rule.get('cmp')!r}")
 
 
+def _read_config(config: Any) -> Any:
+    """A stored config as clients see it: a removed layout reads as `list`, without its settings."""
+    if not isinstance(config, dict):
+        return config
+    out = {k: v for k, v in config.items() if k not in REMOVED_CONFIG_KEYS}
+    if out.get("layout") in REMOVED_LAYOUTS:
+        out["layout"] = "list"
+    return out
+
+
 def view_out(view: View) -> dict[str, Any]:
     return {
         "id": view.id,
         "name": view.name,
         "scope_kind": view.scope_kind.value,
         "scope_id": view.scope_id,
-        "config": view.config_json,
+        "config": _read_config(view.config_json),
         "position": view.position,
         "owner_id": view.owner_id,
         "shared": view.shared,

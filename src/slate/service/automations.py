@@ -30,7 +30,7 @@ Rules of the engine:
 - A run is logged in `automation_runs` (bookkeeping, not an event), with one result per
   action. Runs older than `RUN_KEEP` are pruned as the engine goes.
 - The `webhook` action is the one that leaves Slate: a JSON POST (`{automation, event, item}`)
-  signed like webhook deliveries (`X-Slate-Signature: sha256=<HMAC of the body>`) with the
+  signed like webhook deliveries (`outbound.signed_headers`) with the
   rule's own secret (made when the rule first gets a webhook action, shown once, rotatable),
   sent outside any write transaction, one attempt, logged in the run.
 """
@@ -44,6 +44,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from slate import crypto
@@ -63,7 +64,7 @@ from slate.models import (
     StatusKind,
     utcnow,
 )
-from slate.service import access
+from slate.service import access, cursors
 from slate.service import comments as comments_svc
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
@@ -914,14 +915,7 @@ def run_now(
 
 
 def _cursor(session: Session) -> EngineCursor:
-    row = session.get(EngineCursor, CURSOR)
-    if row is None:
-        row = EngineCursor(
-            name=CURSOR, event_id=session.scalar(select(func.max(Event.id))), updated_at=utcnow()
-        )
-        session.add(row)
-        session.commit()
-    return row
+    return cursors.engine_cursor(session, CURSOR)
 
 
 def start(session: Session) -> str | None:
@@ -932,7 +926,9 @@ def start(session: Session) -> str | None:
 
 def process(session: Session, *, now: datetime | None = None, send: Sender | None = None) -> int:
     """Read every event after the cursor, run the rules they fire, advance the cursor.
-    Returns the number of runs. Idempotent: the cursor moves after each event."""
+    Returns the number of runs. A rule already logged as run for an event is not run for it
+    again (a restart between a run and the cursor's commit). An event that cannot be handled
+    is logged and skipped, so it cannot hold up the events after it."""
     cursor = _cursor(session)
     rules = [r for r in list_automations(session) if r.enabled]
     if not rules:
@@ -961,7 +957,14 @@ def process(session: Session, *, now: datetime | None = None, send: Sender | Non
                 and ev.item_id
                 and not (ev.session_ref or "").startswith(SESSION_PREFIX)
             ):
-                n = _handle(session, rules, ev, send)
+                try:
+                    n = _handle(session, rules, ev, send)
+                except SQLAlchemyError:
+                    raise  # the database, not this event: the engine retries the step
+                except Exception:
+                    session.rollback()
+                    log.exception("automations: skipping event %s, which failed", ev.id)
+                    n = 0
                 runs += n
             else:
                 n = 0
@@ -996,7 +999,17 @@ def _handle(session: Session, rules: Sequence[Automation], ev: Event, send: Send
         }
     runs = 0
     view = None
+    done = set(
+        session.scalars(
+            select(AutomationRun.automation_id).where(
+                AutomationRun.event_id == ev.id,
+                AutomationRun.automation_id.in_([r.id for r in rules]),
+            )
+        )
+    )
     for rule in rules:
+        if rule.id in done:
+            continue  # already ran for this event (a restart before the cursor moved)
         if not _in_scope(rule, item, section_of):
             continue
         if rule.trigger_json.get("type") == "moved_in" and _was_in_scope(session, rule, ev):

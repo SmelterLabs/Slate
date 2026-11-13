@@ -41,7 +41,6 @@ import type {
   Prefs,
   Recurrence,
   RecurTrigger,
-  UpcomingRepeat,
   RulePreview,
   SavedView,
   Section,
@@ -134,7 +133,7 @@ class Board {
   views = $state<Record<string, SavedView>>({});
   /** Your pinned lists, sections, views and items, in bar order. */
   favorites = $state<Favorite[]>([]);
-  /** Capacity per account id (GET /capacities, defaults included): the Box view and the Agents page. */
+  /** Capacity per account id (GET /capacities, defaults included): the Agents page. */
   capacities = $state<Record<string, Capacity>>({});
   /** Toolbar search: narrows whatever view is showing, never saved. */
   q = $state('');
@@ -474,7 +473,7 @@ class Board {
     void this.loadTags(); // tag colours on chips
     void this.loadCommentDots(); // the dot in a card's corner
     void this.loadRules(); // repeat labels on cards
-    void this.loadCapacities(); // the Box view and the Agents page
+    void this.loadCapacities(); // the Agents page
     await this.#loadAccounts();
     if (this.selection.kind === 'list' && !this.lists[this.selection.id]) {
       this.selection = { kind: 'everything' };
@@ -722,7 +721,6 @@ class Board {
       this.#participantsTimer = setTimeout(() => void this.#loadAccounts(), 100);
     }
     if (ev.type.startsWith('recurrence.') && ev.subject_id) {
-      this.recurRev++;
       this.#ruleQueue.add(ev.subject_id);
       clearTimeout(this.#ruleTimer);
       this.#ruleTimer = setTimeout(() => {
@@ -1651,18 +1649,6 @@ class Board {
     await this.#optimistic(id, { priority }, () => this.update(id, { priority }));
   }
 
-  /** Move or resize a task's dates together (the Timeline's drag and edge handles). Passing a
-   * key unchanged leaves it alone; null clears it. Optimistic, like reschedule. */
-  async setDates(id: string, dates: { start_at?: string | null; due_at?: string | null }) {
-    const item = this.items[id];
-    if (!item) return;
-    const changes: Record<string, string | null> = {};
-    if ('start_at' in dates && dates.start_at !== item.start_at) changes.start_at = dates.start_at ?? null;
-    if ('due_at' in dates && dates.due_at !== item.due_at) changes.due_at = dates.due_at ?? null;
-    if (!Object.keys(changes).length) return;
-    await this.#optimistic(id, changes as Partial<Item>, () => this.update(id, changes));
-  }
-
   /** The circle on a card: to the list's first done status, or back again. */
   async toggleComplete(id: string) {
     const item = this.items[id];
@@ -2060,24 +2046,12 @@ class Board {
 
   // Recurrence rules ---------------------------------------------------------------------------
 
-  /** Bumped on every rule event: what the calendar's and timeline's future repeats follow. */
-  recurRev = $state(0);
-
   async loadRules() {
     try {
       const rules = await get<Recurrence[]>('/recurrences');
       this.recurrences = Object.fromEntries(rules.map((r) => [r.id, r]));
     } catch {
       // labels fall back to "Recurring"
-    }
-  }
-
-  /** Dates rules will fill between two workspace days that are not items yet. */
-  async upcoming(start: string, end: string): Promise<UpcomingRepeat[]> {
-    try {
-      return await get<UpcomingRepeat[]>(`/recurrences/upcoming?${new URLSearchParams({ start, end })}`);
-    } catch {
-      return [];
     }
   }
 

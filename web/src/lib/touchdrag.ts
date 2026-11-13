@@ -1,14 +1,11 @@
 // Drag by finger. Browsers only start an HTML drag from a mouse, so on a phone or tablet nothing
 // that is `draggable="true"` moved. This turns a long press into that same drag: hold a card,
-// row, calendar chip, favorite, list or page still for a moment and it lifts under the finger,
+// row, favorite, list or page still for a moment and it lifts under the finger,
 // with a tick of haptic feedback; then dragstart, dragenter, dragover, dragleave, drop and
 // dragend go to whatever is under the finger, exactly as the mouse sends them. So every drop
 // target written for the mouse works by touch unchanged, and phone and desktop share one code
 // path. Near the edge of a scrolling column, board or page it scrolls, faster the closer you go.
 // Holding and letting go without moving opens the element's right-click menu, as on a desktop.
-//
-// Pointer-driven drags (timeline bars) use `holdToDrag` for the same long
-// press, so a quick swipe still scrolls and only a held finger grabs.
 
 export const HOLD_MS = 350;
 /** How far a finger may wander (px) before a press counts as a scroll instead. */
@@ -152,16 +149,11 @@ export function autoScroll(under: Element | null, x: number, y: number, home: El
   return moved;
 }
 
-// --- a touch session (shared by HTML drags and holdToDrag) ------------------------------------
+// --- a touch session ---------------------------------------------------------------------------
 
 /** True from a finger going down on something draggable until it lifts. While set, the native
  * long-press menu and the browser's own touch drag (iOS, Android) stay out of the way. */
 let pressing = false;
-
-/** Stops the page from scrolling under a held drag. */
-function blockScroll(e: TouchEvent) {
-  if (e.cancelable) e.preventDefault();
-}
 
 let installed = false;
 
@@ -378,43 +370,4 @@ export function installTouchDrag() {
   document.addEventListener('contextmenu', guard, true);
   document.addEventListener('dragstart', guard, true);
   document.addEventListener('selectstart', guard, true);
-}
-
-/**
- * A pointer drag that waits for a long press when it is a finger. Mouse and pen start at once
- * (`start` runs inside this call); a finger must hold still for HOLD_MS first, so a swipe across
- * a timeline bar or a widget still scrolls the page. `start` gets the pointer event to begin from.
- * While a finger drag is on, the page does not scroll.
- */
-export function holdToDrag(e: PointerEvent, start: (from: PointerEvent) => void) {
-  if (e.pointerType !== 'touch') {
-    start(e);
-    return;
-  }
-  const x0 = e.clientX;
-  const y0 = e.clientY;
-  const id = e.pointerId;
-  pressing = true;
-  let started = false;
-  const timer = setTimeout(() => {
-    started = true;
-    haptic();
-    document.addEventListener('touchmove', blockScroll, { capture: true, passive: false });
-    start(e);
-  }, HOLD_MS);
-  const move = (m: PointerEvent) => {
-    if (m.pointerId === id && !started && beyondSlop(x0, y0, m.clientX, m.clientY)) done();
-  };
-  const done = (u?: PointerEvent) => {
-    if (u && u.pointerId !== id) return;
-    clearTimeout(timer);
-    window.removeEventListener('pointermove', move, true);
-    window.removeEventListener('pointerup', done, true);
-    window.removeEventListener('pointercancel', done, true);
-    document.removeEventListener('touchmove', blockScroll, { capture: true } as EventListenerOptions);
-    setTimeout(() => (pressing = false), 400);
-  };
-  window.addEventListener('pointermove', move, true);
-  window.addEventListener('pointerup', done, true);
-  window.addEventListener('pointercancel', done, true);
 }

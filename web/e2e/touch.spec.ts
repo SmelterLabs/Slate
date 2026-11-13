@@ -293,43 +293,6 @@ test.describe('iPad', () => {
       })
       .toEqual(['Three', 'One', 'Two']);
   });
-  test('hold a timeline bar to drag it; a quick swipe scrolls the chart instead', async ({ page }) => {
-    const { listId } = await makeList('Touch timeline', []);
-    const bar = await api<{ id: string; due_at: string }>('POST', '/items', {
-      list_id: listId,
-      title: 'Slide me later',
-      start_at: atDay(1),
-      due_at: atDay(3),
-    });
-    await signedIn(page, `/#/list/${listId}`);
-    await page.getByRole('button', { name: 'Timeline', exact: true }).tap();
-    const el = page.locator(`.tl-row[data-item="${bar.id}"] .tl-bar`);
-    await expect(el).toBeVisible();
-    const c = await center(page, `.tl-row[data-item="${bar.id}"] .tl-bar`);
-    await finger(page, c, [{ x: c.x + 7 * 20, y: c.y }]);
-    await expect
-      .poll(async () => (await api<{ due_at: string }>('GET', `/items/${bar.id}`)).due_at > bar.due_at)
-      .toBe(true);
-  });
-
-  test('drag a calendar chip to another day by finger', async ({ page }) => {
-    const { listId } = await makeList('Touch calendar', []);
-    const it = await api<{ id: string; due_at: string }>('POST', '/items', { list_id: listId, title: 'Move my day', due_at: atDay(0) });
-    await signedIn(page, `/#/list/${listId}`);
-    await page.getByRole('button', { name: 'Calendar', exact: true }).tap();
-    const chip = page.locator('.cal-chip', { hasText: 'Move my day' });
-    await expect(chip).toBeVisible();
-    const from = await center(page, '.cal-chip:has-text("Move my day")');
-    const today = await page.locator('.cal-day:has(.cal-chip:has-text("Move my day"))').boundingBox();
-    // Sideways to the neighbouring day, toward the middle: one row down falls off the month (or
-    // the screen) in its last week, so the test failed in the last days of every month.
-    const width = page.viewportSize()!.width;
-    const dx = from.x > width / 2 ? -today!.width : today!.width;
-    await finger(page, from, [{ x: from.x + dx, y: from.y }, 200]);
-    await expect
-      .poll(async () => (await api<{ due_at: string }>('GET', `/items/${it.id}`)).due_at.slice(0, 10))
-      .not.toBe(it.due_at.slice(0, 10));
-  });
 });
 
 test.describe('desktop', () => {
