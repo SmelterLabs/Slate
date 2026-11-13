@@ -1,38 +1,28 @@
 // "Needs you": the bottom-right pill on every page, its pop-up list, the grouped panel on My
 // Work, and the card on its own list still showing the agent's badge.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const review = await api<{ id: string }>('POST', '/items', alex, {
+  const review = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Needs-you review card',
     assignees: ['agent'],
   });
-  const stuck = await api<{ id: string }>('POST', '/items', alex, {
+  const stuck = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Needs-you waiting card',
     assignees: ['agent'],
   });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   await expect(page.locator('.card', { hasText: 'Needs-you review card' })).toBeVisible();
 
   // Live: reports arrive over the stream and the pill follows.
-  await api('POST', `/items/${review.id}/report`, agent, { state: 'review', note: 'Draft is ready' });
-  await api('POST', `/items/${stuck.id}/report`, agent, { state: 'blocked', waiting_on: 'alex', note: 'Need the VIN' });
+  await api('POST', `/items/${review.id}/report`, { state: 'review', note: 'Draft is ready' }, agent);
+  await api('POST', `/items/${stuck.id}/report`, { state: 'blocked', waiting_on: 'alex', note: 'Need the VIN' }, agent);
   const pill = page.locator('.nb-pill');
   await expect(pill).toBeVisible();
   // Red: something is blocked on Alex.
@@ -67,27 +57,27 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
   await panel.locator(`[data-item="${review.id}"] [data-mark-reviewed]`).click();
   await expect(panel.locator(`[data-item="${review.id}"]`)).toHaveCount(0);
   await expect
-    .poll(async () => (await api<{ agent: unknown }>('GET', `/items/${review.id}`, alex)).agent ?? null)
+    .poll(async () => (await api<{ agent: unknown }>('GET', `/items/${review.id}`)).agent ?? null)
     .toBeNull();
 });
 
 test('waiting on you: the card shows the question at the top, and Answer goes to it', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const card = await api<{ id: string }>('POST', '/items', alex, {
+  const card = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Waiting-question card',
     assignees: ['agent'],
   });
   const long = Array.from({ length: 30 }, (_, i) => `- Checked ledger line ${i + 1}.`).join('\n');
-  await api('POST', `/items/${card.id}/report`, agent, {
+  await api('POST', `/items/${card.id}/report`, {
     state: 'blocked',
     waiting_on: 'alex',
     reply: `**Status so far.**\n\n${long}\n\nTo finish: opening the details was declined; should I leave those details unopened? Sign-out is unconfirmed.`,
-  });
+  }, agent);
   // Alex stops the agent's run: the badge goes, the wait stays (the case that showed nothing).
-  await api('POST', `/items/${card.id}/report`, alex, { state: 'idle', comment: false });
+  await api('POST', `/items/${card.id}/report`, { state: 'idle', comment: false });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   // The card on the board says so too, in red, even with the agent's badge gone.
   const onBoard = page.locator('.card', { hasText: 'Waiting-question card' });

@@ -8,7 +8,7 @@ test('a rule made through the API fires, and the task window names it', async ({
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Robots', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Pipeline' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Ship the parser' });
-  await api('POST','/automations',{
+  await api('POST', '/automations', {
     name: 'Tag shipped work',
     list_id: list.id,
     trigger: { type: 'status_changed', to_kind: 'done' },

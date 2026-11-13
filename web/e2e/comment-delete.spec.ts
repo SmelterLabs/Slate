@@ -6,7 +6,7 @@ import { api, signIn } from './support';
 
 test('a member deletes only their own comment; the owner deletes anyone’s', async ({ browser }) => {
   const handle = `member${Date.now().toString(36)}`;
-  const member = await api<{ id: string }>('POST','/accounts',{
+  const member = await api<{ id: string }>('POST', '/accounts', {
     handle,
     display_name: 'Member',
     kind: 'person',

@@ -2,17 +2,7 @@
 // with its revision, opens it in the viewer, Alex uploads the next revision with a note, the
 // Revisions panel lists both, and an older revision can be looked at and made current again.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, BASE_URL, seed, signIn } from './support';
 
 async function upload(docId: string, token: string, name: string, note: string, body: string, type = 'text/csv') {
   const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {
@@ -26,10 +16,10 @@ async function upload(docId: string, token: string, name: string, note: string, 
 
 test('a file doc shows its revisions and takes a new one with a note', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const doc = await api<{ id: string }>('POST', '/docs', agent, { kind: 'file', title: 'Quote', list_id: listId, body_md: 'The quote from the printer.' });
+  const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Quote', list_id: listId, body_md: 'The quote from the printer.' }, agent);
   await upload(doc.id, agent, 'quote.csv', 'First quote', 'item,price\ntickets,120\n');
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/docs');
   await expect(page.getByRole('heading', { name: 'Docs & Files', level: 1 })).toBeVisible();
   const row = page.getByRole('tree', { name: 'Pages and files' }).getByRole('treeitem').filter({ hasText: 'Quote' });
@@ -74,7 +64,7 @@ test('a file doc shows its revisions and takes a new one with a note', async ({ 
 
 test('upload a file from the Docs & Files page', async ({ page }) => {
   const { alex } = seed();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/docs');
   await page.getByRole('button', { name: 'Upload', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Upload a file' });

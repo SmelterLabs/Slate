@@ -2,27 +2,17 @@
 // or unwatches you, adds a person or agent and removes one. Creating a task auto-watches it.
 // The same popover on a phone.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 const handles = async (id: string, token: string) =>
-  (await api<{ handle: string }[]>('GET', `/items/${id}/watchers`, token)).map((w) => w.handle).sort();
+  (await api<{ handle: string }[]>('GET', `/items/${id}/watchers`, undefined, token)).map((w) => w.handle).sort();
 
 async function watchersFlow(page: Page, title: string, shot: (name: string) => string) {
   const { alex, listId } = seed();
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: listId, title });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: listId, title });
   expect(await handles(item.id, alex)).toEqual(['alex']); // the creator auto-watches
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}?task=${item.id}`);
   const modal = page.getByRole('dialog', { name: title });
   await expect(modal).toBeVisible();
@@ -62,14 +52,14 @@ test.describe('phone', () => {
 
 test('notifications settings turn auto-watch off per kind', async ({ page }) => {
   const { alex } = seed();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/home');
   await page.getByRole('button', { name: /Notifications/ }).first().click();
   const block = page.getByRole('region', { name: 'Watch tasks automatically' });
   await expect(block.getByLabel('Tasks I create')).toBeChecked();
   await block.getByLabel('Tasks I comment on').uncheck();
   await expect
-    .poll(async () => (await api<{ prefs: { auto_watch?: Record<string, boolean> } }>('GET', '/me', alex)).prefs.auto_watch)
+    .poll(async () => (await api<{ prefs: { auto_watch?: Record<string, boolean> } }>('GET', '/me')).prefs.auto_watch)
     .toEqual({ created: true, assigned: true, commented: false });
   await block.getByLabel('Tasks I comment on').check();
 });

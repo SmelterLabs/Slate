@@ -3,19 +3,9 @@
 // comment" note), take it away live, and read the audit log with filters and a CSV export.
 // SLATE_SHOTS=<dir> also saves screenshots (desktop and phone).
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signIn } from './support';
 
 const SHOTS = process.env.SLATE_SHOTS;
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
 
 async function shot(page: Page, name: string) {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` });
@@ -23,14 +13,14 @@ async function shot(page: Page, name: string) {
 
 test('invite a guest, share one list, guest sees only it, audit log', async ({ page, browser }) => {
   const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Clients', audience: 'work' });
-  const shared = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Example Project' });
-  const hidden = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Private' });
-  await api('POST', '/items', alex, { list_id: shared.id, title: 'Send the renewal' });
-  await api('POST', '/items', alex, { list_id: hidden.id, title: 'Secret plan' });
-  await api('POST', '/items', agent, { list_id: shared.id, title: 'Draft the quote' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Clients', audience: 'work' });
+  const shared = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Example Project' });
+  const hidden = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Private' });
+  await api('POST', '/items', { list_id: shared.id, title: 'Send the renewal' });
+  await api('POST', '/items', { list_id: hidden.id, title: 'Secret plan' });
+  await api('POST', '/items', { list_id: shared.id, title: 'Draft the quote' }, agent);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/members');
   await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
   await expect(page.locator('[data-member="alex"]')).toContainText('(you)');
@@ -62,12 +52,12 @@ test('invite a guest, share one list, guest sees only it, audit log', async ({ p
   await dialog.getByRole('button', { name: 'Close' }).click();
 
   // Make the other list private: the lock shows in the sidebar.
-  await api('PATCH', `/lists/${hidden.id}`, alex, { private: true });
+  await api('PATCH', `/lists/${hidden.id}`, { private: true });
   await expect(page.locator('.nav-list[data-list="Private"] .nav-label')).toBeVisible();
 
   // The guest's board: only the shared list, a comment-only note, no Members link.
   const guest = await browser.newPage();
-  await guest.addInitScript((t) => localStorage.setItem('slate.token', t), guestToken);
+  await signIn(guest, guestToken);
   await guest.goto(`/#/list/${shared.id}`);
   await expect(guest.getByText('Send the renewal')).toBeVisible();
   await expect(guest.locator('.nav-list')).toHaveCount(1);
@@ -79,8 +69,8 @@ test('invite a guest, share one list, guest sees only it, audit log', async ({ p
   await shot(guest, 'guest-board');
 
   // Live: unsharing takes the list away from the open guest board.
-  const shares = await api<{ id: string; account_id: string }[]>('GET', `/shares?scope_kind=list&scope_id=${shared.id}`, alex);
-  await api('DELETE', `/shares/${shares[0].id}`, alex);
+  const shares = await api<{ id: string; account_id: string }[]>('GET', `/shares?scope_kind=list&scope_id=${shared.id}`);
+  await api('DELETE', `/shares/${shares[0].id}`);
   await expect(guest.locator('.nav-list')).toHaveCount(0);
   await expect(guest.getByText('Send the renewal')).toHaveCount(0);
   await guest.close();
@@ -109,7 +99,7 @@ test('members, audit and share on a phone: same pieces, stacked', async ({ brows
   const { alex } = seed();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/members');
   await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Invite' })).toBeVisible();
@@ -123,7 +113,7 @@ test('members, audit and share on a phone: same pieces, stacked', async ({ brows
   await expect(page.getByLabel('Kind of change')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await shot(page, 'audit-phone');
-  const lists = await api<{ id: string; name: string }[]>('GET', '/lists', alex);
+  const lists = await api<{ id: string; name: string }[]>('GET', '/lists');
   const shared = lists.find((l) => l.name === 'Example Project')!;
   await page.goto(`/#/list/${shared.id}`);
   await page.getByRole('button', { name: 'Share' }).click();
