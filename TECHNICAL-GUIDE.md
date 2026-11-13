@@ -333,8 +333,11 @@ the server's `.env`, not in the repo.
   `deploy/server/`). The container `CMD` `exec`s uvicorn so SIGTERM reaches it rather than the shell.
   `deploy.sh`/`rollback.sh` wrap their body in `main()` so `git checkout` rewriting the running
   script is harmless. systemd eats `$(`; unit files write `$$(`. Rolling back past a migration needs
-  a backup restore (the schema does not downgrade). `tests/test_deploy.py` lints all of this locally
-  (`bash -n`, unit keys, `docker compose config` when Docker is up).
+  a backup restore (the schema does not downgrade): `rollback.sh` refuses a ref that lacks the
+  database's revision before it changes anything. `deploy.sh` and `rollback.sh` succeed only when
+  `/healthz` serves the commit they checked out. `tests/test_deploy.py` lints all of this locally
+  (`bash -n`, unit keys, `docker compose config` when Docker is up) and runs the backup, deploy and
+  rollback scripts under bash against stand-ins for `docker`, `systemctl` and `curl`.
 
 ## Decisions log
 

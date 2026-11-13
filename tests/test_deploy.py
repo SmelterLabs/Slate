@@ -347,3 +347,93 @@ def test_compose_config_validates():
         "options": {"max-size": "10m", "max-file": "5"},
     }
     assert "/healthz" in " ".join(svc["healthcheck"]["test"])
+
+
+def _git(*args: str, cwd: Path) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.name=alex", "-c", "user.email=alex@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _checkout(tmp_path: Path) -> tuple[Path, str, str]:
+    """$SLATE_HOME/repo cloned from an origin with two releases: v1 knows migration aaa…, v2
+    adds bbb…. The checkout is at v2. Returns (repo, v1 sha, v2 sha)."""
+    if shutil.which("git") is None:
+        pytest.skip("git not available")
+    src = tmp_path / "src"
+    (src / "alembic" / "versions").mkdir(parents=True)
+    shutil.copytree(PACK, src / "deploy" / "server")  # deploy.sh installs units from the checkout
+    _git("init", "-q", "-b", "main", cwd=src)
+    (src / "alembic" / "versions" / "a.py").write_text('revision = "aaaaaaaaaaaa"\n')
+    _git("add", ".", cwd=src)
+    _git("commit", "-q", "-m", "one", cwd=src)
+    _git("tag", "v1", cwd=src)
+    (src / "alembic" / "versions" / "b.py").write_text('revision = "bbbbbbbbbbbb"\n')
+    _git("add", ".", cwd=src)
+    _git("commit", "-q", "-m", "two", cwd=src)
+    _git("tag", "v2", cwd=src)
+    repo = tmp_path / "home" / "repo"
+    _git("clone", "-q", src.as_posix(), repo.as_posix(), cwd=tmp_path)
+    _git("checkout", "-q", "--detach", "v2", cwd=repo)
+    return repo, _git("rev-parse", "v1", cwd=repo), _git("rev-parse", "v2", cwd=repo)
+
+
+def _calls(tmp_path: Path) -> str:
+    log = tmp_path / "calls.log"
+    return log.read_text(encoding="utf-8") if log.exists() else ""
+
+
+def test_rollback_past_a_migration_stops_before_changing_anything(tmp_path):
+    home = _home(tmp_path)
+    repo, v1, v2 = _checkout(tmp_path)
+    _slate_db(home / "data" / "slate.db", revision="bbbbbbbbbbbb")
+    result = _run(tmp_path, "rollback.sh", "v1", FAKE_COMMIT=v1[:7])
+    assert result.returncode == 1
+    assert "bbbbbbbbbbbb" in result.stderr and "Rollback past a migration" in result.stderr
+    assert _git("rev-parse", "HEAD", cwd=repo) == v2  # not checked out
+    assert "systemctl" not in _calls(tmp_path)
+    assert not (home / "backups").exists()
+
+
+def test_rollback_backs_up_then_waits_for_the_old_commit(tmp_path):
+    home = _home(tmp_path)
+    repo, v1, _ = _checkout(tmp_path)
+    _slate_db(home / "data" / "slate.db", revision="aaaaaaaaaaaa")
+    result = _run(tmp_path, "rollback.sh", "v1", FAKE_COMMIT=v1[:7])
+    assert result.returncode == 0, result.stderr
+    assert _git("rev-parse", "HEAD", cwd=repo) == v1
+    [backup] = (home / "backups").glob("pre-rollback-*.db")
+    con = sqlite3.connect(backup)
+    assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "aaaaaaaaaaaa"
+    con.close()
+    calls = _calls(tmp_path)
+    assert "systemctl --user reload slate.service" in calls
+    assert calls.index("docker exec") < calls.index("systemctl --user reload")
+
+
+def test_rollback_is_not_done_while_another_commit_answers(tmp_path):
+    home = _home(tmp_path)
+    _, v1, v2 = _checkout(tmp_path)
+    _slate_db(home / "data" / "slate.db", revision="aaaaaaaaaaaa")
+    result = _run(tmp_path, "rollback.sh", "v1", FAKE_COMMIT=v2[:7], SLATE_WAIT_SECONDS="2")
+    assert result.returncode == 1
+    assert f"serves {v2[:7]}, not {v1[:12]}" in result.stderr
+
+
+def test_deploy_is_not_live_until_the_new_commit_answers(tmp_path):
+    home = _home(tmp_path)
+    repo, v1, v2 = _checkout(tmp_path)
+    _git("checkout", "-q", "--detach", "v1", cwd=repo)
+    (home / ".env").write_text("SLATE_SECRET_KEY=x\n")
+    _slate_db(home / "data" / "slate.db")
+    env = {"HOME": (tmp_path / "user").as_posix(), "SLATE_WAIT_SECONDS": "2"}
+    stale = _run(tmp_path, "deploy.sh", "v2", FAKE_COMMIT=v1[:7], **env)
+    assert stale.returncode == 1 and f"serves {v1[:7]}, not {v2[:12]}" in stale.stderr
+    live = _run(tmp_path, "deploy.sh", "v2", FAKE_COMMIT=v2[:7], **env)
+    assert live.returncode == 0, live.stderr
+    assert "is live" in live.stdout
+    assert list((home / "backups").glob("pre-deploy-*.db"))  # taken before the restart

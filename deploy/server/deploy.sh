@@ -8,6 +8,7 @@
 #   SLATE_REPO_URL        git URL to clone on the first run (later runs use the checkout's origin)
 #   SLATE_TAILSCALE_PORT  if set (e.g. 8448), also expose the board on the tailnet with
 #                         `tailscale serve --https=<port>` (RUNBOOK.md, "Expose on your tailnet")
+#   SLATE_WAIT_SECONDS    how long to wait for /healthz to serve the new commit (default 60)
 set -euo pipefail
 
 # Everything lives in main() so bash has parsed the whole script before git checkout can
@@ -98,18 +99,7 @@ main() {
     systemctl --user reload slate.service
   fi
 
-  step "waiting up to 60 s for $health"
-  local body=""
-  for _ in $(seq 30); do
-    if body="$(curl -fsS "$health" 2>/dev/null)"; then break; fi
-    body=""
-    sleep 2
-  done
-  if [[ -z "$body" ]]; then
-    echo "Slate did not answer $health within 60 s; see: docker logs slate" >&2
-    exit 1
-  fi
-  echo "$body"
+  wait_for_commit "$health" "$(git -C "$repo" rev-parse HEAD)" "${SLATE_WAIT_SECONDS:-60}"
 
   if [[ -n "$ts_port" ]]; then
     step "Tailscale Serve: https on $ts_port -> 127.0.0.1:18448"
@@ -122,6 +112,30 @@ main() {
   fi
 
   step "done: Slate $(git -C "$repo" describe --always --tags) is live"
+}
+
+# Wait until /healthz answers with the commit just checked out (an old container still
+# answering, or a build that fails to start, is not success).
+wait_for_commit() {
+  local health="$1" want="$2" seconds="$3" body="" commit=""
+  echo
+  echo "==> waiting up to $seconds s for $health to serve ${want:0:12}"
+  local tries=$(( seconds / 2 > 0 ? seconds / 2 : 1 ))
+  for _ in $(seq "$tries"); do
+    body="$(curl -fsS "$health" 2>/dev/null)" || body=""
+    commit="$(sed -n 's/.*"commit": *"\([0-9a-f]\{7,40\}\)".*/\1/p' <<< "$body")"
+    if [[ -n "$commit" && "$want" == "$commit"* ]]; then
+      echo "$body"
+      return 0
+    fi
+    sleep 2
+  done
+  if [[ -n "$body" ]]; then
+    echo "Slate answers $health but serves ${commit:-an unknown commit}, not ${want:0:12}; see: docker logs slate" >&2
+  else
+    echo "Slate did not answer $health within $seconds s; see: docker logs slate" >&2
+  fi
+  exit 1
 }
 
 main "$@"

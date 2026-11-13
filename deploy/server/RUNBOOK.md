@@ -195,10 +195,22 @@ container restarting, `docker logs slate` shows the migration error; stop the se
 the rollback below.
 
 **Rollback** to an earlier ref: `bash /opt/slate/repo/deploy/server/rollback.sh <tag-or-commit>`.
-Data is never touched. If the bad release added a database migration, the old code may not
-start against the newer schema: stop the service, restore the last backup taken before that
-deploy (into `/opt/slate/data/slate.db` after moving the current file and its `-wal`/`-shm`
-aside), then roll back.
+Data is never touched. Before it changes anything it reads the database's migration revision;
+when the ref does not have that migration it stops (see below). Otherwise it takes a
+`pre-rollback-<stamp>.db` backup, checks out the ref, rebuilds, and reports success only once
+`/healthz` serves that commit. `deploy.sh` waits for its new commit the same way.
+
+**Rollback past a migration.** Old code cannot start against a database a newer migration
+changed (it would restart in a loop), so go back to the backup taken before that deploy:
+
+```bash
+systemctl --user stop slate.service
+cd /opt/slate/data && mkdir aside && mv slate.db* aside/    # the current file, -wal and -shm
+cp /opt/slate/backups/pre-deploy-<stamp>.db /opt/slate/data/slate.db
+bash /opt/slate/repo/deploy/server/rollback.sh <tag-or-commit>
+```
+
+Writes made since that backup are only in `aside/`; keep it until you are sure.
 
 **Logs:** `docker logs slate --since 1h` (rotated at 10 MB × 5). Unit logs:
 `journalctl --user -u slate.service -u slate-backup.service`.
