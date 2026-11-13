@@ -97,7 +97,7 @@ slate.example.com {
 ```
 
 The proxy must pass `X-Forwarded-Proto` and `X-Forwarded-For`. `compose.yml` trusts them from
-loopback and Docker's `172.16.0.0/12` networks only, and takes the right-most address no
+loopback and Docker's bridge networks (`172.16.0.0/12` and `192.168.0.0/16`) only, and takes the right-most address no
 trusted hop added, so a client cannot choose the address the rate limits see. Caddy sets the
 header itself; with nginx use `proxy_set_header X-Forwarded-For $remote_addr;` (or
 `$proxy_add_x_forwarded_for`, which is also safe with this list). A proxy that reaches the
