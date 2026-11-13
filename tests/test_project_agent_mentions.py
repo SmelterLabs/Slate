@@ -90,6 +90,9 @@ def test_edit_only_wakes_project_agent_when_its_mention_is_added(client, alex):
 def test_other_agent_mention_wakes_only_that_agent(client, alex):
     agent, ah, _ = project_chat(client, alex)
     other, oh = _agent(client, alex, "reviewer")
+    # A project agent's chat is its project's: the reviewer reads it once it is on the project.
+    [place] = client.get(f"{API}/shares", params={"account_id": agent["id"]}, headers=alex).json()
+    _share(client, alex, other["id"], "section", place["scope_id"])
     key = f"agent:{agent['id']}"
     msg = _post(client, alex, key, "@reviewer please check")
     assert msg["mentions"] == ["reviewer"]

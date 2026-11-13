@@ -17,7 +17,18 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from slate.models import Account, Event, List, Role, Section, Share, ShareLevel
+from slate.models import (
+    Account,
+    AccountKind,
+    Event,
+    Invitation,
+    List,
+    Role,
+    Section,
+    Share,
+    ShareLevel,
+    utcnow,
+)
 from slate.service import access
 from slate.service.accounts import Principal, get_account
 from slate.service.core import Actor, apply_change
@@ -33,6 +44,21 @@ def _role(account: Account) -> Role:
 def _require_manager(by: Principal) -> None:
     if _role(by.account) not in (Role.owner, Role.admin) or not by.has("admin"):
         raise Forbidden("only an owner or admin can manage members and sharing")
+
+
+def retire_links(cx: Any, account_id: str, section_id: str) -> None:
+    """Cancel the unused invitation links for one guest and section (`invitation.revoked`):
+    a link must never give back a section share that was taken away."""
+    pending = cx.session.scalars(
+        select(Invitation).where(
+            Invitation.account_id == account_id,
+            Invitation.section_id == section_id,
+            Invitation.accepted_at.is_(None),
+            Invitation.revoked_at.is_(None),
+        )
+    )
+    for row in list(pending):
+        cx.set(row, "revoked_at", utcnow(), "invitation.revoked")
 
 
 def _scope(session: Session, scope_kind: str, scope_id: str) -> Section | List:
@@ -120,6 +146,8 @@ def share(
             Share.scope_id == scope_id,
         )
     )
+    if level is not None and existing is None:
+        _one_project(session, account, scope_kind, scope_id)
     with apply_change(session, actor) as cx:
         changed = (
             existing is not None if level is None else existing is None or existing.level != level
@@ -129,6 +157,8 @@ def share(
         if level is None:
             if existing is not None:
                 cx.delete(existing, "share.revoked")
+            if scope_kind == "section":
+                retire_links(cx, account.id, scope_id)
             return None
         if existing is None:
             return cx.create(
@@ -145,6 +175,25 @@ def share(
         return existing
 
 
+def _one_project(session: Session, account: Account, scope_kind: str, scope_id: str) -> None:
+    """A project's agent (a guest-role agent) works in one project: its own chat is that
+    project's conversation with it, so a second project would read the first one's."""
+    if account.kind != AccountKind.agent or _role(account) != Role.guest:
+        return
+    target = (
+        scope_id
+        if scope_kind == "section"
+        else session.scalar(select(List.section_id).where(List.id == scope_id))
+    )
+    others = access.agent_projects(session, account.id) - {target}
+    if others:
+        raise Invalid(
+            f"{account.display_name} is already the agent of another project; a project agent "
+            "works in one project only (its chat is that project's). Remove it there first, or "
+            "add another agent for this project"
+        )
+
+
 def revoke_share(session: Session, actor: Actor, *, by: Principal, share_id: str) -> None:
     _require_manager(by)
     row = session.get(Share, share_id)
@@ -153,6 +202,7 @@ def revoke_share(session: Session, actor: Actor, *, by: Principal, share_id: str
     with apply_change(session, actor) as cx:
         if row.scope_kind == "section":
             cx.record("section.participants_changed", subject_id=row.scope_id)
+            retire_links(cx, row.account_id, row.scope_id)
         cx.delete(row, "share.revoked")
 
 

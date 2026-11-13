@@ -17,6 +17,9 @@ Usage:
     python scripts/check_private_terms.py --message FILE   # message and Git author/committer emails
     python scripts/check_private_terms.py --add WORD ...   # append hashes to the local list
 
+A term is one word of letters and digits, compared without case or accents. `--add` refuses
+anything else (exit 2) and names the words to add instead: `my-host` is `my` and `host`.
+
 Exit status 1 lists `path:line: <word>` for every hit (the word is left out of CI logs).
 """
 
@@ -28,6 +31,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -41,6 +45,20 @@ MAX_OFFICE_BYTES = 64 * 1024 * 1024
 
 def _hash(word: str) -> str:
     return hashlib.sha256(word.lower().encode()).hexdigest()
+
+
+def _fold(text: str) -> str:
+    """Lowercase and drop accents, so `Renée` and `renee` are the same word."""
+    text = text.lower()
+    if text.isascii():
+        return text
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def words(text: str) -> list[str]:
+    """The words the scanner compares: runs of ASCII letters and digits after `_fold`."""
+    return WORD.findall(_fold(text))
 
 
 def denylist_path() -> Path | None:
@@ -79,7 +97,7 @@ def tracked_files() -> list[Path]:
 def scan_text(text: str, hashes: set[str]) -> list[tuple[int, str]]:
     hits: list[tuple[int, str]] = []
     for lineno, line in enumerate(text.splitlines(), 1):
-        for word in WORD.findall(line.lower()):
+        for word in words(line):
             if _hash(word) in hashes:
                 hits.append((lineno, word))
     return hits
@@ -125,13 +143,28 @@ def _shown(word: str) -> str:
     return "(term hidden in CI logs; run the check locally)" if os.environ.get("CI") else word
 
 
-def _add(words: list[str]) -> int:
+def _add(terms: list[str]) -> int:
+    """Append terms to the local list. The scanner only ever compares single words (see
+    `words`), so a term with a space, a hyphen, a dot or an `@` could never match: refuse it,
+    and name the words to add instead, rather than store a hash that never fires."""
     path = denylist_path()
     if path is None:
         print(f"not a Git checkout: set {ENV_FILE} to the list's path", file=sys.stderr)
         return 1
+    folded = [_fold(w) for w in terms]
+    refused = [t for t, f in zip(terms, folded, strict=True) if not WORD.fullmatch(f)]
+    if refused:
+        for term in refused:
+            parts = " ".join(words(term))
+            hint = f"; add its parts instead: --add {parts}" if parts else ""
+            print(
+                f"refused {term!r}: a term must be one word of letters and digits{hint}",
+                file=sys.stderr,
+            )
+        print("nothing added", file=sys.stderr)
+        return 2
     existing = load_hashes() or set()
-    new = list(dict.fromkeys(_hash(w) for w in words if _hash(w) not in existing))
+    new = list(dict.fromkeys(_hash(w) for w in folded if _hash(w) not in existing))
     with path.open("a") as fh:
         fh.write("".join(h + "\n" for h in new))
     print(f"added {len(new)} hash(es) to {path}")

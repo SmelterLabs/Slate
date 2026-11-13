@@ -324,8 +324,8 @@ async def test_lists_sections_and_tags_round_trip(alex):
         assert [t["name"] for t in ok(await call(client, "slate_tag", "list"))] == ["h4"]
 
 
-async def exercise_clickup_parity(client: Client, todo: dict) -> None:
-    """Dependencies, estimates, tag merge/delete and status templates."""
+async def exercise_parity_actions(client: Client, todo: dict) -> None:
+    """Dependencies, estimates and tag merge/delete."""
     a = ok(
         await call(
             client,
@@ -358,9 +358,9 @@ async def exercise_clickup_parity(client: Client, todo: dict) -> None:
     assert ok(await call(client, "slate_tag", "delete", tag="p2")) == {"deleted": "p2"}
 
 
-async def test_clickup_parity_actions_in_process(alex):
+async def test_parity_actions_in_process(alex):
     async with http_mcp(alex) as client:
-        await exercise_clickup_parity(client, await make_list(client))
+        await exercise_parity_actions(client, await make_list(client))
 
 
 async def test_accounts_me_and_admin_actions(alex):
@@ -1119,7 +1119,7 @@ async def test_stdio_mode_end_to_end_against_the_rest_api(client, alex, todo):
         ok(await call(mcp, "slate_tag", "create", name="y"))
         ok(await call(mcp, "slate_tag", "rename", tag="y", name="z"))
         assert "z" in [t["name"] for t in ok(await call(mcp, "slate_tag", "list"))]
-        await exercise_clickup_parity(mcp, todo)
+        await exercise_parity_actions(mcp, todo)
         await exercise_follow_files_views(mcp, item["id"])
         await exercise_automations(mcp, todo)
         await exercise_reminders(mcp, todo)

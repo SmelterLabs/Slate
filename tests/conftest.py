@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+from pathlib import Path
 
 # Tests always run against an in-memory database; set before slate.settings is imported.
 os.environ.setdefault("SLATE_DATABASE_PATH", ":memory:")
@@ -39,6 +42,37 @@ def fresh_schema():
         Base.metadata.drop_all(conn)
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         conn.commit()
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def git_checkout() -> Path:
+    """The repository root; skips the test where it is not a Git checkout (a source archive)."""
+    found = shutil.which("git") and subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True
+    )
+    if not found or found.returncode != 0 or found.stdout.strip() != "true":
+        pytest.skip("not a git checkout")
+    return ROOT
+
+
+def item_events(client, h, item_id, type_=None, field=None) -> list[dict]:
+    """An item's events over REST, optionally only one type and field."""
+    rows = client.get(f"{API}/items/{item_id}/events", headers=h).json()
+    return [
+        e
+        for e in rows
+        if (type_ is None or e["type"] == type_) and (field is None or e["field"] == field)
+    ]
+
+
+def workspace_events(client, h, type_) -> list[dict]:
+    """The last 50 workspace events of one type over REST."""
+    r = client.get(f"{API}/events", params={"type": type_, "limit": 50}, headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()["events"]
 
 
 @pytest.fixture

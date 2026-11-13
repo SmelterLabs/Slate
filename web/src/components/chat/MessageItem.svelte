@@ -36,6 +36,9 @@
   const author = $derived(board.accounts[m.author_id]);
   const name = $derived(author?.display_name ?? 'Someone');
   const mine = $derived(m.author_id === me);
+  // An owner or admin may take anyone's message down (the server decides the same way:
+  // service/chat.py delete); only the author edits.
+  const admin = $derived(board.me?.account.role === 'owner' || board.me?.account.role === 'admin');
   const pending = $derived(m.id.startsWith('~'));
   const handle = $derived(board.me?.account.handle);
   const html = $derived(
@@ -139,9 +142,17 @@
     if (mine) {
       out.push({ label: 'Edit', onselect: startEdit });
       out.push({ label: 'Delete', danger: true, onselect: () => void chat.remove(m) });
+    } else if (admin && !m.deleted_at) {
+      out.push({ label: `Delete ${name}’s message`, danger: true, onselect: removeOthers });
     }
     return out;
   });
+
+  function removeOthers() {
+    if (confirm(`Delete ${name}’s message? It goes for good; the history keeps a record that it was deleted.`)) {
+      void chat.remove(m);
+    }
+  }
 
   function focusInput(el: HTMLTextAreaElement) {
     el.focus();

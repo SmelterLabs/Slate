@@ -132,7 +132,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 |---|---|
 | `invitation.accepted` | Single-use invitation consumed; session linked. Actor is the guest. |
 | `invitation.created` | A seven-day private-section guest/edit invitation. No secret or hash. |
-| `invitation.revoked` | An admin cancelled an invitation and its associated browser session. |
+| `invitation.revoked` | An invitation was cancelled: by an admin, with its browser session, or because the guest's section share was removed or a sibling link was cancelled. |
 
 ## item
 
@@ -187,7 +187,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `message.agent_turn` | An agent's chat turn (`after.agent`): `state` started (taken with /work/next), done (`reply_id` = its message, or none), released (given up, nothing posted) or expired (the lease ran out; actor `slate`); `pending` true when a mention arrived during the turn and waits for the next take. |
-| `message.deleted` | A chat message was deleted by its author (the text goes, the thread stays). |
+| `message.deleted` | A chat message was deleted by its author or an owner or admin (the text goes, the thread stays; `before` keeps it). |
 | `message.edited` | A chat message's text changed (`after.mentions` = handles the edit added). |
 | `message.file_discarded` | An upload that was never sent was taken back or swept. |
 | `message.file_uploaded` | A file was uploaded to send with a chat message (`after` = its metadata, no channel: until it is sent only its uploader hears of it; a sent message carries its files in `message.posted` `after.files`). |

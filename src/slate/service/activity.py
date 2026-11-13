@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from slate.models import Event
 from slate.service.comments import comment_views
+from slate.service.core import event_payload
 from slate.service.items import comments_of, get_item
 
 FOLDED = frozenset({"item.commented", "comment.reacted", "comment.unreacted", "comment.edited"})
@@ -38,7 +39,7 @@ def activity(
             .where(Event.item_id == item.id, Event.type.not_in(FOLDED))
             .order_by(Event.id)
         ):
-            entries.append({"kind": "event", "at": ev.at, "event": ev})
+            entries.append({"kind": "event", "at": ev.at, "event": event_payload(ev)})
     entries.sort(key=lambda e: e["at"])
     if limit is not None:
         entries = entries[-limit:] if limit > 0 else []

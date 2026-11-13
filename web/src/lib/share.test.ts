@@ -18,8 +18,8 @@ describe('a shared page or link becomes a quick-add draft', () => {
     });
   });
   it('takes the first line of the text as the title and keeps the rest', () => {
-    expect(shareDraft({ title: '', text: 'Quote from Chris\nBring it Tuesday\nhttps://example.com/q/1', url: '' })).toEqual({
-      line: 'Quote from Chris',
+    expect(shareDraft({ title: '', text: 'Quote from Alex\nBring it Tuesday\nhttps://example.com/q/1', url: '' })).toEqual({
+      line: 'Quote from Alex',
       body: 'https://example.com/q/1\n\nBring it Tuesday',
     });
   });
