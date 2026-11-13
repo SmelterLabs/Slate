@@ -117,16 +117,6 @@ def remove_favorite(session: Session, actor: Actor, favorite_id: str) -> None:
         cx.delete(fav, "favorite.removed")
 
 
-def remove_target(session: Session, actor: Actor, *, kind: str, target_id: str) -> bool:
-    """Unpin by target instead of favorite id. False when it was not pinned."""
-    k = _kind(kind)
-    for fav in list_favorites(session, actor.account_id):
-        if fav.kind is k and fav.target_id == target_id:
-            remove_favorite(session, actor, fav.id)
-            return True
-    return False
-
-
 def reorder_favorites(session: Session, actor: Actor, ids: list[str]) -> list[Favorite]:
     """Put the actor's favorites in this order. `ids` must name every favorite exactly once."""
     mine = list_favorites(session, actor.account_id)

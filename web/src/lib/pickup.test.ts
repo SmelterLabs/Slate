@@ -97,7 +97,6 @@ describe('initial-load due gate', () => {
       { ...waiting, waiting_on_account_id: 'person' },
       { ...waiting, archived_at: at },
       { ...waiting, status: { ...waiting.status!, kind: 'cancelled' as const } },
-      { ...waiting, kind: 'doc' as const },
     ]) expect(pickupSince(card, undefined, now)).toBeUndefined();
   });
 

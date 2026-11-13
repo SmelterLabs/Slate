@@ -365,7 +365,7 @@ def test_items_in_archived_lists_are_left_alone(client, db, world):
         actions=[{"type": "add_tag", "tag": "x"}],
     )
     item = items.create_item(db, world["actor"], list_id=world["other"].id, title="x")
-    lists.archive_list(db, world["actor"], world["other"].id)
+    lists.update_list(db, world["actor"], world["other"].id, archived=True)
     assert automations.process(db) == 0
     assert _view(db, item.id)["tags"] == []
 

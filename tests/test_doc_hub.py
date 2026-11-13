@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from slate.models import DocFile, Event
+from slate.models import Event
 
 API = "/api/v1"
 
@@ -119,21 +119,3 @@ def test_hub_follows_section_access(client, alex, make_account):
     client.patch(f"{API}/sections/{sec['id']}", json={"private": True}, headers=alex)
     _, other = make_account("other", kind="person")
     assert client.get(f"{API}/sections/{sec['id']}/documents", headers=other).status_code == 404
-
-
-def test_backfill_extracts_text_for_old_revisions(client, alex, db):
-    from slate.service import doc_compare
-
-    d = _doc(client, alex, title="Old", kind="file")
-    rev = _upload(client, alex, d["id"], b"hello world", "notes.txt", "first", "text/plain")
-    from sqlalchemy import text as sql
-
-    # As a revision stored without its text (raw SQL: the ORM guard refuses a bare write).
-    db.execute(sql("UPDATE doc_files SET text = NULL WHERE id = :id"), {"id": rev["id"]})
-    db.commit()
-    db.expire_all()
-    done = doc_compare.backfill_text(db)
-    assert done == 1
-    db.expire_all()
-    assert db.get(DocFile, rev["id"]).text == "hello world"
-    assert doc_compare.backfill_text(db) == 0

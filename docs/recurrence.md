@@ -98,7 +98,8 @@ tick (for `/healthz`).
 
 **Hooks** (`scheduler.hooks`, in order): `recurrences.materialize`, `notify.due_events_tick`,
 `notify.reminders_tick`, `notify.digest_tick`, `trash.purge_expired`, `work.expire_leases`,
-`chatwake.expire`, `docwake.expire`, `sessions.notify_expiring`; `scheduler.POLLERS` names each on
+`chatwake.expire`, `docwake.expire`, `sessions.notify_expiring`, `chat_files.sweep_unsent`;
+`scheduler.POLLERS` names each on
 the Health page.
 **Adding one:** write `fn(session, now)` (idempotent, writes through `apply_change()`) and add it to
 the `hooks` list in `scheduler.py`. Do not edit `_loop` or `tick`. Work that needs a faster cadence
@@ -114,10 +115,9 @@ too. `adopt_instance(rule, item)` (REST `POST /recurrences/{id}/adopt {item_id}`
 it sets `recurrence_id` and `occurrence_at` (the rule's occurrence on the item's due day, else the
 due instant itself; an undated item takes the next occurrence and its due date), then re-anchors the
 cursor past it (`recurrence.advanced`). With `adopt_item_id` and no `dtstart`, the rule anchors on
-the item's due day. This is how the board's "Make recurring" keeps the open item as this occurrence;
-importer copies can use it too.
+the item's due day. This is how the board's "Make recurring" keeps the open item as this occurrence.
 
-**ClickUp-style options.** Four columns on `recurrences` (migration `5e0b7c2a9d41`):
+**ClickUp-style options.** Four columns on `recurrences`:
 `trigger` (`schedule` | `on_done`), `skip_weekends`, `reopen` (only with `on_done`, else 422),
 `copy_checklists` (default true). `skip_weekends` lives inside `occurrences()`: a Sat/Sun wall time
 moves to the Monday after and a day already emitted is dropped, so the uniqueness rules and the

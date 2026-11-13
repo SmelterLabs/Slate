@@ -199,7 +199,7 @@ def test_assignee_me_filter(db, world, receiver, dispatcher):
     ]
 
     # Being taken off an item is news to the one taken off.
-    items.set_assignees(db, world["admin"], mine.id, ["alex"])
+    items.update_item(db, world["admin"], mine.id, {"assignees": ["alex"]})
     got = _deliver(dispatcher, receiver)
     assert [(b["type"], b["before"], b["after"]) for b in got] == [
         ("item.assigned", ["agent"], ["alex"])
@@ -395,11 +395,13 @@ def test_body_is_stored_once_per_event_and_finished_rows_are_pruned(
 def test_disabled_subscription_receives_nothing(db, world, receiver, dispatcher):
     agent_by = world["alex_by"]  # admin may manage any hook
     off, _ = _hook(db, world["agent"], events=["item.created"])
-    webhooks.disable_webhook(db, world["admin"], off.id, by=agent_by)
+    webhooks.update_webhook(db, world["admin"], off.id, {"disabled": True}, by=agent_by)
     later, _ = _hook(db, world["agent"], events=["item.created"])
     items.create_item(db, world["admin"], list_id=world["todo"].id, title="x")
     dispatcher.fan_out_once()
-    webhooks.disable_webhook(db, world["admin"], later.id, by=agent_by)  # queued, then disabled
+    webhooks.update_webhook(  # queued, then disabled
+        db, world["admin"], later.id, {"disabled": True}, by=agent_by
+    )
     dispatcher.send_due_once()
     assert receiver.requests == []
     assert _rows(db, off.id) == []

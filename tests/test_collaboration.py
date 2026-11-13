@@ -35,6 +35,23 @@ def invite(client, alex, todo, **changes):
     return response.json()
 
 
+def test_an_invitation_grants_guest_edit_and_refuses_anything_wider(client, alex, todo):
+    """`role` and `level` on an invitation are not ignored: they state the only grant there is."""
+    assert invite(client, alex, todo, role="guest", level="edit")["role"] == "guest"
+    for wider in ({"role": "member"}, {"level": "view"}):
+        r = client.post(
+            f"{API}/invitations",
+            headers=alex,
+            json={
+                "section_id": todo["section_id"],
+                "handle": "guest2",
+                "display_name": "Guest",
+                **wider,
+            },
+        )
+        assert r.status_code == 422, r.text
+
+
 def accept(client, invitation):
     return client.post(
         f"{API}/invitations/accept", json={"secret": invitation["secret"]}, headers=BROWSER
