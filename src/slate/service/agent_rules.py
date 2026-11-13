@@ -45,7 +45,7 @@ ACTIONS: dict[str, Rule] = {
     "delete": Rule(
         "delete tasks, docs or files for good, or empty the trash",
         "delete things for good",
-        frozenset({"item.purged", "doc.deleted", "doc.file_removed"}),
+        frozenset({"item.purged", "item.attachment_removed", "doc.deleted", "doc.file_removed"}),
     ),
     "trash": Rule(
         "move tasks to the trash",

@@ -339,3 +339,71 @@ def test_an_admin_cannot_act_as_disable_or_rename_another_admin_or_the_owner(cli
         ).status_code
         == 200
     )
+
+
+# --- Deny-list, automations, doc threads ------------------------------------------------------
+
+
+def test_default_agent_rules_stop_an_agent_deleting_an_attachment_for_good(client, alex, world):
+    _, bot = world["account"]("bot", "member", kind="agent")
+    item = world["milk"]["id"]
+    r = client.post(
+        f"{API}/items/{item}/attachments",
+        params={"filename": "notes.txt"},
+        content=b"keep me",
+        headers={**alex, "Content-Type": "text/plain"},
+    )
+    assert r.status_code == 201, r.text
+    att = r.json()["id"]
+    r = client.delete(f"{API}/attachments/{att}", headers=bot)
+    assert r.status_code == 403, r.text
+    assert client.delete(f"{API}/attachments/{att}", headers=alex).status_code == 204
+
+
+def test_an_automation_cannot_move_tasks_into_a_list_its_author_cannot_edit(client, alex, world):
+    guest, gh = world["account"]("guest", "guest")
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "edit")
+    share(client, alex, guest["id"], "list", world["clients"]["id"], "view")
+    rule = {
+        "name": "push along",
+        "list_id": world["todo"]["id"],
+        "trigger": {"type": "task_created"},
+        "actions": [{"type": "move_list", "list_id": world["clients"]["id"]}],
+    }
+    r = client.post(f"{API}/automations", json=rule, headers=gh)
+    assert r.status_code == 403, r.text
+    ok = {**rule, "actions": [{"type": "set_priority", "priority": "high"}]}
+    r = client.post(f"{API}/automations", json=ok, headers=gh)
+    assert r.status_code == 201, r.text
+    r = client.patch(
+        f"{API}/automations/{r.json()['id']}", json={"actions": rule["actions"]}, headers=gh
+    )
+    assert r.status_code == 403, r.text
+    # Into a list it may edit, the same rule is fine.
+    share(client, alex, guest["id"], "list", world["clients"]["id"], "edit")
+    assert client.post(f"{API}/automations", json=rule, headers=gh).status_code == 201
+
+
+def _ask_on_page(client, alex, world, assignee="alex"):
+    page = world["post"](
+        "/docs", {"title": "p", "body_md": "the price is 10\n", "list_id": world["todo"]["id"]}
+    )
+    return world["post"](
+        f"/docs/{page['id']}/comments",
+        {"body_md": "check this", "anchor": {"quote": "price"}, "assignee": assignee},
+    )
+
+
+def test_comment_level_caller_cannot_resolve_or_reopen_someone_elses_thread(client, alex, world):
+    guest, gh = world["account"]("guest", "guest")
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "comment")
+    c = _ask_on_page(client, alex, world)
+    assert client.post(f"{API}/doc-comments/{c['id']}/resolve", headers=gh).status_code == 403
+    assert client.post(f"{API}/doc-comments/{c['id']}/resolve", headers=alex).status_code == 200
+    assert client.post(f"{API}/doc-comments/{c['id']}/reopen", headers=gh).status_code == 403
+    # Edit on the doc is enough, and so is being the Ask's assignee.
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "edit")
+    assert client.post(f"{API}/doc-comments/{c['id']}/reopen", headers=gh).status_code == 200
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "comment")
+    asked = _ask_on_page(client, alex, world, assignee="guest")
+    assert client.post(f"{API}/doc-comments/{asked['id']}/resolve", headers=gh).status_code == 200
