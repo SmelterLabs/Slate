@@ -230,6 +230,31 @@ describe('buffer', () => {
   });
 });
 
+describe('refresh', () => {
+  it('a pull to refresh whose load fails starts over, so events buffered during it are not lost', async () => {
+    await startLive();
+    expect(board.ready).toBe(true);
+    const items = deferred<Item[] | Failure>();
+    routes.set('/items', () => items.promise);
+    const refreshed = board.refresh();
+    FakeEventSource.last.open();
+    await settle(); // /me answered; /items pending
+    const renamed = ev({ field: 'title', before: 'Fix gutter', after: 'Fixed' });
+    FakeEventSource.last.emit(renamed); // buffered, and the cursor moves past it
+    items.resolve({ status: 502, body: { detail: 'bad gateway' } });
+    await refreshed;
+    expect(board.conn).toBe('reconnecting');
+
+    // What the server holds now; only a full load (not a resumed stream) brings it in.
+    routes.set('/items', () => [item({ title: 'Fixed' })]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(FakeEventSource.last.url).not.toContain('since=');
+    FakeEventSource.last.open();
+    await vi.waitFor(() => expect(board.items.I1.title).toBe('Fixed'));
+  });
+});
+
 describe('reload', () => {
   it('coalesces a burst of events that each ask for a full reload into one', async () => {
     await startLive();

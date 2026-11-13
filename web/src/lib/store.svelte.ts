@@ -411,6 +411,9 @@ class Board {
   #retryStart() {
     this.#startGen++; // a start still in flight gives up at its next await
     this.#buffer = null;
+    // The buffer is gone but the cursor already moved past what it held (and a pull to refresh
+    // closed the old stream before it): with no cursor, the retry is always a full start.
+    this.lastEventId = '';
     this.#source?.close();
     this.#source = null;
     this.conn = 'reconnecting';
