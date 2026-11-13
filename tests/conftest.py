@@ -58,6 +58,23 @@ def git_checkout() -> Path:
     return ROOT
 
 
+def item_events(client, h, item_id, type_=None, field=None) -> list[dict]:
+    """An item's events over REST, optionally only one type and field."""
+    rows = client.get(f"{API}/items/{item_id}/events", headers=h).json()
+    return [
+        e
+        for e in rows
+        if (type_ is None or e["type"] == type_) and (field is None or e["field"] == field)
+    ]
+
+
+def workspace_events(client, h, type_) -> list[dict]:
+    """The last 50 workspace events of one type over REST."""
+    r = client.get(f"{API}/events", params={"type": type_, "limit": 50}, headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()["events"]
+
+
 @pytest.fixture
 def db():
     with SessionLocal() as session:
