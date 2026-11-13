@@ -232,7 +232,7 @@ the time and sends bare dates for date-only due dates; an explicit 17:00 stays a
 | `external_ref` | exact; the filer's own reference (archived/trashed rules apply as for every filter) |
 | `due_before`, `due_after` | exclusive bounds; the date rule applies |
 | `q` | case-insensitive substring of title or body |
-| `kind` | `task` or `doc` |
+| `kind` | `task` (the only item kind: documents are docs, not items) |
 | `include_archived` | default false hides archived items **and** items in archived lists/sections |
 | `stale` | not done/cancelled, and either (a) >=3 `item.updated` events on `due_at` whose previous value was set (first-time setting is not a push), or (b) in an `open`-kind status (or none) with no event of any kind for >=30 days (comments count as touches) |
 

@@ -171,11 +171,32 @@ def test_detail_shows_only_the_last_20_events(client, alex, todo):
 # --- update ---------------------------------------------------------------------------------
 
 
+def test_an_item_is_always_a_task(client, alex, todo, db):
+    """Docs are their own records; an item of kind `doc` is refused on every way in."""
+    from slate.models import Source
+    from slate.service import items as items_svc
+    from slate.service.core import Actor
+    from slate.service.errors import Invalid
+
+    r = client.post(
+        f"{API}/items", json={"list_id": todo["id"], "title": "Spec", "kind": "doc"}, headers=alex
+    )
+    assert r.status_code == 422, r.text
+    item = _item(client, alex, todo["id"])
+    r = client.patch(f"{API}/items/{item['id']}", json={"kind": "doc"}, headers=alex)
+    assert r.status_code == 422, r.text
+    assert client.get(f"{API}/items", params={"kind": "doc"}, headers=alex).status_code == 422
+    me = client.get(f"{API}/me", headers=alex).json()["account"]
+    with pytest.raises(Invalid):
+        items_svc.update_item(db, Actor(me["id"], Source.api), item["id"], {"kind": "doc"})
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["kind"] == "task"
+
+
 def test_patch_fields_and_events_carry_actor_and_session_ref(client, alex, todo):
     item = _item(client, alex, todo["id"])
     r = client.patch(
         f"{API}/items/{item['id']}",
-        json={"title": "New", "priority": "urgent", "acceptance_md": "ships", "kind": "doc"},
+        json={"title": "New", "priority": "urgent", "acceptance_md": "ships", "kind": "task"},
         headers={**alex, "X-Slate-Session-Ref": "run-42"},
     )
     assert r.status_code == 200, r.text
@@ -184,11 +205,11 @@ def test_patch_fields_and_events_carry_actor_and_session_ref(client, alex, todo)
         "New",
         "urgent",
         "ships",
-        "doc",
+        "task",
     )
     events = client.get(f"{API}/items/{item['id']}/events", headers=alex).json()
     updated = [e for e in events if e["type"] == "item.updated"]
-    assert {e["field"] for e in updated} == {"title", "priority", "acceptance_md", "kind"}
+    assert {e["field"] for e in updated} == {"title", "priority", "acceptance_md"}
     assert {(e["source"], e["session_ref"]) for e in updated} == {("api", "run-42")}
 
 
@@ -400,7 +421,7 @@ def test_query_filters(client, alex, todo, make_account):
     ).json()
     a = _item(client, alex, todo["id"], "Buy milk", tags=["personal"], due_at="2026-11-01")
     b = _item(client, alex, todo["id"], "Fix faucet", assignees=["agent"], due_at="2026-11-10")
-    c = _item(client, alex, ideas["id"], "Slate board", body_md="Svelte milk", kind="doc")
+    c = _item(client, alex, ideas["id"], "Slate board", body_md="Svelte milk")
     client.patch(f"{API}/items/{b['id']}", json={"status": "In progress"}, headers=alex)
 
     assert set(_query(client, alex, list_id=todo["id"])) == {a["id"], b["id"]}
@@ -412,7 +433,7 @@ def test_query_filters(client, alex, todo, make_account):
     assert _query(client, alex, due_before="2026-11-05") == [a["id"]]
     assert _query(client, alex, due_after="2026-11-05") == [b["id"]]
     assert set(_query(client, alex, q="MILK")) == {a["id"], c["id"]}
-    assert _query(client, alex, kind="doc") == [c["id"]]
+    assert set(_query(client, alex, kind="task")) == {a["id"], b["id"], c["id"]}
     assert _query(client, alex, tag="nope") == []
     assert _query(client, alex, assignee="nobody") == []
     assert _query(client, alex, list_id=todo["id"], tag="personal", q="milk") == [a["id"]]

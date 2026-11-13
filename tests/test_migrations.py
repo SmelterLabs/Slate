@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from slate.models import TRIGGERS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -155,3 +157,76 @@ def _row(conn: sqlite3.Connection, table: str, **values: object) -> None:
     conn.execute(
         f"INSERT INTO {table} ({', '.join(names)}) VALUES ({marks})", list(values.values())
     )
+
+
+DEAD_COLUMNS = {
+    "comments": {"anchor_version_id", "anchor_start", "anchor_end", "anchor_quote"},
+    "attachments": {"path"},
+    "work_leases": {"from_pool"},
+}
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def test_dead_columns_and_the_doc_item_kind_are_dropped_and_rows_kept(tmp_path):
+    """Columns nothing reads go and a `doc` item becomes a task; the rows stay, the item
+    triggers survive the rebuild of `items`, and downgrade brings the columns back."""
+    db = tmp_path / "slate.db"
+    assert _alembic(db, "upgrade", "b4f8d2e6a1c9").returncode == 0
+    with sqlite3.connect(db) as conn:
+        _row(conn, "accounts", id="acc000000001", handle="alex", kind="person", role="owner")
+        _row(conn, "sections", id="sec000000001", slug="home", audience="work")
+        _row(conn, "lists", id="lst000000001", section_id="sec000000001", slug="l")
+        _row(conn, "statuses", id="sta000000001", list_id="lst000000001", kind="open")
+        _row(
+            conn,
+            "items",
+            id="itm000000001",
+            list_id="lst000000001",
+            status_id="sta000000001",
+            kind="task",
+            priority="normal",
+            created_by="acc000000001",
+        )
+        _row(
+            conn,
+            "items",
+            id="itm000000002",
+            list_id="lst000000001",
+            status_id="sta000000001",
+            kind="doc",
+            created_by="acc000000001",
+        )
+        _row(conn, "comments", id="com000000001", item_id="itm000000001", author_id="acc000000001")
+        _row(
+            conn,
+            "attachments",
+            id="att000000001",
+            item_id="itm000000001",
+            uploaded_by="acc000000001",
+            size=1,
+            path="db:att000000001",
+        )
+        _row(conn, "work_leases", item_id="itm000000001", account_id="acc000000001", from_pool=1)
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode == 0, up.stderr
+    with sqlite3.connect(db) as conn:
+        for table, gone in DEAD_COLUMNS.items():
+            assert not gone & _columns(conn, table), table
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (1,)
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert conn.execute("SELECT DISTINCT kind FROM items").fetchall() == [("task",)]
+        with pytest.raises(sqlite3.IntegrityError):
+            _row(conn, "items", id="itm000000003", list_id="lst000000001", kind="doc")
+        triggers = {
+            r[0] for r in conn.execute("SELECT sql FROM sqlite_master WHERE type='trigger'")
+        }
+        assert triggers == {sql for stmts in TRIGGERS.values() for sql in stmts}
+    down = _alembic(db, "downgrade", "b4f8d2e6a1c9")
+    assert down.returncode == 0, down.stderr
+    with sqlite3.connect(db) as conn:
+        for table, gone in DEAD_COLUMNS.items():
+            assert gone <= _columns(conn, table), table
+        assert conn.execute("SELECT path FROM attachments").fetchone() == ("db:att000000001",)

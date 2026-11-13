@@ -124,7 +124,6 @@ class AgentState(enum.StrEnum):
 
 class ItemKind(enum.StrEnum):
     task = "task"
-    doc = "doc"
 
 
 class Priority(enum.StrEnum):
@@ -379,11 +378,6 @@ class Comment(Base):
     assignee_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     resolved_by_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
-    # Doc groundwork (phase 2): anchor a comment to a span of a specific body version.
-    anchor_version_id: Mapped[str | None] = mapped_column(ForeignKey("body_versions.id"))
-    anchor_start: Mapped[int | None] = mapped_column(Integer)
-    anchor_end: Mapped[int | None] = mapped_column(Integer)
-    anchor_quote: Mapped[str | None] = mapped_column(Text)
 
 
 class BodyVersion(Base):
@@ -580,15 +574,13 @@ class Attachment(Base):
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(127))
     size: Mapped[int] = mapped_column(Integer)
-    path: Mapped[str] = mapped_column(String(1000))
     uploaded_by: Mapped[str] = mapped_column(ForeignKey("accounts.id"))
     created_at: Mapped[datetime] = _created()
 
 
 class AttachmentBlob(Base):
     """The bytes of an attachment, kept in the database so the nightly SQLite backup covers them
-    (one file is simpler to back up and restore than files on disk). `Attachment.path` is
-    `db:<id>` for these."""
+    (one file is simpler to back up and restore than files on disk)."""
 
     __tablename__ = "attachment_blobs"
 
@@ -1145,8 +1137,7 @@ class WorkLease(Base):
     when, until when. The take itself is an `item.reported` (working) event; the lease is the
     timer that lets an abandoned take go back. A heartbeat moves `until` with no event, like
     `Token.last_used_at` (core.BOOKKEEPING_MODELS); a scheduler sweep releases expired leases
-    with an `item.reported` idle event by `system`. `from_pool`: the take also assigned the
-    agent (the task had no assignee), so a release un-assigns it again."""
+    with an `item.reported` idle event by `system`."""
 
     __tablename__ = "work_leases"
 
@@ -1156,7 +1147,6 @@ class WorkLease(Base):
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
     claimed_at: Mapped[datetime] = _created()
     until: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
-    from_pool: Mapped[bool] = mapped_column(Boolean, default=False)
     run_id: Mapped[str | None] = mapped_column(String(64))
     asked_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     quarantined: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
