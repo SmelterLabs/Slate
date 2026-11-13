@@ -28,7 +28,10 @@ builds). Read ops (`get`, `query`, ...) and `$ref` lookups always see the state 
 their point in the batch: `$t.status.name` is the status right after op `t`.
 
 Filing several items in one batch is several separate `POST /items`; it never creates children
-(AGENTS.md rule 1). Webhook tests (network I/O) cannot run inside a batch, nor can a batch.
+(AGENTS.md rule 1). Webhook tests (network I/O) cannot run inside a batch, nor can a batch,
+nor can a long-poll: an op with `wait` above 0 (`checkin`, `work next`, `work finish` with
+`next.wait`) is refused before it runs, atomic or not. A wait inside an atomic batch would
+hold the write lock while it slept.
 """
 
 from __future__ import annotations
@@ -214,7 +217,27 @@ def _prepare(
         raise Invalid(msg) from None
     except ToolError as exc:  # pragma: no cover - params models do not raise it today
         raise Invalid(str(exc)) from None
+    if _waits(params):
+        raise Invalid(
+            f"{name} {action_name}: wait cannot be used inside a batch (a batch never "
+            "long-polls); call it on its own, or pass wait 0"
+        )
     return action, params
+
+
+def _waits(params: BaseModel) -> bool:
+    """Does this op long-poll (`wait`, or `next.wait` on `work finish`)?"""
+    if (getattr(params, "wait", 0) or 0) > 0:
+        return True
+    nxt = getattr(params, "next", None)
+    if isinstance(nxt, BaseModel):
+        return (getattr(nxt, "wait", 0) or 0) > 0
+    if isinstance(nxt, dict):
+        try:
+            return float(nxt.get("wait") or 0) > 0
+        except (TypeError, ValueError):
+            return False  # the action refuses the bad value itself
+    return False
 
 
 def _run_one(

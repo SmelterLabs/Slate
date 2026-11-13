@@ -30,7 +30,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from slate import crypto
+from slate import crypto, outbound
+from slate.service.errors import Invalid
 
 # The VAPID contact when neither SLATE_PUSH_SUBJECT nor an https SLATE_PUBLIC_URL is set (see
 # `subject()`). Apple refuses a token whose `sub` is not a real mailto: or https: URL.
@@ -156,7 +157,12 @@ def decrypt(body: bytes, ua_private: ec.EllipticCurvePrivateKey, auth: str) -> b
 def send(
     endpoint: str, p256dh: str, auth: str, payload: dict[str, Any]
 ) -> tuple[int | None, str, str | None]:
-    """POST one notification. Return status, error and optional Retry-After header."""
+    """POST one notification. Return status, error and optional Retry-After header.
+
+    Through `slate.outbound.post`, like webhooks: the endpoint must still be a public address
+    (unless `SLATE_WEBHOOK_PRIVATE_TARGETS`), the connection goes to the address that was
+    checked, one deadline covers the whole exchange and the answer is drained up to a cap.
+    A refused endpoint comes back as status 0, a final failure."""
     body = encrypt(json.dumps(payload, separators=(",", ":")).encode(), p256dh, auth)
     headers = {
         "Content-Encoding": "aes128gcm",
@@ -166,12 +172,13 @@ def send(
         "Authorization": vapid_header(endpoint),
     }
     try:
-        with httpx.Client(transport=transport, timeout=TIMEOUT_SECONDS) as client:
-            r = client.post(endpoint, content=body, headers=headers)
-    except httpx.HTTPError as exc:
+        r = outbound.post(endpoint, body, headers, timeout=TIMEOUT_SECONDS, transport=transport)
+    except Invalid:
+        return 0, "endpoint refused: private address", None
+    except (httpx.HTTPError, OSError) as exc:  # OSError: the name did not resolve
         return None, type(exc).__name__, None
     return (
-        r.status_code,
-        "" if 200 <= r.status_code < 300 else f"HTTP {r.status_code}",
+        r.status,
+        "" if 200 <= r.status < 300 else f"HTTP {r.status}",
         r.headers.get("Retry-After"),
     )

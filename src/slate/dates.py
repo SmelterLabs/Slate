@@ -22,13 +22,19 @@ AGENT_RUN_AT = time(6, 0)
 _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+# The last year a date may fall in: one year short of datetime's limit, so the day, week and
+# reminder arithmetic done on a stored date never overflows.
+MAX_YEAR = 9998
+
+
 def parse_when(value: str | datetime | None) -> datetime | None:
-    """ISO 8601 or date-only string -> aware UTC datetime. None passes through."""
+    """ISO 8601 or date-only string -> aware UTC datetime. None passes through. Anything else,
+    or a date outside years 1-9998, is `Invalid`."""
     if value is None:
         return None
     if isinstance(value, datetime):
         dt = value
-    else:
+    elif isinstance(value, str):
         text = value.strip()
         try:
             if _DATE_ONLY.match(text):
@@ -36,13 +42,25 @@ def parse_when(value: str | datetime | None) -> datetime | None:
             else:
                 dt = datetime.fromisoformat(text)
         except ValueError:
-            raise Invalid(
-                f"'{value}' is not a date: use ISO 8601 (2026-10-23T17:00:00-05:00) "
-                "or a date-only YYYY-MM-DD (means 17:00 workspace time)"
-            ) from None
+            raise _not_a_date(value) from None
+    else:
+        raise _not_a_date(value)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=LOCAL)
-    return dt.astimezone(UTC)
+    try:
+        out = dt.astimezone(UTC)
+    except OverflowError:
+        out = None
+    if out is None or out.year > MAX_YEAR:
+        raise Invalid(f"'{value}' is out of range: dates run from year 1 to {MAX_YEAR}")
+    return out
+
+
+def _not_a_date(value: object) -> Invalid:
+    return Invalid(
+        f"'{value}' is not a date: use ISO 8601 (2026-10-23T17:00:00-05:00) "
+        "or a date-only YYYY-MM-DD (means 17:00 workspace time)"
+    )
 
 
 def local_today(now: datetime | None = None) -> date:

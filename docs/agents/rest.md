@@ -87,7 +87,8 @@ POST /api/v1/batch
 - `"atomic": false` commits each op on its own and reports every slot as
   `{ok: true, result}` or `{ok: false, error, status}`.
 - Up to 100 ops. Each op needs its own scope (a read token can batch reads). A batch cannot
-  contain a webhook test or another batch. It counts as one request for rate limiting.
+  contain a webhook test, another batch or a long-poll (an op with `wait` above 0: check-in,
+  `work next`, `work finish` with `next.wait`). It counts as one request for rate limiting.
 
 ### Which state of a task a result shows: `views`
 

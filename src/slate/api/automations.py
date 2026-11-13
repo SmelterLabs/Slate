@@ -179,7 +179,7 @@ def run_automation(automation_id: str, body: RunNowIn, auth: WriteAuth, session:
 
 
 class SecretOut(BaseModel):
-    secret: str = Field(description="Verify X-Slate-Signature with it; shown only here")
+    secret: str = Field(description="Verify X-Slate-Signature-V2 with it; shown only here")
 
 
 @router.post("/automations/{automation_id}/secret", response_model=SecretOut)

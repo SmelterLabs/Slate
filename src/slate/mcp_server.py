@@ -58,6 +58,9 @@ from slate.service.core import Actor
 from slate.service.errors import ServiceError
 from slate.settings import settings
 
+# The longest session ref an event records, as REST's `X-Slate-Session-Ref` (api/auth.py).
+SESSION_REF_MAX = 200
+
 # --- backends -------------------------------------------------------------------------------
 
 
@@ -92,8 +95,7 @@ class LocalBackend:
                 raise ToolError(
                     f"this token lacks the '{action.scope}' scope for {spec.name} {name}"
                 )
-            access.bind(session, principal.account, principal.token_id)
-            presence.seen(principal.account.id, "mcp")
+            # Before the access computation, as for REST (api.auth.require).
             verdict = limiter.take(
                 principal.token_id,
                 principal.account.id,
@@ -109,6 +111,8 @@ class LocalBackend:
                     principal.token_id, principal.account.id, route, 0, status=429, door="mcp"
                 )
                 raise ToolError(msg)
+            access.bind(session, principal.account, principal.token_id)
+            presence.seen(principal.account.id, "mcp")
             actor = Actor(
                 account_id=principal.account.id,
                 source=Source.mcp,
@@ -228,8 +232,10 @@ def _parse_call(spec: ToolSpec, args: Mapping[str, Any]) -> tuple[str, BaseModel
     except ValidationError as exc:
         raise ToolError(_validation_message(exc)) from None
     session_ref = args.get("session_ref")
-    if session_ref is not None and (not isinstance(session_ref, str) or len(session_ref) > 200):
-        raise ToolError("session_ref must be a string of at most 200 characters")
+    if session_ref is not None and (
+        not isinstance(session_ref, str) or len(session_ref) > SESSION_REF_MAX
+    ):
+        raise ToolError(f"session_ref must be a string of at most {SESSION_REF_MAX} characters")
     return name, params, session_ref
 
 
@@ -423,7 +429,12 @@ def _http_backend(ctx: Any) -> Backend:
     token = _bearer(request.headers) if request is not None else None
     if token is None:  # BearerGate already refused these; this is belt and braces
         raise ToolError("missing bearer token")
-    return LocalBackend(token, session_ref=request.headers.get("x-slate-session-ref"))
+    ref = request.headers.get("x-slate-session-ref")
+    if ref is not None and len(ref) > SESSION_REF_MAX:
+        # The same limit as REST's header and the `session_ref` argument: the ref rides on
+        # every event the call writes (History, audit, the live stream, webhooks).
+        raise ToolError(f"X-Slate-Session-Ref must be at most {SESSION_REF_MAX} characters")
+    return LocalBackend(token, session_ref=ref)
 
 
 def _token_ok(token: str) -> bool:

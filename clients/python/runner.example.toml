@@ -1,10 +1,16 @@
 # One runner for every agent on this machine: slate_runner.py --config runner.toml
 # Adding an agent is adding an [[agent]] block, then restarting the runner.
-# Relative paths are relative to this file. ${VAR} is filled from the agent's environment:
-# this process's, then env_file (here, then the agent's own), then the agent's env table.
+# Relative paths are relative to this file. ${VAR} (and token_env) is filled from this
+# process's environment, then env_file (here, then the agent's own), then the agent's env table.
+#
+# Each agent's command gets only its own environment: the runner's basic variables (PATH, home,
+# temp, locale, proxies), the agent's own env_file and its env table, and SLATE_TOKEN = its own
+# token. The env_file here only fills ${VAR} and token_env: it never reaches a command, so
+# it can hold every agent's token. Put a secret one agent's command reads in that agent's own
+# env_file, or name it in its env table (HERMES_API_KEY below).
 
 url = "https://slate.example.com"              # Slate, for every agent below
-env_file = "secrets.env"                        # optional KEY=VALUE file (e.g. a Hermes .env)
+env_file = "secrets.env"                        # optional KEY=VALUE file: tokens and ${VAR}s
 # state_dir = "."                               # where each agent's cursor goes (<name>-state.json)
 # lease = 900                                   # defaults for every agent; an agent may override
 # parallel = 1                                 # generic default; set per agent below

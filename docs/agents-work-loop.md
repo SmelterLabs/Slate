@@ -68,7 +68,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   reports back, `GET /work` lists what the caller holds. A take is an ordinary claim
   (`reports.report(state="working", claim=True, comment=False)`), so the board needs nothing extra:
   `item.reported` + `item.assigned` events. On top of it sits a **lease** in `work_leases`
-  (one row per held item: account, `until`). The lease is
+  (one row per held item: account, `until`, `run_id`). The lease is
   bookkeeping (`core.BOOKKEEPING_MODELS`, like token `last_used_at`): a bare heartbeat moves `until`
   with no event, so an agent beating every minute does not flood the history; a heartbeat with
   `note`/`progress` is a real `working` report, unless it repeats the note and progress the badge
@@ -230,7 +230,7 @@ item's assignees and `waiting_on`.
   you" (client side, `mywork.askedOfMe`).
 - **Agents**: `comment.assigned` is a `work.WAKE_TYPES` hint. `work.eligible()` includes pending,
   unconsumed Ask assignments (why `asked`), even on done cards. Taking an asked-only item does not
-  assign the agent (`reports.report(no_assign=True)`); `finish done`
+  assign the agent (`reports.report(no_assign=True)`, lease `asked_only`); `finish done`
   answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
   pending `asks` within that take; new/reassigned Asks wait for the next turn.
@@ -319,7 +319,9 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   (`conversation.safeAgentUrl`, used by `AgentBadge`) renders an Open link only for a scheme the
   server named (http(s) when it named none), so a desktop app's link is followed only where Slate
   was configured for it; a non-http(s) link opens in the same tab (the OS hands it to the app)
-  instead of `_blank`. Slate still knows nothing about Hermes: the scheme is configuration on the
+  instead of `_blank`. `javascript`, `data`, `vbscript`, `blob` and `file` are never
+  accepted (`settings.UNSAFE_LINK_SCHEMES`): the setting refuses them at start-up, and
+  `check_url` and `/me` drop them even so. Slate still knows nothing about Hermes: the scheme is configuration on the
   server, and the Hermes adapter (`integrations/hermes/run_task.py` `thread_ref`) is what sends
   `hermes://chat/<session id>?profile=<profile>` (profile from `HERMES_PROFILE`, else the
   `/p/<profile>` tail of `HERMES_API_URL`), which Hermes Desktop's `hermes://chat` deep link opens
@@ -403,6 +405,25 @@ card does; the reply lands in the chat.
   Receipts make identical finish retries safe and preserve mentions arriving during the run.
   Timeout/lease expiry is unknown, not remote cancellation; capabilities restrict admission before
   taking unsupported work.
+- **Shared lease code** (`service/turns.py`): chat and doc turns differ in who is woken, what the
+  runner is handed and how the answer is posted (`chatwake.py`, `docwake.py`); take, heartbeat,
+  finish, expire, reconcile and clear are one implementation parameterised by a `turns.Kind`
+  (model, place column, event name, mention counters, view, access level).
+- **A turn never strands later mentions.** An expired turn stays claimed (quarantined: the run
+  may still be writing) and shows as `expired` in `agent_turns`. It is settled by the agent's
+  `reconcile` with its run proof, by a person's Clear (`POST /work/chat/clear` or
+  `/work/doc/clear` `{channel|doc_id, thread_id, agent_id}`, MCP `slate_work
+  chat_clear|doc_clear`: only a person who may comment there, only an expired turn), or by a
+  person's new mention there (`turns.fold`): each records `agent_turn` `state: released`,
+  `reconciled`, the person as actor, and a mention that waited is pending again (the next take
+  answers it, and the new mention's `for` names the agent so its runner hears the hint). The old
+  `run_id` stays fenced out of the new turn. A live turn is never cleared or folded over.
+- **A turn the agent can no longer answer is dropped.** A pending turn whose place is gone or
+  where the agent's own access fell below comment (a share lowered or removed) is ended by the
+  take that meets it, and by the scheduler's sweep (`turns.expire`): `agent_turn` `state:
+  dropped`, `reason` `gone|no_access`, so `/work/next` never fails on it and `remaining` never
+  counts it for long. A turn only the calling token cannot reach (a list-limited token) is skipped
+  and left for another token.
 - **Stream** (`api/checkin._judge`): `message.mentioned_agent` with the caller in `for` or `queued`
   is a `work` hint `{channel, thread_id, message_id, queued}` (no `item_id`); `work.CHAT_WAKE_TYPE`
   names it so `api/checkin` stays free of chat imports. The board hears both event types
@@ -448,13 +469,15 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
   `anchor_quote` for an anchored thread; at most 8000 chars, `docwake.section_around`),
   `body_chars`, `comments` (the thread), `mention` (`excerpt`, `by_*`, the comment), `may` (`reply`;
   `edit` when the agent can edit a page) and `lease` with `run_id`. Events `doc.agent_turn` `state`
-  started / done (`reply_id`) / released / expired (actor `slate`, `reconciliation_required`).
+  started / done (`reply_id`) / released / expired (actor `slate`, `reconciliation_required`) /
+  dropped (`reason`).
 - **Answer** `POST /work/doc/finish {doc_id, thread_id, run_id, outcome, reply}` is the chat contract
   with `doc_id` for `channel`: `done`+`reply` posts the agent's comment in the thread, or a new
   discussion thread for a body mention; release posts nothing; identical retries return the receipt.
   `/work/doc/heartbeat` and `/work/doc/reconcile` likewise. As in chat, the agent's own comment does
   not end a fenced turn (chat's unfenced `_answered` path is unreachable under protocol 3, so docs
-  have no counterpart). MCP `slate_work doc_heartbeat|doc_finish|doc_reconcile`.
+  have no counterpart). `/work/doc/clear`, expiry, folding and dropping are chat's (above). MCP
+  `slate_work doc_heartbeat|doc_finish|doc_reconcile|doc_clear`.
 - **Stream**: `doc.mentioned_agent` with the caller in `for`/`queued` is a `work` hint `{doc_id,
   thread_id, comment_id, queued}` (`work.DOC_WAKE_TYPE`). Scheduler hook `docwake.expire` (Health
   key `doc_turns`).

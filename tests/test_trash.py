@@ -94,9 +94,8 @@ def test_unarchive_and_bulk_refuse_trashed(client, alex, todo):
     item = new_item(client, alex, todo)
     client.post(f"{API}/items/{item['id']}/trash", headers=alex)
     assert client.post(f"{API}/items/{item['id']}/unarchive", headers=alex).status_code == 422
-    r = client.post(
-        f"{API}/items/bulk", json={"ids": [item["id"]], "set": {"archive": False}}, headers=alex
-    )
+    body = {"ids": [item["id"]], "changes": {"archive": False}}
+    r = client.post(f"{API}/items/bulk", json=body, headers=alex)
     assert r.status_code == 422, r.text
 
 
@@ -219,3 +218,86 @@ def test_bulk_trash_and_restore(client, alex, todo):
     assert r.status_code == 200, r.text
     assert not any(i["trashed_at"] for i in r.json())
     assert set(ids(client, alex, list_id=todo["id"])) == {a["id"], b["id"], sub["id"]}
+
+
+# --- deep trees ------------------------------------------------------------------------------
+
+
+def _tree(client, headers, todo, name="A", depth=4):
+    """A top task with one subtask per level below it: [A, A1, A2, ...], `depth` levels down."""
+    chain = [new_item(client, headers, todo, title=name)]
+    for level in range(1, depth + 1):
+        chain.append(
+            new_item(client, headers, todo, title=f"{name}{level}", parent_id=chain[-1]["id"])
+        )
+    return chain
+
+
+def test_purge_deletes_a_tree_four_levels_deep(client, alex, todo, db):
+    # Rows go deepest level first; in one flush SQLite would refuse whenever a subtask's row
+    # was deleted before its own subtasks (the order of ids decides), so try several trees.
+    for n in range(8):
+        chain = _tree(client, alex, todo, name=f"T{n}")
+        client.post(f"{API}/items/{chain[0]['id']}/trash", headers=alex)
+        r = client.post(f"{API}/items/{chain[0]['id']}/purge", headers=alex)
+        assert r.status_code == 204, r.text
+        db.expire_all()
+        assert all(db.get(Item, x["id"]) is None for x in chain)
+
+
+def test_empty_trash_and_auto_purge_take_deep_trees(client, alex, todo, db):
+    for n in range(4):
+        top = _tree(client, alex, todo, f"E{n}")[0]
+        client.post(f"{API}/items/{top['id']}/trash", headers=alex)
+    r = client.post(f"{API}/trash/empty", headers=alex)
+    assert r.status_code == 200 and r.json() == {"purged": 20}, r.text
+
+    actor = Actor(_tree(client, alex, todo, "X")[0]["created_by"], Source.api)
+    old = [_tree(client, alex, todo, f"P{n}") for n in range(4)]
+    for chain in old:
+        trash.trash_item(db, actor, chain[0]["id"], now=utcnow() - timedelta(days=31))
+    assert trash.purge_expired(db, utcnow()) == 20
+    db.expire_all()
+    assert all(db.get(Item, x["id"]) is None for chain in old for x in chain)
+
+
+def test_one_tree_that_cannot_be_purged_does_not_hold_back_the_rest(
+    client, alex, todo, db, monkeypatch
+):
+    actor = Actor(new_item(client, alex, todo)["created_by"], Source.api)
+    chains = [_tree(client, alex, todo, f"Q{n}", depth=1) for n in range(3)]
+    for chain in chains:
+        trash.trash_item(db, actor, chain[0]["id"], now=utcnow() - timedelta(days=31))
+    bad = chains[1][0]["id"]
+    real = trash._purge
+
+    def failing(cx, item):
+        if item.id == bad:
+            raise RuntimeError("disk full")
+        return real(cx, item)
+
+    monkeypatch.setattr(trash, "_purge", failing)
+    assert trash.purge_expired(db, utcnow()) == 4
+    db.expire_all()
+    assert db.get(Item, bad) is not None
+    assert db.get(Item, chains[0][0]["id"]) is None and db.get(Item, chains[2][0]["id"]) is None
+
+
+def test_archive_reaches_every_level_and_unarchive_brings_them_back(client, alex, todo):
+    chain = _tree(client, alex, todo)
+    client.post(f"{API}/items/{chain[0]['id']}/archive", headers=alex)
+    assert ids(client, alex, list_id=todo["id"]) == []
+    client.post(f"{API}/items/{chain[0]['id']}/unarchive", headers=alex)
+    assert set(ids(client, alex, list_id=todo["id"])) == {x["id"] for x in chain}
+
+
+def test_bulk_archive_reaches_subtasks_like_the_single_archive(client, alex, todo):
+    chain = _tree(client, alex, todo, depth=2)
+    body = {"ids": [chain[0]["id"]], "changes": {"archive": True}}
+    r = client.post(f"{API}/items/bulk", json=body, headers=alex)
+    assert r.status_code == 200, r.text
+    assert ids(client, alex, list_id=todo["id"]) == []
+    body["changes"]["archive"] = False
+    r = client.post(f"{API}/items/bulk", json=body, headers=alex)
+    assert r.status_code == 200, r.text
+    assert set(ids(client, alex, list_id=todo["id"])) == {x["id"] for x in chain}

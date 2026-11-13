@@ -42,7 +42,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 
 | Path | What it is |
 |---|---|
-| `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health`, the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
+| `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
 | `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is in `env.example`). |
 | `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
@@ -51,8 +51,10 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `crypto.py` | AES-GCM for webhook and automation secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
 | `scheduler.py` | The asyncio tick loop and `hooks`/`POLLERS` (`docs/recurrence.md`). |
-| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `post_capped`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
-| `automator.py`, `pusher.py`, `emailer.py` | Bus-woken engine loops for automations, Web Push and email notifications (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
+| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
+| `outbound.py` | The one outbound POST (webhooks, automation webhooks, Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
+| `automator.py`, `pusher.py`, `emailer.py` | The automations, Web Push and email engines (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
+| `engine.py` | The one bus-woken loop those three and the webhook dispatcher run; reports each step to Health. |
 | `webpush.py` | Web Push protocol: VAPID, ES256 JWT, aes128gcm. |
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |
 | `batch.py` | `/batch` and `slate_batch`: many MCP actions in one request, atomic by default. |
@@ -73,15 +75,16 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py` | Agent badges, the work loop and leases, the roster and plan, chat-mention wakes (`docs/agents-work-loop.md`). |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the work loop and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events and the run stage; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
+| `service/cursors.py` | Engine cursors and the event walk push and email share. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
 | `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
-| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models; counted raw upload bodies; the long-poll helpers. |
+| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`) and counted raw upload bodies; the long-poll helpers. |
 | `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search; plus `events` and `recurrences`. |
 
 ## Schema notes
@@ -151,20 +154,24 @@ blocks join the outer one (same actor required), so service functions can call e
 commit once. Event payloads never include `token_hash`, `secret_hash` or `secret_enc`
 (`core.SECRET_COLUMNS`).
 
-**The guard** (`core.guard_flush`/`guard_bulk`, hooked onto every `Session` in `db.py` so import
-order cannot skip it):
+**The guard** (`core.guard_flush`/`guard_bulk`/`guard_cursor`, hooked onto every `Session` and
+the engine in `db.py` so import order cannot skip it):
 
 - any insert/update/delete flushed with no `apply_change()` open → `WriteOutsideChange`;
 - inside a block, any written object not passed through `create`/`set`/`delete`/`record(covers=...)`
   → `WriteWithoutEvent`;
 - ORM bulk `insert()/update()/delete()` outside a block → `WriteOutsideChange`; inside a block it
   must record at least one event;
+- any other SQL write a session sends (`text()`, `session.connection().execute`,
+  `exec_driver_sql`, `bulk_insert_mappings`), seen at the cursor by `guard_cursor`: the same
+  rule as an ORM bulk write;
 - an `Event` modified or deleted → refused (and the database triggers refuse it too).
 
 The exemptions: `core.BOOKKEEPING` (`Token.last_used_at`, refreshed by `resolve_token()` at most
 once a minute) and `core.BOOKKEEPING_MODELS` (`Delivery` rows: the deliveries table is itself the
 webhook delivery log; logging each attempt as an event would flood the log and loop back into
-webhooks). Raw `engine.connect()` SQL is not guarded; only tests use it.
+webhooks). SQL on a bare `engine.connect()` connection, outside any session, is not guarded;
+only migrations and tests use it (tests seed old rows with `conftest.raw_write`).
 
 **How to add a mutation:** write a function in `slate/service/<area>.py` taking `(session, actor,
 ...)`, validate, then do every write through `cx.*` inside `apply_change()`. Then classify it in
@@ -605,9 +612,10 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **A doc @mention is a turn.** A doc @mention of a push agent (page body, review or discussion
   thread, or a doc Ask) is a turn like a chat mention: `doc.mentioned_agent`, a `DocWake` lease,
   `doc` from `/work/next`, `POST /work/doc/finish` posts the reply as a comment; no task or item
-  run starts (rule 7). The chat machinery is mirrored, not generalised into one
-  table, so a runner author learns one shape (`docs/agents-work-loop.md` "Doc mentions wake an
-  agent").
+  run starts (rule 7). Two tables with the same shape, so a runner author learns one contract;
+  the lease code (take, heartbeat, finish, expire, reconcile, clear) is one module,
+  `service/turns.py`, parameterised by the table, so a fix to turns lands once
+  (`docs/agents-work-loop.md` "Doc mentions wake an agent").
 
 ### The board and notifications
 
@@ -671,6 +679,15 @@ Design choices and the reason for each, with the alternatives that were rejected
   compatibility). Token examples in tests use visibly synthetic repeated characters, never
   captured credentials.
 
+- **Rule 5 is checked, not just stated.** `tests/test_rule5.py` fails when a file under `src/`
+  names an agent runtime or a test under `tests/` reaches into `integrations/`, and CI runs the
+  suite with `integrations/` moved away. The `slate-runner` package (`clients/python`) bundles
+  the reference adapters from `integrations/` as assets when they are there and builds without
+  them when they are not (`hatch_build.py`); `slate-connect` then refuses an adapter it does not
+  carry. `clients/` is where a runtime may be named: `slate_connect.py` knows the bundled
+  adapters it sets up (their names and environment), because it is the installer for them.
+  `clients/python/tests` (the wheel and sdist) runs in CI.
+
 ### Removed features
 
 Custom fields, dashboards, goals, sprints, time tracking, forms, Slack and Discord notification
@@ -708,9 +725,12 @@ maintainer decision. None of them has a table in the schema.
   column's scroll does not clip it on the first card, and the column head gives up the same. A
   card's ⋯ mounts on first focus, so an empty `.card-more-slot` holds its place; without it the
   first tap on a phone moves Complete under the finger.
-- SQLite + many concurrent agents: WAL mode and a single writer connection pool
-  (`check_same_thread=False`, pool size small). Long transactions are the enemy; keep service
-  functions short.
+- SQLite + many concurrent agents: WAL mode, one process write lock, and a connection pool that
+  never makes a caller wait (`db.POOL_SIZE` kept open, more opened on demand). `require()` hands
+  the request's connection back once the token is checked, and long-polls end their read before
+  they wait, so a request holds a connection only while it queries. Never hold a session's
+  transaction open across an `await` on anything but the database. Long transactions are the
+  enemy; keep service functions short.
 - The board's `EventSource` listens to an explicit list of event types (`store.svelte.ts`
   `EVENT_TYPES`). A new event type is silently never heard until it is added there; the symptom is
   "the write succeeds, nothing live-updates". `tests/test_board_event_types.py` fails when the list

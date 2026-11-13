@@ -44,7 +44,42 @@ def fresh_schema():
         conn.commit()
 
 
+# What every name resolves to in tests (a public address, so the send-time target check
+# passes; nothing ever connects to it: receivers are mock transports or local listeners).
+PUBLIC_TEST_ADDRESS = "93.184.215.14"
+
+
+@pytest.fixture(autouse=True)
+def no_dns(monkeypatch):
+    """Outbound senders resolve a target's name once (service.webhooks._lookup); tests never
+    ask a real resolver. An IP literal resolves to itself; a test that needs another answer
+    patches `webhooks._lookup` itself."""
+    import ipaddress
+
+    from slate.service import webhooks
+
+    def lookup(host: str) -> list[str]:
+        try:
+            return [str(ipaddress.ip_address(host))]
+        except ValueError:
+            return [PUBLIC_TEST_ADDRESS]
+
+    monkeypatch.setattr(webhooks, "_lookup", lookup)
+
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def raw_write(sql, params: dict | None = None) -> None:  # noqa: ANN001
+    """Write a row behind the service layer, as an older version or another process left it.
+    `sql` is a string or a Core statement.
+
+    It goes through the engine, not a session: every session write is checked by the change
+    guard (slate.service.core), raw SQL included."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text(sql) if isinstance(sql, str) else sql, params or {})
 
 
 @pytest.fixture

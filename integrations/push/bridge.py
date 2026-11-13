@@ -137,9 +137,20 @@ class Bridge:
         return data
 
     def name(self, account_id: str) -> str:
+        """The actor's display name, from the roster any read token may list (`GET /agents
+        ?kind=all`; `/accounts` is for admins, and the bridge needs no more than read).
+        "Someone" when it is not there or the roster cannot be read: a name is never a reason
+        to hold an alert back."""
         if account_id not in self.names:
-            for a in self._get("/accounts") or []:
-                self.names[a["id"]] = a.get("display_name") or a.get("handle") or "Someone"
+            try:
+                roster = self._get("/agents?kind=all") or []
+            except RuntimeError as e:
+                log.warning("names unavailable: %s", e)
+                roster = []
+            for row in roster:
+                a = row.get("account") or {}
+                if a.get("id"):
+                    self.names[a["id"]] = a.get("display_name") or a.get("handle") or "Someone"
         return self.names.get(account_id, "Someone")
 
     def priority(self, item_id: str | None) -> str | None:

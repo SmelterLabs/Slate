@@ -20,7 +20,13 @@ Ask on a card gets one (service/comments.py, service/work.py). The chat side of 
   the agent again). A mention that arrived while the turn was open makes the row pending again
   (`after.pending` true) and the next take answers it.
 - `heartbeat` moves the lease without an event (`until` is bookkeeping, core.BOOKKEEPING);
-  `expire` (scheduler hook) ends a turn whose lease ran out (`state: expired`, actor `slate`).
+  `expire` (scheduler hook) ends a turn whose lease ran out (`state: expired`, actor `slate`)
+  and keeps it quarantined until the agent reconciles, a person clears it (`clear`) or a
+  person mentions the agent there again (a new turn).
+
+The lease half (take, heartbeat, finish, expire, reconcile, clear, dropping a turn the agent
+can no longer answer) is shared with doc turns in service/turns.py; this module keeps the
+chat side: who is woken, what the runner is handed, how the answer is posted.
 
 Agent machinery stays history: the wake, the take and the end are events; the row is the
 lease. Rate limits are the token's as for any call. Slate knows nothing about what runs.
@@ -28,28 +34,26 @@ lease. Rate limits are the token's as for any call. Slate knows nothing about wh
 
 from __future__ import annotations
 
-import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from slate.models import Account, AccountKind, ChatWake, Message, Role, utcnow
-from slate.service import access, chat, work
-from slate.service.core import Actor, apply_change
-from slate.service.errors import Conflict, Invalid, NotFound
+from slate.service import access, chat, turns
+from slate.service.core import Actor
+from slate.service.errors import Conflict, Forbidden, Invalid, NotFound
 
 # Top-level messages handed to the agent as context for a channel-level mention (a thread hands
 # over the whole thread).
 TURN_MESSAGES = 20
-OUTCOMES = ("done", "release")
+OUTCOMES = turns.OUTCOMES
 WAKE_EVENT = "message.mentioned_agent"
 TURN_EVENT = "message.agent_turn"
 
 
-def _key(thread_id: str | None) -> str:
-    return thread_id or ""
+_key = turns.key
 
 
 def _can_post(session: Session, agent: Account, channel: str) -> bool:
@@ -139,19 +143,16 @@ def on_mentioned(
             )
             session.add(row)
             woken.append(a.id)
-        elif row.claimed_at is not None:
-            # A turn is open there: the mention joins it; the next take answers it if the run
-            # ends without having seen it.
-            row.message_id = msg.id
+        elif turns.fold(KIND, cx, row, ch.name, now, poster.handle):
+            # A live turn is open there: the mention joins it; the next take answers it if the
+            # run ends without having seen it.
             if row.taken_id is not None and row.since_id <= row.taken_id:
                 row.since_id = msg.id
+            row.message_id = msg.id
             queued.append(a.id)
         else:
-            # Pending (or a lease nobody swept yet): one turn answers both mentions.
+            # Pending (or its run is gone, settled by fold): one turn answers the mentions.
             row.message_id = msg.id
-            row.claimed_at = None
-            row.until = None
-            row.taken_id = None
             woken.append(a.id)
         covers.append(row)
     cx.record(
@@ -179,15 +180,6 @@ def _channel_name(session: Session, key: str) -> str | None:
         return None
 
 
-def lease_view(row: ChatWake) -> dict[str, Any]:
-    return {
-        "account_id": row.account_id,
-        "claimed_at": row.claimed_at,
-        "until": row.until,
-        "run_id": row.run_id,
-    }
-
-
 def turn_view(session: Session, row: ChatWake) -> dict[str, Any]:
     """What the runner hands the agent: where, which mention, and the recent messages it may
     read (the thread, or the newest top-level messages of the channel). `message_id` is the
@@ -213,27 +205,51 @@ def turn_view(session: Session, row: ChatWake) -> dict[str, Any]:
     }
 
 
-def _mine(account_id: str, channel: str | None, thread_id: str | None) -> Any:
-    q = select(ChatWake).where(ChatWake.account_id == account_id)
-    if channel:
-        q = q.where(ChatWake.channel == channel, ChatWake.thread_id == _key(thread_id))
-    return q
+def _require_comment(session: Session, channel: str) -> None:
+    chat.parse_channel(session, channel)
+    a = access.current(session)
+    if a is not None and a.channel_level(channel) < access.COMMENT:
+        raise Forbidden("comment access required")
 
 
-def _pending(q: Any, now: datetime) -> Any:
-    return q.where(ChatWake.claimed_at.is_(None)).order_by(ChatWake.since_id)
+def _not_archived(session: Session, row: ChatWake) -> None:
+    if chat.parse_channel(session, row.channel).archived:
+        raise Conflict("channel is archived; stop execution")
 
 
-def remaining(session: Session, account_id: str, *, now: datetime | None = None) -> int:
+def _where(channel: str, thread_id: str | None) -> str:
+    return f"in {channel}" + (f" thread {thread_id}" if thread_id else "")
+
+
+KIND = turns.Kind(
+    noun="chat",
+    model=ChatWake,
+    place="channel",
+    turn_event=TURN_EVENT,
+    latest="message_id",
+    taken="taken_id",
+    order=("since_id",),
+    name=_channel_name,
+    after=lambda row, name: {
+        "channel": row.channel,
+        "channel_name": name,
+        "message_id": row.taken_id or row.message_id,
+    },
+    subject=lambda row: row.taken_id or row.message_id,
+    view=turn_view,
+    level=lambda session, a, channel: a.channel_level(channel),
+    where=_where,
+    require=_require_comment,
+    reply_key="message",
+    check_held=_not_archived,
+)
+
+lease_view = turns.lease_view
+
+
+def remaining(session: Session, account_id: str) -> int:
     """How many chat turns the account could take now."""
-    now = now or utcnow()
-    sub = (
-        _pending(_mine(account_id, None, None), now)
-        .order_by(None)
-        .with_only_columns(ChatWake.account_id)
-        .subquery()
-    )
-    return session.scalar(select(func.count()).select_from(sub)) or 0
+    return turns.remaining(KIND, session, account_id)
 
 
 def next_turn(
@@ -248,75 +264,19 @@ def next_turn(
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Take the agent's next chat turn (that channel and thread, when given): `{chat, resumed}`,
-    or None. With `resume`, a turn it already holds comes back first with its lease renewed."""
-    if thread_id and not channel:
-        raise Invalid("thread_id goes with channel")
-    seconds = work.lease_seconds(lease)
-    now = now or utcnow()
-    me = actor.account_id
-    base = _mine(me, channel, thread_id)
-    with apply_change(session, actor) as cx:
-        if run_id:
-            if not resume or not channel:
-                raise Invalid("run_id resume requires resume=true and channel")
-            held = _held(session, actor, channel, thread_id, now, run_id)
-            held.until = now + timedelta(seconds=seconds)
-            return {"chat": turn_view(session, held), "resumed": True}
-        for row in session.scalars(
-            _pending(base, now).execution_options(populate_existing=True)
-        ).all():
-            name = _channel_name(session, row.channel)
-            if name is None:
-                continue
-            access.check_object(session, row)
-            row.run_id = secrets.token_urlsafe(32)
-            row.claimed_at = now
-            row.until = now + timedelta(seconds=seconds)
-            row.taken_id = row.message_id
-            cx.record(
-                TURN_EVENT,
-                subject_id=row.message_id,
-                after=_turn_after(row, name, "started"),
-                covers=[row],
-            )
-            return {"chat": turn_view(session, row), "resumed": False}
-    return None
-
-
-def _turn_after(row: ChatWake, name: str | None, state: str, **extra: Any) -> dict[str, Any]:
-    return {
-        "channel": row.channel,
-        "channel_name": name,
-        "thread_id": row.thread_id or None,
-        "message_id": row.taken_id or row.message_id,
-        "agent": row.account_id,
-        "state": state,
-        "pending": False,
-        **extra,
-    }
-
-
-def _held(
-    session: Session,
-    actor: Actor,
-    channel: str,
-    thread_id: str | None,
-    now: datetime,
-    run_id: str | None = None,
-) -> ChatWake:
-    row = session.get(
-        ChatWake, (actor.account_id, channel, _key(thread_id)), populate_existing=True
+    or None. With `run_id` and `resume`, the turn it already holds comes back with its lease
+    renewed. A pending turn the agent can no longer answer is dropped, not an error."""
+    return turns.take(
+        KIND,
+        session,
+        actor,
+        lease=lease,
+        place=channel,
+        thread_id=thread_id,
+        resume=resume,
+        run_id=run_id,
+        now=now,
     )
-    if row is None or row.claimed_at is None or row.until is None or row.until < now:
-        where = f"{channel}" + (f" thread {thread_id}" if thread_id else "")
-        raise Conflict(f"you hold no open turn in {where}: take it with /work/next first")
-    if not run_id or not row.run_id or not secrets.compare_digest(run_id, row.run_id):
-        raise Conflict("current run_id proof required for chat turn")
-    access.check_object(session, row)
-    ch = chat.parse_channel(session, channel)
-    if ch.archived:
-        raise Conflict("channel is archived; stop execution")
-    return row
 
 
 def heartbeat(
@@ -330,37 +290,16 @@ def heartbeat(
     run_id: str | None = None,
 ) -> ChatWake:
     """Keep the turn: the lease runs `lease` seconds from now. No event (bookkeeping)."""
-    seconds = work.lease_seconds(lease)
-    now = now or utcnow()
-    with apply_change(session, actor):
-        row = _held(session, actor, channel, thread_id, now, run_id)
-        row.until = now + timedelta(seconds=seconds)
-    return row
-
-
-def _end(cx: Any, session: Session, row: ChatWake, state: str, **extra: Any) -> bool:
-    """End the turn: the row goes, unless a mention arrived while it was open (then it is
-    pending again, `after.pending` true, and the next take answers it). One event."""
-    name = _channel_name(session, row.channel)  # read before the row changes
-    pending = row.taken_id is not None and row.message_id > row.taken_id
-    after = _turn_after(row, name, state, **extra)
-    after["pending"] = pending
-    if pending:
-        row.claimed_at = None
-        row.until = None
-        row.taken_id = None
-        row.run_id = None
-    else:
-        cx.session.delete(row)
-    cx.record(TURN_EVENT, subject_id=after["message_id"], after=after, covers=[row])
-    return pending
+    return turns.heartbeat(
+        KIND, session, actor, channel, thread_id, lease=lease, now=now, run_id=run_id
+    )
 
 
 def _answered(cx: Any, session: Session, actor: Actor, msg: Message) -> None:
     row = session.get(ChatWake, (actor.account_id, msg.channel, _key(msg.parent_id)))
     if row is None or row.claimed_at is None or row.run_id is not None:
         return
-    _end(cx, session, row, "done", reply_id=msg.id)
+    turns.end(KIND, cx, session, row, "done", reply_id=msg.id)
 
 
 def finish(
@@ -378,77 +317,31 @@ def finish(
     """End the turn: `done` with `reply` posts it in the channel or thread (the ordinary chat
     post, which is what answers the mention); `done` without one, or `release`, ends it with
     nothing posted. Returns `{message, pending}`."""
-    if outcome not in OUTCOMES:
-        raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
-    now = now or utcnow()
-    note = (note or "").strip() or None
-    payload = dict(channel=channel, thread_id=thread_id, outcome=outcome, reply=reply, note=note)
-    posted = None
-    with apply_change(session, actor) as cx:
-        chat.parse_channel(session, channel)
-        a = access.current(session)
-        if a is not None and a.channel_level(channel) < access.COMMENT:
-            from slate.service.errors import Forbidden
 
-            raise Forbidden("comment access required")
-        receipt = work._receipt(session, actor, TURN_EVENT, run_id, payload)
-        if receipt is not None:
-            return receipt["result"]
-        row = _held(session, actor, channel, thread_id, now, run_id)
-        if outcome == "done" and reply and reply.strip():
-            # chat.post -> on_posted -> _answered ends the turn with this message as the reply.
-            posted = chat.post(session, actor, channel, body_md=reply, parent_id=thread_id)
-        view = chat.message_views(session, [posted])[0] if posted is not None else None
-        # The receipt is the same event that settles this turn; it survives row removal.
-        from fastapi.encoders import jsonable_encoder
+    def post(row: ChatWake, text: str) -> tuple[Message, dict[str, Any]]:
+        posted = chat.post(session, actor, channel, body_md=text, parent_id=thread_id)
+        return posted, chat.message_views(session, [posted])[0]
 
-        result = jsonable_encoder({"message": view, "pending": row.message_id > row.taken_id})
-        _end(
-            cx,
-            session,
-            row,
-            "done" if outcome == "done" else "released",
-            note=note,
-            reply_id=posted.id if posted else None,
-            run_digest=work._digest(run_id),
-            request_digest=work._digest(payload),
-            result=result,
-        )
-    return result
+    return turns.finish(
+        KIND,
+        session,
+        actor,
+        channel,
+        thread_id,
+        outcome=outcome,
+        run_id=run_id,
+        reply=reply,
+        note=note,
+        now=now,
+        post=post,
+    )
 
 
 def expire(session: Session, now: datetime) -> int:
-    """Scheduler hook: end every turn whose lease ran out (`state: expired`, actor `slate`)."""
-    from slate.service.due import system_actor  # noqa: PLC0415
-
-    rows = session.scalars(
-        select(ChatWake).where(ChatWake.claimed_at.is_not(None), ChatWake.until < now)
-    ).all()
-    if not rows:
-        return 0
-    actor = system_actor(session)
-    ended = 0
-    for row in rows:
-        with apply_change(session, actor) as cx:
-            fresh = session.get(
-                ChatWake, (row.account_id, row.channel, row.thread_id), populate_existing=True
-            )
-            if fresh is None or fresh.until is None or fresh.until >= now:
-                continue
-            row.until = None
-            cx.record(
-                TURN_EVENT,
-                subject_id=row.message_id,
-                after=_turn_after(
-                    row,
-                    _channel_name(session, row.channel),
-                    "expired",
-                    reconciliation_required=True,
-                ),
-                covers=[row],
-            )
-        ended += 1
-    return ended
+    """Scheduler hook: end every turn whose lease ran out (`state: expired`, actor `slate`;
+    quarantined until reconciled or cleared), and drop the turns the agent can no longer
+    answer (`state: dropped`)."""
+    return turns.expire(KIND, session, now)
 
 
 def reconcile(
@@ -462,30 +355,19 @@ def reconcile(
     evidence: str,
 ) -> dict[str, Any]:
     """Unlock a quarantined chat only after the caller confirms remote terminal state."""
-    if state not in ("stopped", "completed") or not evidence.strip():
-        raise Invalid("terminal runtime state and evidence required")
-    payload = dict(
-        channel=channel, thread_id=thread_id, state=state, evidence=evidence, reconcile=True
+    return turns.reconcile(
+        KIND, session, actor, channel, thread_id, run_id=run_id, state=state, evidence=evidence
     )
-    with apply_change(session, actor) as cx:
-        chat.parse_channel(session, channel)
-        if work._receipt(session, actor, TURN_EVENT, run_id, payload):
-            return {"reconciled": True}
-        row = session.get(
-            ChatWake, (actor.account_id, channel, _key(thread_id)), populate_existing=True
-        )
-        if row is None or not row.run_id or not secrets.compare_digest(row.run_id, run_id):
-            raise Conflict("current run proof required for reconciliation")
-        access.check_object(session, row)
-        _end(
-            cx,
-            session,
-            row,
-            "released",
-            reconciled=True,
-            runtime_state=state,
-            evidence=evidence,
-            run_digest=work._digest(run_id),
-            request_digest=work._digest(payload),
-        )
-    return {"reconciled": True}
+
+
+def clear(
+    session: Session,
+    actor: Actor,
+    channel: str,
+    thread_id: str | None = None,
+    *,
+    agent_id: str,
+) -> dict[str, Any]:
+    """A person who may post in the channel confirms an agent's expired turn there is over:
+    `{cleared, pending}` (service/turns.py `clear`)."""
+    return turns.clear(KIND, session, actor, channel, thread_id, agent_id=agent_id)

@@ -3,6 +3,8 @@ as Open, kept while the agent keeps reporting, cleared with the badge."""
 
 from __future__ import annotations
 
+import pytest
+
 from conftest import API
 
 
@@ -141,3 +143,23 @@ def test_agents_roster_carries_the_url(client, alex, todo, make_account):
     roster = client.get(f"{API}/agents", headers=alex).json()
     agent = next(a for a in roster if a["account"]["handle"] == "agent")
     assert agent["working"][0]["url"] == CHAT
+
+
+@pytest.mark.parametrize("scheme", ["javascript", "JavaScript", "data", "vbscript", "blob", "file"])
+def test_a_dangerous_link_scheme_is_never_accepted(
+    client, alex, todo, make_account, monkeypatch, scheme
+):
+    from pydantic import ValidationError
+
+    from slate.settings import Settings, settings
+
+    with pytest.raises(ValidationError, match="link_schemes"):
+        Settings(link_schemes=["http", "https", scheme])
+    # Even if one reaches the live settings some other way, no link with it passes, and the
+    # board is never told to trust it.
+    monkeypatch.setattr(settings, "link_schemes", ["http", "https", scheme])
+    _, ch = make_account("agent")
+    item = _item(client, alex, todo["id"], assignees=["agent"])
+    bad = f"{scheme}://%0aalert(1)"
+    assert _report(client, ch, item["id"], state="working", url=bad).status_code == 422
+    assert client.get(f"{API}/me", headers=alex).json()["link_schemes"] == ["http", "https"]

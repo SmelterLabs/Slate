@@ -22,12 +22,14 @@ stored once per (webhook, event): a retry hands it to the next attempt's row and
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from slate import crypto
@@ -36,6 +38,8 @@ from slate.service import access, webhooks
 from slate.service import items as items_svc
 from slate.service.core import event_payload, jsonable
 from slate.settings import settings
+
+log = logging.getLogger(__name__)
 
 BATCH = 500
 ERROR_MAX = 500
@@ -118,7 +122,7 @@ def _context(session: Session, ev: Event) -> _Context:
 
 
 def matches(webhook: Webhook, ev: Event, ctx: _Context, owner_handle: str | None) -> bool:
-    """Type and filter match. Item conditions are judged on the item as it is at event time."""
+    """Type and filter match. Item conditions are judged on the item as it is at fan-out."""
     if webhook.disabled_at is not None or not webhooks.wants_type(webhook, ev.type):
         return False
     f = webhook.filter_json or {}
@@ -173,6 +177,40 @@ def latest_event_id(session: Session) -> str | None:
     return session.scalar(select(func.max(Event.id)))
 
 
+def _rows_for(
+    session: Session,
+    ev: Event,
+    hooks: list[Webhook],
+    handles: dict[str, str],
+    gates: dict[str, access.EventGate],
+    now: datetime,
+) -> list[Delivery]:
+    """The new delivery rows for one event (not yet added)."""
+    wanted = [h for h in hooks if webhooks.wants_type(h, ev.type)]
+    if not wanted:
+        return []
+    ctx = _context(session, ev)
+    targets = [h for h in wanted if matches(h, ev, ctx, handles.get(h.account_id))]
+    if targets:
+        payload = event_payload(ev)
+        for h in targets:
+            gate = gates.get(h.account_id)
+            if gate is None or gate.needs_reload(payload):
+                gate = gates[h.account_id] = access.EventGate(h.account_id)
+                gate.load(session)
+        targets = [h for h in targets if gates[h.account_id].allows(session, payload)]
+    if not targets:
+        return []
+    bodies: dict[str, str] = {}  # one per owner: each reads through its own filter
+    rows = []
+    for h in targets:
+        body = bodies.get(h.account_id)
+        if body is None:
+            body = bodies[h.account_id] = delivery_body(session, ev, gates[h.account_id].access)
+        rows.append(Delivery(webhook_id=h.id, event_id=ev.id, attempt=1, next_at=now, body=body))
+    return rows
+
+
 def fan_out(session: Session, cursor: str | None, *, now: datetime) -> tuple[str | None, int]:
     """Queue a delivery for each (event after `cursor`, matching subscription). Commits.
 
@@ -198,32 +236,16 @@ def fan_out(session: Session, cursor: str | None, *, now: datetime) -> tuple[str
         # Permissions: a webhook only hears what its owner could read (service/access.py).
         gates: dict[str, access.EventGate] = {}
         for ev in batch:
-            wanted = [h for h in hooks if webhooks.wants_type(h, ev.type)]
-            if not wanted:
+            try:
+                rows = _rows_for(session, ev, hooks, handles, gates, now)
+            except SQLAlchemyError:
+                raise  # the database, not this event: the dispatcher retries the step
+            except Exception:
+                # One event that cannot be summarised must not stop every event after it.
+                log.exception("webhooks: skipping event %s, which could not be queued", ev.id)
                 continue
-            ctx = _context(session, ev)
-            targets = [h for h in wanted if matches(h, ev, ctx, handles.get(h.account_id))]
-            if targets:
-                payload = event_payload(ev)
-                for h in targets:
-                    gate = gates.get(h.account_id)
-                    if gate is None or gate.needs_reload(payload):
-                        gate = gates[h.account_id] = access.EventGate(h.account_id)
-                        gate.load(session)
-                targets = [h for h in targets if gates[h.account_id].allows(session, payload)]
-            if not targets:
-                continue
-            bodies: dict[str, str] = {}  # one per owner: each reads through its own filter
-            for h in targets:
-                body = bodies.get(h.account_id)
-                if body is None:
-                    body = bodies[h.account_id] = delivery_body(
-                        session, ev, gates[h.account_id].access
-                    )
-                session.add(
-                    Delivery(webhook_id=h.id, event_id=ev.id, attempt=1, next_at=now, body=body)
-                )
-                queued += 1
+            session.add_all(rows)
+            queued += len(rows)
         session.commit()
         cursor = batch[-1].id
         if len(batch) < BATCH:

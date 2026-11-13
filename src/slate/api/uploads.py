@@ -1,18 +1,91 @@
-"""Raw uploads and the response a stored file is served with.
+"""Request body caps, raw uploads and the response a stored file is served with.
+
+`BodyLimit` caps every request body in the app at `MAX_REQUEST_BYTES` (a declared
+`Content-Length` over it gets 413 before any byte is read; a body with no length, or one
+that lies, is counted as it arrives and refused with 413 the moment it passes the cap). The
+cap fits the largest upload Slate takes, a 25 MB file sent as base64 JSON.
 
 Reading a body under a size cap without trusting `Content-Length`: a chunked request carries
 no length, and `await request.body()` would buffer the whole thing before the service's own
 check saw it. Attachments, chat files and the two doc upload routes read their bodies through
-`read_body`. `file_response` serves every stored file: an attachment, a chat file, a doc file.
+`read_body`. A route that reads its body this way is `async`, so it must then run its
+(synchronous) service write with `run_in_threadpool`: on the event loop, the write's wait for
+the write lock would stop every other request. `file_response` serves every
+stored file: an attachment, a chat file, a doc file.
 """
 
 from __future__ import annotations
 
+import math
 from urllib.parse import quote
 
-from fastapi import Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from slate.service import attachments
 from slate.service.errors import Invalid
+
+# A 25 MB file as base64 (the JSON upload routes), and the whole request with room to spare.
+BASE64_MAX_CHARS = math.ceil(attachments.MAX_BYTES / 3) * 4
+MAX_REQUEST_BYTES = 36 * 1024 * 1024
+
+
+def _over(limit: int) -> str:
+    return f"request body is larger than {limit // (1024 * 1024)} MB"
+
+
+class BodyTooLarge(HTTPException):
+    def __init__(self, limit: int) -> None:
+        super().__init__(status_code=413, detail=_over(limit))
+
+
+class BodyLimit:
+    """Refuse a request body over `MAX_REQUEST_BYTES` with 413, declared or streamed.
+
+    A streamed body raises `BodyTooLarge` out of `receive`, wherever the app is reading it
+    (FastAPI's JSON parsing, `read_body`, the MCP transport); FastAPI renders it as 413,
+    and a caller that swallowed it still gets the 413 here if nothing was sent yet."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = MAX_REQUEST_BYTES
+        for name, value in scope.get("headers") or ():
+            if name == b"content-length" and value.isdigit() and int(value) > limit:
+                await JSONResponse({"detail": _over(limit)}, 413)(scope, receive, send)
+                return
+        seen = 0
+        started = False
+
+        async def counted() -> Message:
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > limit:
+                    raise BodyTooLarge(limit)
+            return message
+
+        async def watched(message: Message) -> None:
+            nonlocal started
+            started = started or message["type"] == "http.response.start"
+            await send(message)
+
+        try:
+            await self.app(scope, counted, watched)
+        except BodyTooLarge:
+            if started:
+                raise
+            await JSONResponse({"detail": _over(limit)}, 413)(scope, receive, send)
+
+
+def install(app: FastAPI) -> None:
+    app.add_middleware(BodyLimit)
 
 
 def too_large(limit: int) -> str:

@@ -22,6 +22,7 @@ from slate.models import Account, AccountKind, Event, Item, List, Section, Sourc
 from slate.service.access import event_snapshots
 from slate.service.core import jsonable
 from slate.service.errors import Invalid
+from slate.service.export import csv_cell
 
 MAX_PAGE = 500
 EXPORT_MAX = 50_000
@@ -279,7 +280,8 @@ def export_csv(session: Session, f: AuditFilter) -> str:
         for r in chunk["entries"]:
             item = r["item"] or {}
             writer.writerow(
-                [
+                csv_cell(c)  # a title like =HYPERLINK(...) stays text in a spreadsheet
+                for c in [
                     r["id"],
                     jsonable(r["at"]),
                     r["actor"]["handle"] or r["actor"]["id"],

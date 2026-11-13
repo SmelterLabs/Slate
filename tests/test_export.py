@@ -6,6 +6,8 @@ import csv
 import io
 import sqlite3
 
+import pytest
+
 API = "/api/v1"
 
 
@@ -167,3 +169,43 @@ def test_json_export_carries_the_scope_chat(client, alex, todo):
         "Hello all",
         "Section news",
     }
+
+
+def test_csv_cells_that_a_spreadsheet_would_run_are_quoted(client, alex, todo):
+    for title in ('=HYPERLINK("https://example.com","x")', "+1+2", "-2+3", "@SUM(A1)"):
+        new_item(client, alex, todo, title=title, body_md="\tlead\ttab", tags=["=t"])
+    new_item(client, alex, todo, title="plain - title", body_md="ok")
+    r = client.get(f"{API}/export", params={"format": "csv"}, headers=alex)
+    rows = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig"))))
+    for row in rows:
+        for column, cell in row.items():
+            assert not cell or cell[0] not in "=+-@\t\r", (column, cell)
+    titles = {row["title"] for row in rows}
+    assert '\'=HYPERLINK("https://example.com","x")' in titles and "plain - title" in titles
+    assert "'+1+2" in titles and {row["tags"] for row in rows} >= {"'=t"}
+
+
+def test_a_failed_backup_leaves_no_temp_folder(client, alex, monkeypatch, tmp_path):
+    import tempfile
+
+    from slate.service import export
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    def full_disk(session, path):
+        path.write_bytes(b"partial copy")
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(export, "backup_to", full_disk)
+    with pytest.raises(OSError):
+        client.get(f"{API}/admin/backup", headers=alex)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_audit_csv_quotes_formula_cells_too(client, alex, todo):
+    new_item(client, alex, todo, title="=1+1")
+    r = client.get(f"{API}/audit.csv", headers=alex)
+    assert r.status_code == 200, r.text
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    assert "'=1+1" in {row["item_title"] for row in rows}
+    assert all(not v or v[0] not in "=+-@\t\r" for row in rows for v in row.values())

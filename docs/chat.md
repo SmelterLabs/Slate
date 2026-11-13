@@ -88,11 +88,12 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   under the channel's messages only; `ChannelView` serves the Chat page, the Chat tab and the panel
   alike. State: `chat.turns[channel]` (`chat.svelte.ts`), seeded from `GET /channels`
   `agent_turns` (`chat.agent_turns()`: a `ChatWake` row not taken is `waiting`, a taken one with a
-  live lease `working`; an expired, quarantined row is neither) and kept by `applyTurnEvent`
+  live lease `working`, a taken one whose lease ran out `expired`) and kept by `applyTurnEvent`
   (`lib/chat.ts`, pure, idempotent set-to-value per agent and thread): `mentioned_agent` `for` →
-  waiting, `queued` → working; `agent_turn` `started` → working, any end (`done`, `released`,
-  `expired`) removes it unless `after.pending` (a mention arrived during the turn), which waits
-  again. The agent's own post does not clear it: a runner-taken turn is fenced (`run_id`), so only
+  waiting, `queued` → working; `agent_turn` `started` → working, `expired` → expired, any other
+  end (`done`, `released`, `dropped`) removes it unless `after.pending` (a mention arrived during
+  the turn), which waits again. An expired turn reads **stopped answering**, with **Clear** for a
+  person (`chat.clearTurn`, `POST /work/chat/clear`). The agent's own post does not clear it: a runner-taken turn is fenced (`run_id`), so only
   `/work/chat/finish` ends it, and its `done` arrives in the same change as the reply; an interim
   message mid-turn keeps the line. Race: every turn event bumps `#turnSeq`, and a channel list
   fetched before one does not overwrite the turns. The two event types do not refetch a message.

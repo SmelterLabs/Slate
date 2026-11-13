@@ -2,7 +2,7 @@
 
 # REST reference
 
-236 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+238 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -28,7 +28,7 @@
 - [batch](#batch) (1)
 - [agents](#agents) (2)
 - [checkin](#checkin) (2)
-- [work](#work) (11)
+- [work](#work) (13)
 - [automations](#automations) (10)
 - [reminders](#reminders) (12)
 - [docs](#docs) (40)
@@ -1223,7 +1223,7 @@ Request latency per route (time to first byte, last 1,000 requests of each route
 
 Scope: `read` · MCP: `slate_batch run`
 
-Up to 100 operations in one round trip. Each op is an MCP call: `{tool, action, params, ref?}` (tool `item`, `comment`, `list`...; see docs/agents/reference/mcp.md); a string param `$ref.field` uses an earlier op's result. `atomic` (default) commits all or nothing: on a failure the answer is that op's error status with `failed_op` (its index) and nothing is written. `atomic: false` runs each op on its own and reports each slot. Each op needs its own scope (a read token can batch reads).
+Up to 100 operations in one round trip. Each op is an MCP call: `{tool, action, params, ref?}` (tool `item`, `comment`, `list`...; see docs/agents/reference/mcp.md); a string param `$ref.field` uses an earlier op's result. `atomic` (default) commits all or nothing: on a failure the answer is that op's error status with `failed_op` (its index) and nothing is written. `atomic: false` runs each op on its own and reports each slot. Each op needs its own scope (a read token can batch reads). An op that long-polls (`wait` above 0) is refused: a batch never waits.
 
 - Body: `BatchIn`: `ops`\*, `atomic`, `views`
 - Returns: `200` [BatchOut](#batchout)
@@ -1303,6 +1303,24 @@ Confirm remote termination of a doc turn with retained run proof (after it expir
 
 - Body: `DocReconcileIn`: `run_id`\*, `state`\*, `evidence`\*, `doc_id`\*, `thread_id`
 - Returns: `200`
+
+### `POST /work/chat/clear`
+
+Scope: `write` · MCP: `slate_work chat_clear`
+
+Clear an agent's expired chat turn (the board's "stopped answering" line): a person who may post in the channel confirms the run is over, because its runner lost the proof it needs to reconcile. Records `message.agent_turn` `state: released`, `reconciled`, with you as the actor; a mention that waited in the turn is the agent's next turn. 403 for an agent (it reconciles its own turn with its run proof); 409 when there is no expired turn there (a live turn ends when the agent finishes or its lease runs out).
+
+- Body: `ChatClearIn`: `channel`\*, `thread_id`, `agent_id`\*
+- Returns: `200` [ClearOut](#clearout)
+
+### `POST /work/doc/clear`
+
+Scope: `write` · MCP: `slate_work doc_clear`
+
+Clear an agent's expired doc turn, the same contract as `/work/chat/clear`: a person who may comment on the doc confirms the run is over (`doc.agent_turn` `state: released`, `reconciled`, by you).
+
+- Body: `DocClearIn`: `doc_id`\*, `thread_id`, `agent_id`\*
+- Returns: `200` [ClearOut](#clearout)
 
 ### `POST /work/{item_id}/reconcile`
 
@@ -2328,6 +2346,10 @@ The fields of each response above (see `/openapi.json` for types).
 ### LeaseOut
 
 `run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time
+
+### ClearOut
+
+`cleared`: boolean, `pending`: boolean
 
 ### ChatLeaseOut
 

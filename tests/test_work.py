@@ -124,7 +124,7 @@ def test_two_agents_never_get_the_same_pool_task(client, alex, todo, make_accoun
     assert first["item"]["id"] == a["id"] and first["why"] == "pool"
     assert second["item"]["id"] == b["id"]
     assert [x["handle"] for x in first["item"]["assignees"]] == ["agent"]
-    assert "from_pool" not in first["lease"]
+    assert set(first["lease"]) == {"run_id", "item_id", "account_id", "claimed_at", "until"}
 
     # A second agent cannot take the first agent's held task by claim either.
     r = client.post(
@@ -399,3 +399,20 @@ def test_a_long_poll_check_in_is_never_answered_304(client, alex, todo, make_acc
         f"{API}/checkin", params={"since": since, "wait": 1}, headers={**ch, "If-None-Match": etag}
     )
     assert waited.status_code == 200 and "etag" not in waited.headers
+
+
+def test_an_expired_pool_take_keeps_the_agent_assigned_until_it_is_settled(
+    client, alex, todo, make_account, db
+):
+    """Expiry proves nothing about the remote run, so it changes no assignee: the card waits,
+    quarantined, with the agent still on it, until the run is reconciled or a person clears it."""
+    _, h = make_account("agent")
+    item = _item(client, alex, todo["id"], "Pool")
+    got = _next(client, h, pool=True)
+    assert got["item"]["id"] == item["id"]
+    assert work.expire_leases(db, utcnow() + timedelta(hours=2)) == 1
+    view = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert [a["handle"] for a in view["assignees"]] == ["agent"]
+    assert view["agent"]["state"] == "blocked"
+    held = client.get(f"{API}/work", headers=h).json()
+    assert [x["item_id"] for x in held] == [item["id"]]

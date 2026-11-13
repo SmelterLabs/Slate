@@ -116,7 +116,7 @@ it:
   `position`/`completed_at`/`due_date_only`, `inbox.WATCH_TYPES` (assignees, checklists, files,
   links, subtasks via `item.created` with a watched `parent_id`, an agent's report when its state
   changes). Description saves collapse to the newest per author and item in the inbox list; push
-  sends one per author and item until a 10-minute pause (`push.EDIT_QUIET`). When the same actor's
+  sends one per author and item until a 10-minute pause (`cursors.EDIT_QUIET`). When the same actor's
   change also made the item wait on the account (an agent's blocked reply: comment + report +
   `waiting_on`), the follow/watching entries within 2 s are dropped and only `waiting` is told
   (`inbox.waits`/`waiting_covers`, inbox and push). An agent's report that it started
@@ -331,9 +331,10 @@ message's channel as `chat.place` names it, `#Todo`), `at`, plus `list_id` on ta
   through the session's read criteria (`access.read_criteria`), so a guest only finds what its
   shares reach;
   `tests/test_search.py` checks it.
-- **`%` and `_` are literal** in the chat pattern (`search.like_pattern`, `.like(...,
-  escape="\\")`). The task and doc filters use an unescaped `LIKE` (wildcarding there is
-  harmless); if exactness ever matters, route them through `like_pattern` too.
+- **Every group matches the same way** (`db.contains`): `ulower(column) LIKE pattern` with a backslash escape.
+  `ulower` is Python's `str.lower` registered on each connection (`db._configure_sqlite`), because
+  SQLite's `lower()` changes only A-Z; `%` and `_` typed by the caller are literal
+  (`db.like_pattern`).
 - **Order and cap.** Tasks first, then docs, then messages (newest first). `limit` (default 30, max
   200) is shared: each group gets `limit // 3`, and what a short group leaves goes to the next
   groups in order (`search._share`), so the answer never exceeds `limit` and a flood of chat hits
@@ -365,6 +366,9 @@ a PATCH.
   through `core.jsonable`, so dates and enums match the stored JSON); otherwise 409 with "<field>
   has changed since: it is now X, not Y" and nothing is written. Reverting a revert is the original
   change again, and reverting the same row twice is a changed-since.
+  The check and the inverse run in one `apply_change()`, so under the write lock: a change that
+  lands meanwhile waits and is never overwritten. That is also why a revert is refused (422)
+  inside an atomic batch, whose change belongs to another actor; `atomic: false` runs it.
 - **Date-only due dates.** A `due_at` change records its `due_date_only` sibling right after it in
   the same change; `_sibling_flag` finds that event (same item and actor, next id, within 5 s) and
   passes its `before` so a date-only date comes back date-only. A lone `due_date_only` revert

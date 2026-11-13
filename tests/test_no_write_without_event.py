@@ -110,6 +110,7 @@ READS = {
     "slate.service.items": {
         "depth_of",
         "descendants_of",
+        "descendant_levels",
         "resolve_account",
         "get_item",
         "views",
@@ -187,9 +188,10 @@ READS = {
         "nudge_fields",
     },
     "slate.service.agents": {"roster", "plan"},
-    "slate.service.search": {"search", "like_pattern"},
-    "slate.service.chatwake": {"lease_view", "turn_view", "remaining"},
-    "slate.service.docwake": {"lease_view", "turn_view", "remaining", "section_around"},
+    "slate.service.search": {"search"},
+    "slate.service.chatwake": {"turn_view", "remaining"},
+    "slate.service.docwake": {"turn_view", "remaining", "section_around"},
+    "slate.service.turns": {"key", "live", "lease_view", "remaining"},
     "slate.service.brief": {"brief", "closing_line", "default_ask", "files_note"},
     "slate.service.checkin": {"checkin", "queue", "why"},
     "slate.service.activity": {"activity"},
@@ -204,7 +206,14 @@ READS = {
     },
     "slate.service.today": {"today"},
     "slate.service.trash": {"purge_due_at"},
-    "slate.service.export": {"scope_of", "filename", "export_json", "export_csv", "backup_to"},
+    "slate.service.export": {
+        "scope_of",
+        "filename",
+        "export_json",
+        "export_csv",
+        "csv_cell",
+        "backup_to",
+    },
     "slate.service.views": {
         "validate_config",
         "view_out",
@@ -366,6 +375,19 @@ INFRASTRUCTURE = {
         # Moves the lease only (`DocWake.until` is bookkeeping): never an event.
         "heartbeat",
     },
+    # The lease half of chat and doc turns, parameterised by a `Kind`: reached only through
+    # chatwake and docwake, whose public functions are classified (and walked) here. `end` and
+    # `fold` run inside the caller's change (they take the `cx`).
+    "slate.service.turns": {
+        "take",
+        "heartbeat",
+        "end",
+        "finish",
+        "reconcile",
+        "clear",
+        "fold",
+        "expire",
+    },
     # Called inside a comment or item change (it takes the `cx`); each file records its own
     # `item.attachment_added` (tests/test_inline_media.py).
     "slate.service.attachments": {"attach_pasted"},
@@ -382,6 +404,7 @@ INFRASTRUCTURE = {
         "event_payload",
         "guard_flush",
         "guard_bulk",
+        "guard_cursor",
         "write_lock_stats",
         "in_change",
     },
@@ -419,6 +442,8 @@ INFRASTRUCTURE = {
     "slate.service.reports": {"clear_flag"},
     # Runs at the end of every apply_change(), adding item.blocked / item.unblocked to it.
     "slate.service.links": {"settle"},
+    # Engine cursors and the rows a walk queues are bookkeeping (no events).
+    "slate.service.cursors": {"engine_cursor", "follow"},
     # Bookkeeping: write only `deliveries` rows (core.BOOKKEEPING_MODELS), the delivery log itself.
     "slate.service.deliveries": {
         "fan_out",
@@ -937,6 +962,8 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "finish": None,
         "reconcile": None,  # audited in tests/test_run_safety.py
         "expire": None,
+        # A person's Clear of an expired turn: tests/test_turn_recovery.py.
+        "clear": None,
     },
     "slate.service.docwake": {
         # The same shape as chatwake: each writes `doc.agent_turn` by the agent (or `slate` for
@@ -945,6 +972,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "finish": None,
         "reconcile": None,
         "expire": None,
+        "clear": None,  # tests/test_turn_recovery.py
     },
     "slate.service.checklists": {
         "create_checklist": lambda db, a, p: _checklist(db, a),

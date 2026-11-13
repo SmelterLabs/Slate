@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import weakref
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import ColumnElement, Connection, Engine, create_engine, event, func
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -100,7 +101,13 @@ class SerialConnection(sqlite3.Connection):
         return super().cursor(factory)
 
 
+def _ulower(value: str | None) -> str | None:
+    return value.lower() if isinstance(value, str) else value
+
+
 def _configure_sqlite(dbapi_connection, _record) -> None:  # noqa: ANN001
+    # SQLite's own lower() changes only A-Z; text search compares with Python's lower().
+    dbapi_connection.create_function("ulower", 1, _ulower, deterministic=True)
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -109,16 +116,78 @@ def _configure_sqlite(dbapi_connection, _record) -> None:  # noqa: ANN001
     cursor.close()
 
 
+# Connections kept open between requests. Past this the pool opens more (a SQLite connection
+# is a few file handles) and closes them on return; it never makes a caller wait. The token
+# check runs on the event loop, so a wait for a connection there would stop every request,
+# including the ones that would hand a connection back. How many are open at once is bounded
+# by the work running (the threadpool), because a request gives its connection back after the
+# token check and while it waits (`api.auth.require`, `api.longpoll`).
+POOL_SIZE = 20
+
+
 def make_engine(url: str | None = None) -> Engine:
     url = url or settings.database_url
     kwargs: dict = {"connect_args": {"check_same_thread": False, "factory": SerialConnection}}
     if url.endswith(":memory:"):
         kwargs["poolclass"] = StaticPool
     else:
+        kwargs.update(pool_size=POOL_SIZE, max_overflow=-1)
         Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url, **kwargs)
     event.listen(engine, "connect", _configure_sqlite)
+    event.listen(engine, "first_connect", _seed_event_clock)
+    event.listen(engine, "before_cursor_execute", _guard_cursor)
     return engine
+
+
+# The session each open connection works for, so the cursor-level guard can find its change.
+_session_of: weakref.WeakKeyDictionary[Connection, weakref.ref[Session]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+@event.listens_for(Session, "after_begin")
+def _remember_session(session, _transaction, connection) -> None:  # noqa: ANN001
+    _session_of[connection] = weakref.ref(session)
+
+
+def _guard_cursor(conn, _cursor, statement, *_rest) -> None:  # noqa: ANN001, ANN002
+    ref = _session_of.get(conn)
+    session = ref() if ref is not None else None
+    if session is not None:
+        from slate.service.core import guard_cursor
+
+        guard_cursor(session, statement)
+
+
+def _seed_event_clock(dbapi_connection, _record) -> None:  # noqa: ANN001
+    """Event ids continue after the newest stored one (slate.ids.seed_event_clock)."""
+    from slate.ids import seed_event_clock
+
+    cursor = dbapi_connection.cursor()
+    try:
+        newest = []
+        for newest_id in ("SELECT max(id) FROM events", "SELECT max(id) FROM messages"):
+            try:
+                cursor.execute(newest_id)
+                newest.append(cursor.fetchone()[0])
+            except sqlite3.OperationalError:  # not migrated yet: nothing to continue after
+                pass
+        seed_event_clock(newest)
+    finally:
+        cursor.close()
+
+
+def like_pattern(q: str) -> str:
+    """`%q%`, lower-cased, with the caller's `%`, `_` and `\\` escaped (use with `escape="\\"`)."""
+    body = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{body}%"
+
+
+def contains(column: ColumnElement, q: str) -> ColumnElement[bool]:
+    """`column` contains `q`, any case (Unicode, not only A-Z), `%` and `_` taken literally.
+    Every text search (tasks, docs, chat) matches through this."""
+    return func.ulower(column).like(like_pattern(q), escape="\\")
 
 
 @event.listens_for(Session, "before_flush")
@@ -153,3 +222,12 @@ async def get_session() -> AsyncIterator[Session]:
         yield session
     finally:
         session.close()
+
+
+def release(session: Session) -> None:
+    """End `session`'s read transaction and hand its connection back to the pool.
+
+    Loaded rows stay loaded (`expire_on_commit=False`); the next query takes a connection
+    again. Call it before a request waits on anything that is not the database.
+    """
+    session.commit()

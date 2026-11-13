@@ -18,6 +18,7 @@ from sqlalchemy import and_, func, or_, select, type_coerce
 from sqlalchemy.orm import Session, aliased
 
 from slate.dates import is_date_only_input, parse_when
+from slate.db import contains
 from slate.ids import new_id
 from slate.models import (
     Account,
@@ -408,17 +409,22 @@ def depth_of(session: Session, item: Item) -> int:
     return depth
 
 
-def descendants_of(session: Session, item_id: str, *, include_archived: bool = True) -> list[Item]:
-    """Every subtask under `item_id` at any depth, parents before children."""
-    out: list[Item] = []
+def descendant_levels(session: Session, item_id: str) -> list[list[Item]]:
+    """The subtasks under `item_id` level by level: direct subtasks first, then theirs."""
+    levels: list[list[Item]] = []
     frontier = [item_id]
     while frontier:
         rows = list(session.scalars(select(Item).where(Item.parent_id.in_(frontier))))
-        if not include_archived:
-            rows = [r for r in rows if r.archived_at is None]
-        out.extend(rows)
+        if rows:
+            levels.append(rows)
         frontier = [r.id for r in rows]
-    return out
+    return levels
+
+
+def descendants_of(session: Session, item_id: str, *, include_archived: bool = True) -> list[Item]:
+    """Every subtask under `item_id` at any depth, parents before children."""
+    out = [row for level in descendant_levels(session, item_id) for row in level]
+    return out if include_archived else [r for r in out if r.archived_at is None]
 
 
 def item_detail(session: Session, item_id: str) -> dict[str, Any]:
@@ -552,10 +558,7 @@ def query_items(
     if due_after is not None:
         stmt = stmt.where(Item.due_at > parse_when(due_after))
     if q:
-        pattern = f"%{q.strip().lower()}%"
-        stmt = stmt.where(
-            or_(func.lower(Item.title).like(pattern), func.lower(Item.body_md).like(pattern))
-        )
+        stmt = stmt.where(or_(contains(Item.title, q.strip()), contains(Item.body_md, q.strip())))
     if kind is not None:
         stmt = stmt.where(Item.kind == _kind(kind))
     if blocked is not None:
@@ -999,6 +1002,19 @@ def bulk_update(
         target = lists_svc.require_tasks(lists_svc.get_list(session, changes["list_id"]))
     per_item: list[dict[str, Any]] = []
     no_kind: dict[str, str] = {}
+    tags_now: dict[str, set[str]] = {}
+    if "add_tags" in changes or "remove_tags" in changes:
+        for names in ("add_tags", "remove_tags"):
+            if not isinstance(changes.get(names) or [], list):
+                raise Invalid(f"{names} must be a list of tag names")
+        tags_now = {i.id: set() for i in items}
+        rows = session.execute(
+            select(ItemTag.item_id, Tag.name)
+            .join(Tag, Tag.id == ItemTag.tag_id)
+            .where(ItemTag.item_id.in_(list(tags_now)))
+        )
+        for item_id, name in rows:
+            tags_now[item_id].add(name)
     for item in items:
         one = {k: v for k, v in changes.items() if k in UPDATABLE}
         if target is not None and target.id != item.list_id:
@@ -1021,7 +1037,7 @@ def bulk_update(
             else:
                 one["status"] = pick.id
         if "add_tags" in changes or "remove_tags" in changes:
-            have = set(views(session, [item])[0]["tags"])
+            have = set(tags_now[item.id])
             have |= {tags_svc.normalize(n) for n in changes.get("add_tags") or []}
             have -= {tags_svc.normalize(n) for n in changes.get("remove_tags") or []}
             one["tags"] = sorted(have)
@@ -1053,13 +1069,8 @@ def bulk_update(
     with apply_change(session, actor) as cx:
         for item, one in [*zip(items, per_item, strict=True), *riders]:
             _apply_changes(cx, item, one)
-            if "archive" in changes:
-                now = utcnow()
-                want = now if changes["archive"] else None
-                if (item.archived_at is None) != (want is None):
-                    cx.set(
-                        item, "archived_at", want, "item.archived" if want else "item.unarchived"
-                    )
+        if "archive" in changes:  # the same reach as archive_item: every subtask goes too
+            _set_archived(cx, items, utcnow() if changes["archive"] else None)
     return items
 
 
@@ -1081,11 +1092,23 @@ def _status_in(session: Session, item: Item, target: Any) -> str | None:
 def _validate_changes(
     session: Session, item: Item, changes: Mapping[str, Any], *, target_list: Any
 ) -> None:
-    """Raise before any write if `changes` would not apply to `item`."""
+    """Raise before any write if `changes` would not apply to `item` (as update_item would)."""
     if "title" in changes:
         _title(changes["title"])
     if "priority" in changes:
         _priority(changes["priority"])
+    if "kind" in changes:
+        _kind(changes["kind"])
+    for key in ("start_at", "due_at"):
+        if key in changes:
+            parse_when(changes[key])
+    if "position" in changes and changes["position"] is None:
+        raise Invalid("position cannot be null")
+    if "status" in changes and changes["status"] is None:
+        raise Invalid("status cannot be null")
+    for key in ("assignees", "tags"):
+        if not isinstance(changes.get(key) or [], list):
+            raise Invalid(f"{key} must be a list")
     if changes.get("status") is not None:
         lists_svc.resolve_status(
             session, target_list.id if target_list else item.list_id, changes["status"]
@@ -1151,12 +1174,24 @@ def _apply_changes(cx: Change, item: Item, changes: Mapping[str, Any]) -> None:
 def archive_item(session: Session, actor: Actor, item_id: str) -> Item:
     """Soft: hide the item (and its subtasks) from boards and default queries."""
     item = get_item(session, item_id)
-    now = utcnow()
     with apply_change(session, actor) as cx:
-        for target in [item, *subtasks_of(session, item.id)]:
-            if target.archived_at is None:
-                cx.set(target, "archived_at", now, "item.archived")
+        _set_archived(cx, [item], utcnow())
     return item
+
+
+def _set_archived(cx: Change, items: Sequence[Item], when: datetime | None) -> None:
+    """Archive (`when`) or unarchive (None) `items` and every subtask under them, at any
+    depth. Trashed subtasks stay as the trash left them."""
+    seen: set[str] = set()
+    for item in items:
+        for target in [item, *descendants_of(cx.session, item.id)]:
+            if target.id in seen:
+                continue
+            seen.add(target.id)
+            if when is not None and target.archived_at is None:
+                cx.set(target, "archived_at", when, "item.archived")
+            elif when is None and target.archived_at is not None and target.trashed_at is None:
+                cx.set(target, "archived_at", None, "item.unarchived")
 
 
 def unarchive_item(session: Session, actor: Actor, item_id: str) -> Item:
@@ -1165,9 +1200,7 @@ def unarchive_item(session: Session, actor: Actor, item_id: str) -> Item:
     if item.trashed_at is not None:
         raise Invalid("this item is in the trash; restore it instead")
     with apply_change(session, actor) as cx:
-        for target in [item, *subtasks_of(session, item.id, include_archived=True)]:
-            if target.archived_at is not None and target.trashed_at is None:
-                cx.set(target, "archived_at", None, "item.unarchived")
+        _set_archived(cx, [item], None)
     return item
 
 

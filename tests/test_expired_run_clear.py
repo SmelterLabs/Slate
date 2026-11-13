@@ -149,9 +149,10 @@ def test_runner_gives_back_a_grant_it_will_not_run(client, alex, todo, make_acco
     _, h = make_account("agent")
     item = _assign(client, alex, todo)
     runner = _runner(client, h, tmp_path)
-    # A result still waiting for delivery from an earlier attempt keeps the key busy here.
-    runner._record(item["id"], run_id="old", state="delivery_failed", path="/x", result={})
+    # This process is still busy with the key (a take on the wire, a run winding down).
+    runner._claimed.add(item["id"])
+    runner._record(item["id"], run_id="old", state="running", remote_state="unknown")
     assert runner.take() is None
     db.expire_all()
     assert db.get(WorkLease, item["id"]) is None, "the grant must not be left to expire"
-    assert runner._records[item["id"]]["state"] == "delivery_failed"
+    assert runner._records[item["id"]]["run_id"] == "old"

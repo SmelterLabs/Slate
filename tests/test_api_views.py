@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy import text
 
+from conftest import raw_write
 from slate.models import View
 
 API = "/api/v1"
@@ -301,11 +301,10 @@ def test_a_stored_removed_layout_reads_as_list(client, alex, todo, db):
         "calendar_span": "week",
         "timeline_zoom": "month",
     }
-    db.execute(
-        text("UPDATE views SET config_json = :c WHERE id = :id"),
+    raw_write(
+        "UPDATE views SET config_json = :c WHERE id = :id",
         {"c": json.dumps(stored), "id": view["id"]},
     )
-    db.commit()
     db.expire_all()
 
     for got in (
