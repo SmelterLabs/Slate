@@ -107,3 +107,48 @@ def test_no_renudge_when_everything_unread_is_hidden_from_the_guest(client, alex
         now=utcnow() + timedelta(minutes=11),
     )
     assert received == []
+
+
+def test_a_mention_never_confirms_a_handle_the_guest_cannot_see(client, alex, project):
+    _acct(client, alex, "hidden-member", "person", "member")
+    _, gh = project["guest"]
+    m = _post(client, gh, project["key"], "hi @hidden-member @nobody-here @alex @my-agent")
+    assert m["mentions"] == ["alex"]
+    sid = project["sid"]
+    r = client.post(
+        f"{API}/items",
+        json={"list_id": _list(client, alex, sid), "title": "Card"},
+        headers=alex,
+    )
+    card = r.json()["id"]
+    c = client.post(
+        f"{API}/items/{card}/comments", json={"body_md": "@hidden-member @alex"}, headers=gh
+    ).json()
+    assert c["mentions"] == ["alex"]
+    # Alex, who can see the account, still gets the mention it names.
+    mine = _post(client, alex, project["key"], "@hidden-member over to you")
+    assert mine["mentions"] == ["hidden-member"]
+
+
+def _list(client, alex, section_id):
+    r = client.post(f"{API}/lists", json={"section_id": section_id, "name": "Todo"}, headers=alex)
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def test_an_owner_or_admin_can_take_a_message_down(client, alex, project, db):
+    from slate.models import Event
+
+    _, gh = project["guest"]
+    other, oh = _acct(client, alex, "other", "person", "member")
+    _share(client, alex, other["id"], project["sid"])
+    m = _post(client, gh, project["key"], "a pasted secret")
+    # Another member may not, and nobody but the author edits it.
+    assert client.delete(f"{API}/messages/{m['id']}", headers=oh).status_code == 403
+    r = client.patch(f"{API}/messages/{m['id']}", json={"body_md": "changed"}, headers=alex)
+    assert r.status_code == 403, r.text
+    r = client.delete(f"{API}/messages/{m['id']}", headers=alex)
+    assert r.status_code in (200, 204), r.text
+    assert "a pasted secret" not in _bodies(client, gh, project["key"])
+    ev = db.query(Event).filter(Event.type == "message.deleted").one()
+    assert ev.before_json["body_md"] == "a pasted secret"

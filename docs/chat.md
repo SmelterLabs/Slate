@@ -52,6 +52,13 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
 - **Threads** are one level: a reply's `parent_id` is the root, and replying to a reply lands on the
   root. `message.posted` for a reply carries `thread_followers` (account ids of earlier authors in
   the thread).
+- **Edit and delete.** Only the author edits a message; the author or an owner or admin deletes
+  one (`chat.delete`, the same rule as card comments; the board's message menu offers it to an
+  admin as "Delete <name>'s message"). `message.deleted` keeps the text in `before`.
+- **Mentions name only accounts the writer can see.** `comments.mentions_in` (chat, card
+  comments, doc threads and page bodies) keeps an `@handle` only when it is one of the caller's
+  `access.participant_ids` when the caller is restricted, so a guest's `@someone` never confirms
+  that a hidden account exists.
 - **Routing reuses the inbox.** `message.posted`/`message.edited` are in the inbox's and check-in's
   `MENTION_TYPES` (they read `after.mentions`), and a reply reaches thread followers as inbox reason
   `reply` / check-in `why: reply`. Push (`notification_for`) links to `/#/chat/<key>?thread=<root>`;

@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_id
 from slate.models import Account, Comment, CommentReaction, Event, Role, utcnow
-from slate.service import guests
+from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -69,11 +69,17 @@ def _body(value: str) -> str:
 
 
 def mentions_in(session: Session, body_md: str) -> list[str]:
-    """Handles of real accounts `@mentioned` in `body_md`, in first-mention order."""
+    """Handles of real accounts `@mentioned` in `body_md`, in first-mention order. For a
+    restricted caller, only accounts it can see (`access.participant_ids`): a mention must not
+    tell it which other handles exist."""
     wanted = list(dict.fromkeys(m.lower() for m in MENTION_RE.findall(body_md or "")))
     if not wanted:
         return []
-    known = set(session.scalars(select(Account.handle).where(Account.handle.in_(wanted))))
+    q = select(Account.handle).where(Account.handle.in_(wanted))
+    visible = access.participant_ids(session)
+    if visible is not None:
+        q = q.where(Account.id.in_(visible))
+    known = set(session.scalars(q))
     return [h for h in wanted if h in known]
 
 

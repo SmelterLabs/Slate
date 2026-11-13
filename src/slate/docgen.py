@@ -161,8 +161,8 @@ EVENT_DOCS: dict[str, str] = {
     "`channel_name`, `mentions`; a reply also carries `thread_followers`, the account ids of "
     "the thread's earlier authors). Check-in news `mentioned` or `reply`.",
     "message.edited": "A chat message's text changed (`after.mentions` = handles the edit added).",
-    "message.deleted": "A chat message was deleted by its author (the text goes, the thread "
-    "stays).",
+    "message.deleted": "A chat message was deleted by its author or an owner or admin (the text "
+    "goes, the thread stays; `before` keeps it).",
     "message.file_uploaded": "A file was uploaded to send with a chat message (`after` = "
     "its metadata, no channel: until it is sent only its uploader hears of it; a sent "
     "message carries its files in `message.posted` `after.files`).",
