@@ -16,6 +16,7 @@ import {
   settle,
   startLive as live,
   tearDown,
+  type Answer,
   type Board,
   type Failure,
 } from './board/testkit';
