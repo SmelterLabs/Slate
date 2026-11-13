@@ -108,12 +108,12 @@ test('the task window, the file viewer over it, and the docked window', async ({
 });
 
 test('the board: list settings, tags, shortcuts and the command palette', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Pantry section', audience: 'work' });
-  await api('POST', '/lists', { section_id: section.id, name: 'Pantry' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Larder section', audience: 'work' });
+  await api('POST', '/lists', { section_id: section.id, name: 'Larder' });
   await signedIn(page, `/#/list/${seed().listId}`);
   await expect(page.locator('.card').first()).toBeVisible();
 
-  const options = page.locator('.nav-section[data-section="Pantry section"]').getByRole('button', { name: 'Pantry options' });
+  const options = page.locator('.nav-section[data-section="Larder section"]').getByRole('button', { name: 'Larder options' });
   await checkDialog(
     page,
     page.getByRole('dialog', { name: 'List settings' }),
@@ -155,8 +155,8 @@ test('notifications, sharing, member access and adding an agent', async ({ page 
 });
 
 test('chat: turning a message into a task', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Shed section', audience: 'work' });
-  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Shed' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Hinge section', audience: 'work' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Hinges' });
   await api('POST', `/channels/list:${list.id}/messages`, { body_md: 'Oil the hinges this week' });
   await signedIn(page, `/#/list/${list.id}/chat`);
   const mine = page.locator('.chat-main .chat-msg', { hasText: 'Oil the hinges' });
