@@ -81,6 +81,26 @@ def _pins(text: str) -> dict[str, str]:
     return pins
 
 
+def test_dependency_floors_are_tested_and_capped():
+    """Every runtime dependency names a floor no newer than the version uv.lock pins (the one
+    the tests run) and an upper bound, except tzdata, whose new data is always wanted."""
+    import tomllib
+
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked = {p["name"]: Version(p["version"]) for p in lock["package"] if "version" in p}
+    for line in project["project"]["dependencies"]:
+        req = Requirement(line)
+        floors = [Version(s.version) for s in req.specifier if s.operator == ">="]
+        caps = [s for s in req.specifier if s.operator == "<"]
+        assert floors, f"{line}: no floor"
+        assert floors[0] <= locked[req.name.lower()], f"{line}: floor newer than uv.lock"
+        assert caps or req.name == "tzdata", f"{line}: no upper bound"
+
+
 def test_installed_wheel_has_the_locked_versions(installed_server):
     outside, _, python, _ = installed_server
     locked = _pins((outside / "constraints.txt").read_text(encoding="utf-8"))
