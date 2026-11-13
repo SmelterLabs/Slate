@@ -12,6 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import AttachmentOut
@@ -47,7 +48,10 @@ async def add_attachment(
     """Attach a file (raw body, up to 25 MB)."""
     limit = attachments.MAX_BYTES
     data = await read_body(request, limit, f"attachment is larger than {limit // 2**20} MB")
-    return attachments.add_attachment(
+    # The body arrives on the event loop; the write (and its wait for the write lock) runs in
+    # the threadpool, so a busy writer never stops every other request.
+    return await run_in_threadpool(
+        attachments.add_attachment,
         session,
         auth.actor,
         item_id,

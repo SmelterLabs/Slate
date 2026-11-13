@@ -3,7 +3,10 @@
 Reading a body under a size cap without trusting `Content-Length`: a chunked request carries
 no length, and `await request.body()` would buffer the whole thing before the service's own
 check saw it. Attachments, chat files and the two doc upload routes read their bodies through
-`read_body`. `file_response` serves an attachment or a chat file.
+`read_body`. A route that reads its body this way is `async`, so it must then run its
+(synchronous) service write with `run_in_threadpool`: on the event loop, the write's wait for
+the write lock would stop every other request. `file_response` serves an attachment or a chat
+file.
 """
 
 from __future__ import annotations

@@ -86,3 +86,46 @@ def test_a_declared_length_over_the_cap_is_refused_before_the_body_is_read(
     bad = {**alex, "Content-Type": "application/octet-stream", "Content-Length": "lots"}
     r = client.post(url, params=params, content=b"tiny", headers=bad)
     assert r.status_code == 422 and "not a number" in r.json()["detail"]
+
+
+def test_an_upload_waiting_for_the_write_lock_does_not_stop_other_requests(client, alex, todo):
+    """The route reads the body on the event loop, then writes in the threadpool: a write
+    waiting for the lock (another change holds it) must not hold up `/healthz`."""
+    import threading
+    import time
+
+    from slate.service import core
+
+    item = client.post(f"{API}/items", json={"list_id": todo["id"], "title": "x"}, headers=alex)
+    released = threading.Event()
+    held = threading.Event()
+
+    def hold() -> None:
+        with core._write_lock:  # stands in for a slow change (a big batch, an import)
+            held.set()
+            released.wait(5)
+
+    with client:  # one event loop for every request, as under uvicorn
+        holder = threading.Thread(target=hold)
+        holder.start()
+        held.wait(2)
+        got: list[int] = []
+        upload = threading.Thread(
+            target=lambda: got.append(
+                client.post(
+                    f"{API}/items/{item.json()['id']}/attachments?filename=a.txt",
+                    content=b"hello",
+                    headers={**alex, "Content-Type": "text/plain"},
+                ).status_code
+            )
+        )
+        upload.start()
+        time.sleep(0.3)  # the upload is now waiting for the lock
+        started = time.perf_counter()
+        assert client.get("/healthz").status_code == 200
+        elapsed = time.perf_counter() - started
+        released.set()
+        holder.join()
+        upload.join()
+    assert elapsed < 1.0, f"/healthz waited {elapsed:.1f} s behind an upload"
+    assert got == [201]
