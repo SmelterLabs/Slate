@@ -56,7 +56,15 @@ from slate.service.core import Actor
 READS = {
     "slate.service.item_reads": {"comment_dots"},
     # AI add: context, prompt and the model call read only; `fill` is in INFRASTRUCTURE.
-    "slate.service.aiadd": {"ask", "call_model", "clean", "enabled", "first_sentence", "prompt"},
+    "slate.service.aiadd": {
+        "ask",
+        "call_model",
+        "clean",
+        "enabled",
+        "first_sentence",
+        "prompt",
+        "queued",
+    },
     "slate.service.connections": {"view", "list_connections"},
     "slate.service.collaboration": {"whiteboard_url", "project"},
     "slate.service.guests": {
@@ -344,7 +352,7 @@ READS = {
 INFRASTRUCTURE = {
     # Writes through items.update_item as Slate's own account (source system, session_ref
     # ai-add) after the request; tests/test_ai_add.py checks those events.
-    "slate.service.aiadd": {"fill"},
+    "slate.service.aiadd": {"fill", "fill_later"},
     "slate.service.chatwake": {
         # Called inside chat.post / chat.edit's change (they take the `cx`).
         "on_posted",

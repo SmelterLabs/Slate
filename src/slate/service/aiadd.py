@@ -14,19 +14,27 @@ history says the model set them, not the person. Every board sees it fill in thr
 - Only fields still as filed are written: anything the person changed in the meantime wins.
 - Assignees outside the offered people, a status the list lacks, a bad date: dropped, not
   guessed. A model that is down or slow leaves the card as typed; nothing is retried.
+- Fills run one at a time on their own worker thread (`fill_later`), never in the thread pool
+  that serves requests, so a slow model delays only other fills. At most `MAX_QUEUED` wait;
+  beyond that a card simply stays as typed. The model's answer is read up to `MAX_ANSWER_BYTES`.
 - Off unless `SLATE_AI_URL` is set (`enabled`); `GET /me` says `ai_add` so the board shows the
   switch only when it works.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import threading
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import anyio
+import anyio.to_thread
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,6 +47,11 @@ from slate.settings import settings
 log = logging.getLogger(__name__)
 
 SESSION_REF = "ai-add"
+# Fills waiting or running, process-wide; more are dropped (the card stays as typed).
+MAX_QUEUED = 16
+MAX_ANSWER_BYTES = 1024 * 1024
+# Tests swap in an `httpx.MockTransport`; None means real network.
+transport: httpx.BaseTransport | None = None
 PRIORITIES = ("urgent", "high", "normal", "low")
 WHEN = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 SCHEMA = {
@@ -161,23 +174,29 @@ def prompt(a: Ask, now: datetime | None = None) -> str:
 
 
 def call_model(system: str, text: str) -> dict[str, Any]:
-    """One structured chat call to the Ollama server. Raises on any failure."""
-    r = httpx.post(
-        settings.ai_url.rstrip("/") + "/api/chat",
-        json={
-            "model": settings.ai_model,
-            "stream": False,
-            "format": SCHEMA,
-            "keep_alive": "15m",
-            "options": {"temperature": 0, "num_ctx": 4096},
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": text}],
-        },
-        timeout=settings.ai_timeout,
-    )
-    r.raise_for_status()
-    import json  # noqa: PLC0415
-
-    out = json.loads(r.json()["message"]["content"])
+    """One structured chat call to the Ollama server. Raises on any failure, including an
+    answer longer than `MAX_ANSWER_BYTES`."""
+    body = {
+        "model": settings.ai_model,
+        "stream": False,
+        "format": SCHEMA,
+        "keep_alive": "15m",
+        "options": {"temperature": 0, "num_ctx": 4096},
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": text}],
+    }
+    with (
+        httpx.Client(
+            transport=transport, timeout=settings.ai_timeout, follow_redirects=False
+        ) as client,
+        client.stream("POST", settings.ai_url.rstrip("/") + "/api/chat", json=body) as r,
+    ):
+        r.raise_for_status()
+        raw = bytearray()
+        for chunk in r.iter_bytes():
+            raw += chunk
+            if len(raw) > MAX_ANSWER_BYTES:
+                raise ValueError("model answer is too long")
+    out = json.loads(json.loads(bytes(raw))["message"]["content"])
     if not isinstance(out, dict):
         raise ValueError("model answered something other than an object")
     return out
@@ -233,6 +252,43 @@ def _still_as_filed(view: dict[str, Any], a: Ask) -> set[str]:
         "tags": sorted(view["tags"]),
     }
     return {k for k, v in a.filed.items() if now.get(k) == v}
+
+
+_queued = 0
+_queued_lock = threading.Lock()
+# One fill at a time per event loop (the server has one; tests start several).
+_workers: weakref.WeakKeyDictionary[Any, anyio.CapacityLimiter] = weakref.WeakKeyDictionary()
+
+
+def queued() -> int:
+    """Fills waiting or running now."""
+    return _queued
+
+
+def _worker() -> anyio.CapacityLimiter:
+    import asyncio  # noqa: PLC0415
+
+    loop = asyncio.get_running_loop()
+    if loop not in _workers:
+        _workers[loop] = anyio.CapacityLimiter(1)
+    return _workers[loop]
+
+
+async def fill_later(a: Ask) -> None:
+    """Run `fill` after the response, one at a time, on a thread of its own: waiting for the
+    model never holds one of the threads that serve requests. Beyond `MAX_QUEUED` waiting
+    fills the card stays as typed."""
+    global _queued
+    with _queued_lock:
+        if _queued >= MAX_QUEUED:
+            log.warning("ai add: %d fills waiting, %s stays as typed", _queued, a.item_id)
+            return
+        _queued += 1
+    try:
+        await anyio.to_thread.run_sync(fill, a, limiter=_worker())
+    finally:
+        with _queued_lock:
+            _queued -= 1
 
 
 def fill(a: Ask) -> dict[str, Any]:
