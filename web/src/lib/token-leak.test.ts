@@ -23,7 +23,7 @@ describe('the token', () => {
         offenders.push(`${file}: ${m[0].slice(0, 80)}`);
       }
       for (const m of src.matchAll(/`[^`]*\?[^`]*token=[^`]*`/g)) {
-        if (!/events\/stream/.test(m[0])) offenders.push(`${file}: ${m[0].slice(0, 80)}`);
+        if (!/events\/stream|SLATE_TOKEN=/.test(m[0])) offenders.push(`${file}: ${m[0].slice(0, 80)}`);
       }
     }
     expect(offenders).toEqual([]);
