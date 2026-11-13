@@ -175,9 +175,9 @@ list. The same tree also holds **file docs**.
 - **Tables**: `docs` (title, icon, `parent_id` |
   `section_id` | `list_id` for a top page, `body_md`, `position`, `revision` bumped on every save,
   `version_no`, archived_at), `doc_versions` (one row per sitting: title + body as they stood,
-  author, note), `doc_files` (bytes in SQLite, deferred column). The migration also widens the
+  author, note), `doc_files` (bytes in SQLite, deferred column), `doc_links` (one row per distinct `[[doc:<id>]]` or `[[task:<id>]]` embed, indexed by target). The migration also widens the
   favorites `favorite_kind` CHECK to `doc` (batch recreate).
-- **Service** `service/docs.py` is the only writer. Events:
+- **Service** `service/docs.py` is the public surface; the work lives in `doc_tree.py` (the page tree and moves), `doc_pages.py` (page text, versions and tasks from a page), `doc_files.py` (uploads and file revisions), `doc_listing.py` (search, tags, pins and drawers) and `doc_shape.py` (the page payload and its `doc_links`). Every write goes through them. Events:
   `doc.created|updated|moved|archived|unarchived|deleted|version_restored|file_added|file_removed`
   (file events carry metadata, never bytes). `update_doc` takes `title`, `icon`, `body_md` or
   `append_md` or `replace_section {heading, body_md}` (agents edit one section without resending the
@@ -190,7 +190,7 @@ list. The same tree also holds **file docs**.
   `replace_section` / `replace` edit on that row, so a save that committed while the request
   waited for the lock is a 409, not a silent overwrite, and two appends both land. `move_doc`
   reads the tree and checks it (not under itself, at most `MAX_DEPTH` deep) inside its
-  `apply_change`, with `_all(fresh=True)`, so two moves at once cannot build a parent cycle; the
+  `apply_change`, with `all_docs(fresh=True)`, so two moves at once cannot build a parent cycle; the
   tree walkers (`_ancestors`, `_descendants`, `_height`, `_tree_order`) still stop on one. There is
   no database trigger for doc cycles (items have one). **Gotcha**:
   any query inside `apply_change` autoflushes, and an uncovered dirty row raises
@@ -203,8 +203,8 @@ list. The same tree also holds **file docs**.
   /docs?embeds=<item id>` lists pages that mention a task (the task window's "In docs"); `GET
   /docs/{id}` returns the embedded tasks as item views plus backlinks, outline, path, children and
   files. `doc_out` (the response of every page read and write) reads the tree once and finds
-  backlinks with one `LIKE` over page bodies for `[[doc:<id>]]`; that scan grows with the doc
-  library (a `doc_links` table would make it an index lookup, at the cost of a migration).
+  backlinks from `doc_links`, an indexed lookup kept current by the change that saves, restores,
+  duplicates or deletes a page.
 - **Archive and delete**: archiving a page hides its subtree; pages in archived lists or sections
   are hidden too. Delete only works on an archived page and takes its subpages. Export
   (`service/export.py`) includes docs in scope.

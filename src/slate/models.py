@@ -810,8 +810,8 @@ class EmailDelivery(Base):
 
 
 class Doc(Base):
-    """A ClickUp-style doc page (service/docs.py). Pages nest without a depth limit beyond
-    `docs.MAX_DEPTH`; only a top page (no parent) carries a location: a list, a section, or
+    """A doc page (service/docs.py and the doc_* modules). Pages nest without a depth limit beyond
+    `doc_tree.MAX_DEPTH`; only a top page (no parent) carries a location: a list, a section, or
     neither (the whole workspace). Subpages inherit their top page's location.
 
     `revision` goes up on every title or body change, so a writer can say which text it edited
@@ -835,7 +835,7 @@ class Doc(Base):
     # mistaken for what is in use. Null = nothing pinned.
     pinned_revision_no: Mapped[int | None] = mapped_column(Integer)
     pinned_note: Mapped[str | None] = mapped_column(String(200))
-    # Pinned to the top of its drawer or folder listing (service/docs.py `pin_to_top`): shared,
+    # Pinned to the top of its drawer or folder listing (`doc_listing.pin_to_top`): shared,
     # not per account. Null = not pinned. Distinct from the revision pin above.
     top_pinned_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     top_pinned_by: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
@@ -904,6 +904,23 @@ class DocFile(Base):
     # text, so comparing two revisions never parses the files again. None for other types,
     # and for an upload over `SLATE_DOC_EXTRACT_MAX_BYTES`.
     tables_json: Mapped[Any | None] = mapped_column(JSON, deferred=True)
+
+
+class DocLink(Base):
+    """A link a page's body makes, one row per distinct embed: `[[doc:<id>]]` or
+    `[[task:<id>]]`. Written by the same change that saves the body, so "pages that link
+    here" is an indexed lookup (`target_kind`, `target_id`) rather than a scan of every body.
+    A target that no longer exists leaves its row; the link simply resolves to nothing."""
+
+    __tablename__ = "doc_links"
+    __table_args__ = (
+        CheckConstraint("target_kind IN ('doc', 'task')", name="ck_doc_links_kind"),
+        Index("ix_doc_links_target", "target_kind", "target_id"),
+    )
+
+    doc_id: Mapped[str] = mapped_column(ForeignKey("docs.id", ondelete="CASCADE"), primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(8), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(12), primary_key=True)
 
 
 class DocTag(Base):
