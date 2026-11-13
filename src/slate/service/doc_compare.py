@@ -20,6 +20,7 @@ import difflib
 import io
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
@@ -40,6 +41,18 @@ MAX_TEXT = 300_000  # characters kept per revision
 MAX_TABLE_ROWS = 2_000
 MAX_TABLE_COLS = 200
 MAX_TABLE_SHEETS = 64
+# Characters kept per cell and in all of a revision's tables together. A workbook's cells can
+# all point at one long shared string, so the inflated-size check alone does not bound what
+# reading the cells out produces; this does. Past the budget the tables are cut short.
+MAX_CELL = 1_000
+MAX_TABLE_CHARS = 4_000_000
+# A PDF is read for at most this many pages and seconds, and at most PDF_CONTENT_BYTES of
+# decoded page content (pypdf parses about a megabyte a second in pure Python, and the
+# deadline is only checked between pages), whatever its streams claim to weigh.
+MAX_PDF_PAGES = 300
+PDF_SECONDS = 15.0
+PDF_CONTENT_BYTES = 16 * 1024 * 1024
+MAX_FORM_DEPTH = 8
 # A zip member this much bigger than its compressed bytes is a bomb, not a spreadsheet: real
 # OOXML parts deflate 10-50x. Only members over RATIO_FLOOR count (a tiny part may be anything).
 MAX_INFLATE_RATIO = 200
@@ -127,12 +140,34 @@ def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+class _Budget:
+    """Characters left for one revision's tables (`MAX_TABLE_CHARS`), shared by every sheet."""
+
+    def __init__(self) -> None:
+        self.left = MAX_TABLE_CHARS
+
+    def cells(self, values: Any) -> list[str] | None:
+        """One row's cells, each cut to `MAX_CELL`; None once the budget is spent."""
+        if self.left <= 0:
+            return None
+        out = []
+        for v in values:
+            cell = "" if v is None else str(v)[:MAX_CELL]
+            self.left -= len(cell)
+            out.append(cell)
+        return out
+
+
 def _csv_rows(text: str) -> list[list[str]]:
+    budget = _Budget()
     sample = text[:4096]
     delim = "\t" if "\t" in sample and sample.count("\t") >= sample.count(",") else ","
     rows = []
     for row in csv.reader(io.StringIO(text), delimiter=delim):
-        rows.append([c for c in row[:MAX_TABLE_COLS]])
+        cells = budget.cells(row[:MAX_TABLE_COLS])
+        if cells is None:
+            break
+        rows.append(cells)
         if len(rows) >= MAX_TABLE_ROWS:
             break
     return rows
@@ -144,16 +179,21 @@ def _xlsx_sheets(data: bytes) -> list[tuple[str, list[list[str]]]]:
     _check_archive(data)
     import openpyxl
 
+    budget = _Budget()
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
     out: list[tuple[str, list[list[str]]]] = []
     for ws in wb.worksheets[:MAX_TABLE_SHEETS]:
+        if budget.left <= 0:
+            break
         rows: list[list[str]] = []
         for row in ws.iter_rows(
             values_only=True,
             max_row=min(ws.max_row or MAX_TABLE_ROWS, MAX_TABLE_ROWS),
             max_col=min(ws.max_column or MAX_TABLE_COLS, MAX_TABLE_COLS),
         ):
-            cells = ["" if v is None else str(v) for v in row[:MAX_TABLE_COLS]]
+            cells = budget.cells(row[:MAX_TABLE_COLS])
+            if cells is None:
+                break
             while cells and cells[-1] == "":
                 cells.pop()
             rows.append(cells)
@@ -164,6 +204,24 @@ def _xlsx_sheets(data: bytes) -> list[tuple[str, list[list[str]]]]:
         out.append((ws.title, rows))
     wb.close()
     return out
+
+
+def _tables_text(sheets: list[tuple[str, list[list[str]]]]) -> str:
+    """The sheets as searchable text, written up to `MAX_TEXT` characters and no further."""
+    out = io.StringIO()
+    left = MAX_TEXT
+    for n, (name, rows) in enumerate(sheets):
+        for part in ("\n\n" if n else "", f"## {name}\n", *_lines(rows)):
+            if left <= 0:
+                return out.getvalue()
+            out.write(part[:left])
+            left -= len(part)
+    return out.getvalue()
+
+
+def _lines(rows: list[list[str]]) -> Any:
+    for n, r in enumerate(rows):
+        yield ("\n" if n else "") + "\t".join(r)
 
 
 def _docx_text(data: bytes) -> str:
@@ -236,7 +294,8 @@ def _docx_text(data: bytes) -> str:
 
 def _streams_of(page: Any) -> list[Any]:
     """The content streams pypdf decodes to read a page's text: its `/Contents` (one stream
-    or an array) and the form XObjects its resources draw."""
+    or an array) and every form XObject its resources draw, nested forms included (each
+    object once, at most `MAX_FORM_DEPTH` levels down)."""
     found: list[Any] = []
     contents = page.get("/Contents")
     contents = contents.get_object() if contents is not None else None
@@ -244,26 +303,80 @@ def _streams_of(page: Any) -> list[Any]:
         found.extend(c.get_object() for c in contents)
     elif contents is not None:
         found.append(contents)
-    resources = page.get("/Resources")
-    xobjects = resources.get_object().get("/XObject") if resources is not None else None
-    if xobjects is not None:
+    seen: set[int] = set()
+
+    def forms(holder: Any, depth: int) -> None:
+        resources = holder.get("/Resources")
+        resources = resources.get_object() if resources is not None else None
+        xobjects = resources.get("/XObject") if resources is not None else None
+        if xobjects is None:
+            return
+        if depth >= MAX_FORM_DEPTH:
+            raise ValueError("form XObjects nest too deep")
         for ref in xobjects.get_object().values():
             obj = ref.get_object()
-            if obj.get("/Subtype") == "/Form":
-                found.append(obj)
+            if id(obj) in seen or obj.get("/Subtype") != "/Form":
+                continue
+            seen.add(id(obj))
+            found.append(obj)
+            forms(obj, depth + 1)
+
+    forms(page, 0)
     return found
 
 
+# pypdf accepts these abbreviations for a stream's filter (PDF 32000-1, table 94).
+_FILTER_NAMES = {
+    "/Fl": "/FlateDecode",
+    "/AHx": "/ASCIIHexDecode",
+    "/A85": "/ASCII85Decode",
+    "/LZW": "/LZWDecode",
+    "/RL": "/RunLengthDecode",
+    "/CCF": "/CCITTFaxDecode",
+    "/DCT": "/DCTDecode",
+}
+# Image codecs: pypdf does not decode them to read text, so their bytes cost what they weigh.
+_IMAGE_FILTERS = {"/CCITTFaxDecode", "/DCTDecode", "/JBIG2Decode", "/JPXDecode"}
+
+
+def _filters(stream: Any) -> list[str]:
+    value = stream.get("/Filter")
+    value = value.get_object() if value is not None else None
+    if value is None:
+        return []
+    names = list(value) if isinstance(value, list) else [value]
+    return [_FILTER_NAMES.get(str(n), str(n)) for n in names]
+
+
 def _decoded_size(stream: Any, remaining: int) -> int:
-    """How many bytes `stream` inflates to, measured with a zlib output cap so a stream over
-    `remaining` costs at most that many bytes to find out (it then reads remaining + 1)."""
-    raw = getattr(stream, "_data", b"") or b""
-    filters = stream.get("/Filter")
-    filters = filters.get_object() if filters is not None else None
-    names = [str(f) for f in filters] if isinstance(filters, list) else [str(filters or "")]
-    if names and names[0] == "/FlateDecode":
-        return len(zlib.decompressobj().decompress(raw, remaining + 1))
-    return len(raw)
+    """How many bytes `stream` decodes to, through its whole filter chain with the names
+    normalised as pypdf reads them. Flate output is capped at `remaining + 1`, so a stream
+    over the budget costs at most that much to measure; the ASCII filters only shrink or
+    expand their input a little. A filter that cannot be measured cheaply (LZW, run-length,
+    an unknown name) or a stream that will not decode raises ValueError: the page is then
+    not read."""
+    data = getattr(stream, "_data", b"") or b""
+    for name in _filters(stream):
+        if name in _IMAGE_FILTERS:
+            break
+        if name == "/FlateDecode":
+            try:
+                data = zlib.decompressobj().decompress(data, remaining + 1)
+            except zlib.error as e:
+                raise ValueError(f"a content stream does not inflate: {e}") from None
+        elif name == "/ASCIIHexDecode":
+            from pypdf.filters import ASCIIHexDecode
+
+            data = ASCIIHexDecode.decode(data)
+        elif name == "/ASCII85Decode":
+            from pypdf.filters import ASCII85Decode
+
+            data = ASCII85Decode.decode(data)
+        else:
+            raise ValueError(f"content stream filter {name} is not measured")
+        if len(data) > remaining:
+            break
+    return len(data)
 
 
 class _OverBudget(Exception):
@@ -271,14 +384,20 @@ class _OverBudget(Exception):
 
 
 def _pdf_text(data: bytes) -> str:
-    """Pages' text, within MAX_TEXT characters and the inflated-byte cap: pypdf inflates each
-    page's FlateDecode content to read it, so pages past the budget are not opened."""
+    """Pages' text, within fixed limits on the work: `MAX_TEXT` characters, `MAX_PDF_PAGES`
+    pages, `PDF_SECONDS` of reading, and the inflated-byte cap. pypdf decodes each page's
+    content streams to read it, so they are measured first and pages past the budget are
+    never opened; a page whose streams cannot be measured is skipped."""
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
     pages = []
-    remaining = _cap()
+    chars = 0
+    remaining = min(_cap(), PDF_CONTENT_BYTES)
+    deadline = time.monotonic() + PDF_SECONDS
     for n, page in enumerate(reader.pages, 1):
+        if n > MAX_PDF_PAGES or time.monotonic() >= deadline:
+            break
         try:
             for stream in _streams_of(page):
                 remaining -= _decoded_size(stream, remaining)
@@ -290,7 +409,8 @@ def _pdf_text(data: bytes) -> str:
         except Exception:  # noqa: BLE001 - a broken page must not sink the upload
             text = ""
         pages.append(f"--- page {n} ---\n{text.strip()}")
-        if sum(len(p) for p in pages) > MAX_TEXT:
+        chars += len(pages[-1])
+        if chars > MAX_TEXT:
             break
     return "\n".join(pages)
 
@@ -325,9 +445,7 @@ def extract(filename: str, content_type: str, data: bytes) -> tuple[str | None, 
         elif kind == "xlsx":
             sheets = _xlsx_sheets(data)
             tables = [[name, rows] for name, rows in sheets]
-            text = "\n\n".join(
-                f"## {name}\n" + "\n".join("\t".join(r) for r in rows) for name, rows in sheets
-            )
+            text = _tables_text(sheets)
         elif kind == "docx":
             text = _docx_text(data)
         elif kind == "pdf":

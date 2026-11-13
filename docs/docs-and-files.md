@@ -281,8 +281,16 @@ list. The same tree also holds **file docs**.
   `_check_archive` measures an XLSX's zip
   members (declared sizes, total, a 200x inflation ratio over 4 MiB, then a chunked inflate under
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even
-  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX uses the same cap; `_pdf_text` measures
-  each page's content streams with a capped `zlib` inflate before opening the page. CSV/TSV/XLSX
+  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX uses the same cap. Cells read out of a
+  table are cut to `MAX_CELL` (1,000) characters and all of a revision's tables share one
+  `MAX_TABLE_CHARS` (4 M) budget, because every cell of a workbook may point at one long shared
+  string; the searchable text is written up to `MAX_TEXT` and no further. `_pdf_text` reads at
+  most `MAX_PDF_PAGES` (300) pages, stops at a `PDF_SECONDS` (15 s) deadline checked between
+  pages, and before opening a page measures its content streams and nested form XObjects through
+  their whole filter chain (abbreviated names such as `/Fl` normalised as pypdf reads them; Flate
+  inflated with an output cap) against `min(cap, PDF_CONTENT_BYTES)` (16 MiB); a stream it cannot
+  measure (LZW, run-length, broken data) leaves that page unread. Extraction still runs in the
+  server process: a subprocess with OS limits would bound it harder. CSV/TSV/XLSX
   tables are stored as JSON in `doc_files.tables_json` (migration `7c2d9e4b1f60`, `[[sheet, rows], ...]`,
   64 sheets max); **`compare` reads only `text` and `tables_json` and never opens a file** (opening
   two 2 MB workbooks measured 7 s per GET): a revision with either NULL answers `kind: none` with a
