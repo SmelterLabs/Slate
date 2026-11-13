@@ -124,7 +124,7 @@ def test_two_agents_never_get_the_same_pool_task(client, alex, todo, make_accoun
     assert first["item"]["id"] == a["id"] and first["why"] == "pool"
     assert second["item"]["id"] == b["id"]
     assert [x["handle"] for x in first["item"]["assignees"]] == ["agent"]
-    assert first["lease"]["from_pool"] is True
+    assert "from_pool" not in first["lease"]
 
     # A second agent cannot take the first agent's held task by claim either.
     r = client.post(

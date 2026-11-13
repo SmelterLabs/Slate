@@ -1,11 +1,31 @@
 from __future__ import annotations
 
 from alembic import context
+from alembic.script import ScriptDirectory
+from sqlalchemy import inspect
 
 from slate import connection_models, models  # noqa: F401 (register tables)
 from slate.db import Base, engine
 
 target_metadata = Base.metadata
+
+
+def refuse_unknown_revision(connection) -> None:
+    """The history starts at a baseline; a database stamped with a revision from before it
+    cannot be upgraded by this version. Say so plainly instead of Alembic's "Can't locate
+    revision"."""
+    if not inspect(connection).has_table("alembic_version"):
+        return
+    script = ScriptDirectory.from_config(context.config)
+    known = {rev.revision for rev in script.walk_revisions()}
+    for (version,) in connection.exec_driver_sql("SELECT version_num FROM alembic_version"):
+        if version not in known:
+            base = ", ".join(script.get_bases())
+            raise RuntimeError(
+                f"this database is at revision {version}, which is older than this version's "
+                f"first migration ({base}): upgrade it with Slate 0.1.0 first, then run this "
+                "version's upgrade"
+            )
 
 
 def run_migrations_offline() -> None:
@@ -28,6 +48,8 @@ def run_migrations_online() -> None:
         # The pragma is ignored inside a transaction, so it goes first, before anything begins.
         connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
         connection.commit()  # ends the transaction SQLAlchemy opened for the pragma
+        refuse_unknown_revision(connection)
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

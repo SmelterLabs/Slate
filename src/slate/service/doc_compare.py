@@ -25,12 +25,10 @@ import zipfile
 import zlib
 from typing import Any
 
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from slate.models import DocFile
 from slate.service import docs as docs_svc
-from slate.service.core import apply_change
 from slate.service.errors import Invalid
 from slate.settings import settings
 
@@ -46,8 +44,7 @@ MAX_INFLATE_RATIO = 200
 RATIO_FLOOR = 4 * 1024 * 1024
 NOT_INDEXED = (
     "revision {no} is not indexed (its text was not extracted: larger than the server reads "
-    "for search, unreadable, or uploaded before indexing existed; `slate backfill-doc-text` "
-    "indexes older uploads), so there is no server diff: compare by eye"
+    "for search, or unreadable), so there is no server diff: compare by eye"
 )
 
 
@@ -295,17 +292,6 @@ def _pdf_text(data: bytes) -> str:
     return "\n".join(pages)
 
 
-def tables_of(filename: str, content_type: str, data: bytes) -> list[tuple[str, list[list[str]]]]:
-    """Named tables in a CSV/TSV (one, named after the file) or an XLSX (one per sheet). Upload
-    stores this (`extract`); compare reads the stored copy and never calls it."""
-    kind = text_kind(filename, content_type)
-    if kind == "table":
-        return [(filename, _csv_rows(_decode(data)))]
-    if kind == "xlsx":
-        return _xlsx_sheets(data)
-    return []
-
-
 Tables = list[list[Any]]  # [[sheet name, rows], ...]: the JSON in `doc_files.tables_json`
 
 
@@ -339,11 +325,6 @@ def extract(filename: str, content_type: str, data: bytes) -> tuple[str | None, 
         return None, None
     text = text.replace("\x00", "")
     return (text[:MAX_TEXT] if text.strip() else None), tables
-
-
-def extract_text(filename: str, content_type: str, data: bytes) -> str | None:
-    """The searchable text of a revision (see `extract`)."""
-    return extract(filename, content_type, data)[0]
 
 
 def _unified(a: str, b: str, from_no: int, to_no: int) -> tuple[str, int, int]:
@@ -452,54 +433,3 @@ def compare(
             removed=removed,
         )
     return out
-
-
-def _needs_index(f: DocFile) -> bool:
-    kind = text_kind(f.filename, f.content_type)
-    if kind == "none":
-        return False
-    return f.text is None or (kind in ("table", "xlsx") and f.tables_json is None)
-
-
-def backfill_text(session: Session, *, limit: int = 1000) -> int:
-    """Index revisions that were stored without an index: text for those with `text` NULL,
-    tables for CSV/XLSX with `tables_json` NULL, as the system actor, one
-    `doc.text_extracted` event per revision. Returns how many. A revision over the extraction
-    cap stays unindexed and is skipped."""
-    from slate.service.due import system_actor
-
-    rows = list(
-        session.scalars(
-            select(DocFile)
-            .where(
-                DocFile.revision_no.is_not(None),
-                or_(DocFile.text.is_(None), DocFile.tables_json.is_(None)),
-            )
-            .order_by(DocFile.created_at)
-            .limit(limit)
-        )
-    )
-    todo = [f for f in rows if _needs_index(f)]
-    if not todo:
-        return 0
-    actor = system_actor(session)
-    done = 0
-    for f in todo:
-        text, tables = extract(f.filename, f.content_type, f.data)
-        if text is None and tables is None:
-            continue
-        with apply_change(session, actor) as cx:
-            f.text = text
-            f.tables_json = tables
-            cx.record(
-                "doc.text_extracted",
-                subject_id=f.doc_id,
-                after={
-                    "revision_no": f.revision_no,
-                    "chars": len(text or ""),
-                    "tables": tables is not None,
-                },
-                covers=[f],
-            )
-        done += 1
-    return done
