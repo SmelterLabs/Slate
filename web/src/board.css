@@ -235,13 +235,9 @@
   border-radius: 8px;
   box-shadow: var(--card-shadow);
   font-size: 0.86rem;
-  transition:
-    box-shadow 0.12s,
-    border-color 0.12s;
 }
 .card.cu:hover {
   background: var(--card);
-  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
   box-shadow: var(--card-shadow-hover);
 }
 .card.cu:focus-visible {
@@ -887,9 +883,6 @@
 }
 
 /* --- the view bar --- */
-.toolbar.cu-bar {
-  gap: 6px;
-}
 .tb-spacer {
   flex: 1;
 }
@@ -901,19 +894,9 @@
   padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--panel);
   font-size: 0.85rem;
   white-space: nowrap;
   color: var(--text);
-}
-.chip-btn:hover {
-  background: var(--card-hover);
-}
-.chip-btn.active,
-.dd-btn.chip-btn.active {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  color: var(--accent);
 }
 .chip-btn .ic {
   flex: none;
