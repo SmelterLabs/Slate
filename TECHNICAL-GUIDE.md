@@ -553,6 +553,13 @@ Design choices and the reason for each, with the alternatives that were rejected
   and a word like `spec` should mean the same on a task and on the drawing it is about. The hub's
   "Needs you" is deliberately narrow (asks to me; others' open review threads on docs I touched)
   so it reads as a to-do, not a feed; the feed is the folded Recent activity under it.
+- **A page save's event points at page history instead of copying the body.** `doc.updated` with
+  field `body_md` (and `doc.version_restored`) records `{version_no, chars}` before and after:
+  a page holds up to 500,000 characters and autosaves every second or so, so whole bodies made
+  the events table grow with the square of an appended log and made every open board re-download
+  them. The text lives once, in `doc_versions`. The cost: a save folded into the same author's
+  sitting keeps only that sitting's newest text, so the event names the version, not the exact
+  characters of each keystroke-save. Title and icon events still carry their values.
 - **Drawers, not an overlay.** A hub that gathers every document of a section (every meeting
   transcript included) is the mistake; documents go where someone puts them. A drawer is a list
   kind rather than a new table because documents already carry `list_id`, lists already have a
