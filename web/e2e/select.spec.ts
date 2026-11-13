@@ -3,23 +3,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 // SLATE_SHOTS_DIR=<dir> writes screenshots there.
 const shots = process.env.SLATE_SHOTS_DIR ?? null;
 if (shots) mkdirSync(shots, { recursive: true });
 async function shot(page: Page, name: string) {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
 }
 
 // Each test's section is archived after it, so its tasks stay off later tests' Everything board.
@@ -40,7 +30,7 @@ async function makeList(name: string) {
 }
 
 async function open(page: Page, listId: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   await expect(page.locator('.list-page')).toBeVisible();
 }

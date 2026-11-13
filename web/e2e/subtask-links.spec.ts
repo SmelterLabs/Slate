@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
@@ -17,16 +17,6 @@ async function shot(page: Page, name: string) {
   await page.emulateMedia({ colorScheme: null });
 }
 
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
 test('subtask cards are labelled and linked to their parent', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Linked', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Kitchen' });
@@ -35,7 +25,7 @@ test('subtask cards are labelled and linked to their parent', async ({ page }) =
   const moved = await api<{ id: string }>('POST', '/items', { parent_id: parent.id, title: 'Call the plumber' });
   await api('PATCH', `/items/${moved.id}`, { status: 'In progress' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   const ids: Record<string, string> = { 'Redo the kitchen': parent.id, 'Pick tiles': same.id, 'Call the plumber': moved.id };
   const card = (t: string) => page.locator(`.card[data-item="${ids[t]}"]`);
@@ -85,7 +75,7 @@ test('the select box is top left, clear of the title and the subtask line', asyn
   const parent = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Plant the beds' });
   const kid = await api<{ id: string }>('POST', '/items', { parent_id: parent.id, title: 'Buy compost' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Subtasks', exact: true }).click();
 
@@ -148,7 +138,7 @@ test('a subtask with a long parent keeps its column the same width', async ({ pa
   const regular = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'A plain card' });
   await api('PATCH', `/items/${regular.id}`, { status: 'In progress' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Subtasks', exact: true }).click();
   const subCard = page.locator(`.card[data-item="${sub.id}"]`);

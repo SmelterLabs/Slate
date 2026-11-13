@@ -2,22 +2,12 @@
 // activity column widens leftward from its grip; the dock button parks it on the right third or
 // quarter (no scrim, the board usable) and back in the center; all of it survives a reload.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signIn } from './support';
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
 async function openCard(page: Page, id: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${seed().listId}?task=${id}`);
   const win = page.locator('.tw');
   await expect(win.locator('.title')).toBeVisible();

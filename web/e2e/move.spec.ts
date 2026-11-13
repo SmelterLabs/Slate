@@ -4,23 +4,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
   : null;
 if (shots) mkdirSync(shots, { recursive: true });
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
 
 const made: string[] = [];
 test.afterAll(async () => {
@@ -64,7 +54,7 @@ async function onTop(loc: ReturnType<Page['locator']>) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
 });
 
 test('right-click a card, Move to…, search and Enter: it moves with its subtasks', async ({ page }) => {

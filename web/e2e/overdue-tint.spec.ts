@@ -1,28 +1,18 @@
 // The Overdue column on the day board wears a soft red wash (like Today's amber one), in light
 // and dark, and the other plain columns stay grey.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
   : null;
 if (shots) mkdirSync(shots, { recursive: true });
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
 
 /** "rgb(r, g, b)" or "color(srgb r g b)" -> [r, g, b] in 0..255. */
 function rgb(css: string): number[] {
@@ -53,7 +43,7 @@ test('the Overdue column is washed red in light and dark; plain columns are not'
     await api('POST', '/items', { list_id: listId, title, due_at });
   await api('POST', '/items', { list_id: listId, title: 'Sort the garage' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/section/${sectionId}`);
   const overdue = page.locator('.column[data-group="overdue"]');
   await expect(overdue).toContainText('Renew car registration');

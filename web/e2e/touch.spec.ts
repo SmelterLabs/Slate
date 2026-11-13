@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shots = process.env.SLATE_SCREENSHOTS
@@ -14,16 +14,6 @@ const shots = process.env.SLATE_SCREENSHOTS
 if (shots) mkdirSync(shots, { recursive: true });
 async function shot(page: Page, name: string) {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
 }
 
 interface Made {
@@ -52,11 +42,6 @@ async function makeList(name: string, titles: string[]): Promise<Made> {
   const ids: Record<string, string> = {};
   for (const title of titles) ids[title] = (await api<{ id: string }>('POST', '/items', { list_id: list.id, title })).id;
   return { listId: list.id, ids };
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 type Pt = { x: number; y: number };

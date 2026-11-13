@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shots = process.env.SLATE_SCREENSHOTS
@@ -32,16 +32,6 @@ async function around(...locs: ReturnType<Page['locator']>[]) {
     width: Math.max(...bs.map((b) => b.x + b.width)) - x,
     height: Math.max(...bs.map((b) => b.y + b.height)) - y,
   };
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
 const made: string[] = [];
@@ -78,7 +68,7 @@ test.use({ viewport: { width: 1400, height: 900 } });
 
 test('the Due row offers Today, Tomorrow and a date picker, and marks the current one', async ({ page }) => {
   const { listId, ids } = await lab(['Pick my date']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Pick my date');
   await c.hover();
@@ -116,7 +106,7 @@ test('the Due row offers Today, Tomorrow and a date picker, and marks the curren
 test('the copy-ID chip copies the ID and says so, without opening the card', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const { listId, ids } = await lab(['Copy my id']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Copy my id');
   await c.hover();
@@ -140,7 +130,7 @@ test('the copy-ID chip copies the ID and says so, without opening the card', asy
 
 test('dragging from the copy-ID chip does not move the card', async ({ page }) => {
   const { listId, ids } = await lab(['Stay put']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Stay put');
   await c.hover();
@@ -170,7 +160,7 @@ async function onTop(panel: ReturnType<Page['locator']>) {
 
 test('the column ⋯ menu and the card ⋯ menu sit on top of the cards', async ({ page }) => {
   const { listId } = await lab(['Under the menu one', 'Under the menu two', 'Under the menu three']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const col = page.locator('.column[data-status="To do"]');
   await col.hover();

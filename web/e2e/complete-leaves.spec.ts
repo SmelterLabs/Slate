@@ -6,21 +6,11 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
 const dbPath = join(here, '..', '.e2e', 'slate-e2e.db'); // playwright.config.ts's dbPath
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status} ${res.ok ? '' : await res.text()}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
 
 /** The scheduler's due step, for real, on the e2e database (the e2e server runs it off). */
 function dueTick() {
@@ -60,7 +50,7 @@ test('a card that went overdue while the board was open still leaves Today when 
   });
 
   // A typical board: the list's Default view regrouped by due date.
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Group by' }).click();
   await page.getByRole('menuitemradio', { name: 'Due date' }).click();

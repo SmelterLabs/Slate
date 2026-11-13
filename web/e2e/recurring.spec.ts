@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, signedIn } from './support';
 
 const shots = process.env.SLATE_RECUR_SHOTS ?? null;
 if (shots) mkdirSync(shots, { recursive: true });
@@ -13,24 +13,9 @@ async function shot(page: Page, name: string) {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
 }
 
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status} ${res.ok ? '' : await res.text()}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
 async function scratch(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} home`, audience: 'personal' });
   return api<{ id: string }>('POST', '/lists', { section_id: section.id, name });
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 test('recur when done: reopen the same task, skip weekends, label on the card', async ({ page }) => {

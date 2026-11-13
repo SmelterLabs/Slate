@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn } from './support';
 
 // Coming back to a list shows it the way you left it: the last view tab, and its unsaved
 // layout, grouping and filters. They live on the account, so a reload and another device agree.
@@ -12,21 +12,6 @@ async function shot(page: Page, name: string) {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
 }
 
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
-async function signedIn(page: Page, hash: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(`/${hash}`);
-}
-
 const forget = () => api('PATCH', '/me/prefs', { last_view: null, view_drafts: null });
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -35,7 +20,7 @@ test.afterEach(forget);
 
 test('layout, grouping and filters stay after leaving the list and after a reload', async ({ page, browser }) => {
   const list = `#/list/${seed().tasksId}`;
-  await signedIn(page, list);
+  await signedIn(page, `/${list}`);
   await expect(page.locator('.column').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Table', exact: true }).click();
@@ -68,7 +53,7 @@ test('layout, grouping and filters stay after leaving the list and after a reloa
   await shot(page, 'desktop-after-reload');
 
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await signedIn(phone, list);
+  await signedIn(phone, `/${list}`);
   await expect(phone.locator('table.grid-table')).toBeVisible();
   await expect(phone.locator('.chips')).toContainText('Tag has any of #errand');
   await shot(phone, 'phone-same-view');
@@ -99,7 +84,7 @@ test('the view tab you last opened on a list is the one you come back to', async
     made.push(v.id);
   }
   try {
-    await signedIn(page, `#/list/${id}`);
+    await signedIn(page, `/#/list/${id}`);
     await expect(page.getByRole('tab', { name: /Tasks board/ })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('tab', { name: /Tasks table/ }).getByRole('link').click();
     await expect(page.locator('table.grid-table')).toBeVisible();
