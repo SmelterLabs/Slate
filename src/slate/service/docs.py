@@ -119,12 +119,15 @@ def get_doc(session: Session, doc_id: str) -> Doc:
     return doc
 
 
-def _all(session: Session) -> list[Doc]:
-    """Every doc without bodies: enough to walk the tree."""
+def _all(session: Session, *, fresh: bool = False) -> list[Doc]:
+    """Every doc without bodies: enough to walk the tree. `fresh` overwrites rows this session
+    already holds with what the database has now (for a check made under the write lock)."""
+    stmt = select(Doc)
+    if fresh:
+        stmt = stmt.execution_options(populate_existing=True)
     return list(
         session.scalars(
-            select(Doc)
-            .options(
+            stmt.options(
                 load_only(
                     Doc.id,
                     Doc.kind,
@@ -144,8 +147,7 @@ def _all(session: Session) -> list[Doc]:
                     Doc.updated_at,
                     Doc.archived_at,
                 )
-            )
-            .order_by(Doc.position, Doc.created_at)
+            ).order_by(Doc.position, Doc.created_at)
         )
     )
 
@@ -177,9 +179,13 @@ def _descendants(docs: Sequence[Doc], doc_id: str) -> list[Doc]:
         if d.parent_id:
             children.setdefault(d.parent_id, []).append(d)
     out: list[Doc] = []
+    seen = {doc_id}
     stack = list(children.get(doc_id, []))
     while stack:
         d = stack.pop()
+        if d.id in seen:  # a broken tree (a parent cycle) must not walk forever
+            continue
+        seen.add(d.id)
         out.append(d)
         stack.extend(children.get(d.id, []))
     return out
@@ -1236,28 +1242,32 @@ def move_doc(session: Session, actor: Actor, doc_id: str, to: Mapping[str, Any])
     if unknown:
         raise Invalid(f"move does not take {sorted(unknown)}")
     access.check_object(session, get_doc(session, doc_id))  # edit where it is now, too
-    docs = _all(session)
-    by_id = {d.id: d for d in docs}
-    doc = by_id[doc_id]
     parent_id = to.get("parent_id")
     if parent_id is not None:
-        parent = by_id.get(parent_id)
-        if parent is None:
-            raise Invalid(f"parent doc {parent_id} does not exist")
-        if parent_id == doc.id or parent_id in {d.id for d in _descendants(docs, doc.id)}:
-            raise Invalid("a page cannot move under itself or one of its subpages")
         if to.get("list_id") is not None or to.get("section_id") is not None:
             raise Invalid("a subpage lives where its top page lives; give parent_id or a place")
-        if _depth(by_id, parent) + _height(docs, doc.id) > MAX_DEPTH:
-            raise Invalid(f"pages nest {MAX_DEPTH} deep at most")
         sec, lst = None, None
     else:
         sec, lst = _place(session, to.get("list_id"), to.get("section_id"))
-    before = _place_of(doc)
-    siblings = _siblings(docs, parent_id, sec, lst, exclude=doc.id)
-    before_id = to.get("before_id")
-    at = next((n for n, d in enumerate(siblings) if d.id == before_id), len(siblings))
     with apply_change(session, actor) as cx:
+        # The tree is read and checked under the write lock (nothing is dirty yet, so the read
+        # flushes nothing): a move that committed since this request began is seen, so two
+        # moves at once cannot make a page its own ancestor or nest past MAX_DEPTH.
+        docs = _all(session, fresh=True)
+        by_id = {d.id: d for d in docs}
+        doc = by_id[doc_id]
+        if parent_id is not None:
+            parent = by_id.get(parent_id)
+            if parent is None:
+                raise Invalid(f"parent doc {parent_id} does not exist")
+            if parent_id == doc.id or doc in _ancestors(by_id, parent):
+                raise Invalid("a page cannot move under itself or one of its subpages")
+            if _depth(by_id, parent) + _height(docs, doc.id) > MAX_DEPTH:
+                raise Invalid(f"pages nest {MAX_DEPTH} deep at most")
+        before = _place_of(doc)
+        siblings = _siblings(docs, parent_id, sec, lst, exclude=doc.id)
+        before_id = to.get("before_id")
+        at = next((n for n, d in enumerate(siblings) if d.id == before_id), len(siblings))
         doc.parent_id, doc.section_id, doc.list_id = parent_id, sec, lst
         changed = _renumber([*siblings[:at], doc, *siblings[at:]])
         if _place_of(doc) != before or changed:

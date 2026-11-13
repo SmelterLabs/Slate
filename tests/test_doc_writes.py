@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from conftest import API
@@ -93,6 +94,88 @@ def test_duplicate_reads_only_the_copied_docs_and_never_reextracts(client, alex,
         f"{API}/docs/{copy_kid['id']}/revisions/compare", params={"from": 1}, headers=alex
     )
     assert out.status_code == 200, out.text
+
+
+# --- moves ------------------------------------------------------------------------------------
+
+
+def _actor(client, alex):
+    from slate.models import Source
+    from slate.service.core import Actor
+
+    me = client.get(f"{API}/me", headers=alex).json()
+    return Actor(account_id=me["account"]["id"], source=Source.api)
+
+
+def test_two_moves_at_once_cannot_make_a_page_its_own_ancestor(client, alex, todo, monkeypatch):
+    """A moves under B while B moves under A: the move that writes second sees the first."""
+    from contextlib import contextmanager
+
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+    from slate.service.errors import Invalid
+
+    a = _doc(client, alex, title="A", list_id=todo["id"])
+    b = _doc(client, alex, title="B", list_id=todo["id"])
+    actor = _actor(client, alex)
+    real = docs_svc.apply_change
+    raced = []
+
+    @contextmanager
+    def racing(session, who):
+        if not raced:  # B moves under A after this move read the tree, before it writes
+            raced.append(1)
+            with SessionLocal() as other:
+                docs_svc.move_doc(other, who, b["id"], {"parent_id": a["id"]})
+        with real(session, who) as cx:
+            yield cx
+
+    monkeypatch.setattr(docs_svc, "apply_change", racing)
+    with SessionLocal() as mine, pytest.raises(Invalid, match="under itself"):
+        docs_svc.move_doc(mine, actor, a["id"], {"parent_id": b["id"]})
+    got = {d["id"]: d["parent_id"] for d in client.get(f"{API}/docs", headers=alex).json()}
+    assert got == {a["id"]: None, b["id"]: a["id"]}
+
+
+def test_a_move_rechecks_depth_against_the_tree_as_it_stands(client, alex, todo, monkeypatch):
+    from contextlib import contextmanager
+
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+    from slate.service.errors import Invalid
+
+    monkeypatch.setattr(docs_svc, "MAX_DEPTH", 3)
+    top = _doc(client, alex, title="Top", list_id=todo["id"])
+    mid = _doc(client, alex, title="Mid", parent_id=top["id"])
+    leaf = _doc(client, alex, title="Leaf", list_id=todo["id"])
+    kid = _doc(client, alex, title="Kid", list_id=todo["id"])
+    actor = _actor(client, alex)
+    real = docs_svc.apply_change
+    raced = []
+
+    @contextmanager
+    def racing(session, who):
+        if not raced:  # Kid goes under Leaf in the meantime: Leaf is now two levels tall
+            raced.append(1)
+            with SessionLocal() as other:
+                docs_svc.move_doc(other, who, kid["id"], {"parent_id": leaf["id"]})
+        with real(session, who) as cx:
+            yield cx
+
+    monkeypatch.setattr(docs_svc, "apply_change", racing)
+    with SessionLocal() as mine, pytest.raises(Invalid, match="deep at most"):
+        docs_svc.move_doc(mine, actor, leaf["id"], {"parent_id": mid["id"]})
+
+
+def test_walking_a_broken_tree_ends():
+    from types import SimpleNamespace
+
+    from slate.service import docs as docs_svc
+
+    a = SimpleNamespace(id="a", parent_id="b")
+    b = SimpleNamespace(id="b", parent_id="a")
+    c = SimpleNamespace(id="c", parent_id="a")
+    assert sorted(d.id for d in docs_svc._descendants([a, b, c], "a")) == ["b", "c"]
 
 
 # --- revisions --------------------------------------------------------------------------------
