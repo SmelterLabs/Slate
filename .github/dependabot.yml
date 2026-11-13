@@ -1,0 +1,29 @@
+# Weekly update pull requests for the pinned actions, the Python lock, the board's npm lock and
+# the Dockerfile's base images. Each one runs the same CI as any other pull request. A release
+# is proposed only once it is a week old, so a bad or malicious one has time to be pulled.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

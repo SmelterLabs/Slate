@@ -10,7 +10,9 @@ does all day, each call `--runs` times over one keep-alive connection:
 - the loop's writes: claim, progress report, comment, done, and the whole loop end to end;
 - the same loop as one `POST /batch`;
 - MCP over HTTP (`tools/call` on `/mcp`) for check-in and a report;
-- change-to-stream: how long after a write is sent its event arrives on an open SSE stream.
+- change-to-stream: how long after a write is sent its event arrives on an open SSE stream;
+- the owner's basics: list and whole-board reads, item detail, edits, creates, a 20-create
+  batch, Today and the event log.
 
 Prints p50/p95/p99 per call (`--markdown` for the table in docs/agents/latency.md). Nothing
 touches your real database.
@@ -22,6 +24,7 @@ import argparse
 import os
 import platform
 import queue
+import random
 import statistics
 import subprocess
 import sys
@@ -243,6 +246,7 @@ def main(n: int, runs: int, markdown: bool) -> None:
         )  # fmt: skip
 
         b.add("Write → event on an open SSE stream", stream_latency(owner, agent, target, runs))
+        basics(b, owner, lists, runs)
         if markdown:
             host = f"{platform.system()} {platform.machine()}, {os.cpu_count()} CPUs"
             print(
@@ -252,6 +256,32 @@ def main(n: int, runs: int, markdown: bool) -> None:
     finally:
         server.terminate()
         server.wait(timeout=10)
+
+
+def basics(b: Bench, c: httpx.Client, lists: list[dict], runs: int) -> None:
+    """The owner's everyday reads and writes: lists, detail, edits, a batch, Today, the log."""
+    few = max(20, runs // 4)
+    ids = [i["id"] for i in c.get("/items", params={"fields": "id"}).json()]
+    one_list = {"list_id": lists[0]["id"]}
+    etag = c.get("/items", params=one_list).headers["etag"]
+    create = {"tool": "item", "action": "create"}
+    batch = {"ops": [{**create, "params": {"list_id": lists[1]["id"], "title": f"b{i}"}}
+                     for i in range(20)]}  # fmt: skip
+    b.time("GET /items?list_id= (all fields)", lambda: c.get("/items", params=one_list), few)
+    b.time(
+        "GET /items?list_id= + If-None-Match (304)",
+        lambda: c.get("/items", params=one_list, headers={"If-None-Match": etag}),
+    )
+    b.time("GET /items (everything)", lambda: c.get("/items"), max(10, runs // 10))
+    b.time("GET /items/{id} (detail)", lambda: c.get(f"/items/{random.choice(ids)}"))
+    b.time(
+        "PATCH /items/{id}",
+        lambda: c.patch(f"/items/{random.choice(ids)}", json={"title": str(random.random())}),
+    )
+    b.time("POST /items", lambda: c.post("/items", json={"list_id": lists[1]["id"], "title": "x"}))
+    b.time("POST /batch (20 creates, atomic)", lambda: c.post("/batch", json=batch), few)
+    b.time("GET /today", lambda: c.get("/today"), few)
+    b.time("GET /events?since=0&limit=100", lambda: c.get("/events", params={"since": "0"}), few)
 
 
 def stream_latency(owner: httpx.Client, agent: httpx.Client, item_id: str, runs: int):

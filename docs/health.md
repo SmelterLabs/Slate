@@ -41,6 +41,11 @@ auth) is `summary()`: status and per-check status, no details, HTTP 503 when the
   pending and failed today, push and email deliveries pending (`push_pending`, `email_pending`;
   200 or more is a warning, like webhooks), engine lag (events after each `engine_cursors` row, counted up to
   10,000), database + WAL size, free disk (warn under 1 GB, fail under 200 MB).
+- **Backups.** The deploy pack's `backup.sh` records every run in `backup-status.json` next to
+  the database (`ok`, `at`, `detail`, `last_ok_at`). With that file present the report has a
+  `backups` section and a Backups check: fail when the last run failed or the last good backup is
+  older than 36 hours, warn when the file is unreadable. Without the file (no deploy pack) there is
+  no line.
 - **Latency**: `fastlane.stats.overall()` merges the kept samples of every route (the same
   1,000-per-route samples `/stats` uses).
 - **The board** reloads the report on a `health.*` event at once and after any other event at most

@@ -788,10 +788,14 @@ class Unread:
 
 def unread_by_channel(session: Session, account: Account) -> list[Unread]:
     # The same predicate drives channel badges and delivery retries: exposed messages
-    # must not be resurrected by the older prefix-only notification query.
-    rows = (
-        (m.channel, m.id, m.created_at, m.author_id) for m in chat.unread_messages(session, account)
-    )
+    # must not be resurrected by the older prefix-only notification query. Read as the
+    # account, so a guest's count and names leave out what it cannot read (members-only
+    # posts, agent chat from before its share).
+    with access.reading_as(session, account):
+        rows = [
+            (m.channel, m.id, m.created_at, m.author_id)
+            for m in chat.unread_messages(session, account)
+        ]
     out: dict[str, Unread] = {}
     for channel, mid, at, author in rows:
         u = out.get(channel)

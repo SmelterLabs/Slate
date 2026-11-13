@@ -165,21 +165,29 @@ def test_a_shared_agents_chat_shows_guests_only_what_came_after_the_share(client
     assert _bodies(g, {}, key) == ["after the re-grant"]
 
 
-def test_members_still_read_a_shared_agents_whole_chat(client, alex, world):
+def test_project_members_read_a_shared_agents_whole_chat(client, alex, world):
+    """A project agent's chat is its project's: a member on the project reads all of it (no
+    share date), a member outside the private project none of it."""
     key = f"agent:{world['bot']['id']}"
     _post(client, alex, key, "before")
     _share(client, alex, world["bot"]["id"], "section", world["project"]["id"])
     _post(client, alex, key, "after")
-    member = client.post(
-        f"{API}/accounts",
-        json={"handle": "member", "display_name": "Member", "kind": "person", "role": "member"},
-        headers=alex,
-    ).json()
-    tok = client.post(
-        f"{API}/accounts/{member['id']}/tokens", json={"scopes": ["write"]}, headers=alex
-    ).json()
-    mh = {"Authorization": f"Bearer {tok['token']}"}
+    heads = []
+    for handle in ("member", "outsider"):
+        member = client.post(
+            f"{API}/accounts",
+            json={"handle": handle, "display_name": handle.title(), "kind": "person"},
+            headers=alex,
+        ).json()
+        tok = client.post(
+            f"{API}/accounts/{member['id']}/tokens", json={"scopes": ["write"]}, headers=alex
+        ).json()
+        heads.append((member, {"Authorization": f"Bearer {tok['token']}"}))
+    (member, mh), (_, oh) = heads
+    _share(client, alex, member["id"], "section", world["project"]["id"])
     assert _bodies(client, mh, key) == ["before", "after"]
+    r = client.get(f"{API}/channels/{key}/messages", headers=oh)
+    assert r.status_code in (403, 404), r.text
 
 
 def test_the_live_gate_drops_agent_chat_from_before_the_share(client, alex, world, db):

@@ -53,9 +53,9 @@ architecture, the Decisions log and the index.
   key; a second config root needs the same add under `CLAUDE_CONFIG_DIR`). Cloud-hosted chats and
   vendor-brokered "custom connectors" cannot reach a server on a private network; that is by
   design.
-- **Benchmarks:** `scripts/bench_agent.py` (the loop, batch, MCP, SSE delivery; `--markdown` prints
-  the table in `docs/agents/latency.md`) and `scripts/bench_api.py` (both turn rate limits off for
-  seeding).
+- **Benchmarks:** `scripts/bench_agent.py` (the loop, batch, MCP, SSE delivery and the owner's
+  basic reads and writes; `--markdown` prints the rows behind `docs/agents/latency.md`; it turns
+  rate limits off for seeding).
 - **Path spelling:** `POST /recurrences/{id}/run-now` (kebab like every other path).
 
 ## Agent connections and portable installation

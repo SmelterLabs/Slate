@@ -60,7 +60,10 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   each subscribed account with `chat` on and prefs `chat_renudge_minutes` > 0 (default 10, max 1440,
   validated in `accounts._validate_prefs`), each readable channel (`access.compute` under
   `unrestricted`) whose newest unread message is older than that gets one push (`Still unread:
-  #Todo`, same `chat:<channel>` tag, `renudge: true`). `nudged` is a process-level dict `(account,
+  #Todo`, same `chat:<channel>` tag, `renudge: true`). The unread count and the names in it are
+  read as the recipient (`push.unread_by_channel` under `access.reading_as`), so a guest's count
+  leaves out members-only posts and agent chat from before its share, and names no workspace
+  agent. `nudged` is a process-level dict `(account,
   channel) -> newest message id`; the first step after a start runs with `seed=True`, marking what
   is already eligible without sending, so a restart never replays nudges; a newest message older
   than `RENUDGE_WINDOW` (a day) is marked and skipped. In memory on purpose (rule 8): at worst one

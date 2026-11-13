@@ -130,7 +130,7 @@ def read_events(
         q = q.where(Event.item_id == filters.item_id)
     if filters.actor_id is not None:
         q = q.where(Event.actor_id == filters.actor_id)
-    rows = access.guest_payloads(session, [event_payload(ev) for ev in session.scalars(q)])
+    rows = [event_payload(ev) for ev in session.scalars(q)]
     return rows[::-1] if tail else rows
 
 
