@@ -13,7 +13,7 @@ async function upload(docId: string, token: string, note: string) {
 }
 
 test('the project home shows drawers, pages and what needs you', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const name = `Hub ${Date.now()}`;
   const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
   await api('PATCH', `/sections/${section.id}`, { private: true }); // a private section has a project home

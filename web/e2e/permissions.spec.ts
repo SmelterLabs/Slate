@@ -12,7 +12,7 @@ async function shot(page: Page, name: string) {
 }
 
 test('invite a guest, share one list, guest sees only it, audit log', async ({ page, browser }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Clients', audience: 'work' });
   const shared = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Example Project' });
   const hidden = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Private' });
@@ -96,7 +96,6 @@ test('invite a guest, share one list, guest sees only it, audit log', async ({ p
 });
 
 test('members, audit and share on a phone: same pieces, stacked', async ({ browser }) => {
-  const { alex } = seed();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
   await signIn(page);

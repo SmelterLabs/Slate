@@ -6,7 +6,7 @@ import { Slate, SlateError, type SlateEvent } from '../../clients/typescript/sla
 import { api, BASE_URL, seed, signIn } from './support';
 
 test('connect an agent: token once, setup snippets, usage and revoke', async ({ page, context }) => {
-  const { alex, listId } = seed();
+  const { listId } = seed();
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page);
   await page.goto('/#/agents');

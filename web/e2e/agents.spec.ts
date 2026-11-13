@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('agent reports: card badge, task window, Agents page roster and live feed', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Agent work', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Queue' });
   const item = await api<{ id: string }>('POST', '/items', {
@@ -61,7 +61,7 @@ test('agent reports: card badge, task window, Agents page roster and live feed',
 });
 
 test('hand a task to an agent: it lands in the agent check-in as assigned and mentioned', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Hand-offs', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Inbox test' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Book the plumber' });
@@ -96,7 +96,7 @@ test('hand a task to an agent: it lands in the agent check-in as assigned and me
 });
 
 test('Next up on the Agents page: what each agent runs next, live after Run now', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   void agent;
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Planned work', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Plan' });

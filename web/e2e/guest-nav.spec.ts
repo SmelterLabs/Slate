@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 async function guestToken(): Promise<string> {
-  const { alex, listId } = seed();
+  const { listId } = seed();
   const handle = `guest-${Date.now()}`;
   const acct = await api<{ id: string }>('POST', '/accounts', { handle, display_name: 'Guest', kind: 'person', role: 'guest' });
   await api('PUT', '/shares', { account_id: acct.id, scope_kind: 'list', scope_id: listId, level: 'edit' });

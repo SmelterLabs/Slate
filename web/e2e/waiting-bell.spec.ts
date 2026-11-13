@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('the bell counts mentions and messages live and opens the card', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   await api('POST', '/inbox/clear', { all: true });
   await api('POST', '/channels/read-all').catch(() => {});
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Bell', audience: 'personal' });
@@ -33,7 +33,6 @@ test('the bell counts mentions and messages live and opens the card', async ({ p
 });
 
 test('Notifications shows the Tell me when grid and saves a row', async ({ page }) => {
-  const { alex } = seed();
   await page.setViewportSize({ width: 1400, height: 900 });
   await signIn(page);
   await page.goto(`/#/home`);

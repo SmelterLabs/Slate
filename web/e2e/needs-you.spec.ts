@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const review = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Needs-you review card',
@@ -62,7 +62,7 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
 });
 
 test('waiting on you: the card shows the question at the top, and Answer goes to it', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const card = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Waiting-question card',

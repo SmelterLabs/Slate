@@ -26,7 +26,7 @@ const PNG = Buffer.from(
 test('the task window: link, checklists, tick boxes, files, reactions, watching, live activity', async ({
   page,
 }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Projects', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Garage' });
   const item = await api<{ id: string }>('POST', '/items', {
@@ -118,7 +118,7 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
 test('revert from the history: an agent rename goes back as my change; a stale row says changed since', async ({
   page,
 }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Revert', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Edits' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Paint the gate' });

@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Asks', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Questions' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Pick a caterer' });
@@ -56,7 +56,6 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
 // A comment that @mentions only a person is a plain comment, even on a
 // card whose Ask picker starts on the agent; it must not go out as an Ask that wakes the agent.
 test('@mentioning a person turns the default agent Ask into a plain comment', async ({ page }) => {
-  const { alex } = seed();
   const handle = `member-${Date.now().toString(36)}`;
   await api('POST', '/accounts', { handle, display_name: 'Member', kind: 'person' });
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Mentions', audience: 'ai' });

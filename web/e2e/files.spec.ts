@@ -15,7 +15,7 @@ async function upload(docId: string, token: string, name: string, note: string, 
 }
 
 test('a file doc shows its revisions and takes a new one with a note', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Quote', list_id: listId, body_md: 'The quote from the printer.' }, agent);
   await upload(doc.id, agent, 'quote.csv', 'First quote', 'item,price\ntickets,120\n');
 
@@ -63,7 +63,6 @@ test('a file doc shows its revisions and takes a new one with a note', async ({ 
 });
 
 test('upload a file from the Docs & Files page', async ({ page }) => {
-  const { alex } = seed();
   await signIn(page);
   await page.goto('/#/docs');
   await page.getByRole('button', { name: 'Upload', exact: true }).click();

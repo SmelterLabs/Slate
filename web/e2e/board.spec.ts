@@ -67,7 +67,7 @@ test('dragging a card to another column changes its status', async ({ page }) =>
     page.locator('.column[data-status="Ready"] .card', { hasText: 'Drag me to Ready' }),
   ).toBeVisible();
 
-  const { alex, dragId } = seed();
+  const { dragId } = seed();
   await expect
     .poll(async () => (await api<{ status: { name: string } }>('GET', `/items/${dragId}`)).status.name)
     .toBe('Ready');
@@ -107,7 +107,7 @@ test('quick add parses #tag !high due:tomorrow into one item', async ({ page }) 
   await expect(card.locator('.tag-pill')).toHaveText(['home']);
   await expect(input).toHaveValue('');
 
-  const { alex, listId } = seed();
+  const { listId } = seed();
   const found = await api<
     {
       title: string;

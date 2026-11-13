@@ -13,7 +13,7 @@ async function upload(docId: string, token: string, name: string, type: string, 
 }
 
 test('a spreadsheet compare paints the changed cell and the added row', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Price sheet', list_id: listId }, agent);
   await upload(doc.id, agent, 'quote.csv', 'text/csv', 'First quote', 'item,price\ntickets,120\n');
   await upload(doc.id, agent, 'quote.csv', 'text/csv', 'Price up, flyers added', 'item,price\ntickets,135\nflyers,1\n');
@@ -36,7 +36,7 @@ test('a spreadsheet compare paints the changed cell and the added row', async ({
 });
 
 test('a text file compares side by side, and a page history has the same view', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Schedule', list_id: listId }, agent);
   await upload(doc.id, agent, 'notes.txt', 'text/plain', 'first', 'Doors 6 pm\nDinner 7 pm\n');
   await upload(doc.id, agent, 'notes.txt', 'text/plain', 'music added', 'Doors 6 pm\nDinner 8 pm\nMusic 9 pm\n');

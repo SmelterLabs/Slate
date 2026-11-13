@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('a run reads as a conversation on the card', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const me = await api<{ account: { handle: string } }>('GET', '/me');
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Talk', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Runs' });
@@ -97,7 +97,7 @@ test('a run reads as a conversation on the card', async ({ page }) => {
 });
 
 test('a newer Ask during a run remains open and dispatches exactly one later turn', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'New Ask', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Turns' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Answer in order', assignees: ['agent'] });
@@ -122,7 +122,7 @@ test('a newer Ask during a run remains open and dispatches exactly one later tur
 });
 
 test('Mark reviewed clears an answered card', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Review', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Answers' });
   const item = await api<{ id: string }>('POST', '/items', {
@@ -147,7 +147,7 @@ test('Mark reviewed clears an answered card', async ({ page }) => {
 });
 
 test('Clear takes a blocked badge off the card', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Blocked', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Stuck' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Renew the domain', assignees: ['agent'] });

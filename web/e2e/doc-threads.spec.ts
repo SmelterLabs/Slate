@@ -18,7 +18,7 @@ async function upload(docId: string, token: string, note: string, body: string) 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64').toString('binary');
 
 test('discussion, a review thread from a selection, and Accept on a page', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', {
     title: 'Seating plan',
     list_id: listId,
@@ -79,7 +79,7 @@ test('discussion, a review thread from a selection, and Accept on a page', async
 });
 
 test('a pin on an image, and a thread reads as outdated after the next revision', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Venue photo', list_id: listId });
   await upload(doc.id, agent, 'First shot', PNG);
 

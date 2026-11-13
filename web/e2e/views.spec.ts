@@ -78,7 +78,7 @@ test('dragging a card from Today to a day column moves its due date, keeping the
   const target = addDays(today(), 2);
   await card(page, 'Today errand').dragTo(column(page, target));
   await expect(column(page, target).locator('.card', { hasText: 'Today errand' })).toBeVisible();
-  const { alex, todayId } = seed();
+  const { todayId } = seed();
   await expect
     .poll(async () => workspaceDay(new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`)).due_at)))
     .toBe(target);
@@ -124,7 +124,7 @@ test('grouping by priority makes priority columns, and dropping on one sets it',
   await expect(column(page, 'low')).toContainText('Tomorrow call');
   await card(page, 'Someday maybe').dragTo(column(page, 'urgent'));
   await expect(column(page, 'urgent')).toContainText('Someday maybe');
-  const { alex, tasksId } = seed();
+  const { tasksId } = seed();
   await expect
     .poll(async () => {
       const found = await api<{ title: string; priority: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`);
@@ -139,7 +139,7 @@ test('grouping by priority makes priority columns, and dropping on one sets it',
 test('a change made through the API appears live on the Everything board', async ({ page }) => {
   await signedIn(page, '/#/everything');
   await expect(await noneColumn(page)).toContainText('Someday maybe');
-  const { agent, alex, tasksId } = seed();
+  const { agent, tasksId } = seed();
   const [item] = await api<{ id: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`);
   await api('PATCH', `/items/${item.id}`, { due_at: addDays(today(), 1) }, agent);
   await expect(column(page, addDays(today(), 1))).toContainText('Someday maybe', { timeout: 2000 });
@@ -171,7 +171,7 @@ test('a saved view round-trips: Save as new, survives a reload, rename, delete',
   await expect(page).toHaveURL(/#\/section\/[^/]+\/v\/[^/]+$/);
   const viewId = page.url().split('/v/')[1];
 
-  const { alex, workSectionId } = seed();
+  const { workSectionId } = seed();
   const views = await api<{ id: string; name: string; config: { group_by: string } }[]>(
     'GET',
     `/views?scope=section:${workSectionId}`,
@@ -207,7 +207,7 @@ test('bulk: select two cards and reschedule them to tomorrow in one go', async (
   await bar.getByRole('button', { name: 'Tomorrow' }).click();
   await expect(column(page, tomorrow)).toContainText('Bulk one');
   await expect(column(page, tomorrow)).toContainText('Bulk two');
-  const { alex, bulkIds } = seed();
+  const { bulkIds } = seed();
   for (const id of bulkIds) {
     const it = await api<{ due_at: string }>('GET', `/items/${id}`);
     expect(workspaceDay(new Date(it.due_at))).toBe(tomorrow);
@@ -217,7 +217,7 @@ test('bulk: select two cards and reschedule them to tomorrow in one go', async (
 });
 
 test('bulk: status kind across two lists is one call and lands each in its own Done', async ({ page }) => {
-  const { alex, workSectionId, tasksId } = seed();
+  const { workSectionId, tasksId } = seed();
   const other = await api<{ id: string; statuses: { id: string; kind: string }[] }>('POST', '/lists', {
     section_id: workSectionId,
     name: 'Kind tasks',
@@ -249,7 +249,7 @@ test('bulk: status kind across two lists is one call and lands each in its own D
 });
 
 test('bulk: delete asks first, moves the cards to the trash, and Undo brings them back', async ({ page }) => {
-  const { alex, tasksId } = seed();
+  const { tasksId } = seed();
   const due = `${today()}T22:00:00Z`;
   const a = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash one', due_at: due });
   const b = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash two', due_at: due });
@@ -289,7 +289,7 @@ test('one-click complete moves the card to the Done column, with Undo', async ({
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(column(page, 'done')).not.toContainText('Bulk one');
   await expect(card(page, 'Bulk one')).toBeVisible();
-  const { alex, bulkIds } = seed();
+  const { bulkIds } = seed();
   await expect
     .poll(async () => (await api<{ status: { kind: string } }>('GET', `/items/${bulkIds[0]}`)).status.kind)
     .toBe('open');
@@ -323,7 +323,7 @@ test('quick add in a wide scope files into the picked list', async ({ page }) =>
   await page.getByLabel('Quick add').fill('Filed from everything due:tomorrow');
   await page.getByLabel('Quick add').press('Enter');
   await expect(column(page, addDays(today(), 1))).toContainText('Filed from everything');
-  const { alex, tasksId } = seed();
+  const { tasksId } = seed();
   const found = await api<unknown[]>('GET', `/items?list_id=${tasksId}&q=Filed`);
   expect(found).toHaveLength(1);
   // The pick is remembered for this view.

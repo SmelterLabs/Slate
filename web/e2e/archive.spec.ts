@@ -76,7 +76,6 @@ test('trash, restore and the archive page', async ({ page }) => {
 });
 
 test('a trashed task opens with a restore banner', async ({ page }) => {
-  const { alex } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Misc', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Stuff' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Binned thing' });

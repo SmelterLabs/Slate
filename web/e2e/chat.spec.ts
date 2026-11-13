@@ -1,7 +1,7 @@
 // Chat: a list's Chat tab, live messages from an agent, threads, reactions, turning a
 // message into a task, task links as cards, unread badges in the sidebar, and the same Chat
 // page on a phone.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

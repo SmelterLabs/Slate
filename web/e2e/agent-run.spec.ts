@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { api, BASE_URL, seed, signIn } from './support';
 
 test('four due cards: work on one never makes the others wait their turn', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Pickup queue', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Four due cards' });
   const items = [];
@@ -67,7 +67,7 @@ test('four due cards: work on one never makes the others wait their turn', async
 });
 
 test('Run now: requested pill, then the working badge with an Open link', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Autorun', audience: 'ai' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Runs' });
   const item = await api<{ id: string }>('POST', '/items', {

@@ -99,7 +99,6 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
 });
 
 test('a page with subpages becomes a drawer', async ({ page }) => {
-  const { alex } = seed();
   const name = `Convert ${Date.now()}`;
   const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
   const meetings = await api<{ id: string }>('POST', '/docs', { title: 'Meetings', section_id: section.id, body_md: 'Transcripts.' });

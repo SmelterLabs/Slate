@@ -12,7 +12,7 @@ interface Doc {
 }
 
 test('an agent writes a page, the board follows live, and Alex edits it', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const task = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Book the venue' }, agent);
   const doc = await api<Doc>('POST', '/docs', {
     title: 'Offsite plan',
@@ -70,7 +70,7 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
 });
 
 test('a phone gets the same page and tools', async ({ browser }) => {
-  const { alex, listId } = seed();
+  const { listId } = seed();
   const doc = await api<Doc>('POST', '/docs', { title: 'Phone page', list_id: listId, body_md: '## One\n\nHello.' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await context.newPage();
@@ -87,7 +87,6 @@ test('a phone gets the same page and tools', async ({ browser }) => {
 });
 
 test('a page filed in a section is reachable from that section in the sidebar', async ({ page }) => {
-  const { alex } = seed();
   const name = `Pages here ${Date.now()}`;
   const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
   await signIn(page);
@@ -111,7 +110,7 @@ test('a page filed in a section is reachable from that section in the sidebar', 
 });
 
 test('a page that starts with a facts block shows them as a table, live, and keeps the block editable', async ({ page }) => {
-  const { alex, agent, listId } = seed();
+  const { agent, listId } = seed();
   const doc = await api<Doc>('POST', '/docs', {
     title: 'Home insurance',
     list_id: listId,

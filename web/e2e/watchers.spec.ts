@@ -51,7 +51,6 @@ test.describe('phone', () => {
 });
 
 test('notifications settings turn auto-watch off per kind', async ({ page }) => {
-  const { alex } = seed();
   await signIn(page);
   await page.goto('/#/home');
   await page.getByRole('button', { name: /Notifications/ }).first().click();

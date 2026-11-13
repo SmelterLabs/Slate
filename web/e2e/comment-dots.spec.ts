@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
 test('gray for an agent, blue for a person, pulsing for a mention; opening clears', async ({ page }) => {
-  const { alex, agent } = seed();
+  const { agent } = seed();
   const handle = `pat${Date.now().toString(36)}`;
   const pat = await api<{ id: string }>('POST', '/accounts', { handle, display_name: 'Pat', kind: 'person' });
   const patTok = (await api<{ token: string }>('POST', `/accounts/${pat.id}/tokens`, { scopes: ['write'] })).token;
