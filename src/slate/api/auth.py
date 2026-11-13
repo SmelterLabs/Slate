@@ -21,7 +21,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from slate.db import get_session
+from slate.db import get_session, release
 from slate.models import Account, Source, Token
 from slate.presence import presence
 from slate.ratelimit import limiter
@@ -121,6 +121,9 @@ def require(scope: str) -> Callable[..., Auth]:
             source=request_source(request, x_slate_source),
             session_ref=x_slate_session_ref,
         )
+        # Hand the connection back before the route runs: a route that then waits (for its
+        # upload body, a long-poll, a threadpool slot) must not hold one (slate.db.POOL_SIZE).
+        release(session)
         return Auth(principal=principal, actor=actor)
 
     return dependency

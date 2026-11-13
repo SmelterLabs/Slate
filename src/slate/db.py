@@ -109,12 +109,22 @@ def _configure_sqlite(dbapi_connection, _record) -> None:  # noqa: ANN001
     cursor.close()
 
 
+# Connections kept open between requests. Past this the pool opens more (a SQLite connection
+# is a few file handles) and closes them on return; it never makes a caller wait. The token
+# check runs on the event loop, so a wait for a connection there would stop every request,
+# including the ones that would hand a connection back. How many are open at once is bounded
+# by the work running (the threadpool), because a request gives its connection back after the
+# token check and while it waits (`api.auth.require`, `api.longpoll`).
+POOL_SIZE = 20
+
+
 def make_engine(url: str | None = None) -> Engine:
     url = url or settings.database_url
     kwargs: dict = {"connect_args": {"check_same_thread": False, "factory": SerialConnection}}
     if url.endswith(":memory:"):
         kwargs["poolclass"] = StaticPool
     else:
+        kwargs.update(pool_size=POOL_SIZE, max_overflow=-1)
         Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url, **kwargs)
     event.listen(engine, "connect", _configure_sqlite)
@@ -153,3 +163,12 @@ async def get_session() -> AsyncIterator[Session]:
         yield session
     finally:
         session.close()
+
+
+def release(session: Session) -> None:
+    """End `session`'s read transaction and hand its connection back to the pool.
+
+    Loaded rows stay loaded (`expire_on_commit=False`); the next query takes a connection
+    again. Call it before a request waits on anything that is not the database.
+    """
+    session.commit()

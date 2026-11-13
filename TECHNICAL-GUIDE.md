@@ -657,9 +657,12 @@ ones and a new database ends at the same schema.
   column's scroll does not clip it on the first card, and the column head gives up the same. A
   card's ⋯ mounts on first focus, so an empty `.card-more-slot` holds its place; without it the
   first tap on a phone moves Complete under the finger.
-- SQLite + many concurrent agents: WAL mode and a single writer connection pool
-  (`check_same_thread=False`, pool size small). Long transactions are the enemy; keep service
-  functions short.
+- SQLite + many concurrent agents: WAL mode, one process write lock, and a connection pool that
+  never makes a caller wait (`db.POOL_SIZE` kept open, more opened on demand). `require()` hands
+  the request's connection back once the token is checked, and long-polls end their read before
+  they wait, so a request holds a connection only while it queries. Never hold a session's
+  transaction open across an `await` on anything but the database. Long transactions are the
+  enemy; keep service functions short.
 - The board's `EventSource` listens to an explicit list of event types (`store.svelte.ts`
   `EVENT_TYPES`). A new event type is silently never heard until it is added there; the symptom is
   "the write succeeds, nothing live-updates". `tests/test_board_event_types.py` fails when the list
