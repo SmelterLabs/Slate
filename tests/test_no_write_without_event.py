@@ -45,6 +45,7 @@ from slate.service import (
     sections,
     tags,
     trash,
+    views,
     watchers,
     webhooks,
     work,
@@ -55,7 +56,15 @@ from slate.service.core import Actor
 READS = {
     "slate.service.item_reads": {"comment_dots"},
     # AI add: context, prompt and the model call read only; `fill` is in INFRASTRUCTURE.
-    "slate.service.aiadd": {"ask", "call_model", "clean", "enabled", "first_sentence", "prompt"},
+    "slate.service.aiadd": {
+        "ask",
+        "call_model",
+        "clean",
+        "enabled",
+        "first_sentence",
+        "prompt",
+        "queued",
+    },
     "slate.service.connections": {"view", "list_connections"},
     "slate.service.collaboration": {"whiteboard_url", "project"},
     "slate.service.guests": {
@@ -111,11 +120,11 @@ READS = {
         "subtasks_of",
         "item_detail",
         "query_items",
-        "bulk_update",
         "priority_sort_key",
     },
     "slate.service.comments": {
         "get_comment",
+        "clean_emoji",
         "mentions_in",
         "not_about_deleted_comment",
         "reactions_of",
@@ -202,10 +211,6 @@ READS = {
         "view_out",
         "get_view",
         "list_views",
-        "create_view",
-        "update_view",
-        "set_archived",
-        "seed_default_views",
     },
     "slate.service.webhooks": {
         "view",
@@ -264,6 +269,9 @@ READS = {
         "date_in_name",
         "created_from_name",
         "get_doc",
+        "fresh_doc",
+        "unified",
+        "body_ref",
         "root_of",
         "list_docs",
         "snippet",
@@ -296,7 +304,13 @@ READS = {
         "day_capacity",
         "boxes",
     },
-    "slate.service.health": {"require_viewer", "report", "summary", "worst"},
+    "slate.service.health": {
+        "require_viewer",
+        "report",
+        "summary",
+        "worst",
+        "backup_status_path",
+    },
     "slate.service.reminders": {
         "effective_at",
         "reminder_view",
@@ -339,7 +353,7 @@ READS = {
 INFRASTRUCTURE = {
     # Writes through items.update_item as Slate's own account (source system, session_ref
     # ai-add) after the request; tests/test_ai_add.py checks those events.
-    "slate.service.aiadd": {"fill"},
+    "slate.service.aiadd": {"fill", "fill_later"},
     "slate.service.chatwake": {
         # Called inside chat.post / chat.edit's change (they take the `cx`).
         "on_posted",
@@ -359,6 +373,9 @@ INFRASTRUCTURE = {
     # Called inside an item, assignment or comment change (it takes the `cx`); each watcher it
     # adds records its own `item.watched` (field "auto", tests/test_watchers.py).
     "slate.service.watchers": {"auto_watch"},
+    # Called inside a share change or an invitation cancel (it takes the `cx`); each link it
+    # retires records its own `invitation.revoked` (tests/test_invitation_links.py).
+    "slate.service.permissions": {"retire_links"},
     "slate.service.core": {
         "apply_change",
         "jsonable",
@@ -373,7 +390,10 @@ INFRASTRUCTURE = {
     "slate.service.errors": set(),
     # The permission hooks (read filter, write check) and their helpers.
     "slate.service.access": {
-        "guest_payloads",
+        "agent_projects",
+        "hidden_agents",
+        "reading_as",
+        "scrub",
         "attach",
         "bind",
         "participant_ids",
@@ -446,6 +466,12 @@ def _list(db, actor):
 
 def _item(db, actor, **fields):
     return items.create_item(db, actor, list_id=_list(db, actor).id, title="Thing", **fields)
+
+
+def _view(db, actor):
+    return views.create_view(
+        db, actor, name="Mine", scope_kind="list", scope_id=_list(db, actor).id, config={}
+    )
 
 
 def _comment(db, actor):
@@ -858,6 +884,17 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db, a, items.archive_item(db, a, _item(db, a).id).id
         ),
         "delete_item": lambda db, a, p: items.delete_item(db, a, _item(db, a).id),
+        "bulk_update": lambda db, a, p: items.bulk_update(
+            db, a, [_item(db, a).id], {"priority": "high"}
+        ),
+    },
+    "slate.service.views": {
+        "create_view": lambda db, a, p: _view(db, a),
+        "update_view": lambda db, a, p: views.update_view(db, a, _view(db, a).id, {"name": "B"}),
+        "set_archived": lambda db, a, p: views.set_archived(db, a, _view(db, a).id, archived=True),
+        # Bootstrap seeds the landing views, so a second call has nothing to make:
+        # test_bootstrap_writes_events_attributed_to_the_new_account checks those events.
+        "seed_default_views": None,
     },
     "slate.service.comments": {
         "add_comment": lambda db, a, p: comments.add_comment(db, a, _item(db, a).id, body_md="hi"),
@@ -895,6 +932,8 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.chat_files": {
         "upload": lambda db, a, p: _chat_file(db, a),
         "discard": lambda db, a, p: chat_files.discard(db, a, _chat_file(db, a).id),
+        # Scheduler hook, as the `slate` system agent: covered in tests/test_chat_files.py.
+        "sweep_unsent": None,
     },
     "slate.service.chatwake": {
         # Only an agent mentioned by a person holds a turn; the walk's actor is a person.
@@ -1027,6 +1066,19 @@ def test_every_service_function_is_classified():
         )
         assert names <= known, f"unclassified in {module}: {sorted(names - known)}"
         assert known <= names, f"stale classification in {module}: {sorted(known - names)}"
+
+
+def test_no_read_opens_a_change():
+    """A function listed under READS is never run by a scenario, so one that opens a change
+    would escape the actor check below: it belongs under MUTATIONS."""
+    opens = []
+    for module, names in READS.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            source = inspect.getsource(getattr(mod, name))
+            if "apply_change(" in source:
+                opens.append(f"{module}.{name}")
+    assert not opens, f"listed as reads but open a change: {sorted(opens)}"
 
 
 SCENARIOS = [

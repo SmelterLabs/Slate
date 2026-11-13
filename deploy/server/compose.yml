@@ -11,6 +11,11 @@ services:
     container_name: slate
     restart: unless-stopped
     init: true
+    # As the service user (slate.service passes its uid and gid), with no capabilities and no
+    # way to gain any: data/ is that user's alone (mode 700), and an app bug is not root.
+    user: "${SLATE_UID:-10001}:${SLATE_GID:-10001}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     stop_grace_period: 20s    # let the scheduler tick and webhook sends finish
     ports:
       - "127.0.0.1:18448:8000"  # loopback only; a TLS reverse proxy (or Tailscale Serve) is the way in
@@ -24,11 +29,13 @@ services:
       - path: ${SLATE_HOME:-/opt/slate}/.env
         required: true
     environment:
-      # The reverse proxy reaches the container over the Docker bridge, not loopback, so uvicorn
-      # must be told to trust its X-Forwarded-Proto/For. Only a process on this host can reach
-      # the loopback-published port, so "*" is safe here; it makes browser-session cookies Secure
-      # and same-origin checks see the https address the browser sees.
-      FORWARDED_ALLOW_IPS: "*"
+      # The reverse proxy reaches the container over the Docker bridge (Docker's 172.16.0.0/12
+      # networks) or loopback, so uvicorn trusts X-Forwarded-Proto/For from those peers only:
+      # browser-session cookies are Secure and same-origin checks see the https address. With a
+      # list, not "*", uvicorn takes the right-most address no trusted hop added, so a client
+      # cannot pick the address the pairing and invitation rate limits key on by sending its own
+      # X-Forwarded-For. A proxy on another network: add its subnet (RUNBOOK.md, section 3).
+      FORWARDED_ALLOW_IPS: "127.0.0.1,172.16.0.0/12"
     healthcheck:              # same probe as the Dockerfile HEALTHCHECK
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 30s

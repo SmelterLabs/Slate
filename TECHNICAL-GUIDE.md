@@ -315,13 +315,18 @@ the server's `.env`, not in the repo.
 
 - **Build on the host.** The server clones the repository (a private fork needs only a read-only
   deploy key) into `/opt/slate/repo` and `docker compose -p slate up -d --build` builds the image
-  there; Node exists only inside the Dockerfile's build stage. The CI GHCR job publishes an image
-  on tags, but the runbook does not pull it.
+  there; Node exists only inside the Dockerfile's build stage and uv (pinned) only inside its
+  Python stage: the runtime stage copies `/app` and runs as uid 10001. CI publishes no image: nothing
+  pulls one, and a publish job would need a token that can write packages.
 - **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
   `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
-  10m×5); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
-  `slate-backup.service/.timer` + `backup.sh` (daily at 03:30, SQLite online backup API inside the
-  container, integrity-checked, 30-day prune in `/opt/slate/data/backups/`); `deploy.sh [ref]`
+  10m×5, run as the service user's uid with every capability dropped and `no-new-privileges`,
+  forwarded headers trusted from loopback and `172.16.0.0/12` only, never `*`); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
+  `slate-backup.service/.timer` + `backup.sh` (daily at 03:30; `backup.py`, fed to the container's
+  Python on stdin, takes the SQLite online backup, refuses a missing or non-Slate database and
+  streams the copy out; `backup.sh` checks its SHA-256 and keeps 30 days in `/opt/slate/backups/`,
+  which the container does not mount, and records each run in `data/backup-status.json` for the
+  Health page); `deploy.sh [ref]`
   (idempotent install/update for any `SLATE_HOME`, waits for health, adds Tailscale Serve when
   `SLATE_TAILSCALE_PORT` is set); `rollback.sh <ref>`; `env.example` (every
   setting).
@@ -336,8 +341,11 @@ the server's `.env`, not in the repo.
   `deploy/server/`). The container `CMD` `exec`s uvicorn so SIGTERM reaches it rather than the shell.
   `deploy.sh`/`rollback.sh` wrap their body in `main()` so `git checkout` rewriting the running
   script is harmless. systemd eats `$(`; unit files write `$$(`. Rolling back past a migration needs
-  a backup restore (the schema does not downgrade). `tests/test_deploy.py` lints all of this locally
-  (`bash -n`, unit keys, `docker compose config` when Docker is up).
+  a backup restore (the schema does not downgrade): `rollback.sh` refuses a ref that lacks the
+  database's revision before it changes anything. `deploy.sh` and `rollback.sh` succeed only when
+  `/healthz` serves the commit they checked out. `tests/test_deploy.py` lints all of this locally
+  (`bash -n`, unit keys, `docker compose config` when Docker is up) and runs the backup, deploy and
+  rollback scripts under bash against stand-ins for `docker`, `systemctl` and `curl`.
 
 ## Decisions log
 
@@ -348,7 +356,10 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **Build rather than adopt.** Existing trackers (Vikunja, Plane, Huly) were evaluated and the
   project chose to build its own: one host, one container, one SQLite file.
 - **uv** for Python dependency management (fast, lockfile, manages the interpreter; easy to install
-  locally and in CI).
+  locally and in CI). Each runtime floor in `pyproject.toml` is the version `uv.lock` pins, capped
+  below the next major, so a wheel install never gets a version the tests did not run; moving the
+  lock moves the floor. `tests/test_portable_package.py` installs the wheel with the lock's
+  versions as constraints and checks them.
 - **Svelte 5** for the board (small bundle, simple reactivity for a live board).
 - **The board hand-rolls its interactions:** HTML5 drag and drop and a small escape-first markdown
   renderer, not a DnD or markdown library (the only runtime packages are `exceljs` and `mammoth`,
@@ -517,7 +528,18 @@ Design choices and the reason for each, with the alternatives that were rejected
   a guest reads (cards, history, live stream, pages' threads, pickers), and every way a guest
   could reach a workspace agent is refused (`service/guests.py`, `docs/collaboration.md` "Guests
   never see a workspace agent"). Cards a workspace agent made stay visible, because they are the
-  work; their maker shows as nobody.
+  work; their maker shows as nobody. The read side is one scrub (`access.scrub`, applied to every
+  stored event by `access.event_snapshots`), kept honest by `tests/test_guest_boundary.py`, which
+  calls every GET route as a guest; the write side is the write check, which also stops a guest
+  from rewriting or rescheduling a task assigned to a workspace agent.
+- **A project agent works in one project; its chat is that project's.** A guest-role agent has
+  one chat (`agent:<id>`), so sharing it into two projects would let each project's guests read
+  the other's talk with it. `permissions.share` refuses the second project, and an agent left in
+  two by older data has a chat no restricted caller reads. Chosen over a channel per project
+  (`agent:<id>:<section>`), which would add a channel kind across the board, the runner protocol
+  and the adapters for the same guarantee. Members read a project agent's chat only when they
+  see its project; a workspace agent's chat stays a workspace conversation, like General.
+  `docs/chat.md` "Agent chats", `tests/test_guest_chat.py`.
 - **Shared project agents are tagged-only, not intelligent monitors.** `chat.post` supplies an
   implicit mention only for a channel agent whose role is not `guest`. Guest-role agents require
   an explicit mention on posts, threads and follow-ups; edits wake only added mentions. The
@@ -553,6 +575,13 @@ Design choices and the reason for each, with the alternatives that were rejected
   and a word like `spec` should mean the same on a task and on the drawing it is about. The hub's
   "Needs you" is deliberately narrow (asks to me; others' open review threads on docs I touched)
   so it reads as a to-do, not a feed; the feed is the folded Recent activity under it.
+- **A page save's event points at page history instead of copying the body.** `doc.updated` with
+  field `body_md` (and `doc.version_restored`) records `{version_no, chars}` before and after:
+  a page holds up to 500,000 characters and autosaves every second or so, so whole bodies made
+  the events table grow with the square of an appended log and made every open board re-download
+  them. The text lives once, in `doc_versions`. The cost: a save folded into the same author's
+  sitting keeps only that sitting's newest text, so the event names the version, not the exact
+  characters of each keystroke-save. Title and icon events still carry their values.
 - **Drawers, not an overlay.** A hub that gathers every document of a section (every meeting
   transcript included) is the mistake; documents go where someone puts them. A drawer is a list
   kind rather than a new table because documents already carry `list_id`, lists already have a
@@ -603,11 +632,18 @@ Design choices and the reason for each, with the alternatives that were rejected
   exactly the words it exists to keep out. The list lives in the clone's Git directory
   (`.git/private_terms.sha256`, shared by its worktrees) or in the file
   `SLATE_PRIVATE_TERMS_FILE` names; CI writes it from the `PRIVATE_TERMS_SHA256` repository
-  secret and skips the check where that secret is absent (pull requests from forks). A clone
+  secret and skips the check where that secret is absent (pull requests from forks). CI's
+  `private-terms` job hands the secret only to the base branch's copy of the checker, run with
+  the system Python on the change's files and on each new commit's message and author and
+  committer addresses; no code from the change runs in that job, so a change to the checker
+  takes effect after it merges. Every workflow token is read-only, every checkout drops the token,
+  actions are pinned by commit and Dependabot moves the pins (`tests/test_ci.py`). A clone
   without a list checks nothing; a list that is empty or malformed still fails. A hit in a CI log
   names the file and line, never the word. `tests/test_private_terms.py` fails if a `.sha256` list
   is tracked. After `python scripts/check_private_terms.py --add WORD`, update the secret with
-  `gh secret set PRIVATE_TERMS_SHA256 < .git/private_terms.sha256`.
+  `gh secret set PRIVATE_TERMS_SHA256 < .git/private_terms.sha256`. A term is one word of
+  letters and digits, compared without case or accents: `--add` refuses anything else and names
+  the words to add instead (`my-host` is `my` and `host`), since a hash of a phrase never matches.
 - **The private-terms check covers the bytes being committed.** The pre-commit hook scans index
   contents and filenames (including paths with spaces), not a potentially different working copy.
   The check also scans lockfiles, the license, Office XML and Office metadata. Commit-message

@@ -121,6 +121,10 @@ def accept(session: Session, secret: str) -> tuple[Invitation, str]:
             or not section.private
         ):
             raise Gone("This invitation is no longer available. Ask for a new link.")
+        inviter = session.get(Account, row.created_by)
+        if inviter is None or inviter.disabled_at or inviter.role not in (Role.owner, Role.admin):
+            # Only a current owner or admin vouches for a guest, as when a connection is made.
+            raise Gone("This invitation is no longer available. Ask for a new link.")
         cx.actor = Actor(account.id, Source.ui)
         grant = session.scalar(
             select(Share).where(
@@ -140,8 +144,7 @@ def accept(session: Session, secret: str) -> tuple[Invitation, str]:
                 ),
                 "share.granted",
             )
-        else:
-            cx.set(grant, "level", ShareLevel.edit, "share.changed")
+        # An existing share stays as the admin set it: a link neither raises nor lowers it.
         token, plaintext = accounts.create_token(
             session,
             cx.actor,
@@ -193,7 +196,8 @@ def reissue(
     session: Session, actor: Actor, *, by: accounts.Principal, invitation_id: str
 ) -> tuple[Invitation, str]:
     """A fresh single-use link for the same guest and section (another device, a link opened
-    in the wrong app). The original stays valid until used, cancelled or expired."""
+    in the wrong app). The original stays valid until used, cancelled or expired; cancelling
+    either, or removing the guest's section share, retires every unused link for both."""
     permissions._require_manager(by)
     with apply_change(session, actor) as cx:
         old = _invitation(session, invitation_id)
@@ -234,6 +238,9 @@ def revoke(session: Session, actor: Actor, *, by: accounts.Principal, invitation
         cx.set(row, "revoked_at", utcnow(), "invitation.revoked")
         if row.token_id:
             accounts.revoke_token(session, actor, token_id=row.token_id, by=by)
+        # The links copied for other devices go with it (their sessions, once accepted, are
+        # separate: cancel those invitations, or remove the share, to end them).
+        permissions.retire_links(cx, row.account_id, row.section_id)
 
 
 def project(session: Session, section_id: str) -> dict:

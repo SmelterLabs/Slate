@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from slate import build
 from slate.build import read_build
 
 
@@ -25,6 +28,8 @@ def test_build_file_from_the_image(tmp_path: Path):
 def test_git_in_a_checkout(tmp_path: Path):
     # This test runs inside the repo, so git answers with a short sha, and with the commit
     # count unless the clone is shallow (CI), where a count would be a lie.
+    if build._git("rev-parse", "HEAD") is None:
+        pytest.skip("not a git checkout")
     b = read_build({}, tmp_path / "missing.json")
     assert b["rev"] == "dev" or (b["rev"].isdigit() and int(b["rev"]) > 0)
     assert b["commit"] and len(b["commit"]) >= 7

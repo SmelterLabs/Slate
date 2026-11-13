@@ -8,6 +8,7 @@
 #   SLATE_REPO_URL        git URL to clone on the first run (later runs use the checkout's origin)
 #   SLATE_TAILSCALE_PORT  if set (e.g. 8448), also expose the board on the tailnet with
 #                         `tailscale serve --https=<port>` (RUNBOOK.md, "Expose on your tailnet")
+#   SLATE_WAIT_SECONDS    how long to wait for /healthz to serve the new commit (default 60)
 set -euo pipefail
 
 # Everything lives in main() so bash has parsed the whole script before git checkout can
@@ -22,14 +23,21 @@ main() {
 
   step() { echo; echo "==> $*"; }
 
-  step "creating $home/{repo,data/backups}"
-  mkdir -p "$home/repo" "$home/data/backups"
+  step "creating $home/{repo,data,backups}"
+  mkdir -p "$home/repo" "$home/data" "$home/backups"
+  # Backups live beside data/, not in it: the container mounts data/ and never sees them.
+  if [[ -d "$home/data/backups" ]]; then
+    step "moving old backups from $home/data/backups to $home/backups"
+    find "$home/data/backups" -maxdepth 1 -type f -name '*.db' -exec mv -n {} "$home/backups/" \;
+    rmdir "$home/data/backups" 2>/dev/null || echo "    kept $home/data/backups: it holds other files"
+  fi
 
   if [[ ! -f "$home/.env" ]]; then
     echo "missing $home/.env (copy deploy/server/env.example, fill SLATE_SECRET_KEY, chmod 600)" >&2
     exit 1
   fi
   chmod 600 "$home/.env"
+  chmod 700 "$home/data" "$home/backups"
 
   if [[ -d "$repo/.git" ]]; then
     step "fetching $(git -C "$repo" remote get-url origin)"
@@ -71,9 +79,17 @@ main() {
 
   # The container runs `slate migrate` at start, so a backup of the live file comes first:
   # a migration that drops tables must have a copy to roll back to.
-  if [[ "$was_active" == yes ]] && docker ps --format '{{.Names}}' | grep -qx slate; then
+  if [[ "$was_active" == yes && "$(docker inspect -f '{{.State.Running}}' slate 2>/dev/null)" == true ]]; then
     step "backing up the live database before the restart (migrations run at container start)"
     SLATE_HOME="$home" bash "$repo/deploy/server/backup.sh" "pre-deploy-$(date +%F-%H%M).db"
+  fi
+
+  # The container runs as this user. An older image ran as root and left root-owned files in
+  # data/; hand them over once (docker access is root on this host anyway), before it starts.
+  if [[ -n "$(find "$home/data" ! -user "$(id -u)" -print -quit)" ]]; then
+    step "giving $home/data to $(id -un) (files an older container wrote as root)"
+    docker run --rm --user 0:0 --network none -v "$home/data:/data" --entrypoint chown \
+      slate:local -R "$(id -u):$(id -g)" /data
   fi
 
   step "enabling and starting slate.service and slate-backup.timer (builds the image)"
@@ -83,18 +99,7 @@ main() {
     systemctl --user reload slate.service
   fi
 
-  step "waiting up to 60 s for $health"
-  local body=""
-  for _ in $(seq 30); do
-    if body="$(curl -fsS "$health" 2>/dev/null)"; then break; fi
-    body=""
-    sleep 2
-  done
-  if [[ -z "$body" ]]; then
-    echo "Slate did not answer $health within 60 s; see: docker logs slate" >&2
-    exit 1
-  fi
-  echo "$body"
+  wait_for_commit "$health" "$(git -C "$repo" rev-parse HEAD)" "${SLATE_WAIT_SECONDS:-60}"
 
   if [[ -n "$ts_port" ]]; then
     step "Tailscale Serve: https on $ts_port -> 127.0.0.1:18448"
@@ -107,6 +112,30 @@ main() {
   fi
 
   step "done: Slate $(git -C "$repo" describe --always --tags) is live"
+}
+
+# Wait until /healthz answers with the commit just checked out (an old container still
+# answering, or a build that fails to start, is not success).
+wait_for_commit() {
+  local health="$1" want="$2" seconds="$3" body="" commit=""
+  echo
+  echo "==> waiting up to $seconds s for $health to serve ${want:0:12}"
+  local tries=$(( seconds / 2 > 0 ? seconds / 2 : 1 ))
+  for _ in $(seq "$tries"); do
+    body="$(curl -fsS "$health" 2>/dev/null)" || body=""
+    commit="$(sed -n 's/.*"commit": *"\([0-9a-f]\{7,40\}\)".*/\1/p' <<< "$body")"
+    if [[ -n "$commit" && "$want" == "$commit"* ]]; then
+      echo "$body"
+      return 0
+    fi
+    sleep 2
+  done
+  if [[ -n "$body" ]]; then
+    echo "Slate answers $health but serves ${commit:-an unknown commit}, not ${want:0:12}; see: docker logs slate" >&2
+  else
+    echo "Slate did not answer $health within $seconds s; see: docker logs slate" >&2
+  fi
+  exit 1
 }
 
 main "$@"

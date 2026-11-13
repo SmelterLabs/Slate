@@ -27,6 +27,7 @@ when it works again, one `health.recovered`. Owners and admins get both in their
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -67,6 +68,7 @@ POLLERS: dict[str, tuple[str, timedelta]] = {
     "chat_turns": ("Agent chat turns", timedelta(minutes=1)),
     "doc_turns": ("Agent doc turns", timedelta(minutes=1)),
     "sessions": ("Guest session expiry notices", timedelta(minutes=1)),
+    "chat_uploads": ("Unsent chat upload sweep", timedelta(minutes=1)),
 }
 ENGINES: dict[str, str] = {
     "scheduler": "Scheduler",
@@ -89,6 +91,10 @@ ERROR_RATE_WARN = 0.2  # with at least ERROR_RATE_MIN_CALLS calls in the hour
 ERROR_RATE_MIN_CALLS = 10
 DISK_WARN = 1024**3
 DISK_FAIL = 200 * 1024**2
+# The deploy pack's nightly backup (deploy/server/backup.sh) records each run in this file next
+# to the database; no file means no deploy pack, and no line on the page.
+BACKUP_STATUS = "backup-status.json"
+BACKUP_STALE = timedelta(hours=36)
 RANK = {"off": -1, "ok": 0, "warn": 1, "fail": 2}
 
 
@@ -355,6 +361,49 @@ def _db(session: Session) -> dict[str, Any]:
     }
 
 
+def backup_status_path() -> str | None:
+    path = str(settings.database_path)
+    if path == ":memory:":
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(path)), BACKUP_STATUS)
+
+
+def _backups() -> dict[str, Any] | None:
+    status = backup_status_path()
+    if status is None:
+        return None
+    try:
+        with open(status, encoding="utf-8") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    try:
+        data = json.loads(raw)
+        last_ok = data.get("last_ok_at")
+        return {
+            "ok": bool(data["ok"]),
+            "at": datetime.fromisoformat(data["at"]),
+            "last_ok_at": datetime.fromisoformat(last_ok) if last_ok else None,
+            "detail": str(data.get("detail") or ""),
+        }
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return {"ok": None, "at": None, "last_ok_at": None, "detail": f"{BACKUP_STATUS} unreadable"}
+
+
+def _backup_check(b: dict[str, Any] | None, now: datetime) -> dict[str, Any] | None:
+    if b is None:
+        return None
+    if b["ok"] is None:
+        return _check("backups", "Backups", "warn", b["detail"])
+    last = f"last good backup {_ago(b['last_ok_at'], now)}"
+    if not b["ok"]:
+        detail = f"The last backup failed: {b['detail']}; {last}"
+        return _check("backups", "Backups", "fail", detail)
+    if b["last_ok_at"] is None or now - b["last_ok_at"] > BACKUP_STALE:
+        return _check("backups", "Backups", "fail", f"No backup since: {last}")
+    return _check("backups", "Backups", "ok", f"Last backup {_ago(b['last_ok_at'], now)}")
+
+
 # --- the report -------------------------------------------------------------------------------
 
 
@@ -498,8 +547,12 @@ def report(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
         "automations": _automations(session, now),
         "queues": _queues(session, now),
         "db": _db(session),
+        "backups": _backups(),
     }
     r["checks"] = _checks(r, uptime)
+    backup = _backup_check(r["backups"], now)
+    if backup is not None:
+        r["checks"].append(backup)
     r["status"] = worst(r["checks"])
     return r
 

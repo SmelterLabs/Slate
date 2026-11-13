@@ -1026,7 +1026,7 @@ Post to the channel; `parent_id` replies in that message's thread. `@handle` men
 
 Scope: `write`
 
-Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it.
+Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it. You hold at most 20 unsent uploads (100 MB); one unsent for 24 hours is deleted.
 
 - Query: `filename`\*
 - Body: `application/octet-stream`
@@ -1820,7 +1820,7 @@ Move a task's attachment into Docs & Files: a new file doc with the bytes as rev
 
 Scope: `read`
 
-The file's bytes; images show inline unless `?download=true`.
+The file's bytes; images, PDFs and plain text show inline unless `?download=true` (HTML, SVG and XML always download).
 
 - Query: `download`
 - Returns: `200`
@@ -2387,7 +2387,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DocSummaryOut
 
-`id`: string, `kind`: `page` \| `file` \| `folder`, `file`: DocRevisionOut?, `pinned`: PinnedOut?, `pinned_to_top`: PinnedTopOut?, `title`: string, `icon`: string?, `parent_id`: string?, `section_id`: string?, `list_id`: string?, `position`: integer, `revision`: integer, `version_no`: integer, `created_by`: string, `created_at`: date-time, `updated_by`: string, `updated_at`: date-time, `archived_at`: date-time?, `comment_count`: integer, `open_threads`: integer, `tags`: [string], `snippet`: string?
+`id`: string, `kind`: `page` \| `file` \| `folder`, `file`: DocRevisionOut?, `pinned`: PinnedOut?, `pinned_to_top`: PinnedTopOut?, `title`: string, `icon`: string?, `parent_id`: string?, `section_id`: string?, `list_id`: string?, `position`: integer, `revision`: integer, `version_no`: integer, `created_by`: string?, `created_at`: date-time, `updated_by`: string?, `updated_at`: date-time, `archived_at`: date-time?, `comment_count`: integer, `open_threads`: integer, `tags`: [string], `snippet`: string?
 
 ### DocTemplateOut
 
@@ -2395,7 +2395,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DocOut
 
-`id`: string, `kind`: `page` \| `file` \| `folder`, `file`: DocRevisionOut?, `pinned`: PinnedOut?, `pinned_to_top`: PinnedTopOut?, `title`: string, `icon`: string?, `parent_id`: string?, `section_id`: string?, `list_id`: string?, `position`: integer, `revision`: integer, `version_no`: integer, `created_by`: string, `created_at`: date-time, `updated_by`: string, `updated_at`: date-time, `archived_at`: date-time?, `comment_count`: integer, `open_threads`: integer, `tags`: [string], `snippet`: string?, `body_md`: string, `path`: [DocRef], `children`: [DocSummaryOut], `outline`: [HeadingOut], `facts`: [FactOut], `tasks`: [ItemOut], `missing_tasks`: [string], `docs`: [DocRef], `backlinks`: [DocRef], `files`: [DocFileOut], `revisions`: [DocRevisionOut], `words`: integer
+`id`: string, `kind`: `page` \| `file` \| `folder`, `file`: DocRevisionOut?, `pinned`: PinnedOut?, `pinned_to_top`: PinnedTopOut?, `title`: string, `icon`: string?, `parent_id`: string?, `section_id`: string?, `list_id`: string?, `position`: integer, `revision`: integer, `version_no`: integer, `created_by`: string?, `created_at`: date-time, `updated_by`: string?, `updated_at`: date-time, `archived_at`: date-time?, `comment_count`: integer, `open_threads`: integer, `tags`: [string], `snippet`: string?, `body_md`: string, `path`: [DocRef], `children`: [DocSummaryOut], `outline`: [HeadingOut], `facts`: [FactOut], `tasks`: [ItemOut], `missing_tasks`: [string], `docs`: [DocRef], `backlinks`: [DocRef], `files`: [DocFileOut], `revisions`: [DocRevisionOut], `words`: integer
 
 ### DeletedOut
 
@@ -2403,7 +2403,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### slate__api__docs__VersionOut
 
-`id`: string, `doc_id`: string, `version_no`: integer, `title`: string, `author_id`: string, `created_at`: date-time, `updated_at`: date-time, `note`: string?, `chars`: integer, `body_md`: string?
+`id`: string, `doc_id`: string, `version_no`: integer, `title`: string, `author_id`: string?, `created_at`: date-time, `updated_at`: date-time, `note`: string?, `chars`: integer, `body_md`: string?
 
 ### DiffOut
 
@@ -2427,7 +2427,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DocRevisionOut
 
-`id`: string, `doc_id`: string, `revision_no`: integer, `filename`: string, `content_type`: string, `size`: integer, `note`: string, `uploaded_by`: string, `created_at`: date-time, `superseded_at`: date-time?, `restored_from`: integer?, `has_text`: boolean, `url`: string
+`id`: string, `doc_id`: string, `revision_no`: integer, `filename`: string, `content_type`: string, `size`: integer, `note`: string, `uploaded_by`: string?, `created_at`: date-time, `superseded_at`: date-time?, `restored_from`: integer?, `has_text`: boolean, `url`: string
 
 ### CompareOut
 
@@ -2459,7 +2459,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### HealthOut
 
-`status`: string, `at`: date-time, `version`: string, `uptime_s`: number, `window_minutes`: integer, `slow_ms`: number, `alert_after`: integer, `checks`: [HealthCheck], `scheduler`: object, `pollers`: [object], `engines`: [HealthCheck], `agents`: object, `latency`: object, `automations`: object, `queues`: object, `db`: object
+`status`: string, `at`: date-time, `version`: string, `uptime_s`: number, `window_minutes`: integer, `slow_ms`: number, `alert_after`: integer, `checks`: [HealthCheck], `scheduler`: object, `pollers`: [object], `engines`: [HealthCheck], `agents`: object, `latency`: object, `automations`: object, `queues`: object, `db`: object, `backups`: object?
 
 ### SearchOut
 

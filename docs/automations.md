@@ -34,7 +34,9 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   `deliveries` (`core.BOOKKEEPING_MODELS`), pruned after 30 days row by row (the write guard refuses
   bulk DELETE outside a change). `GET /automations` adds `run_count`, `last_run_at`, `last_status`,
   so it is **not** in fastlane's `CACHEABLE`.
-- **`webhook` action**: a JSON POST `{automation, event, item}` with `X-Slate-Automation` and
+- **`webhook` action**: a JSON POST `{automation, event, item}`, built through the rule author's
+  read filter (`access.reading_as`: no link to a list the author cannot see), with
+  `X-Slate-Automation` and
   `X-Slate-Signature: sha256=<HMAC-SHA256 of the raw body>` (same scheme as webhook deliveries,
   `notify.sign`), keyed by the rule's own secret. The secret (`whsec_…`) is made when a rule first
   gets a webhook action (create or update), stored encrypted in `automations.secret_enc` (in

@@ -2,7 +2,8 @@
 
     hooks = [recurrences.materialize, notify.due_events_tick, notify.reminders_tick,
              notify.digest_tick, trash.purge_expired, work.expire_leases,
-             chatwake.expire, docwake.expire, sessions.notify_expiring]
+             chatwake.expire, docwake.expire, sessions.notify_expiring,
+             chat_files.sweep_unsent]
     last_tick_at                          # UTC time of the last finished tick (for /healthz)
     POLLERS                               # each hook's key on the Health page
 
@@ -40,7 +41,16 @@ from sqlalchemy.orm import Session
 
 from slate import db, monitor, notify
 from slate.models import utcnow
-from slate.service import chatwake, docwake, health, recurrences, sessions, trash, work
+from slate.service import (
+    chat_files,
+    chatwake,
+    docwake,
+    health,
+    recurrences,
+    sessions,
+    trash,
+    work,
+)
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
@@ -57,6 +67,7 @@ hooks: list[Hook] = [
     chatwake.expire,
     docwake.expire,
     sessions.notify_expiring,
+    chat_files.sweep_unsent,
 ]
 # Hook -> its key on the Health page (service/health.py POLLERS has the labels).
 POLLERS: dict[Hook, str] = {
@@ -69,6 +80,7 @@ POLLERS: dict[Hook, str] = {
     chatwake.expire: "chat_turns",
     docwake.expire: "doc_turns",
     sessions.notify_expiring: "sessions",
+    chat_files.sweep_unsent: "chat_uploads",
 }
 last_tick_at: datetime | None = None
 _task: asyncio.Task | None = None

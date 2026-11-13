@@ -36,11 +36,14 @@ What an *agent* may do at all, whatever its token, is the workspace deny-list in
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, exists, false, func, literal, or_, select, true, union_all
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
 from slate.connection_models import AgentConnection
@@ -53,6 +56,8 @@ from slate.models import (
     Capacity,
     ChannelRead,
     ChatWake,
+    Checklist,
+    ChecklistItem,
     Comment,
     Doc,
     DocComment,
@@ -119,10 +124,12 @@ class Access:
     sections: dict[str, int] | None = None
     general: bool = True  # the General chat channel
     limited: bool = False  # the token narrows the account (Token.limit_json)
-    # Agents whose own chat (`agent:<id>`) a restricted caller reaches without General: those
-    # shared into a section or list the caller can see (a project's agent, for its guests),
+    # Project agents (guest-role agents) whose own chat (`agent:<id>`) this restricted caller
+    # reads: those in one project only (`_project_agents`) whose places the caller can see,
     # with the caller's best level there. None when unrestricted.
     agents: dict[str, int] | None = None
+    # Every enabled project agent: its chat follows its project, never General.
+    project_agent_ids: frozenset[str] = frozenset()
     # When each of those agents was shared into a place the caller sees (the earliest live
     # share): its chat is readable from then on, not before (`agent_chat_since`).
     agent_since: dict[str, datetime] | None = None
@@ -157,13 +164,14 @@ class Access:
         if kind == "section":
             return self.section_level(ref)
         if kind == "agent":
-            # Your own chat; else members and admins (like General); else, for a guest or a
-            # list-limited token, an agent shared into one of the projects it can see.
+            # Your own chat. A project agent's chat (a guest-role agent, in one project only)
+            # belongs to its project: whoever sees the project reads it. A workspace agent's
+            # chat is a workspace conversation, like General (docs/chat.md "Agent chats").
             if ref == self.account_id:
                 return self.cap
-            if self.general:
-                return self.cap
-            return (self.agents or {}).get(ref, 0)
+            if ref in self.project_agent_ids:
+                return (self.agents or {}).get(ref, 0)
+            return self.cap if self.general else 0
         return self.cap if self.general else 0
 
     def agent_chat_since(self, channel: str) -> datetime | None:
@@ -256,7 +264,7 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
     for lid in lists:
         sections.setdefault(section_of[lid], 0)
     restricted_lists = limit and (limit.get("list_ids") or limit.get("section_ids"))
-    agents, agent_since = _project_agents(session, lists, sections, guest=role == Role.guest)
+    agents, agent_since, project_agent_ids = _project_agents(session, lists, sections)
     return Access(
         account.id,
         role,
@@ -268,7 +276,24 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
         agents=agents,
         agent_since=agent_since,
         admin_scope=admin_scope,
+        project_agent_ids=project_agent_ids,
     )
+
+
+def agent_projects(session: Session, agent_id: str) -> set[str]:
+    """The sections (projects) an agent is shared into, directly or through one of their
+    lists."""
+    rows = session.execute(
+        select(Share.scope_kind, Share.scope_id).where(Share.account_id == agent_id)
+    ).all()
+    section_of = dict(
+        session.execute(
+            select(List.id, List.section_id).where(
+                List.id.in_([sid for kind, sid in rows if kind == "list"])
+            )
+        ).all()
+    )
+    return {sid if kind == "section" else section_of.get(sid, sid) for kind, sid in rows}
 
 
 def _section_rule(role: Role, private: bool, share: int) -> int:
@@ -319,25 +344,43 @@ def levels_on(session: Session, scope_kind: str, scope_id: str) -> dict[str, int
 
 
 def _project_agents(
-    session: Session, lists: dict[str, int], sections: dict[str, int], *, guest: bool = False
-) -> tuple[dict[str, int], dict[str, datetime]]:
-    """Enabled agents shared into a section or list the caller can see, each with the caller's
-    best level on those places and the earliest such share's date: the guests of a project
-    read and talk in its agent's chat, from the moment it joined the project (a share revoked
-    and granted again starts the clock over). A guest caller reaches only guest agents (a
-    project's own agent); a workspace agent shared into the project stays out of its
-    sight (docs/collaboration.md "Members-only chat")."""
-    q = (
+    session: Session, lists: dict[str, int], sections: dict[str, int]
+) -> tuple[dict[str, int], dict[str, datetime], frozenset[str]]:
+    """Project agents (enabled guest-role agents): the caller's best level on the places one is
+    shared into and the earliest such share's date, for those it can see (a project's guests
+    read and talk in its agent's chat from the moment it joined the project; a share revoked and
+    granted again starts the clock over), plus the ids of all of them. An agent shared into
+    more than one project (`agent_projects`, which `permissions.share` refuses) has a chat
+    nobody restricted reads: it would carry one project's talk to another's guests. A
+    workspace agent is never a project agent (docs/collaboration.md "Members-only chat")."""
+    rows = session.execute(
         select(Share.account_id, Share.scope_kind, Share.scope_id, Share.created_at)
         .join(Account, Account.id == Share.account_id)
-        .where(Account.kind == AccountKind.agent, Account.disabled_at.is_(None))
+        .where(
+            Account.kind == AccountKind.agent,
+            Account.role == Role.guest,
+            Account.disabled_at.is_(None),
+        )
+    ).all()
+    ids = frozenset(
+        session.scalars(
+            select(Account.id).where(
+                Account.kind == AccountKind.agent,
+                Account.role == Role.guest,
+                Account.disabled_at.is_(None),
+            )
+        )
     )
-    if guest:
-        q = q.where(Account.role == Role.guest)
-    rows = session.execute(q).all()
+    section_of = dict(session.execute(select(List.id, List.section_id)).all())
+    projects: dict[str, set[str]] = {}
+    for agent_id, kind, scope_id, _ in rows:
+        place = scope_id if kind == "section" else section_of.get(scope_id, scope_id)
+        projects.setdefault(agent_id, set()).add(place)
     out: dict[str, int] = {}
     since: dict[str, datetime] = {}
     for agent_id, kind, scope_id, created_at in rows:
+        if len(projects[agent_id]) > 1:
+            continue
         lvl = sections.get(scope_id, 0) if kind == "section" else lists.get(scope_id, 0)
         if not lvl:
             continue
@@ -345,7 +388,7 @@ def _project_agents(
             out[agent_id] = lvl
         if agent_id not in since or created_at < since[agent_id]:
             since[agent_id] = created_at
-    return out, since
+    return out, since, ids
 
 
 def _any_private(session: Session) -> bool:
@@ -414,6 +457,29 @@ def unrestricted(session: Session) -> _Detach:
     """`with access.unrestricted(session):` reads without the caller's filter, for bookkeeping
     that must see the whole table (slug uniqueness, computing someone else's access)."""
     return _Detach(session)
+
+
+_BOUND_KEYS = (ACCESS_KEY, "slate_connection_event_access", "slate_connection_event_manager")
+
+
+@contextmanager
+def reading_as(session: Session, who: Account | Access) -> Iterator[Access]:
+    """`with access.reading_as(session, who):` reads as `who` (an account, or an access already
+    computed) would, through its read filter, for background work done on its behalf (a push
+    it is sent, a webhook it owns, an automation it wrote), then restores the session."""
+    saved = {k: session.info[k] for k in _BOUND_KEYS if k in session.info}
+    if isinstance(who, Access):
+        found = who
+    else:
+        with unrestricted(session):
+            found = compute(session, who)
+    attach(session, found)
+    try:
+        yield found
+    finally:
+        for k in _BOUND_KEYS:
+            session.info.pop(k, None)
+        session.info.update(saved)
 
 
 # --- Read filter -----------------------------------------------------------------------------
@@ -525,24 +591,31 @@ def _chat_visible(
     lists: list[str],
     sections: list[str],
     members: Any = None,
+    project_chats: list[str] = (),  # type: ignore[assignment]
+    all_project_chats: list[str] = (),  # type: ignore[assignment]
 ) -> Any:
     """Whether a message (`c`: `messages` columns, under any alias) is in a channel the caller
-    reads: one of `channels` (lists, sections, General, the caller's own agent chat), any
-    agent's chat when `agent_chats` is the `agent:%` pattern (members), or a project agent's
-    chat from the moment a share put the agent into a list or section the caller sees. A guest
-    (`members` false) never reads a members-only message (`Message.members_only`)."""
+    reads: one of `channels` (lists, sections, General, the caller's own agent chat, and for a
+    member the chats of the project agents of projects it sees), any workspace agent's chat
+    when `agent_chats` is the `agent:%` pattern (members; `all_project_chats` never match it),
+    or one of `project_chats` from the moment a share put its agent into a list or section the
+    caller sees (guests and list-limited tokens). A guest (`members` false) never reads a
+    members-only message (`Message.members_only`)."""
     placed = or_(
         c.channel.in_(channels),
-        c.channel.like(agent_chats),
-        exists(
-            select(Share.id).where(
-                (literal("agent:") + Share.account_id) == c.channel,
-                Share.created_at <= c.created_at,
-                or_(
-                    and_(Share.scope_kind == "section", Share.scope_id.in_(sections)),
-                    and_(Share.scope_kind == "list", Share.scope_id.in_(lists)),
-                ),
-            )
+        and_(c.channel.like(agent_chats), c.channel.not_in(all_project_chats)),
+        and_(
+            c.channel.in_(project_chats),
+            exists(
+                select(Share.id).where(
+                    (literal("agent:") + Share.account_id) == c.channel,
+                    Share.created_at <= c.created_at,
+                    or_(
+                        and_(Share.scope_kind == "section", Share.scope_id.in_(sections)),
+                        and_(Share.scope_kind == "list", Share.scope_id.in_(lists)),
+                    ),
+                )
+            ),
         ),
     )
     if members is None:
@@ -583,7 +656,13 @@ def read_criteria(state: ORMExecuteState) -> None:
     # here (`chat_channels`); wakes have no date and keep the plain channel list.
     agent_chats = "agent:%" if access.general else "\x00"
     channels = access.visible_channels() or []
+    project_chats = [f"agent:{aid}" for aid, lvl in (access.agents or {}).items() if lvl]
+    all_project_chats = [f"agent:{aid}" for aid in access.project_agent_ids]
     chat_channels = [ch for ch in channels if not ch.startswith("agent:") or ch == f"agent:{me}"]
+    if access.general:
+        # A member reads the chat of a project it sees whole, as it reads the project's channel.
+        chat_channels += project_chats
+        project_chats = []
     full_sections = access.doc_sections()
     seed_views = list(_SEED_VIEW_IDS)
     docs = _visible_docs(lists, access.doc_sections(), access.general)
@@ -597,7 +676,16 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(Section, lambda c: c.id.in_(sections), include_aliases=True),
         with_loader_criteria(
             Message,
-            lambda c: _chat_visible(c, chat_channels, agent_chats, lists, full_sections, members),
+            lambda c: _chat_visible(
+                c,
+                chat_channels,
+                agent_chats,
+                lists,
+                full_sections,
+                members,
+                project_chats,
+                all_project_chats,
+            ),
             include_aliases=True,
         ),
         # A guest is not shown a workspace agent's open turn ("My Agent is working…"): it is
@@ -605,7 +693,10 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(
             ChatWake,
             lambda c: and_(
-                or_(c.channel.in_(channels), c.channel.like(agent_chats)),
+                or_(
+                    c.channel.in_(channels),
+                    and_(c.channel.like(agent_chats), c.channel.not_in(all_project_chats)),
+                ),
                 or_(
                     members,
                     c.account_id.not_in(_workspace_agents()),
@@ -622,7 +713,14 @@ def read_criteria(state: ORMExecuteState) -> None:
                 c.subject_id.in_(
                     select(_messages.c.id).where(
                         _chat_visible(
-                            _messages.c, chat_channels, agent_chats, lists, full_sections, members
+                            _messages.c,
+                            chat_channels,
+                            agent_chats,
+                            lists,
+                            full_sections,
+                            members,
+                            project_chats,
+                            all_project_chats,
                         )
                     )
                 ),
@@ -731,21 +829,62 @@ def read_criteria(state: ORMExecuteState) -> None:
     state.statement = state.statement.options(*opts)
 
 
-def guest_payloads(session: Session, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Event payloads as a guest reader may see them (history pages): what a workspace agent
-    said or did is gone, its id and handle are scrubbed (`EventGate._for_guest`). Any other
-    reader gets `payloads` unchanged."""
+# --- What a guest never sees ----------------------------------------------------------------
+#
+# A project's guest sees no trace of a workspace agent (service/guests.py). Rows are kept out by
+# `_guest_criteria` (with them every event a workspace agent made, and an `item.assigned` that
+# only adds or removes one); what a visible row says about one (an id in a snapshot, a handle
+# among a card's assignees) is blanked by `scrub()`. `event_snapshots()` calls it, so every
+# reader of stored events (history, audit, inbox, activity, check-in, work context, export) is
+# covered in one place; the live gate (`EventGate._for_guest`) uses the same `_scrubbed`, and
+# the views that carry account ids call `scrub()`. tests/test_guest_boundary.py walks every GET
+# route as a guest to keep it so.
+
+_HIDDEN_KEY = "slate_hidden_agents"
+
+
+def hidden_agents(session: Session) -> tuple[frozenset[str], frozenset[str]]:
+    """`(ids, handles)` of the workspace agents this session's caller must not see: both empty
+    unless the caller is a guest. Read once per attached access."""
     caller = current(session)
     if caller is None or caller.role != Role.guest:
-        return payloads
-    gate = EventGate(caller.account_id)
-    gate.access = caller
-    out = []
-    for p in payloads:
-        shown = gate._for_guest(session, p)
-        if shown is not None:
-            out.append(shown)
-    return out
+        return frozenset(), frozenset()
+    cached = session.info.get(_HIDDEN_KEY)
+    if cached is None or cached[0] is not caller:
+        with unrestricted(session):
+            ids = frozenset(session.scalars(_workspace_agents()))
+            handles = frozenset(
+                session.scalars(select(_accounts.c.handle).where(_accounts.c.id.in_(ids)))
+            )
+        cached = (caller, ids, handles)
+        session.info[_HIDDEN_KEY] = cached
+    return cached[1], cached[2]
+
+
+def _scrubbed(value: Any, ids: frozenset[str], handles: frozenset[str]) -> Any:
+    if isinstance(value, str):
+        return None if value in ids else value
+    if isinstance(value, list):
+        return [
+            _scrubbed(v, ids, handles)
+            for v in value
+            if not (isinstance(v, str) and (v in ids or v in handles))
+            and not (isinstance(v, dict) and (v.get("id") in ids or v.get("account_id") in ids))
+        ]
+    if isinstance(value, dict):
+        return {k: _scrubbed(v, ids, handles) for k, v in value.items()}
+    return value
+
+
+def scrub(session: Session, value: Any) -> Any:
+    """`value` (JSON-ready: a snapshot, a view, a list of them) as this session's caller may
+    read it. For a guest, a workspace agent's id becomes null; in a list, its id, its handle or
+    an entry naming it (`{"id": ...}`, `{"account_id": ...}`) drops out. Anyone else gets
+    `value` itself."""
+    ids, handles = hidden_agents(session)
+    if not ids:
+        return value
+    return _scrubbed(value, ids, handles)
 
 
 def _workspace_agents() -> Any:
@@ -787,10 +926,35 @@ def _guest_criteria() -> list[Any]:
             lambda c: and_(
                 c.actor_id.not_in(_workspace_agents()),
                 c.subject_id.not_in(_hidden_comments()),
+                ~_assigns_only_agents(c),
             ),
             include_aliases=True,
         ),
     ]
+
+
+def _assigns_only_agents(c: Any) -> Any:
+    """An `item.assigned` event (`c`: `events` columns) whose only change is a workspace agent
+    joining or leaving the card: with the agent scrubbed it says nothing, so a guest is not
+    shown it."""
+    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(_workspace_agents()))
+    added = func.json_each(c.after_json).table_valued("value").alias("assigned_after")
+    was = func.json_each(c.before_json).table_valued("value").alias("assigned_before")
+    kept = func.json_each(c.before_json).table_valued("value").alias("assigned_kept")
+    now = func.json_each(c.after_json).table_valued("value").alias("assigned_now")
+    return and_(
+        c.type == "item.assigned",
+        ~exists(
+            select(added.c.value).where(
+                added.c.value.not_in(select(kept.c.value)), added.c.value.not_in(handles)
+            )
+        ),
+        ~exists(
+            select(was.c.value).where(
+                was.c.value.not_in(select(now.c.value)), was.c.value.not_in(handles)
+            )
+        ),
+    )
 
 
 def _hidden_comments() -> Any:
@@ -970,6 +1134,8 @@ def check_object(
             raise _deny(need, "change items in this list")
         if field_name == "list_id" and access.list_level(value) < EDIT:
             raise _deny(EDIT, "move items into that list")
+        if access.role == Role.guest and _steers(obj, field_name, value):
+            _refuse_steering(session, obj.id)
         return
     if isinstance(obj, InboxState | InboxMark):
         return
@@ -1014,6 +1180,8 @@ def check_object(
     if item_id is not None:
         if access.list_level(_item_list(session, item_id)) < need:
             raise _deny(need, "change this task")
+        if access.role == Role.guest and isinstance(obj, Checklist | ChecklistItem):
+            _refuse_steering(session, item_id)
         return
     list_id = getattr(obj, "list_id", None)
     if list_id is not None:
@@ -1042,6 +1210,37 @@ def check_object(
         return
     if access.role == Role.guest and type(obj).__name__ not in _GUEST_GLOBAL:
         raise Forbidden("guests can only work inside the lists shared with them")
+
+
+# What a workspace agent's task asks and when it runs (service/guests.py): a guest changes none
+# of it. `completed_at` going back to null is a reopen, which would put the task back in the
+# agent's queue.
+_STEERING = ("title", "body_md", "acceptance_md", "due_at", "due_date_only", "start_at")
+
+
+def _steers(item: Item, field_name: str | None, value: Any) -> bool:
+    if field_name is not None:
+        return field_name in _STEERING or (field_name == "completed_at" and value is None)
+    # A body save assigns first and records after (`covers`): read the pending change.
+    state = sa_inspect(item)
+    return any(state.attrs[f].history.has_changes() for f in _STEERING)
+
+
+def _refuse_steering(session: Session, item_id: str) -> None:
+    # No autoflush: the change being checked is still pending (a body version not yet covered).
+    with unrestricted(session), session.no_autoflush:
+        assigned = session.scalar(
+            select(ItemAssignee.item_id).where(
+                ItemAssignee.item_id == item_id,
+                ItemAssignee.account_id.in_(_workspace_agents()),
+            )
+        )
+    if assigned is not None:
+        # Worded without naming anyone: a guest does not see who works the task.
+        raise Forbidden(
+            "the workspace's members set what this task asks and when it runs; "
+            "comment to suggest a change"
+        )
 
 
 def check_record(session: Session, type_: str, item_id: str | None) -> None:
@@ -1099,8 +1298,12 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
 
 
 def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
-    if ev.type != "account.digest" or session is None:
+    """An event's `before` and `after` as this session's caller may read them: every reader of
+    stored events goes through here (`core.event_payload`, the audit log)."""
+    if session is None:
         return ev.before_json, ev.after_json
+    if ev.type != "account.digest":
+        return scrub(session, ev.before_json), scrub(session, ev.after_json)
     caller = current(session)
     return (
         digest_snapshot(session, ev.before_json, caller) if ev.before_json is not None else None,
@@ -1301,31 +1504,21 @@ class EventGate:
             and {before.get("author_id"), before.get("assignee_id")} & self._agents
         ):
             return None  # a deleted comment by it or addressed to it
-        if isinstance(after, dict) and after.get("assignee_id") in self._agents:
+        if (
+            type_.startswith(("item.commented", "comment.", "doc.commented", "doc.comment_"))
+            and isinstance(after, dict)
+            and after.get("assignee_id") in self._agents
+        ):
             return None  # an Ask addressed to it
-        out = payload
+        ids, handles = frozenset(self._agents), frozenset(self._agent_handles)
+        out = {
+            **payload,
+            **{k: _scrubbed(payload[k], ids, handles) for k in ("before", "after") if k in payload},
+        }
         if by_agent:
             out = {**out, "actor_id": None, "session_ref": None}
-        if type_ == "item.assigned":
-            shown = {
-                k: [h for h in out[k] if h not in self._agent_handles]
-                if isinstance(out.get(k), list)
-                else out.get(k)
-                for k in ("before", "after")
-            }
-            if shown["before"] == shown["after"]:
-                return None
-            out = {**out, **shown}
-        for k in ("before", "after"):
-            snap = out.get(k)
-            if not isinstance(snap, dict):
-                continue
-            if snap.get("created_by") in self._agents:
-                snap = {**snap, "created_by": None}
-            for field_ in ("reply_to", "thread_followers", "for", "queued"):
-                if isinstance(snap.get(field_), list):
-                    snap = {**snap, field_: [a for a in snap[field_] if a not in self._agents]}
-            out = {**out, k: snap}
+        if type_ == "item.assigned" and out.get("before") == out.get("after"):
+            return None  # only a workspace agent joined or left the card
         return out
 
     def allows(self, session: Session, payload: dict[str, Any]) -> bool:

@@ -13,7 +13,8 @@ What ends up where (`SLATE_HOME` defaults to `/opt/slate`):
 |---|---|
 | Git checkout | `$SLATE_HOME/repo` |
 | Database (WAL) | `$SLATE_HOME/data/slate.db` → `/data/slate.db` in the container |
-| Nightly backups, 30 days | `$SLATE_HOME/data/backups/slate-YYYY-MM-DD.db` |
+| Nightly backups, 30 days | `$SLATE_HOME/backups/slate-YYYY-MM-DD.db` (not mounted into the container) |
+| Last backup's outcome (the Health page reads it) | `$SLATE_HOME/data/backup-status.json` |
 | Settings, mode 600, never committed | `$SLATE_HOME/.env` (template: `deploy/server/env.example`) |
 | User units | `~/.config/systemd/user/slate.service`, `slate-backup.service`, `slate-backup.timer` |
 | Container / compose project | `slate` / `slate` (always `docker compose -p slate`) |
@@ -34,7 +35,7 @@ Requirements: Linux with systemd, Docker Engine with the compose plugin (`docker
 sudo useradd --create-home --shell /bin/bash slate
 sudo usermod -aG docker slate
 sudo loginctl enable-linger slate        # user units keep running without a login session
-sudo install -d -o slate -g slate /opt/slate
+sudo install -d -m 0750 -o slate -g slate /opt/slate
 ```
 
 Everything after this runs as `slate` (`sudo -iu slate`).
@@ -42,7 +43,7 @@ Everything after this runs as `slate` (`sudo -iu slate`).
 ## 2. Settings and first deploy
 
 ```bash
-mkdir -p /opt/slate/data/backups
+mkdir -p /opt/slate/data /opt/slate/backups
 git clone https://github.com/SmelterLabs/Slate.git /opt/slate/repo
 cp /opt/slate/repo/deploy/server/env.example /opt/slate/.env
 chmod 600 /opt/slate/.env
@@ -95,8 +96,14 @@ slate.example.com {
 }
 ```
 
-The proxy must pass `X-Forwarded-Proto` and `X-Forwarded-For` (Caddy and nginx's usual
-config do); `compose.yml` trusts them. Server-sent events (`/api/v1/events/stream`) must not be
+The proxy must pass `X-Forwarded-Proto` and `X-Forwarded-For`. `compose.yml` trusts them from
+loopback and Docker's `172.16.0.0/12` networks only, and takes the right-most address no
+trusted hop added, so a client cannot choose the address the rate limits see. Caddy sets the
+header itself; with nginx use `proxy_set_header X-Forwarded-For $remote_addr;` (or
+`$proxy_add_x_forwarded_for`, which is also safe with this list). A proxy that reaches the
+container from another network needs its subnet added to `FORWARDED_ALLOW_IPS` in
+`compose.yml` (`docker network inspect slate_default` shows the compose network's subnet; never
+use `*`, which trusts every entry a client sends). Server-sent events (`/api/v1/events/stream`) must not be
 buffered: with nginx, set `proxy_buffering off;` for that location.
 
 ### Optional: expose on your tailnet instead
@@ -181,17 +188,29 @@ read the list, then decide: set the flag, or move those receivers to a public ht
 **Before a deploy that adds a migration:** `deploy.sh` takes a `pre-deploy-<stamp>.db` backup
 itself before restarting a running container (same online-backup script; pruned with the
 nightly ones after 30 days). For a large or precious database, also rehearse the migration on
-a copy: copy the newest file from `backups/` elsewhere and run `alembic upgrade head` against
+a copy: copy the newest file from `/opt/slate/backups/` elsewhere and run `alembic upgrade head` against
 it with `SLATE_DATABASE_PATH`. An empty test database proves nothing here: a rebuild of a table
 other tables point at can pass every test and then fail on a real file. If a deploy leaves the
 container restarting, `docker logs slate` shows the migration error; stop the service and use
 the rollback below.
 
 **Rollback** to an earlier ref: `bash /opt/slate/repo/deploy/server/rollback.sh <tag-or-commit>`.
-Data is never touched. If the bad release added a database migration, the old code may not
-start against the newer schema: stop the service, restore the last backup taken before that
-deploy (into `/opt/slate/data/slate.db` after moving the current file and its `-wal`/`-shm`
-aside), then roll back.
+Data is never touched. Before it changes anything it reads the database's migration revision;
+when the ref does not have that migration it stops (see below). Otherwise it takes a
+`pre-rollback-<stamp>.db` backup, checks out the ref, rebuilds, and reports success only once
+`/healthz` serves that commit. `deploy.sh` waits for its new commit the same way.
+
+**Rollback past a migration.** Old code cannot start against a database a newer migration
+changed (it would restart in a loop), so go back to the backup taken before that deploy:
+
+```bash
+systemctl --user stop slate.service
+cd /opt/slate/data && mkdir aside && mv slate.db* aside/    # the current file, -wal and -shm
+cp /opt/slate/backups/pre-deploy-<stamp>.db /opt/slate/data/slate.db
+bash /opt/slate/repo/deploy/server/rollback.sh <tag-or-commit>
+```
+
+Writes made since that backup are only in `aside/`; keep it until you are sure.
 
 **Logs:** `docker logs slate --since 1h` (rotated at 10 MB × 5). Unit logs:
 `journalctl --user -u slate.service -u slate-backup.service`.
@@ -204,18 +223,28 @@ aside), then roll back.
 
 **Backup now:** `systemctl --user start slate-backup.service`, then
 `journalctl --user -u slate-backup.service -n 5`. Backups use SQLite's online backup API from
-inside the container (never a file copy of the live WAL database), are integrity-checked
-before the rename, and anything older than 30 days is pruned. The timer fires at 03:30 in
-the zone named on the `OnCalendar` line of `slate-backup.timer`; edit that line for your
-zone. Copy
-`/opt/slate/data/backups/` off the host (encrypted) with whatever you use for backups.
+inside the container (never a file copy of the live WAL database). The container checks the
+copy (integrity check, a migration revision and the `items` table, so a missing or empty
+database is an error, never an "ok" backup) and streams it out; `backup.sh` checks its SHA-256
+on arrival, renames it into `/opt/slate/backups/` (mode 700, files 600) and prunes anything
+older than 30 days. The container never mounts that folder, so neither the app nor a mistake
+in `data/` can reach the backups. The timer fires at 03:30 in the zone named on the
+`OnCalendar` line of `slate-backup.timer`; edit that line for your zone.
+
+**A failing backup shows on the Health page.** Every run records its outcome in
+`data/backup-status.json`; the Health page's Backups line fails when the last run failed or
+the last good backup is more than 36 hours old, and `GET /health` then answers 503, so an
+uptime monitor on `/health` hears about it.
+
+`/opt/slate/backups/` is still on the same disk as the database. Mount another disk there, or
+copy the folder off the host (encrypted) with whatever you use for backups.
 
 ## 7. Backup restore drill (monthly, and before trusting a new backup setup)
 
 Restore the newest backup to a temp path and query it; the live database is not touched:
 
 ```bash
-latest=$(ls -1 /opt/slate/data/backups/slate-*.db | tail -n 1)
+latest=$(ls -1 /opt/slate/backups/slate-*.db | tail -n 1)
 tmp=$(mktemp -d)
 cp "$latest" "$tmp/restore.db"
 python3 -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);print(c.execute('PRAGMA integrity_check').fetchone()[0], c.execute('SELECT count(*) FROM items').fetchone()[0])" "$tmp/restore.db"
@@ -255,6 +284,8 @@ Ollama down = AI add leaves cards as typed; nothing else in Slate depends on it.
 - The image is built on the host from the checkout (`slate:local`); nothing is pulled from a
   registry.
 - `$SLATE_HOME/data` must exist before the first `up`, or Docker creates it owned by root;
-  `deploy.sh` creates it.
-- Backup files are written by the container's root user into a folder the service user owns;
-  the service user can still prune them (deleting needs write on the folder, not the file).
+  `deploy.sh` creates it (mode 700, as are `backups/` and the `.env`'s 600).
+- The container runs as the service user (`slate.service` passes its uid and gid), with every
+  capability dropped and `no-new-privileges`. Images before this ran as root; the first
+  `deploy.sh` after the change hands the root-owned files in `data/` to the service user, once.
+- Older installs kept backups in `data/backups/`; `deploy.sh` moves them to `backups/` once.

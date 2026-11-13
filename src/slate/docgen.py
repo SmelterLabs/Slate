@@ -67,7 +67,8 @@ EVENT_DOCS: dict[str, str] = {
     "share.revoked": "A share was removed (`before` = the share).",
     "invitation.created": "A seven-day private-section guest/edit invitation. No secret or hash.",
     "invitation.accepted": "Single-use invitation consumed; session linked. Actor is the guest.",
-    "invitation.revoked": "An admin cancelled an invitation and its associated browser session.",
+    "invitation.revoked": "An invitation was cancelled: by an admin, with its browser session, "
+    "or because the guest's section share was removed or a sibling link was cancelled.",
     "session.created": "Thirty-day browser token expiry and marker set. No credential.",
     "session.expiring": "A guest browser session ends in three days (`after`: section, date, "
     "inviter; `for` = guest | inviter). Subject is the account told; inbox reason `access`.",
@@ -91,7 +92,7 @@ EVENT_DOCS: dict[str, str] = {
     "item.updated": "One item field changed (`field` = title, priority, due_at, tags, "
     "waiting_on, body...; `before`/`after`).",
     "item.status_changed": "An item moved to another status (`before`/`after` = status ids).",
-    "item.assigned": "Assignees changed (`before`/`after` = account ids). Check-in news "
+    "item.assigned": "Assignees changed (`before`/`after` = sorted handles). Check-in news "
     "`assigned`/`unassigned`.",
     "item.moved": "An item moved to another list (`field` = `list_id`).",
     "item.split": "Subtasks were made from an item (`after` = the new ids).",
@@ -106,8 +107,9 @@ EVENT_DOCS: dict[str, str] = {
     "item.commented": "A comment was posted (`after` = the comment, mentions, reply_to). "
     "reply_to contains earlier discussion participants' account ids, excluding the author "
     "and an Ask's target (who gets comment.assigned instead). A reply never resolves an Ask.",
-    "item.mentioned": "A comment `@mentioned` an account (`after.account_id`). Check-in news "
-    "`mentioned`.",
+    "item.mentioned": "An edit to a comment added `@mentions` (`after` = `{comment_id, "
+    "mentions}`, only the newly added handles; a new comment's mentions ride on "
+    "`item.commented`). Check-in news `mentioned`.",
     "item.reported": "An agent reported on an item: working, blocked, review, done or idle "
     "(`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
@@ -160,8 +162,8 @@ EVENT_DOCS: dict[str, str] = {
     "`channel_name`, `mentions`; a reply also carries `thread_followers`, the account ids of "
     "the thread's earlier authors). Check-in news `mentioned` or `reply`.",
     "message.edited": "A chat message's text changed (`after.mentions` = handles the edit added).",
-    "message.deleted": "A chat message was deleted by its author (the text goes, the thread "
-    "stays).",
+    "message.deleted": "A chat message was deleted by its author or an owner or admin (the text "
+    "goes, the thread stays; `before` keeps it).",
     "message.file_uploaded": "A file was uploaded to send with a chat message (`after` = "
     "its metadata, no channel: until it is sent only its uploader hears of it; a sent "
     "message carries its files in `message.posted` `after.files`).",
@@ -237,8 +239,10 @@ EVENT_DOCS: dict[str, str] = {
     "inbox.read": "Inbox entries were marked read.",
     "inbox.cleared": "Inbox entries were cleared.",
     "doc.created": "A doc page was created (or duplicated); `after` is the page.",
-    "doc.updated": "A doc's `title`, `icon` or `body_md` changed (field, before, after); "
-    "field `version_no` when a page-history version was closed without an edit.",
+    "doc.updated": "A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, "
+    "after); for `body_md`, before/after are `{version_no, chars}`: the page-history version "
+    "holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field "
+    "`version_no` when a page-history version was closed without an edit.",
     "doc.mentioned": "A doc save added `@mentions` (`after.mentions`, `doc_id`, `title`, "
     "`excerpt`). Check-in news `mentioned`; inbox reason `mention`.",
     "doc.moved": "A doc moved or was reordered: before/after `{parent_id, section_id, list_id, "
@@ -246,7 +250,8 @@ EVENT_DOCS: dict[str, str] = {
     "doc.archived": "A doc (and the subpages under it) was archived.",
     "doc.unarchived": "An archived doc was restored.",
     "doc.deleted": "An archived doc was deleted for good; `before` is its last state.",
-    "doc.version_restored": "An older version's title and body were put back (`restored_from`).",
+    "doc.version_restored": "An older version's title and body were put back "
+    "(`restored_from`); before/after carry `title`, `version_no` and `chars`.",
     "doc.file_added": "An image or file was uploaded into a doc (metadata only).",
     "doc.file_removed": "A doc's file was removed.",
     "doc.commented": "A comment on a doc (page or file): `after` is the comment (`comment_id`, "
