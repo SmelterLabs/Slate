@@ -10,6 +10,8 @@ import type { ViewerKind } from './docs';
 export const OFFICE_LIMIT = 25 * 1024 * 1024;
 /** Rows shown per sheet; a note says when there are more. */
 export const SHEET_ROWS = 2000;
+/** Columns shown per sheet; a note says when there are more. */
+export const SHEET_COLS = 200;
 
 const DOCX_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -94,8 +96,10 @@ export function sanitizeDocHtml(html: string, parser: DOMParser = new DOMParser(
 
 /** The .docx as sanitized HTML, with mammoth's warnings (unsupported styles) for the console. */
 export async function renderDocx(blob: Blob): Promise<{ html: string; warnings: string[] }> {
+  const buf = await blob.arrayBuffer();
+  await checkOfficeBounds(buf, 'docx');
   const mammoth = await import('mammoth');
-  const result = await mammoth.convertToHtml({ arrayBuffer: await blob.arrayBuffer() });
+  const result = await mammoth.convertToHtml({ arrayBuffer: buf });
   return { html: sanitizeDocHtml(result.value), warnings: result.messages.map((m) => m.message) };
 }
 
@@ -118,6 +122,8 @@ export interface Sheet {
   rows: SheetCell[][];
   /** Rows the sheet has beyond SHEET_ROWS. */
   truncated: number;
+  /** Columns the sheet has beyond SHEET_COLS. */
+  truncatedCols: number;
 }
 
 const grouped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 10 });
@@ -187,28 +193,38 @@ export function columnLetter(n: number): string {
 /** The workbook's sheets as rows of formatted cells (exceljs, loaded on first use). Hidden
  * sheets are left out; an empty sheet is one empty row so its tab still shows. */
 export async function readWorkbook(blob: Blob): Promise<Sheet[]> {
+  const buf = await blob.arrayBuffer();
+  await checkOfficeBounds(buf, 'xlsx');
   const ExcelJS = await import('exceljs');
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await blob.arrayBuffer());
+  await wb.xlsx.load(buf);
   const sheets: Sheet[] = [];
   wb.eachSheet((ws) => {
     if (ws.state && ws.state !== 'visible') return;
+    // rowCount and columnCount are the last row and column used; the "actual" counts are how
+    // many hold values, which is fewer whenever a blank spacer row or column sits between.
+    const allCols = Math.max(1, ws.columnCount || 1);
+    const cols = Math.min(allCols, SHEET_COLS);
+    const total = ws.rowCount || 0;
+    const shown = Math.min(total, SHEET_ROWS);
+    const lastRow = Math.max(shown, 1);
+    // Merges are clipped to the window shown, so their cost is bounded by it.
     const merges = ((ws.model as { merges?: string[] }).merges ?? []).map(parseRange).filter((r): r is NonNullable<typeof r> => !!r);
     const span = new Map<string, { colspan: number; rowspan: number }>();
     const covered = new Set<string>();
     for (const r of merges) {
-      span.set(`${r.top}:${r.left}`, { colspan: r.right - r.left + 1, rowspan: r.bottom - r.top + 1 });
-      for (let y = r.top; y <= r.bottom; y++) for (let x = r.left; x <= r.right; x++) if (y !== r.top || x !== r.left) covered.add(`${y}:${x}`);
+      if (r.top > lastRow || r.left > cols) continue;
+      const bottom = Math.min(r.bottom, lastRow);
+      const right = Math.min(r.right, cols);
+      span.set(`${r.top}:${r.left}`, { colspan: right - r.left + 1, rowspan: bottom - r.top + 1 });
+      for (let y = r.top; y <= bottom; y++) for (let x = r.left; x <= right; x++) if (y !== r.top || x !== r.left) covered.add(`${y}:${x}`);
     }
-    const cols = Math.max(1, ws.actualColumnCount || ws.columnCount || 1);
-    const total = ws.actualRowCount || ws.rowCount || 0;
     const widths: number[] = [];
     for (let c = 1; c <= cols; c++) {
       const w = ws.getColumn(c).width;
       widths.push(Math.round(((w && w > 0 ? w : 8.43) * 7 + 5) * 1.0));
     }
     const rows: SheetCell[][] = [];
-    const shown = Math.min(total, SHEET_ROWS);
     for (let r = 1; r <= Math.max(shown, 1); r++) {
       const row = ws.getRow(r);
       const cells: SheetCell[] = [];
@@ -234,7 +250,111 @@ export async function readWorkbook(blob: Blob): Promise<Sheet[]> {
       }
       rows.push(cells);
     }
-    sheets.push({ name: ws.name, widths, rows, truncated: Math.max(0, total - shown) });
+    sheets.push({ name: ws.name, widths, rows, truncated: Math.max(0, total - shown), truncatedCols: allCols - cols });
   });
   return sheets;
+}
+
+// --- Bounds ------------------------------------------------------------------------------------
+// Both parsers run on the main thread, and exceljs expands every merged range cell by cell while
+// it loads, so one `<mergeCell ref="A1:XFD1048576">` would hang the tab. Before either parser
+// sees the file, a cheap pass reads the zip's directory, inflates only the parts that matter
+// (streamed, with a byte budget) and counts merged cells. Past a limit the preview is refused and
+// the file is offered as a download, like a file over OFFICE_LIMIT.
+
+/** Inflated XML read before parsing, beyond which the preview is refused. */
+export const INFLATE_LIMIT = 100 * 1024 * 1024;
+/** Merged cells, summed over a workbook, beyond which the preview is refused. */
+export const MERGE_LIMIT = 50_000;
+
+/** The file is too big to preview in the tab; DocumentPreview offers the download instead. */
+export class TooLargeToPreview extends Error {
+  constructor(why: string) {
+    super(why);
+    this.name = 'TooLargeToPreview';
+  }
+}
+
+interface ZipEntry {
+  name: string;
+  method: number;
+  compressed: number;
+  local: number;
+}
+
+function zipEntries(buf: ArrayBuffer): ZipEntry[] {
+  const v = new DataView(buf);
+  let end = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 22 - 0xffff); i--) {
+    if (v.getUint32(i, true) === 0x06054b50) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) throw new Error('not a zip file');
+  const count = v.getUint16(end + 10, true);
+  let p = v.getUint32(end + 16, true);
+  const names = new TextDecoder();
+  const out: ZipEntry[] = [];
+  for (let k = 0; k < count && p + 46 <= buf.byteLength && v.getUint32(p, true) === 0x02014b50; k++) {
+    const nameLen = v.getUint16(p + 28, true);
+    const compressed = v.getUint32(p + 20, true);
+    const local = v.getUint32(p + 42, true);
+    if (compressed === 0xffffffff || local === 0xffffffff) throw new TooLargeToPreview('zip64 entry');
+    out.push({ name: names.decode(new Uint8Array(buf, p + 46, nameLen)), method: v.getUint16(p + 10, true), compressed, local });
+    p += 46 + nameLen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+  }
+  return out;
+}
+
+/** Stream one entry's text to `each`, spending its inflated size from `budget`. */
+async function readEntry(buf: ArrayBuffer, e: ZipEntry, budget: { left: number }, each: (text: string) => void): Promise<void> {
+  if (e.local + 30 > buf.byteLength) return;
+  const v = new DataView(buf);
+  const start = e.local + 30 + v.getUint16(e.local + 26, true) + v.getUint16(e.local + 28, true);
+  const raw = new Uint8Array(buf, Math.min(start, buf.byteLength), Math.max(0, Math.min(e.compressed, buf.byteLength - start)));
+  let stream = new Blob([raw]).stream();
+  if (e.method === 8) stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+  else if (e.method !== 0) return;
+  const reader = stream.getReader();
+  const text = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    budget.left -= value.byteLength;
+    if (budget.left < 0) {
+      void reader.cancel();
+      throw new TooLargeToPreview('inflates past the preview limit');
+    }
+    each(text.decode(value, { stream: true }));
+  }
+}
+
+const MERGE_REF = /<(?:\w+:)?mergeCell\b[^>]*?\bref="([A-Za-z]+\d+):([A-Za-z]+\d+)"/g;
+
+/** Throws TooLargeToPreview when the file would cost the tab too much to parse. */
+export async function checkOfficeBounds(buf: ArrayBuffer, kind: 'docx' | 'xlsx', limit = INFLATE_LIMIT): Promise<void> {
+  const budget = { left: limit };
+  const parts =
+    kind === 'docx'
+      ? /^word\/(document|footnotes|endnotes|comments)\d*\.xml$/
+      : /^xl\/(worksheets\/[^/]+\.xml|sharedStrings\.xml)$/;
+  let merged = 0;
+  for (const e of zipEntries(buf)) {
+    if (!parts.test(e.name)) continue;
+    let carry = '';
+    await readEntry(buf, e, budget, (chunk) => {
+      if (kind !== 'xlsx') return;
+      const s = carry + chunk;
+      let last = 0;
+      for (const m of s.matchAll(MERGE_REF)) {
+        const r = parseRange(`${m[1]}:${m[2]}`);
+        if (r) merged += (Math.abs(r.bottom - r.top) + 1) * (Math.abs(r.right - r.left) + 1);
+        last = m.index + m[0].length;
+      }
+      if (merged > MERGE_LIMIT) throw new TooLargeToPreview('too many merged cells');
+      // A tag cut at the chunk boundary starts in the last few hundred characters.
+      carry = s.slice(Math.max(last, s.length - 300));
+    });
+  }
 }
