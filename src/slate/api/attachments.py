@@ -17,7 +17,6 @@ from starlette.concurrency import run_in_threadpool
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import AttachmentOut
 from slate.api.uploads import BASE64_MAX_CHARS, file_response, read_body
-from slate.api.uploads import CSP as CSP  # api/docs.py serves doc files under it too
 from slate.models import Attachment
 from slate.service import attachments
 from slate.service.items import get_item

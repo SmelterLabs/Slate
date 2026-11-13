@@ -217,7 +217,7 @@ picked file (`service/chat_files.py`, `message_files`, migration `b4f8d2e6a1c9`)
   the file's message through the caller's read filter, so channel access, a project agent's
   share date and members-only apply to the file exactly as to the message; anyone else gets the
   404 of a file that does not exist. Served by `api/uploads.file_response`: `nosniff`,
-  `no-store`, the sandbox CSP, inline only for images, PDFs and text.
+  `no-store`, the sandbox CSP, inline only for images, PDFs and text (never HTML, SVG or XML).
 - **Unsent is private.** Until it is sent only its uploader reads or discards a file
   (`DELETE /message-files/{id}`). `message.file_uploaded` / `message.file_discarded` have the
   uploader as subject and no channel, so `access` shows them to nobody else. One account holds

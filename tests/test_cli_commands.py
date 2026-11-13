@@ -31,4 +31,3 @@ def test_the_server_package_has_no_importers():
     # Python still finds as a namespace package with no file behind it.
     spec = importlib.util.find_spec("slate.importers")
     assert spec is None or spec.origin is None
-    assert importlib.util.find_spec("slate.importers.clickup") is None

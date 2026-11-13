@@ -1820,7 +1820,7 @@ Move a task's attachment into Docs & Files: a new file doc with the bytes as rev
 
 Scope: `read`
 
-The file's bytes; images show inline unless `?download=true`.
+The file's bytes; images, PDFs and plain text show inline unless `?download=true` (HTML, SVG and XML always download).
 
 - Query: `download`
 - Returns: `200`

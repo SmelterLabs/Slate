@@ -101,8 +101,8 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `doc.suggestion_accepted` | A review comment's `suggestion_md` was applied to the page (`quote`, `suggestion`); the page save is its own `doc.updated`. |
 | `doc.unarchived` | An archived doc was restored. |
 | `doc.unpinned_from_top` | A document came off the top of its listing (`before`: at, by). |
-| `doc.updated` | A doc's `title`, `icon` or `body_md` changed (field, before, after); field `version_no` when a page-history version was closed without an edit. |
-| `doc.version_restored` | An older version's title and body were put back (`restored_from`). |
+| `doc.updated` | A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, after); for `body_md`, before/after are `{version_no, chars}`: the page-history version holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field `version_no` when a page-history version was closed without an edit. |
+| `doc.version_restored` | An older version's title and body were put back (`restored_from`); before/after carry `title`, `version_no` and `chars`. |
 
 ## favorite
 

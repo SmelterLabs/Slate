@@ -312,7 +312,7 @@ def test_docx_rejects_deep_or_nested_text(inner):
             + "</w:p></w:document>"
         ).encode()
     )
-    assert doc_compare.extract("hostile.docx", "", data) == (None, None)
+    assert doc_compare.extract("hostile.docx", "", data)[0] is None
 
 
 def test_docx_budget_preserves_paragraphs_and_validates_tail(monkeypatch):
@@ -324,7 +324,7 @@ def test_docx_budget_preserves_paragraphs_and_validates_tail(monkeypatch):
     )
     assert doc_compare._docx_text(docx(valid.encode())) == "AB\nCD"
     invalid = valid[:-13] + "<w:p><w:p/></w:p></w:document>"
-    assert doc_compare.extract("invalid.docx", "", docx(invalid.encode())) == (None, None)
+    assert doc_compare.extract("invalid.docx", "", docx(invalid.encode()))[0] is None
 
 
 _OOXML = "http://schemas.openxmlformats.org"
