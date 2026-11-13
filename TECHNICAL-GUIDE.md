@@ -509,7 +509,18 @@ Design choices and the reason for each, with the alternatives that were rejected
   a guest reads (cards, history, live stream, pages' threads, pickers), and every way a guest
   could reach a workspace agent is refused (`service/guests.py`, `docs/collaboration.md` "Guests
   never see a workspace agent"). Cards a workspace agent made stay visible, because they are the
-  work; their maker shows as nobody.
+  work; their maker shows as nobody. The read side is one scrub (`access.scrub`, applied to every
+  stored event by `access.event_snapshots`), kept honest by `tests/test_guest_boundary.py`, which
+  calls every GET route as a guest; the write side is the write check, which also stops a guest
+  from rewriting or rescheduling a task assigned to a workspace agent.
+- **A project agent works in one project; its chat is that project's.** A guest-role agent has
+  one chat (`agent:<id>`), so sharing it into two projects would let each project's guests read
+  the other's talk with it. `permissions.share` refuses the second project, and an agent left in
+  two by older data has a chat no restricted caller reads. Chosen over a channel per project
+  (`agent:<id>:<section>`), which would add a channel kind across the board, the runner protocol
+  and the adapters for the same guarantee. Members read a project agent's chat only when they
+  see its project; a workspace agent's chat stays a workspace conversation, like General.
+  `docs/chat.md` "Agent chats", `tests/test_guest_chat.py`.
 - **Shared project agents are tagged-only, not intelligent monitors.** `chat.post` supplies an
   implicit mention only for a channel agent whose role is not `guest`. Guest-role agents require
   an explicit mention on posts, threads and follow-ups; edits wake only added mentions. The

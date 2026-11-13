@@ -6,22 +6,22 @@ list. Messages (`messages`) have time-ordered ids, so the id is both the order a
 cursor.
 
 An agent's chat (`agent:<id>`) is a conversation with that agent that is not about a card: a
-question, or something to do in Slate. Members and admins read every agent's chat; a guest (or
-a list-limited token) reads the chats of the agents shared into a section or list it can see,
-at its level there, so a project's guests see what the project's agent says
-(service/access.py `Access.agents`). It lives with the agent (archived while it is
-disabled). For workspace agents (non-guest role), `post` adds the channel agent's handle to
-`mentions`, so its inbox, check-in and runner hear it like an `@mention` without typing the
-handle. Guest-role project agents require an explicit `@handle`: human conversation, mentions
-to others and plain follow-ups never implicitly address them, including in threads. Edits
-wake only newly added explicit mentions (service/chatwake.py).
+question, or something to do in Slate. A workspace agent's chat is read like General (owners,
+admins, members); a project agent's (a guest-role agent, shared into one project only) by
+whoever sees its project, so a project's guests see what the project's agent says
+(service/access.py `Access.channel_level`, docs/chat.md "Agent chats"). It lives with the agent
+(archived while it is disabled). For workspace agents (non-guest role), `post` adds the channel
+agent's handle to `mentions`, so its inbox, check-in and runner hear it like an `@mention`
+without typing the handle. Guest-role project agents require an explicit `@handle`: human
+conversation, mentions to others and plain follow-ups never implicitly address them, including
+in threads. Edits wake only newly added explicit mentions (service/chatwake.py).
 
 - `post` writes `message.posted`; `after` is the message plus `mentions` (handles of accounts
   `@mentioned`) and, for a reply, `thread_followers` (account ids of the thread's earlier
   authors). The inbox, check-in, push and webhooks read those two to route a mention or a reply
   (service/inbox.py `reason_for`, service/checkin.py `why`). `@channel` is not a thing.
 - `edit` (author only) writes `message.edited` with `after.mentions` = only the handles the
-  edit added; `delete` (author only) blanks the body (`message.deleted`).
+  edit added; `delete` (the author, or an owner or admin) blanks the body (`message.deleted`).
 - `react` / `unreact`: one emoji per account per message (`message.reacted|unreacted`).
 - `make_task` files an item from a message (in the channel's list unless told otherwise) and
   links the two (`message.task_created`). Filing one item never creates children (rule 1).

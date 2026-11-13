@@ -263,19 +263,30 @@ Slate without a card.
   drives the role-specific guidance (the scoped roster intentionally omits roles). The board
   uses the already-loaded scoped roster for identities so a new, empty project still has its
   agent in the mention picker and waiting/working line; no additional access is granted.
-- **Who can read it** (`Access.channel_level` for `agent:<id>`): the agent itself (even a guest-role
-  agent); owners, admins and members, all of them (whoever sees General); and a **guest or
-  list-limited token, for each agent shared into a section or list it can see**, at the caller's
-  best level there (`Access.agents`, filled by `access._project_agents` from the agents' `shares`
-  rows against the caller's final `lists`/`sections`). So a project's guests read and talk in its
-  agent's chat and see no other agent's: what the project agent says, the project's guests can
-  see. Only a share counts as "in the project", not being assigned a card there. A view-level
-  guest reads but cannot post (403). It is one channel per agent, not a private DM: what a member
-  says to the project's agent there, the project's guests read too. The read filter matches member
-  access with `LIKE 'agent:%'` (a never-matching pattern when General is not visible) and guests
-  through `visible_channels()` (their project agents plus their own); `list_channels` lists
-  exactly the agent chats `channel_level` allows. The live gate (`EventGate`) closes a stream when
-  an agent's chat drops out of reach (an unshare), like any narrowing.
+- **Who can read it** (`Access.channel_level` for `agent:<id>`). The agent itself, always (even a
+  guest-role agent). A **workspace agent's** chat (non-guest role) is a workspace conversation, like
+  General: owners, admins and members read it, guests and list-limited tokens do not. A **project
+  agent's** chat (a guest-role agent) belongs to its project: whoever sees the project reads it, at
+  their level there (owners and admins; members shared into a private project, or any member when
+  the project is not private; the project's guests and list-limited tokens), and a member outside
+  a private project does not. A project agent works in **one project**: `permissions.share`
+  refuses to share it into a second section, or into a list of another section (422), because
+  its one channel would carry one project's talk to the other's guests. An agent left in two
+  projects by older data has a chat no restricted caller reads (`access._project_agents` skips
+  it) until an admin removes one share. Only a share counts as "in the project", not being
+  assigned a card there. A view-level guest reads but cannot post (403). It is not a private DM:
+  what a member says to the project's agent there, the project's guests read too.
+- **How the read filter applies it** (`access._chat_visible`, used for messages and for the
+  events about them). Members match workspace agents' chats with `LIKE 'agent:%'` minus every
+  project agent's chat (`Access.project_agent_ids`), and get the chats of the project agents of
+  projects they see as plain channels, history included. Guests and list-limited tokens get a
+  project agent's chat only from the moment a share put it into a place they see: messages from
+  before the share stay hidden (a share revoked and granted again moves the line), in the read
+  filter (an `EXISTS` on `shares` dated against the message) and in the live gate
+  (`Access.agent_chat_since`). `visible_channels()` still lists project agents' chats, undated,
+  but only `ChatWake` rows use it. `list_channels` lists exactly the agent chats
+  `channel_level` allows. The live gate (`EventGate`) closes a stream when an agent's chat drops
+  out of reach (an unshare), like any narrowing.
 - **Board:** `components/AgentChatButton.svelte` (a `Dropdown` with the agent avatar's gradient;
   badge = unread across agent chats; `lib/chat.ts` `agentChats`, `channelIcon`, `isAgentChat`).
   Mounted at the right end of the favorites bar (`.favbar-end`, sticky, hidden on a phone) and in

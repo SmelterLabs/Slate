@@ -114,10 +114,12 @@ class Access:
     sections: dict[str, int] | None = None
     general: bool = True  # the General chat channel
     limited: bool = False  # the token narrows the account (Token.limit_json)
-    # Agents whose own chat (`agent:<id>`) a restricted caller reaches without General: those
-    # shared into a section or list the caller can see (a project's agent, for its guests),
+    # Project agents (guest-role agents) whose own chat (`agent:<id>`) this restricted caller
+    # reads: those in one project only (`_project_agents`) whose places the caller can see,
     # with the caller's best level there. None when unrestricted.
     agents: dict[str, int] | None = None
+    # Every enabled project agent: its chat follows its project, never General.
+    project_agent_ids: frozenset[str] = frozenset()
     # When each of those agents was shared into a place the caller sees (the earliest live
     # share): its chat is readable from then on, not before (`agent_chat_since`).
     agent_since: dict[str, datetime] | None = None
@@ -151,13 +153,14 @@ class Access:
         if kind == "section":
             return self.section_level(ref)
         if kind == "agent":
-            # Your own chat; else members and admins (like General); else, for a guest or a
-            # list-limited token, an agent shared into one of the projects it can see.
+            # Your own chat. A project agent's chat (a guest-role agent, in one project only)
+            # belongs to its project: whoever sees the project reads it. A workspace agent's
+            # chat is a workspace conversation, like General (docs/chat.md "Agent chats").
             if ref == self.account_id:
                 return self.cap
-            if self.general:
-                return self.cap
-            return (self.agents or {}).get(ref, 0)
+            if ref in self.project_agent_ids:
+                return (self.agents or {}).get(ref, 0)
+            return self.cap if self.general else 0
         return self.cap if self.general else 0
 
     def agent_chat_since(self, channel: str) -> datetime | None:
@@ -251,7 +254,7 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
     for lid in lists:
         sections.setdefault(section_of[lid], 0)
     restricted_lists = limit and (limit.get("list_ids") or limit.get("section_ids"))
-    agents, agent_since = _project_agents(session, lists, sections, guest=role == Role.guest)
+    agents, agent_since, project_agent_ids = _project_agents(session, lists, sections)
     return Access(
         account.id,
         role,
@@ -262,29 +265,64 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
         limited=bool(limit),
         agents=agents,
         agent_since=agent_since,
+        project_agent_ids=project_agent_ids,
     )
+
+
+def agent_projects(session: Session, agent_id: str) -> set[str]:
+    """The sections (projects) an agent is shared into, directly or through one of their
+    lists."""
+    rows = session.execute(
+        select(Share.scope_kind, Share.scope_id).where(Share.account_id == agent_id)
+    ).all()
+    section_of = dict(
+        session.execute(
+            select(List.id, List.section_id).where(
+                List.id.in_([sid for kind, sid in rows if kind == "list"])
+            )
+        ).all()
+    )
+    return {sid if kind == "section" else section_of.get(sid, sid) for kind, sid in rows}
 
 
 def _project_agents(
-    session: Session, lists: dict[str, int], sections: dict[str, int], *, guest: bool = False
-) -> tuple[dict[str, int], dict[str, datetime]]:
-    """Enabled agents shared into a section or list the caller can see, each with the caller's
-    best level on those places and the earliest such share's date: the guests of a project
-    read and talk in its agent's chat, from the moment it joined the project (a share revoked
-    and granted again starts the clock over). A guest caller reaches only guest agents (a
-    project's own agent); a workspace agent shared into the project stays out of its
-    sight (docs/collaboration.md "Members-only chat")."""
-    q = (
+    session: Session, lists: dict[str, int], sections: dict[str, int]
+) -> tuple[dict[str, int], dict[str, datetime], frozenset[str]]:
+    """Project agents (enabled guest-role agents): the caller's best level on the places one is
+    shared into and the earliest such share's date, for those it can see (a project's guests
+    read and talk in its agent's chat from the moment it joined the project; a share revoked and
+    granted again starts the clock over), plus the ids of all of them. An agent shared into
+    more than one project (`agent_projects`, which `permissions.share` refuses) has a chat
+    nobody restricted reads: it would carry one project's talk to another's guests. A
+    workspace agent is never a project agent (docs/collaboration.md "Members-only chat")."""
+    rows = session.execute(
         select(Share.account_id, Share.scope_kind, Share.scope_id, Share.created_at)
         .join(Account, Account.id == Share.account_id)
-        .where(Account.kind == AccountKind.agent, Account.disabled_at.is_(None))
+        .where(
+            Account.kind == AccountKind.agent,
+            Account.role == Role.guest,
+            Account.disabled_at.is_(None),
+        )
+    ).all()
+    ids = frozenset(
+        session.scalars(
+            select(Account.id).where(
+                Account.kind == AccountKind.agent,
+                Account.role == Role.guest,
+                Account.disabled_at.is_(None),
+            )
+        )
     )
-    if guest:
-        q = q.where(Account.role == Role.guest)
-    rows = session.execute(q).all()
+    section_of = dict(session.execute(select(List.id, List.section_id)).all())
+    projects: dict[str, set[str]] = {}
+    for agent_id, kind, scope_id, _ in rows:
+        place = scope_id if kind == "section" else section_of.get(scope_id, scope_id)
+        projects.setdefault(agent_id, set()).add(place)
     out: dict[str, int] = {}
     since: dict[str, datetime] = {}
     for agent_id, kind, scope_id, created_at in rows:
+        if len(projects[agent_id]) > 1:
+            continue
         lvl = sections.get(scope_id, 0) if kind == "section" else lists.get(scope_id, 0)
         if not lvl:
             continue
@@ -292,7 +330,7 @@ def _project_agents(
             out[agent_id] = lvl
         if agent_id not in since or created_at < since[agent_id]:
             since[agent_id] = created_at
-    return out, since
+    return out, since, ids
 
 
 def _any_private(session: Session) -> bool:
@@ -438,24 +476,31 @@ def _chat_visible(
     lists: list[str],
     sections: list[str],
     members: Any = None,
+    project_chats: list[str] = (),  # type: ignore[assignment]
+    all_project_chats: list[str] = (),  # type: ignore[assignment]
 ) -> Any:
     """Whether a message (`c`: `messages` columns, under any alias) is in a channel the caller
-    reads: one of `channels` (lists, sections, General, the caller's own agent chat), any
-    agent's chat when `agent_chats` is the `agent:%` pattern (members), or a project agent's
-    chat from the moment a share put the agent into a list or section the caller sees. A guest
-    (`members` false) never reads a members-only message (`Message.members_only`)."""
+    reads: one of `channels` (lists, sections, General, the caller's own agent chat, and for a
+    member the chats of the project agents of projects it sees), any workspace agent's chat
+    when `agent_chats` is the `agent:%` pattern (members; `all_project_chats` never match it),
+    or one of `project_chats` from the moment a share put its agent into a list or section the
+    caller sees (guests and list-limited tokens). A guest (`members` false) never reads a
+    members-only message (`Message.members_only`)."""
     placed = or_(
         c.channel.in_(channels),
-        c.channel.like(agent_chats),
-        exists(
-            select(Share.id).where(
-                (literal("agent:") + Share.account_id) == c.channel,
-                Share.created_at <= c.created_at,
-                or_(
-                    and_(Share.scope_kind == "section", Share.scope_id.in_(sections)),
-                    and_(Share.scope_kind == "list", Share.scope_id.in_(lists)),
-                ),
-            )
+        and_(c.channel.like(agent_chats), c.channel.not_in(all_project_chats)),
+        and_(
+            c.channel.in_(project_chats),
+            exists(
+                select(Share.id).where(
+                    (literal("agent:") + Share.account_id) == c.channel,
+                    Share.created_at <= c.created_at,
+                    or_(
+                        and_(Share.scope_kind == "section", Share.scope_id.in_(sections)),
+                        and_(Share.scope_kind == "list", Share.scope_id.in_(lists)),
+                    ),
+                )
+            ),
         ),
     )
     if members is None:
@@ -496,7 +541,13 @@ def read_criteria(state: ORMExecuteState) -> None:
     # here (`chat_channels`); wakes have no date and keep the plain channel list.
     agent_chats = "agent:%" if access.general else "\x00"
     channels = access.visible_channels() or []
+    project_chats = [f"agent:{aid}" for aid, lvl in (access.agents or {}).items() if lvl]
+    all_project_chats = [f"agent:{aid}" for aid in access.project_agent_ids]
     chat_channels = [ch for ch in channels if not ch.startswith("agent:") or ch == f"agent:{me}"]
+    if access.general:
+        # A member reads the chat of a project it sees whole, as it reads the project's channel.
+        chat_channels += project_chats
+        project_chats = []
     full_sections = access.doc_sections()
     seed_views = list(_SEED_VIEW_IDS)
     docs = _visible_docs(lists, access.doc_sections(), access.general)
@@ -510,7 +561,16 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(Section, lambda c: c.id.in_(sections), include_aliases=True),
         with_loader_criteria(
             Message,
-            lambda c: _chat_visible(c, chat_channels, agent_chats, lists, full_sections, members),
+            lambda c: _chat_visible(
+                c,
+                chat_channels,
+                agent_chats,
+                lists,
+                full_sections,
+                members,
+                project_chats,
+                all_project_chats,
+            ),
             include_aliases=True,
         ),
         # A guest is not shown a workspace agent's open turn ("My Agent is working…"): it is
@@ -518,7 +578,10 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(
             ChatWake,
             lambda c: and_(
-                or_(c.channel.in_(channels), c.channel.like(agent_chats)),
+                or_(
+                    c.channel.in_(channels),
+                    and_(c.channel.like(agent_chats), c.channel.not_in(all_project_chats)),
+                ),
                 or_(
                     members,
                     c.account_id.not_in(_workspace_agents()),
@@ -535,7 +598,14 @@ def read_criteria(state: ORMExecuteState) -> None:
                 c.subject_id.in_(
                     select(_messages.c.id).where(
                         _chat_visible(
-                            _messages.c, chat_channels, agent_chats, lists, full_sections, members
+                            _messages.c,
+                            chat_channels,
+                            agent_chats,
+                            lists,
+                            full_sections,
+                            members,
+                            project_chats,
+                            all_project_chats,
                         )
                     )
                 ),

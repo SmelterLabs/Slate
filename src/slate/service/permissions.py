@@ -17,7 +17,18 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from slate.models import Account, Event, Invitation, List, Role, Section, Share, ShareLevel, utcnow
+from slate.models import (
+    Account,
+    AccountKind,
+    Event,
+    Invitation,
+    List,
+    Role,
+    Section,
+    Share,
+    ShareLevel,
+    utcnow,
+)
 from slate.service import access
 from slate.service.accounts import Principal, get_account
 from slate.service.core import Actor, apply_change
@@ -135,6 +146,8 @@ def share(
             Share.scope_id == scope_id,
         )
     )
+    if level is not None and existing is None:
+        _one_project(session, account, scope_kind, scope_id)
     with apply_change(session, actor) as cx:
         changed = (
             existing is not None if level is None else existing is None or existing.level != level
@@ -160,6 +173,25 @@ def share(
             )
         cx.set(existing, "level", level, "share.changed")
         return existing
+
+
+def _one_project(session: Session, account: Account, scope_kind: str, scope_id: str) -> None:
+    """A project's agent (a guest-role agent) works in one project: its own chat is that
+    project's conversation with it, so a second project would read the first one's."""
+    if account.kind != AccountKind.agent or _role(account) != Role.guest:
+        return
+    target = (
+        scope_id
+        if scope_kind == "section"
+        else session.scalar(select(List.section_id).where(List.id == scope_id))
+    )
+    others = access.agent_projects(session, account.id) - {target}
+    if others:
+        raise Invalid(
+            f"{account.display_name} is already the agent of another project; a project agent "
+            "works in one project only (its chat is that project's). Remove it there first, or "
+            "add another agent for this project"
+        )
 
 
 def revoke_share(session: Session, actor: Actor, *, by: Principal, share_id: str) -> None:

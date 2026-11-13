@@ -381,6 +381,7 @@ INFRASTRUCTURE = {
     "slate.service.errors": set(),
     # The permission hooks (read filter, write check) and their helpers.
     "slate.service.access": {
+        "agent_projects",
         "hidden_agents",
         "reading_as",
         "scrub",

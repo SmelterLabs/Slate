@@ -152,3 +152,108 @@ def test_an_owner_or_admin_can_take_a_message_down(client, alex, project, db):
     assert "a pasted secret" not in _bodies(client, gh, project["key"])
     ev = db.query(Event).filter(Event.type == "message.deleted").one()
     assert ev.before_json["body_md"] == "a pasted secret"
+
+
+# --- A project's agent chat belongs to that project ---------------------------------------
+
+
+@pytest.fixture
+def two_projects(client, alex):
+    a, b = _section(client, alex, "Project A"), _section(client, alex, "Project B")
+    bot, bh = _acct(client, alex, "other-agent", "agent", "guest")
+    guest_a, gah = _acct(client, alex, "guest-a", "person", "guest")
+    _share(client, alex, bot["id"], a["id"])
+    _share(client, alex, guest_a["id"], a["id"])
+    return {"a": a, "b": b, "bot": bot, "bot_h": bh, "guest_a": gah}
+
+
+def test_a_project_agent_joins_one_project_only(client, alex, two_projects):
+    bot, b = two_projects["bot"], two_projects["b"]
+    r = client.put(
+        f"{API}/shares",
+        json={
+            "account_id": bot["id"],
+            "scope_kind": "section",
+            "scope_id": b["id"],
+            "level": "edit",
+        },
+        headers=alex,
+    )
+    assert r.status_code == 422, r.text
+    assert "one project" in r.text
+    lst = client.post(f"{API}/lists", json={"section_id": b["id"], "name": "B work"}, headers=alex)
+    r = client.put(
+        f"{API}/shares",
+        json={
+            "account_id": bot["id"],
+            "scope_kind": "list",
+            "scope_id": lst.json()["id"],
+            "level": "view",
+        },
+        headers=alex,
+    )
+    assert r.status_code == 422, r.text
+    # A list inside its own project is fine, and so is changing its level there.
+    own = client.post(
+        f"{API}/lists", json={"section_id": two_projects["a"]["id"], "name": "A work"}, headers=alex
+    ).json()
+    r = client.put(
+        f"{API}/shares",
+        json={
+            "account_id": bot["id"],
+            "scope_kind": "list",
+            "scope_id": own["id"],
+            "level": "view",
+        },
+        headers=alex,
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_an_agent_left_in_two_projects_shows_neither_its_chat(client, alex, db, two_projects):
+    from slate.models import Share, Source
+    from slate.service.core import Actor, apply_change
+
+    bot, b = two_projects["bot"], two_projects["b"]
+    key = f"agent:{bot['id']}"
+    guest_b, gbh = _acct(client, alex, "guest-b", "person", "guest")
+    _share(client, alex, guest_b["id"], b["id"])
+    # Two shares made before the one-project rule existed.
+    with apply_change(db, Actor(bot["id"], Source.system)) as cx:
+        cx.create(
+            Share(
+                account_id=bot["id"],
+                scope_kind="section",
+                scope_id=b["id"],
+                level="edit",
+                created_by=bot["id"],
+            ),
+            "share.granted",
+        )
+    _post(client, alex, key, "@other-agent for B: keep the budget quiet")
+    for h in (two_projects["guest_a"], gbh):
+        r = client.get(f"{API}/channels/{key}/messages", headers=h)
+        assert r.status_code in (403, 404), r.text
+        keys = {c["key"] for c in client.get(f"{API}/channels", headers=h).json()}
+        assert key not in keys
+    assert any("keep the budget quiet" in b for b in _bodies(client, alex, key))
+
+
+def test_a_project_agents_chat_is_for_those_who_see_the_project(client, alex, two_projects):
+    bot, a = two_projects["bot"], two_projects["a"]
+    key = f"agent:{bot['id']}"
+    _post(client, alex, key, "@other-agent the A launch date is Friday")
+    outsider, oh = _acct(client, alex, "outsider", "person", "member")
+    insider, ih = _acct(client, alex, "insider", "person", "member")
+    _share(client, alex, insider["id"], a["id"])
+    assert client.get(f"{API}/channels/{key}/messages", headers=oh).status_code in (403, 404)
+    assert key not in {c["key"] for c in client.get(f"{API}/channels", headers=oh).json()}
+    assert "@other-agent the A launch date is Friday" in _bodies(client, ih, key)
+    assert "@other-agent the A launch date is Friday" in _bodies(
+        client, two_projects["guest_a"], key
+    )
+    assert "@other-agent the A launch date is Friday" in _bodies(client, two_projects["bot_h"], key)
+    # A workspace agent's chat stays a workspace conversation: every member reads it.
+    ws, wh = _acct(client, alex, "my-agent", "agent", "member")
+    _post(client, alex, f"agent:{ws['id']}", "Hello agent")
+    assert _bodies(client, oh, f"agent:{ws['id']}") == ["Hello agent"]
