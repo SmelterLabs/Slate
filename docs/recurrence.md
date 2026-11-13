@@ -127,9 +127,8 @@ no date left ends (`recurrence.ended`). `copy_checklists` copies the previous in
 into each spawned item. `on_done` views have empty `next_occurrences`; `preview(trigger=on_done)`
 shows the chain "if each is done on its due day, from today". `GET
 /recurrences/upcoming?start&end&list_id` (≤ 400 days, ≤ 1000 rows; MCP `upcoming`) lists dates
-active `schedule` rules will fill from their cursor on, which the calendar (dashed
-`.cal-chip.ghost`) and timeline (`.tl-ghost` on the newest instance's row) draw; both refetch when
-`board.recurRev` bumps on any `recurrence.*` event. The board loads every rule at start
+active `schedule` rules will fill from their cursor on, for an agent or client that draws future
+repeats on a calendar; the board does not call it. The board loads every rule at start
 (`board.loadRules`) for the card label (`lib/rrule.ts` `shortRule`).
 
 **REST** (`/api/v1/recurrences`): `GET` (filters `list_id`, `include_ended`), `POST` (201),

@@ -32,11 +32,9 @@ One look across every screen, ClickUp-style, with a violet brand.
 - **Tags look the same everywhere**: `TagPill.svelte` (the tag's own colour, else a stable palette
   pick from `lib/cards.ts tagColor`) is used by the card, list row, table, task window tag editor,
   My Work and the tag manager. Don't hand-roll `.chip` tags.
-- **Every layout has the same task actions**: board cards, list rows, table rows, calendar chips and
-  timeline rows all open the task window on click and the same `CardMenu` on ⋯ / right-click. In the
-  table, the name opens the task; the pencil renames in place. The calendar has no room for a ⋯, so
-  a right-click opens the menu at the pointer (`.cal-point` holds an invisible trigger); a timeline
-  row shows its ⋯ at the end of the name cell on hover.
+- **Every layout has the same task actions**: board cards, list rows and table rows all open the
+  task window on click and the same `CardMenu` on ⋯ / right-click. In the table, the name opens the
+  task; the pencil renames in place.
 - **Scoped class names must not reuse global ones**: Svelte scopes a component's `<style>`, but
   app.css rules on `.row`, `.card`, `.chip`, `.menu`, `.banner` still reach any element with that
   class. `.row` is the List layout's row grid, so an inner element given that class renders as a
@@ -47,8 +45,9 @@ One look across every screen, ClickUp-style, with a violet brand.
   or selection, one per press.
 - **Shared pieces**: `Skeleton.svelte` (first load), `EmptyState.svelte` (icon, title, hint,
   optional action buttons as children). ScopePage shows "No tasks match" when a search or filter
-  hides everything, and "Nothing here yet" for empty list and table layouts (board and calendar keep
-  their own empty columns and days).
+  hides everything, and "Nothing here yet" for empty list and table layouts (the board keeps its
+  own empty columns). `PageLoad.svelte` stands in for an on-demand page while it loads (see
+  `docs/board.md`).
 - **Build revision** (`src/slate/build.py`, `lib/build.svelte.ts`): `/healthz` carries `rev` (the
   commit count of the checked-out branch, `git rev-list --count HEAD`, so it only grows) and
   `commit` (short sha). The Docker build writes `src/slate/build.json` in its own small `rev` stage
@@ -125,7 +124,7 @@ already maps `.webmanifest` to `application/manifest+json`).
   from a mouse, so a long press (350 ms, 8 px slop) on any `draggable="true"` element dispatches the
   same `dragstart`/`dragenter`/`dragover`/`dragleave`/`drop`/`dragend` events (a `DragEvent` with a
   stand-in `dataTransfer`) to whatever is under the finger. Every mouse drop target (board columns,
-  list and table groups, calendar days, timeline tray, favorites bar, nav lists, docs tree) works by
+  list and table groups, favorites bar, nav lists, docs tree) works by
   finger with no per-component code. A clone follows the finger (`.touch-ghost`), the original gets
   `.touch-lifted`, `html.touch-dragging` turns off the board's scroll-snap; `autoScroll` scrolls the
   nearest scroller near an edge (falling back to the boxes the drag started in when the finger is
@@ -135,9 +134,7 @@ already maps `.webmanifest` to `application/manifest+json`).
   `.touch-pressed` keeps selection off) until the finger lifts: iOS 15+ and Android start their own
   drag from a long press on a draggable, which claims the touch and sends `touchcancel`, so
   cancelling its `dragstart` alone comes too late. `haptic()` vibrates on Android and flips a hidden
-  `<input switch>` for iOS 18's haptic. Pointer drags (timeline bars) call `holdToDrag(e, start)`:
-  immediate for mouse/pen, after the same hold for a finger, then page scrolling is blocked until
-  the finger lifts. E2E: `e2e/touch.spec.ts` drives real touch through CDP
+  `<input switch>` for iOS 18's haptic. E2E: `e2e/touch.spec.ts` drives real touch through CDP
   `Input.dispatchTouchEvent` (note: opening a CDP session resets `context.setOffline`).
 - **A button that must not start a drag** inside a draggable card (the copy-ID chip, `.card-copy`):
   make it `draggable="true"` itself with a `dragstart` that calls `preventDefault()` and
