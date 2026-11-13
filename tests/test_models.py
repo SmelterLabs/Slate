@@ -87,11 +87,11 @@ def test_event_ids_sort_in_creation_order():
     assert all(re.fullmatch(r"[0-9A-Za-z]{12}", i) for i in ids)
 
 
-def test_item_kind_is_task_or_doc():
+def test_item_kind_is_task_only():
     _seed_list()
-    _insert_item("item00000001", kind="doc")
+    _insert_item("item00000001", kind="task")
     with pytest.raises(IntegrityError):
-        _insert_item("item00000002", kind="page")
+        _insert_item("item00000002", kind="doc")
 
 
 def test_item_depth_is_at_most_four():

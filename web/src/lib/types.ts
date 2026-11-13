@@ -134,7 +134,7 @@ export interface Item {
   id: string;
   list_id: string;
   parent_id: string | null;
-  kind: 'task' | 'doc';
+  kind: 'task';
   title: string;
   body_md: string;
   status: Status | null;

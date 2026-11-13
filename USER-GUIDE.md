@@ -240,7 +240,7 @@ Agents use the same channels through `slate_chat` (MCP) or `/channels` (REST), a
 - **Revisions.** A file is never replaced, it gets its next revision: **Upload new revision** (or drop a file onto the page). You must say **what changed**, in one line; for a file Slate cannot compare that line is the only diff there is, and it shows under the file (`Rev 3: Updated the totals on page 2`). The old revision stays.
 - **Revisions panel** (the clock): every revision with who, when, size and its note folded under a caret. Click one to look at it (a banner says *Viewing revision 2 of 4* with a way back), **Download** it, or **Make current** to bring it back as a new revision. Nothing is ever deleted.
 - **Compare with current** (on any older revision, or in the banner) shows what changed the way the type allows. A text file (notes, a G-code program, JSON) shows side by side or inline. A **spreadsheet or CSV** shows the newer table with each changed cell painted: old value struck through, new value after it, added rows green, removed rows listed under it; one tab per sheet. A **PDF or DOCX** compares the words and numbers pulled out of both revisions, labelled approximate because layout and pictures are not compared; a changed figure still shows. Two **photos** sit on top of each other with a swipe slider. Anything else (DWG, ZIP) shows the two revisions and their notes. The From and To pickers compare any two revisions.
-- **Search** finds a file by what is inside it too: text files, spreadsheets (including formulas) cell by cell and the text of PDFs and DOCX files are read once on upload. A file uploaded before Slate could read its type is found by content only after an administrator runs the text backfill (`slate backfill-doc-text` on the server). A very large spreadsheet, Word file or PDF (more than the server reads for search, 64 MB unpacked unless the administrator changed it) still uploads, opens and downloads as usual; it is just not searchable or comparable, and its history row says **not searchable**.
+- **Search** finds a file by what is inside it too: text files, spreadsheets (including formulas) cell by cell and the text of PDFs and DOCX files are read once on upload. A very large spreadsheet, Word file or PDF (more than the server reads for search, 64 MB unpacked unless the administrator changed it) still uploads, opens and downloads as usual; it is just not searchable or comparable, and its history row says **not searchable**.
 - **Page history** has a **Side by side** tab next to *Changes since*.
 
 **Finding and sorting.** Above the tree, chips narrow it to **Pages** or **Files** (and files to PDFs, Sheets, Images, Text, Other); the sort menu orders every level by tree order, by what changed most recently, or by name. Tags used on documents show as chips too: one click keeps only the documents carrying that tag. The filter is remembered on this device.
@@ -509,23 +509,3 @@ What you say, and the rule an agent writes (the start date anchors "every other"
 | "Change the AC filter on the 1st of every month" | `FREQ=MONTHLY;BYMONTHDAY=1` | `2026-11-01` |
 | "Weekly review every Friday at 3 pm" | `FREQ=WEEKLY;BYDAY=FR;BYHOUR=15` | today |
 | "Monthly audit on the last weekday of the month" | `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` | today |
-
-## Importing from ClickUp
-
-To move from ClickUp, you (or an agent) copy your ClickUp workspace into Slate with a command on the server: `slate import clickup --team <workspace id>` with the ClickUp API token in `CLICKUP_TOKEN` prints a dry-run report and writes nothing; add `--apply` to write it. Running it again later is safe: tasks that came over before are updated, not doubled, and comments and checklists already there are not added twice. A mapping file (`--mapping FILE`) says which ClickUp list goes where; the options are in `docs/importer.md`.
-
-### The dry-run report
-
-The dry run is the plan: it reads ClickUp and writes nothing. Read it before you run the command again with `--apply`.
-
-- **Destinations:** how many tasks land in each Slate list, and each list's columns. Without a mapping file every ClickUp list keeps its name, in a section named after its ClickUp space. A mapping file can send lists elsewhere, and its `mirror` option gathers every task whose name starts with a prefix you choose into one shared list, tagged. Closed ClickUp tasks come across archived, so their history is kept but they stay off the board.
-- **Recurrence rules:** a chore kept in ClickUp as a run of dated copies (three or more tasks with the same name on a regular schedule) becomes one rule, written in plain words, for example "every 2 weeks on Wednesday, starting Wed Nov 11". Only the copies due in the next two weeks are imported; the rule makes the rest as they come up. Check each sentence: a wrong one is easier to fix now.
-- **Not collapsed:** same-named tasks whose dates follow no clean schedule. They come across as separate dated tasks.
-- **Lapsed:** a regular schedule whose copies are all closed. No rule is made; the copies come across as history.
-- **Twins:** closed exact copies of a task in another list. They are skipped.
-- **Dropped:** the later dated copies the rules replace.
-- **Flattened:** subtasks deeper than four levels. Slate nests four deep, so anything below that moves up under an ancestor, with a note. A subtask whose parent is not imported becomes a top-level task, also with a note.
-- **Unassigned:** tasks assigned to someone without a Slate account. They arrive with no assignee.
-- **Unmapped:** ClickUp lists that are not imported at all.
-
-Every imported item keeps a footer line with its ClickUp link, and ClickUp comments arrive as comments with the original author and time at the top.

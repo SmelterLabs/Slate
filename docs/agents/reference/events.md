@@ -99,7 +99,6 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `doc.revision_pinned` | A file doc's revision was marked as the one in use (`after`: revision_no, note; `before`: the previous pin or null). |
 | `doc.revision_unpinned` | The pin came off a file doc (`before`: what was pinned). |
 | `doc.suggestion_accepted` | A review comment's `suggestion_md` was applied to the page (`quote`, `suggestion`); the page save is its own `doc.updated`. |
-| `doc.text_extracted` | Text was extracted for an older revision by `slate backfill-doc-text` (`revision_no`, `chars`); search and compare can see inside it now. |
 | `doc.unarchived` | An archived doc was restored. |
 | `doc.unpinned_from_top` | A document came off the top of its listing (`before`: at, by). |
 | `doc.updated` | A doc's `title`, `icon` or `body_md` changed (field, before, after); field `version_no` when a page-history version was closed without an edit. |

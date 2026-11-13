@@ -197,21 +197,19 @@ block after the shell in `app.css`; phone rows are 40 px tall and the bar hides 
 
 ## ClickUp parity: dependencies, estimates, tags, Table
 
-**Schema** (migration `20261023_2022_custom_fields_links_templates`): `items.estimate_minutes`;
-`item_links` (from blocks to, or relates; unique, not self). The `fields` and `item_field_values`
-tables it also creates are dropped by `a7c3e9d1f5b2`, `status_templates` by `c2e7a9d4b6f1`: custom
-fields and status templates are not part of Slate.
+**Schema**: `items.estimate_minutes`; `item_links` (from blocks to, or relates; unique, not self).
+Custom fields and status templates are not part of Slate.
 
 **Estimates.** `PATCH /items/{id}` and `POST /items` take `estimate_minutes` (minutes, null clears).
 Item output carries `estimate_minutes`, `blocked_by`, `blocking`, `related` and `blocked` (waits on
 an open item).
 
 **Links.** `POST /items/{id}/links {kind: blocks|blocked_by|relates|duplicate_of|duplicated_by,
-other}` (`duplicates` is stored from the copy to the original, migration `9d41c7e2a6b8`); DELETE
+other}` (`duplicates` is stored from the copy to the original); DELETE
 takes `?kind=&other=`. Both items get `item.linked`/`item.unlinked`. A blocks-cycle is refused
 (422). `GET /items?blocked=true` and the view filter `blocked` use `blocked_item_ids()`.
 
-**Blocked / unblocked** (migration `b7d3e91c4a20`, `items.blocked_since`). Blocked is derived (an
+**Blocked / unblocked** (`items.blocked_since`). Blocked is derived (an
 open blocker: not done/cancelled, not archived; trash archives) and never set by hand.
 `core.apply_change` calls `links.settle(change)` after the block's writes and before commit, under
 `access.unrestricted` (a list-limited agent finishing a blocker must still clear a task in another
