@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, seed } from './support';
+import { api, countRequests, seed } from './support';
 
 async function login(page: Page, path: string, state = 'active') {
   await page.addInitScript(({ token, state }) => {
@@ -40,6 +40,9 @@ for (const state of ['active', 'hidden', 'unfocused']) {
     const key = `section:${section.id}`;
     const item = await api('POST', '/items', { title: `Cover chat ${state}`, list_id: seed().listId });
     const message = await api('POST', `/channels/${key}/messages`, { body_md: 'Visible rectangle behind the task dialog' }, seed().agent);
+    // The board's clock is ours to run: past the exposure dwell and the read batch in one step.
+    await page.clock.install();
+    const reads = countRequests(page, 'POST', `/channels/${key}/read`);
     await login(page, `/#/section/${section.id}/chat?task=${item.id}`, state);
     await expect(page.getByRole('button', { name: 'Close task', exact: true })).toBeVisible();
     const article = page.locator(`.chat-main [data-message="${message.id}"]`);
@@ -50,13 +53,15 @@ for (const state of ['active', 'hidden', 'unfocused']) {
       const r = node.getBoundingClientRect();
       return [0.2, 0.8].every(y => !node.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height * y)));
     })).toBe(true);
-    await page.waitForTimeout(800);
+    await page.clock.runFor(2000);
+    expect(reads(), 'covered by the task window: nothing is read').toBe(0);
     expect((await api('GET', `/channels/${key}`)).unread).toBe(1);
     await page.getByRole('button', { name: 'Close task', exact: true }).click({ position: { x: 5, y: 5 } });
     await expect(page.getByRole('button', { name: 'Close task', exact: true })).toHaveCount(0);
     expect(await article.boundingBox()).toEqual(before);
     if (state !== 'active') {
-      await page.waitForTimeout(800);
+      await page.clock.runFor(2000);
+      expect(reads(), `uncovered but ${state}: nothing is read`).toBe(0);
       expect((await api('GET', `/channels/${key}`)).unread).toBe(1);
       await page.evaluate(() => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });

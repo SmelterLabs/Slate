@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
+import { api, BASE_URL, countRequests, seed, signIn } from './support';
 
 async function login(page: Page, token: string, path: string) {
   await signIn(page, token);
@@ -21,13 +21,18 @@ test('background mount preserves unread; focused viewport excludes unopened repl
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
     document.hasFocus = () => false;
   });
+  // The board's clock is ours to run: past the exposure dwell and the read batch in one step.
+  await page.clock.install();
+  const reads = countRequests(page, 'POST', `/channels/${key}/read`);
   await login(page, token, `/#/section/${section.id}/chat`);
   await expect(page.getByText('Workshop update 51', { exact: true })).toBeVisible();
-  await page.waitForTimeout(900);
+  await page.clock.runFor(2000);
+  expect(reads(), 'hidden and unfocused: nothing is read').toBe(0);
   expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(54);
   // Either condition by itself must block both old and newly arriving messages.
   await page.evaluate(() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); });
-  await page.waitForTimeout(650);
+  await page.clock.runFor(2000);
+  expect(reads(), 'focused but hidden: nothing is read').toBe(0);
   expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(54);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
@@ -36,7 +41,8 @@ test('background mount preserves unread; focused viewport excludes unopened repl
   });
   await api('POST', `/channels/${key}/messages`, { body_md: 'Arrived while unfocused' });
   await expect(page.getByText('Arrived while unfocused', { exact: true })).toBeVisible();
-  await page.waitForTimeout(650);
+  await page.clock.runFor(2000);
+  expect(reads(), 'visible but unfocused: nothing is read').toBe(0);
   expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(55);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });

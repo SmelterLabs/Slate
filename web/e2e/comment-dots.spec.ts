@@ -45,8 +45,13 @@ test('gray for an agent, blue for a person, pulsing for a mention; opening clear
   await expect(card).toBeVisible();
   await expect(card.locator('[data-dot]')).toHaveCount(0);
 
-  // My own comment never lights it.
+  // My own comment never lights it. An agent's comment on another card, made after it, does:
+  // once that dot shows, the board has reloaded the dots since my comment.
   await api('POST', `/items/${item.id}/comments`, { body_md: 'Friday.' });
-  await page.waitForTimeout(600);
+  const other = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Order the cake' });
+  const otherCard = page.locator('.card', { hasText: 'Order the cake' });
+  await expect(otherCard).toBeVisible();
+  await api('POST', `/items/${other.id}/comments`, { body_md: 'Chocolate?' }, agent);
+  await expect(otherCard.locator('[data-dot="agent"]')).toBeVisible();
   await expect(card.locator('[data-dot]')).toHaveCount(0);
 });

@@ -1,7 +1,7 @@
 // Reminders and notification settings: set a reminder from the task window, see it on the chip
 // and in the history, remove it; choose the digest hour and push reasons (account prefs).
 import { expect, test } from '@playwright/test';
-import { api, signIn } from './support';
+import { api, countRequests, signIn } from './support';
 
 test('remind me from the task window, then remove it', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Example Project', audience: 'personal' });
@@ -12,16 +12,11 @@ test('remind me from the task window, then remove it', async ({ page }) => {
     due_at: '2030-01-09T23:00:00Z',
   });
 
-  let loads = 0;
-  page.on('request', (r) => {
-    if (r.url().endsWith(`/items/${item.id}/reminders`) && r.method() === 'GET') loads++;
-  });
+  const loads = countRequests(page, 'GET', `/items/${item.id}/reminders`);
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const modal = page.getByRole('dialog', { name: /Pay the water bill/ });
   await expect(modal).toBeVisible();
-  await page.waitForTimeout(500);
-  expect(loads, 'the reminder chips load once, not in a loop').toBeLessThanOrEqual(2);
 
   await modal.getByRole('button', { name: 'Remind me' }).click();
   await page.getByLabel('Reminder note').fill('Autopay is off');
@@ -38,6 +33,12 @@ test('remind me from the task window, then remove it', async ({ page }) => {
   // A reminder set elsewhere (an agent, another device) shows up live.
   await api('POST', `/items/${item.id}/reminders`, { at: '2030-01-08T15:00:00Z' });
   await expect(chip).toHaveCount(2);
+  // The chips load once per change, not in a loop: a later change (a comment, which refreshes
+  // the open task once) reaches the window, and at most that one load happened meanwhile.
+  const settled = loads();
+  await api('POST', `/items/${item.id}/comments`, { body_md: 'Autopay stays off this month' });
+  await expect(modal.getByText('Autopay stays off this month')).toBeVisible();
+  expect(loads() - settled, 'the reminder chips load once per change, not in a loop').toBeLessThanOrEqual(1);
 
   await modal.getByRole('button', { name: /Remove reminder 1 day before due/ }).click();
   await expect(chip).toHaveCount(1);

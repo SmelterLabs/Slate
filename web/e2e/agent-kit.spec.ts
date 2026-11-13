@@ -122,14 +122,16 @@ test('the TypeScript client runs the work loop: next, heartbeat, finish, agent s
   // Only this test's tasks (a tag of their own), so the seed's tasks for the agent stay as they are.
   const scope = { tag: 'work-loop-e2e' };
 
+  // Follow the stream from a cursor taken now: the tasks filed next reach it whether they land
+  // before the stream is live (replayed) or after (pushed), so nothing races its start.
+  const since = (await api<{ next_since: string }>('GET', '/checkin?limit=1', undefined, agentToken)).next_since;
   const abort = new AbortController();
   const hints: string[] = [];
   const following = (async () => {
-    for await (const m of agent.agentStream(undefined, { signal: abort.signal })) {
+    for await (const m of agent.agentStream(since, { signal: abort.signal })) {
       if (m.event === 'work') hints.push(String(m.data.item_id));
     }
   })().catch(() => {});
-  await new Promise((r) => setTimeout(r, 300)); // let the stream go live
   const first = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Work loop one',

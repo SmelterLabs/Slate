@@ -78,6 +78,20 @@ export async function streamLive(page: Page): Promise<void> {
 }
 
 /**
+ * Count the requests the page sends from now on with `method` to a path ending in `suffix`
+ * (matched decoded, so `/channels/section:abc/read` works). A request is counted as the page
+ * sends it, so a check made after the page has handled an input sees what that input sent;
+ * a test proves something was NOT sent by waiting for its trigger to finish, then reading 0.
+ */
+export function countRequests(page: Page, method: string, suffix: string): () => number {
+  let n = 0;
+  page.on('request', (r) => {
+    if (r.method() === method && decodeURIComponent(new URL(r.url()).pathname).endsWith(suffix)) n++;
+  });
+  return () => n;
+}
+
+/**
  * Open the More group of the left menu (in `scope`, the page by default) if it is closed. The
  * board remembers More per account, so a blind click could close it instead.
  */

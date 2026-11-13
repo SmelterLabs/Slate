@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, seed, signIn } from './support';
+import { api, countRequests, seed, signIn } from './support';
 
 async function prepare(page: Page) {
   const section = await api('POST', '/sections', { name: `Long note review ${Date.now()}`, audience: 'work' });
@@ -7,10 +7,14 @@ async function prepare(page: Page) {
   const root = await api('POST', `/channels/${channel}/messages`, { body_md: Array.from({ length: 80 }, (_, i) => `Paragraph ${i}: an intentionally lengthy project update.`).join('\n\n') }, seed().agent);
   await api('POST', `/channels/${channel}/messages`, { body_md: 'Unopened reply must remain unread', parent_id: root.id }, seed().agent);
   await signIn(page);
+  // The board's clock is ours to run: past the exposure dwell and the read batch in one step.
+  await page.clock.install();
+  const reads = countRequests(page, 'POST', `/channels/${channel}/read`);
   await page.goto(`/#/section/${section.id}/chat`);
   const article = page.locator(`.chat-main [data-message="${root.id}"]`);
   await expect(article).toBeVisible();
-  await page.waitForTimeout(800); // Longer than exposure dwell: a partial long note is not a read.
+  await page.clock.runFor(2000);
+  expect(reads(), 'a long note only partly in view is not read').toBe(0);
   expect((await api('GET', `/channels/${channel}`)).unread).toBe(2);
   return { article, channel };
 }

@@ -109,17 +109,23 @@ test('a message still sending when the page reloads does not come back as a draf
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space 4', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Chores' });
   await signedIn(page, `/#/list/${list.id}/chat`, { ready: true });
-  // Hold the send long enough that the reload lands while it is still in flight.
+  // Hold the send until the page has reloaded, so the reload lands while it is in flight.
+  let release = () => {};
+  const reloaded = new Promise<void>((r) => (release = r));
+  let held = false;
   await page.route('**/api/v1/channels/*/messages', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
-    await new Promise((r) => setTimeout(r, 1500));
+    held = true;
+    await reloaded;
     await route.continue().catch(() => {});
   });
   const box = page.getByRole('textbox', { name: 'Message #Chores' });
   await box.fill('Take the bins out');
   await box.press('Enter');
   await expect(box).toHaveValue('');
+  await expect.poll(() => held, { message: 'the send is in flight' }).toBe(true);
   await page.reload();
+  release();
   await expect(box).toHaveValue('');
   expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('slate.draft.')).map((k) => localStorage.getItem(k)))).not.toContain(
     'Take the bins out',
