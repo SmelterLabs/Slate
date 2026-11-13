@@ -480,6 +480,9 @@ def automation_view(
     session: Session, rule: Automation, stats: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     stats = stats or run_stats(session, [rule.id])[rule.id]
+    actions = rule.actions_json
+    if not access.reads_hook_urls(session, rule.created_by):
+        actions = access.masked_hook_urls(actions)
     return {
         "id": rule.id,
         "name": rule.name,
@@ -487,7 +490,7 @@ def automation_view(
         "section_id": rule.section_id,
         "trigger": rule.trigger_json,
         "conditions": rule.conditions_json or [],
-        "actions": rule.actions_json,
+        "actions": actions,
         "enabled": rule.enabled,
         "signed": bool(rule.secret_enc),
         "webhook_secret": getattr(rule, "new_secret", None),
@@ -644,7 +647,10 @@ def update_automation(
     if "conditions" in changes:
         values["conditions_json"] = clean_conditions(session, changes["conditions"])
     if "actions" in changes:
-        values["actions_json"] = clean_actions(session, changes["actions"])
+        raw = changes["actions"]
+        if not access.reads_hook_urls(session, rule.created_by):
+            raw = _keep_hidden_urls(rule.actions_json, raw)
+        values["actions_json"] = clean_actions(session, raw)
     if "enabled" in changes:
         if changes["enabled"] is None:
             raise Invalid("enabled cannot be null")
@@ -661,6 +667,26 @@ def update_automation(
             cx.record("automation.secret_rotated", subject_id=rule.id, covers=[rule])
     rule.new_secret = secret
     return rule
+
+
+def _keep_hidden_urls(stored: Any, incoming: Any) -> Any:
+    """A caller who reads a webhook action's address as its host only (`automation_view`) sends
+    that host back when it edits the actions: such an action keeps the address it hides (the
+    rule's webhook at the same position first, else the first one on the same host)."""
+    if not isinstance(incoming, list):
+        return incoming
+    hidden = [a["url"] for a in stored or [] if a.get("type") == "webhook" and a.get("url")]
+    out, n = [], 0
+    for action in incoming:
+        if isinstance(action, dict) and action.get("type") == "webhook":
+            url = action.get("url")
+            first = hidden[n : n + 1]
+            n += 1
+            kept = next((u for u in first + hidden if access.webhook_host(u) == url), None)
+            if kept is not None:
+                action = {**action, "url": kept}
+        out.append(action)
+    return out
 
 
 def delete_automation(session: Session, actor: Actor, automation_id: str) -> None:

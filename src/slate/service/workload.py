@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from slate.dates import LOCAL, local_today
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     Capacity,
@@ -28,7 +29,6 @@ from slate.models import (
 )
 from slate.service import access
 from slate.service.core import Actor, apply_change
-from slate.service.due import SYSTEM_HANDLE
 from slate.service.errors import Forbidden, Invalid, NotFound
 
 MAX_DAYS = 92
