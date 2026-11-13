@@ -2,6 +2,7 @@
   // How much one person or agent can take on: hours a day (for time estimates), tasks a day,
   // and the days they work. Empty = no limit in that unit.
   // Opened from the Agents page. Saves in one PATCH.
+  import '../capacity.css'; // loads with the Agents page (lib/lazy.svelte.ts)
   import { board } from '../lib/store.svelte';
   import type { Account } from '../lib/types';
   import { capacityOf } from '../lib/workload';

@@ -7,6 +7,7 @@
   // Live without polling (AGENTS.md rule 6): a health.* event (a poller started failing, or
   // works again) reloads at once; any other event reloads at most every THROTTLE_MS, since
   // activity is what moves the numbers. Refresh reloads by hand.
+  import '../../health.css'; // loads with this page (lib/lazy.svelte.ts)
   import { onDestroy } from 'svelte';
   import { get } from '../../lib/api';
   import { ago } from '../../lib/format';
