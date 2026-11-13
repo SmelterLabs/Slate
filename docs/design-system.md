@@ -40,6 +40,12 @@ One look across every screen, ClickUp-style, with a violet brand.
   class. `.row` is the List layout's row grid, so an inner element given that class renders as a
   tall box; inner wrappers use prefixed names (`ab-row`, `ho-row`, `form-row`).
   `lib/classnames.test.ts` fails if a component's `<style>` defines `.row` or `.card` again.
+- **One class name, one feature, across the global sheets**: `main.ts` imports the global CSS
+  files in a fixed order, so a later file that styles a class on its own restyles every element
+  with it. Doc-page names carry a prefix (`doc-sub-icon`, `doc-picker-list`, and `md-table-wrap`
+  round a rendered Markdown table; `table-wrap` is the Table layout's scroller).
+  `lib/classnames.test.ts` fails when two global sheets style the same class, unless the class
+  is in its `LAYERED` list with the reason (app.css and design.css count as one layer).
 - **Escape**: `Dropdown` and `Menu` listen in the capture phase and stop the event, so Escape closes
   the open panel only; App's window handler then closes the palette, sheet, tag manager, task window
   or selection, one per press.

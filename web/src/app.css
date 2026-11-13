@@ -726,7 +726,7 @@ h3.hot {
   vertical-align: -2px;
   margin: 0 4px 0 0;
 }
-.md .table-wrap {
+.md .md-table-wrap {
   overflow-x: auto;
   margin: 0 0 10px;
   border: 1px solid var(--line);

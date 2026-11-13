@@ -239,7 +239,7 @@ export function renderBlocks(src: string, hooks: BlockHooks): Block[] {
         rows.push(`<tr>${head.map((_, k) => cell('td', k, row[k] ?? '')).join('')}</tr>`);
       }
       i--;
-      html.push(`<div class="table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`);
+      html.push(`<div class="md-table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`);
       continue;
     }
     if (/^\s*>/.test(line)) {

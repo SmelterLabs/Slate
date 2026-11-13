@@ -148,7 +148,7 @@
     if (!ed) return;
     const last = ed.lastElementChild as HTMLElement | null;
     const lastInner = last?.classList.contains('md-block') ? (last.lastElementChild as HTMLElement | null) : last;
-    if (!last || last.classList.contains('embed-row') || lastInner?.matches('hr, .table-wrap, table, pre, img')) {
+    if (!last || last.classList.contains('embed-row') || lastInner?.matches('hr, .md-table-wrap, table, pre, img')) {
       const p = document.createElement('p');
       p.appendChild(document.createElement('br'));
       ed.appendChild(p);
@@ -233,7 +233,7 @@
   }
 
   function block(): HTMLElement | null {
-    return at('p, h1, h2, h3, h4, h5, h6, li, pre, blockquote, td, th, div:not(.md-block):not(.table-wrap)');
+    return at('p, h1, h2, h3, h4, h5, h6, li, pre, blockquote, td, th, div:not(.md-block):not(.md-table-wrap)');
   }
 
   /** The editor's top-level child that holds the caret (or the last one). */

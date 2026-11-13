@@ -375,11 +375,11 @@
   padding: 8px 10px;
   border-radius: var(--radius);
 }
-.picker-list {
+.doc-picker-list {
   overflow: auto;
   padding: 0 6px 8px;
 }
-.picker-list button {
+.doc-picker-list button {
   width: 100%;
   display: flex;
   align-items: center;
@@ -388,10 +388,10 @@
   border-radius: 6px;
   text-align: left;
 }
-.picker-list button.active {
+.doc-picker-list button.active {
   background: var(--accent-soft);
 }
-.picker-list button:disabled {
+.doc-picker-list button:disabled {
   opacity: 0.4;
 }
 .pk-icon {
@@ -680,7 +680,7 @@ textarea.doc-title {
   margin-left: auto;
   font-size: var(--fs-xs);
 }
-.sp-icon {
+.doc-sub-icon {
   width: 18px;
   text-align: center;
 }
@@ -924,7 +924,7 @@ textarea.doc-title {
   font-size: 0.9em;
   padding: 1px 5px;
 }
-.table-wrap {
+.md-table-wrap {
   overflow-x: auto;
   margin: 0 0 14px;
   border: 1px solid var(--line);

@@ -88,7 +88,7 @@
 <div class="picker" role="dialog" aria-label={title}>
   <header>{title}</header>
   <input bind:this={input} bind:value={query} {placeholder} aria-label={placeholder} onkeydown={keys} />
-  <div class="picker-list" role="listbox">
+  <div class="doc-picker-list" role="listbox">
     {#each shown as o, n (o.id)}
       <button
         role="option"
