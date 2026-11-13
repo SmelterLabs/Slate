@@ -1,6 +1,6 @@
 """Backlinks follow the page's text, not a scan of every page."""
 
-from tests.conftest import API
+API = "/api/v1"
 
 
 def _doc(client, h, **body):
@@ -61,7 +61,7 @@ def test_backlinks_follow_edits_restore_duplicate_and_delete(client, alex, todo)
 def test_a_page_read_finds_backlinks_in_a_fixed_number_of_queries(client, alex, todo):
     """Backlinks come from the doc_links index, so a page read costs the same however many
     pages the workspace holds."""
-    from tests.test_doc_writes import _Statements
+    from test_doc_writes import _Statements
 
     target = _doc(client, alex, title="Target", list_id=todo["id"])
     link = f"[[doc:{target['id']}]]"
