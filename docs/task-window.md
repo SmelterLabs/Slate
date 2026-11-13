@@ -116,7 +116,7 @@ it:
   `position`/`completed_at`/`due_date_only`, `inbox.WATCH_TYPES` (assignees, checklists, files,
   links, subtasks via `item.created` with a watched `parent_id`, an agent's report when its state
   changes). Description saves collapse to the newest per author and item in the inbox list; push
-  sends one per author and item until a 10-minute pause (`push.EDIT_QUIET`). When the same actor's
+  sends one per author and item until a 10-minute pause (`cursors.EDIT_QUIET`). When the same actor's
   change also made the item wait on the account (an agent's blocked reply: comment + report +
   `waiting_on`), the follow/watching entries within 2 s are dropped and only `waiting` is told
   (`inbox.waits`/`waiting_covers`, inbox and push). An agent's report that it started

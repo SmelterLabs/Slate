@@ -80,6 +80,9 @@ class EventBus:
         # messages and a condition notified on each.
         self._seq = 0
         self._published = threading.Condition()
+        # The newest event id published per type family (`share`, `item`, ...): lets a reader
+        # tell cheaply whether anything of a family happened since it last looked.
+        self.last_id_by_family: dict[str, str] = {}
 
     @property
     def subscriber_count(self) -> int:
@@ -100,6 +103,9 @@ class EventBus:
     def publish(self, message: Message) -> None:
         with self._lock:
             subs = list(self._subs)
+            if message.get("id"):
+                family = str(message.get("type") or "").split(".", 1)[0]
+                self.last_id_by_family[family] = str(message["id"])
         for sub in subs:
             sub._deliver(message)
         with self._published:

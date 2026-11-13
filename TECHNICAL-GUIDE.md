@@ -51,8 +51,10 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `crypto.py` | AES-GCM for webhook and automation secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
 | `scheduler.py` | The asyncio tick loop and `hooks`/`POLLERS` (`docs/recurrence.md`). |
-| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `post_capped`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
-| `automator.py`, `pusher.py`, `emailer.py` | Bus-woken engine loops for automations, Web Push and email notifications (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
+| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
+| `outbound.py` | The one outbound POST (webhooks, automation webhooks, Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
+| `automator.py`, `pusher.py`, `emailer.py` | The automations, Web Push and email engines (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
+| `engine.py` | The one bus-woken loop those three and the webhook dispatcher run; reports each step to Health. |
 | `webpush.py` | Web Push protocol: VAPID, ES256 JWT, aes128gcm. |
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |
 | `batch.py` | `/batch` and `slate_batch`: many MCP actions in one request, atomic by default. |
@@ -77,6 +79,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events and the run stage; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
+| `service/cursors.py` | Engine cursors and the event walk push and email share. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |

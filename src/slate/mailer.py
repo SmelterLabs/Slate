@@ -19,16 +19,17 @@ def enabled() -> bool:
 
 
 def send(to: str, subject: str, text: str, html: str | None = None) -> str | None:
-    """Send one message. Returns None on success, else a short error."""
-    msg = EmailMessage()
-    msg["From"] = settings.smtp_from
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.set_content(text)
-    if html:
-        msg.add_alternative(html, subtype="html")
-    ctx = ssl.create_default_context()
+    """Send one message. Returns None on success, else a short error; never raises, so one
+    bad message (a header the stdlib refuses, say) is that message's failure only."""
     try:
+        msg = EmailMessage()
+        msg["From"] = settings.smtp_from
+        msg["To"] = to
+        msg["Subject"] = " ".join(subject.split())  # a header value may not hold a line break
+        msg.set_content(text)
+        if html:
+            msg.add_alternative(html, subtype="html")
+        ctx = ssl.create_default_context()
         if settings.smtp_port == 465:
             conn: smtplib.SMTP = smtplib.SMTP_SSL(
                 settings.smtp_host, settings.smtp_port, timeout=TIMEOUT, context=ctx
@@ -44,6 +45,6 @@ def send(to: str, subject: str, text: str, html: str | None = None) -> str | Non
             if settings.smtp_user:
                 conn.login(settings.smtp_user, settings.smtp_password)
             conn.send_message(msg)
-    except (smtplib.SMTPException, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001  # SMTP and socket errors, and bad header values
         return f"{type(exc).__name__}: {exc}"[:300]
     return None

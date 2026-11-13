@@ -250,7 +250,7 @@ def _one_attempt(db, monkeypatch, rx):
 def test_webhook_attempt_reads_a_bounded_amount_of_the_response(monkeypatch, db):
     import httpx
 
-    from slate import notify
+    from slate import outbound
 
     pulled = {"chunks": 0}
 
@@ -262,7 +262,7 @@ def test_webhook_attempt_reads_a_bounded_amount_of_the_response(monkeypatch, db)
     row = _one_attempt(db, monkeypatch, lambda r: httpx.Response(500, content=endless()))
     assert row.status_code == 500 and row.error.startswith("HTTP 500")
     assert len(row.error) < 400
-    assert pulled["chunks"] <= notify.RESPONSE_CAP_BYTES // 4096 + 1
+    assert pulled["chunks"] <= outbound.RESPONSE_CAP_BYTES // 4096 + 1
 
 
 def test_webhook_attempt_records_errors_that_are_not_httpx_errors(monkeypatch, db):
@@ -408,14 +408,10 @@ def test_private_webhook_targets_are_refused_unless_allowed(client, alex, world,
 
 
 def test_a_public_name_that_resolves_to_a_private_address_is_refused_at_send_time(monkeypatch, db):
-    import socket
-
     from slate import automator
+    from slate.service import webhooks
 
-    def private(host, *a, **kw):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", private)
+    monkeypatch.setattr(webhooks, "_lookup", lambda host: ["127.0.0.1"])
     row = _one_attempt(db, monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("sent")))
     assert row.state == "failed" and "private address" in row.error  # final: no retry
     ok, detail = automator.send("https://rx.example.com/x", {"automation": {"id": "a"}}, "s")

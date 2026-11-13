@@ -433,6 +433,8 @@ INFRASTRUCTURE = {
     "slate.service.reports": {"clear_flag"},
     # Runs at the end of every apply_change(), adding item.blocked / item.unblocked to it.
     "slate.service.links": {"settle"},
+    # Engine cursors and the rows a walk queues are bookkeeping (no events).
+    "slate.service.cursors": {"engine_cursor", "follow"},
     # Bookkeeping: write only `deliveries` rows (core.BOOKKEEPING_MODELS), the delivery log itself.
     "slate.service.deliveries": {
         "fan_out",

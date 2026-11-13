@@ -37,7 +37,8 @@ import logging
 import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import MAXYEAR, UTC, date, datetime, time, timedelta
+from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -148,6 +149,34 @@ def _build(text: str, dtstart_local: datetime, tz: ZoneInfo) -> rrule:
     return rule
 
 
+# The Gregorian calendar repeats exactly every 400 years (146,097 days, a whole number of
+# weeks), so a rule's pattern from a start moved by 400-year steps is the same pattern.
+_CYCLE_YEARS = 400
+
+
+@lru_cache(maxsize=1024)
+def _occurs(text: str, dtstart_local: datetime) -> bool:
+    """Whether the rule's pattern (COUNT and UNTIL aside) matches any day at all.
+
+    dateutil walks a rule that matches nothing (February 30) one period at a time until year
+    9999 before it gives up, which costs seconds. The check walks the same pattern from a start
+    moved close to that end, so dateutil's own stop bounds the walk to at most two calendar
+    cycles; a pattern that matches nothing in a whole cycle never matches."""
+    years = (MAXYEAR - _CYCLE_YEARS - dtstart_local.year) // _CYCLE_YEARS * _CYCLE_YEARS
+    start = dtstart_local.replace(year=dtstart_local.year + max(years, 0))
+    body = _UNTIL.sub("", text).strip(";")
+    rule = rrulestr(_COUNT.sub("", body).strip(";"), dtstart=start)
+    return rule.after(start, inc=True) is not None
+
+
+def _require_occurs(rule: Recurrence) -> None:
+    if not _occurs(rule.rrule, _local_naive(rule.dtstart, ZoneInfo(rule.timezone))):
+        raise Invalid(
+            f"rrule '{rule.rrule}' never occurs (no day matches all its BY... parts, "
+            "e.g. February 30)"
+        )
+
+
 def _clean_rrule(value: str | None) -> str:
     text = (value or "").strip().upper()
     if text.startswith("RRULE:"):
@@ -214,6 +243,8 @@ def occurrences(rule: Recurrence, start: datetime) -> Iterator[Occurrence]:
     wall time); occurrences that land on a day already taken are dropped."""
     tz = ZoneInfo(rule.timezone)
     local_start = _local_naive(rule.dtstart, tz)
+    if not _occurs(rule.rrule, local_start):
+        return  # nothing to walk; dateutil would search to year 9999 (see `_occurs`)
     timed = _carries_time(rule, local_start)
     gen = _build(rule.rrule, local_start, tz)
     skip = bool(rule.skip_weekends)
@@ -483,6 +514,7 @@ def preview(
         trigger=_trigger(trigger),
         skip_weekends=bool(skip_weekends),
     )
+    _require_occurs(rule)
     occs = (
         _done_chain(rule, now, count)
         if rule.trigger == RecurTrigger.on_done
@@ -643,6 +675,7 @@ def create_recurrence(
     for key, value in values.items():
         setattr(rule, key, value)
     _check_combination(rule.trigger, rule.reopen)
+    _require_occurs(rule)
     rule.next_run_at = _anchor(session, rule, now)
     with apply_change(session, actor) as cx:
         cx.create(rule, "recurrence.created")
@@ -716,10 +749,20 @@ def update_recurrence(
     tz = _zone(changes.get("timezone", rule.timezone))
     values = _clean(session, changes, tz, now)
     _check_combination(values.get("trigger", rule.trigger), values.get("reopen", rule.reopen))
+    # Walk the new shape before taking the write lock: every other writer waits on it.
+    reshaped = {k for k in values.keys() & _SHAPE if values[k] != getattr(rule, k)}
+    anchor = None
+    if reshaped:
+        shaped = Recurrence(
+            id=rule.id, **{k: values.get(k, getattr(rule, k)) for k in sorted(_SHAPE)}
+        )
+        _require_occurs(shaped)
+        if rule.ended_at is None:
+            anchor = _anchor(session, shaped, now)
     with apply_change(session, actor) as cx:
         changed = {k for k, v in values.items() if cx.set(rule, k, v, "recurrence.updated")}
         if changed & _SHAPE and rule.ended_at is None:
-            rule.next_run_at = _anchor(session, rule, now)
+            rule.next_run_at = anchor if reshaped else _anchor(session, rule, now)
     return rule
 
 
