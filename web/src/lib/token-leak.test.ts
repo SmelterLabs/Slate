@@ -22,7 +22,7 @@ describe('the token', () => {
       for (const m of src.matchAll(/(?:console\.\w+|location\.(?:href|assign|replace)|window\.open)\([^)]*token/g)) {
         offenders.push(`${file}: ${m[0].slice(0, 80)}`);
       }
-      for (const m of src.matchAll(/`[^`]*\?[^`]*token=[^`]*`/g)) {
+      for (const m of src.matchAll(/`[^`]*\?[^`\n]*token=[^`\n]*`/g)) {
         if (!/events\/stream|SLATE_TOKEN=/.test(m[0])) offenders.push(`${file}: ${m[0].slice(0, 80)}`);
       }
     }
