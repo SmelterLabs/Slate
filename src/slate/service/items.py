@@ -396,16 +396,7 @@ MAX_DEPTH = 4
 
 def depth_of(session: Session, item: Item) -> int:
     """How many parents above `item`: 0 for a top task, up to MAX_DEPTH."""
-    depth = 0
-    seen = {item.id}
-    cur = item
-    while cur.parent_id is not None and cur.parent_id not in seen:
-        seen.add(cur.parent_id)
-        cur = session.get(Item, cur.parent_id)
-        if cur is None:
-            break
-        depth += 1
-    return depth
+    return len(ancestors_of(session, item))
 
 
 def ancestors_of(session: Session, item: Item) -> list[Item]:
@@ -422,17 +413,22 @@ def ancestors_of(session: Session, item: Item) -> list[Item]:
     return out
 
 
-def descendants_of(session: Session, item_id: str, *, include_archived: bool = True) -> list[Item]:
-    """Every subtask under `item_id` at any depth, parents before children."""
-    out: list[Item] = []
+def descendant_levels(session: Session, item_id: str) -> list[list[Item]]:
+    """The subtasks under `item_id` level by level: direct subtasks first, then theirs."""
+    levels: list[list[Item]] = []
     frontier = [item_id]
     while frontier:
         rows = list(session.scalars(select(Item).where(Item.parent_id.in_(frontier))))
-        if not include_archived:
-            rows = [r for r in rows if r.archived_at is None]
-        out.extend(rows)
+        if rows:
+            levels.append(rows)
         frontier = [r.id for r in rows]
-    return out
+    return levels
+
+
+def descendants_of(session: Session, item_id: str, *, include_archived: bool = True) -> list[Item]:
+    """Every subtask under `item_id` at any depth, parents before children."""
+    out = [row for level in descendant_levels(session, item_id) for row in level]
+    return out if include_archived else [r for r in out if r.archived_at is None]
 
 
 def height_of(session: Session, item_id: str) -> int:
@@ -1086,13 +1082,8 @@ def bulk_update(
     with apply_change(session, actor) as cx:
         for item, one in [*zip(items, per_item, strict=True), *riders]:
             _apply_changes(cx, item, one)
-            if "archive" in changes:
-                now = utcnow()
-                want = now if changes["archive"] else None
-                if (item.archived_at is None) != (want is None):
-                    cx.set(
-                        item, "archived_at", want, "item.archived" if want else "item.unarchived"
-                    )
+        if "archive" in changes:  # the same reach as archive_item: every subtask goes too
+            _set_archived(cx, items, utcnow() if changes["archive"] else None)
     return items
 
 
@@ -1184,12 +1175,24 @@ def _apply_changes(cx: Change, item: Item, changes: Mapping[str, Any]) -> None:
 def archive_item(session: Session, actor: Actor, item_id: str) -> Item:
     """Soft: hide the item (and its subtasks) from boards and default queries."""
     item = get_item(session, item_id)
-    now = utcnow()
     with apply_change(session, actor) as cx:
-        for target in [item, *subtasks_of(session, item.id)]:
-            if target.archived_at is None:
-                cx.set(target, "archived_at", now, "item.archived")
+        _set_archived(cx, [item], utcnow())
     return item
+
+
+def _set_archived(cx: Change, items: Sequence[Item], when: datetime | None) -> None:
+    """Archive (`when`) or unarchive (None) `items` and every subtask under them, at any
+    depth. Trashed subtasks stay as the trash left them."""
+    seen: set[str] = set()
+    for item in items:
+        for target in [item, *descendants_of(cx.session, item.id)]:
+            if target.id in seen:
+                continue
+            seen.add(target.id)
+            if when is not None and target.archived_at is None:
+                cx.set(target, "archived_at", when, "item.archived")
+            elif when is None and target.archived_at is not None and target.trashed_at is None:
+                cx.set(target, "archived_at", None, "item.unarchived")
 
 
 def unarchive_item(session: Session, actor: Actor, item_id: str) -> Item:
@@ -1198,9 +1201,7 @@ def unarchive_item(session: Session, actor: Actor, item_id: str) -> Item:
     if item.trashed_at is not None:
         raise Invalid("this item is in the trash; restore it instead")
     with apply_change(session, actor) as cx:
-        for target in [item, *subtasks_of(session, item.id, include_archived=True)]:
-            if target.archived_at is not None and target.trashed_at is None:
-                cx.set(target, "archived_at", None, "item.unarchived")
+        _set_archived(cx, [item], None)
     return item
 
 

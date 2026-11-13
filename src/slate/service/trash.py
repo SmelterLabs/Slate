@@ -18,6 +18,7 @@ items can be purged. The scheduler purges items trashed more than `settings.tras
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -25,28 +26,25 @@ from sqlalchemy.orm import Session
 
 from slate.models import Item, utcnow
 from slate.service.core import Actor, Change, apply_change
-from slate.service.errors import Invalid, NotFound
+from slate.service.errors import Invalid
 from slate.settings import settings
+
+log = logging.getLogger(__name__)
 
 PURGE_BATCH = 200
 
 
 def _get(session: Session, item_id: str) -> Item:
-    item = session.get(Item, item_id)
-    if item is None:
-        raise NotFound(f"item {item_id} not found")
-    return item
+    from slate.service.items import get_item  # items imports this module
+
+    return get_item(session, item_id)
 
 
 def _children(session: Session, item: Item) -> list[Item]:
     """Every subtask under `item`, at any depth (subtasks nest four deep), parents first."""
-    out: list[Item] = []
-    frontier = [item.id]
-    while frontier:
-        rows = list(session.scalars(select(Item).where(Item.parent_id.in_(frontier))))
-        out.extend(rows)
-        frontier = [r.id for r in rows]
-    return out
+    from slate.service.items import descendants_of  # items imports this module
+
+    return descendants_of(session, item.id)
 
 
 # --- Reads ---------------------------------------------------------------------------------
@@ -146,11 +144,18 @@ def restore_items(session: Session, actor: Actor, items: list[Item]) -> list[Ite
     return items
 
 
-def _purge(cx: Change, item: Item) -> None:
-    for child in _children(cx.session, item):
-        cx.delete(child, "item.purged")
-    cx.session.flush()  # children go before the parent row they point at
-    cx.delete(item, "item.purged")
+def _purge(cx: Change, item: Item) -> int:
+    """Delete `item` and its subtasks, deepest level first; returns how many rows went."""
+    from slate.service.items import descendant_levels  # items imports this module
+
+    levels = [[item], *descendant_levels(cx.session, item.id)]
+    # One level per flush: in a single flush the rows go in id order, and SQLite refuses to
+    # delete a subtask while its own subtasks still point at it.
+    for level in reversed(levels):
+        for row in level:
+            cx.delete(row, "item.purged")
+        cx.session.flush()
+    return sum(len(level) for level in levels)
 
 
 def purge_item(session: Session, actor: Actor, item_id: str) -> None:
@@ -182,8 +187,7 @@ def empty_trash(session: Session, actor: Actor) -> int:
     while batch := _top_trashed(session):
         with apply_change(session, actor) as cx:
             for item in batch:
-                count += 1 + len(_children(session, item))
-                _purge(cx, item)
+                count += _purge(cx, item)
     return count
 
 
@@ -198,9 +202,14 @@ def purge_expired(session: Session, now: datetime) -> int:
     if not batch:
         return 0
     actor = system_actor(session)
+    ids = [item.id for item in batch]
     count = 0
-    with apply_change(session, actor) as cx:
-        for item in batch:
-            count += 1 + len(_children(session, item))
-            _purge(cx, item)
+    for item_id in ids:  # one change each: one tree that fails cannot hold back the rest
+        try:
+            with apply_change(session, actor) as cx:
+                item = session.get(Item, item_id)
+                if item is not None and item.trashed_at is not None:
+                    count += _purge(cx, item)
+        except Exception:  # noqa: BLE001  # logged; the next tick tries it again
+            log.exception("purging trashed item %s failed", item_id)
     return count

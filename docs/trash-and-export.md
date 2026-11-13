@@ -9,10 +9,14 @@ Where work goes when it leaves the board, and how data leaves Slate.
   `item.trashed` each. `restore_item` brings back the item and the subtasks trashed in the same
   instant; a subtask with a trashed parent is refused (restore the parent). `purge_item` (trashed
   only) deletes the item and its subtasks with `item.purged` (comments, checklists, files and links
-  cascade; events stay). `empty_trash` (admins) purges everything in batches. The scheduler hook
-  `purge_expired` purges items trashed more than `settings.trash_days` (`SLATE_TRASH_DAYS`, default
-  30; 0 keeps them until emptied) ago, as the `slate` system agent. `unarchive_item` and bulk
-  `archive: false` refuse trashed items. Bulk `trash: true|false` (sent alone in `POST /items/bulk`)
+  cascade; events stay), deepest level first with a flush per level (`items.parent_id` has no
+  ORM relationship, so one flush would delete in id order and break the foreign key).
+  `empty_trash` (admins) purges everything in batches. The scheduler hook `purge_expired` purges
+  items trashed more than `settings.trash_days` (`SLATE_TRASH_DAYS`, default 30; 0 keeps them
+  until emptied) ago, as the `slate` system agent, one change per top item so one failing tree
+  cannot hold back the rest. Archive and unarchive (one item or bulk `archive`) reach every
+  subtask at any depth (`items._set_archived`). `unarchive_item` and bulk `archive: false`
+  refuse trashed items. Bulk `trash: true|false` (sent alone in `POST /items/bulk`)
   calls `trash_items` / `restore_items`: one change for the whole set, all at one instant, so the
   board's multi-select Delete is one call and its Undo is one restore call (`board.trashMany`). Item
   views carry `trashed_at` and `purge_at`.
