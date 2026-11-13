@@ -64,6 +64,7 @@ class Chat {
     clearTimeout(this.#exposeTimer);
     this.#exposeTimer = undefined;
     this.#pending.clear();
+    this.forgetThumbs();
     this.exposed.clear();
   }
 
@@ -256,8 +257,29 @@ class Chat {
 
   // --- files ------------------------------------------------------------------------------
 
-  /** Object URLs of image files, by file id (fetched once, with the token). */
+  /** Object URLs of image files, by file id (fetched once, with the token). The newest about 200
+   * are kept; older ones are forgotten, and all of them on sign-out (stop). */
   thumbs = $state<Record<string, string>>({});
+  #thumbOrder: string[] = [];
+  static readonly THUMB_LIMIT = 200;
+
+  rememberThumb(f: ChatFile, blob: Blob) {
+    if (this.thumbs[f.id]) URL.revokeObjectURL(this.thumbs[f.id]);
+    this.thumbs[f.id] = URL.createObjectURL(blob);
+    this.#thumbOrder = [...this.#thumbOrder.filter((id) => id !== f.id), f.id];
+    const extra = this.#thumbOrder.slice(0, Math.max(0, this.#thumbOrder.length - Chat.THUMB_LIMIT));
+    for (const id of extra) this.#forget(id);
+  }
+
+  forgetThumbs() {
+    for (const id of this.#thumbOrder) this.#forget(id);
+  }
+
+  #forget(id: string) {
+    if (this.thumbs[id]) URL.revokeObjectURL(this.thumbs[id]);
+    delete this.thumbs[id];
+    this.#thumbOrder = this.#thumbOrder.filter((x) => x !== id);
+  }
 
   /** Upload a pasted, dropped or picked file to a channel. It is sent when a message names it. */
   async upload(key: string, file: File): Promise<ChatFile | null> {
@@ -272,7 +294,7 @@ class Chat {
       if (!res.ok) throw new ApiError(res.status, (data as { detail?: string })?.detail ?? res.statusText);
       const f = data as ChatFile;
       // The picture is already here: show it without fetching it back.
-      if (f.content_type.startsWith('image/')) this.thumbs[f.id] = URL.createObjectURL(file);
+      if (f.content_type.startsWith('image/')) this.rememberThumb(f, file);
       return f;
     } catch (e) {
       board.flash(`Could not attach ${name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -293,7 +315,7 @@ class Chat {
     if (this.thumbs[f.id] || !f.content_type.startsWith('image/')) return;
     try {
       const res = await fetch(`/api/v1/message-files/${f.id}`, { headers: authHeaders(board.token) });
-      if (res.ok) this.thumbs[f.id] = URL.createObjectURL(await res.blob());
+      if (res.ok) this.rememberThumb(f, await res.blob());
     } catch {
       // leave the file chip
     }
