@@ -12,6 +12,7 @@ from slate.dates import LOCAL
 from slate.models import Account, AccountKind, Event, Item, Source, utcnow
 from slate.service import (
     accounts,
+    chat_files,
     chatwake,
     docwake,
     due,
@@ -125,7 +126,7 @@ def test_done_archived_and_undated_items_emit_nothing(db, world):
     in_archived_list = items.create_item(
         db, world["actor"], list_id=archived_list.id, title="x", due_at=DUE.isoformat()
     )
-    lists.archive_list(db, world["actor"], archived_list.id)
+    lists.update_list(db, world["actor"], archived_list.id, archived=True)
     _walk(db, DUE - timedelta(days=2), DUE + timedelta(hours=2), timedelta(hours=1))
     emitted = {e.item_id for e in _due_events(db)}
     assert done.id not in emitted and archived.id not in emitted
@@ -230,6 +231,7 @@ def test_due_events_are_a_scheduler_hook_after_recurrence(db, world):
         chatwake.expire,
         docwake.expire,
         sessions.notify_expiring,
+        chat_files.sweep_unsent,
     ]
     item = _item(db, world)
     scheduler.tick(DUE)

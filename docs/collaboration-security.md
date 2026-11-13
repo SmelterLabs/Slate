@@ -61,10 +61,9 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
   character cap still applies. Images and nested forms inside forms are not measured (pypdf's
   text extraction does not inflate images).
 - **Compare never parses on read.** Upload stores a CSV/TSV/XLSX's tables as JSON
-  (`doc_files.tables_json`, migration `7c2d9e4b1f60`) beside the text; `compare` reads only the
+  (`doc_files.tables_json`) beside the text; `compare` reads only the
   two stored columns. A revision with `tables_json` or `text` NULL (over the cap or unreadable)
-  compares as "not indexed"; `slate backfill-doc-text` fills both columns for rows that lack
-  them, for example after the cap is raised.
+  compares as "not indexed"; uploading the file again as a new revision indexes it.
 - **Attachments inside the share work for guests** (`access.check_object`): the blob row has
   no `item_id`, so it is checked through its attachment's task instead of hitting the guest
   catch-all; outside the share an upload is still refused (`tests/test_guest_scope.py`).
@@ -86,7 +85,7 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
 Tests: `tests/test_collaboration_security_final.py` (xlsx bomb refused before openpyxl, in under
 a second and under 4 MB traced; absurd ratio; a small workbook still indexes; PDF budget),
 `tests/test_doc_compare.py` (compare reads stored tables with every parser monkeypatched to
-fail; not-indexed message and backfill; an over-cap upload succeeds, opens, is unindexed),
+fail; the not-indexed message; an over-cap upload succeeds, opens, is unindexed),
 `tests/test_uploads.py` (chunked bodies through httpx), `tests/test_body_limits.py` (the app
 cap, declared and chunked; 25 MB raw and base64 uploads still pass; the field limits).
 
@@ -99,7 +98,7 @@ there is no full-output join followed by truncation. Parsing continues after the
 so a malformed tail cannot bypass rejection. Nested paragraphs/text elements and nesting
 over 128 elements are rejected; DTD/entity declarations are rejected. Normal paragraph
 order, table paragraphs and split runs are retained. Invalid uploads stay unindexed via the
-`extract_text` failure contract, without affecting the uploaded original.
+`extract` failure contract, without affecting the uploaded original.
 
 The nested-paragraph test in `tests/test_collaboration_security_final.py` uses a
 1,000-deep / 10,000-character input and requires rejection with

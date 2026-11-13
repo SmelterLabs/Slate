@@ -14,31 +14,48 @@ history says the model set them, not the person. Every board sees it fill in thr
 - Only fields still as filed are written: anything the person changed in the meantime wins.
 - Assignees outside the offered people, a status the list lacks, a bad date: dropped, not
   guessed. A model that is down or slow leaves the card as typed; nothing is retried.
+- Fills run one at a time on their own worker thread (`fill_later`), never in the thread pool
+  that serves requests, so a slow model delays only other fills. At most `MAX_QUEUED` wait;
+  beyond that a card simply stays as typed. The model's answer is read up to `MAX_ANSWER_BYTES`.
 - Off unless `SLATE_AI_URL` is set (`enabled`); `GET /me` says `ai_add` so the board shows the
   switch only when it works.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import threading
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import anyio
+import anyio.to_thread
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from slate.models import Account, Item, Status
 from slate.service import access, guests, items
+from slate.service import tags as tags_svc
 from slate.service.core import Actor, Source
+from slate.service.due import SYSTEM_HANDLE
+from slate.service.errors import Invalid
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
 
 SESSION_REF = "ai-add"
+MAX_KNOWN_TAGS = 100
+# Fills waiting or running, process-wide; more are dropped (the card stays as typed).
+MAX_QUEUED = 16
+MAX_ANSWER_BYTES = 1024 * 1024
+# Tests swap in an `httpx.MockTransport`; None means real network.
+transport: httpx.BaseTransport | None = None
 PRIORITIES = ("urgent", "high", "normal", "low")
 WHEN = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 SCHEMA = {
@@ -63,6 +80,7 @@ week" the following Friday; "morning" is 09:00, "afternoon" 15:00, "evening" 18:
 The person filing it is @{me} ("me", "I", "my" mean them).
 People you may assign (handle: name): {people}
 The list's statuses: {statuses}
+Tags in use: {tags}
 Fields (leave a field out unless their words decide it):
 - title: a short, clear imperative title; no dates or names that are already fields
 - body_md: every detail and step they gave, as tidy Markdown; steps as "- [ ] step" lines
@@ -70,7 +88,7 @@ Fields (leave a field out unless their words decide it):
 - due_at / start_at: "YYYY-MM-DD" (means 5pm) or "YYYY-MM-DDTHH:MM", local time
 - priority: urgent, high, normal or low, only if they said how important or urgent it is
 - status: one of the statuses, only if they said
-- tags: only if they named a tag"""
+- tags: only if they named a tag; prefer the tags in use"""
 
 
 def enabled() -> bool:
@@ -99,6 +117,7 @@ class Ask:
     people: dict[str, str]  # handle -> display name
     statuses: list[str]
     filed: dict[str, Any] = field(default_factory=dict)  # field -> value as filed
+    known_tags: list[str] = field(default_factory=list)  # tags the caller can see
 
 
 def file(session: Session, actor: Actor, list_id: str, text: str, extra: dict[str, Any]) -> Item:
@@ -113,7 +132,7 @@ def ask(session: Session, actor: Actor, item: Item, text: str) -> Ask:
     """The fill's context, read now under the caller's access (people they can see)."""
     me = session.get(Account, actor.account_id)
     visible = access.participant_ids(session)
-    q = select(Account).where(Account.disabled_at.is_(None), Account.handle != "slate")
+    q = select(Account).where(Account.disabled_at.is_(None), Account.handle != SYSTEM_HANDLE)
     if visible is not None:
         q = q.where(Account.id.in_(visible))
     # The fill writes as Slate's own account, so the caller's own limits are applied here: a
@@ -139,7 +158,9 @@ def ask(session: Session, actor: Actor, item: Item, text: str) -> Ask:
         "status": (view.get("status") or {}).get("name"),
         "tags": sorted(view["tags"]),
     }
-    return Ask(item.id, text.strip(), me.handle if me else "me", people, statuses, filed)
+    known_tags = [t.name for t in tags_svc.list_tags(session)][:MAX_KNOWN_TAGS]
+    me_handle = me.handle if me else "me"
+    return Ask(item.id, text.strip(), me_handle, people, statuses, filed, known_tags)
 
 
 def prompt(a: Ask, now: datetime | None = None) -> str:
@@ -157,27 +178,34 @@ def prompt(a: Ask, now: datetime | None = None) -> str:
         me=a.me,
         people=", ".join(f"{h}: {n}" for h, n in sorted(a.people.items())) or "(only them)",
         statuses=", ".join(a.statuses) or "(any)",
+        tags=", ".join(a.known_tags) or "(none yet)",
     )
 
 
 def call_model(system: str, text: str) -> dict[str, Any]:
-    """One structured chat call to the Ollama server. Raises on any failure."""
-    r = httpx.post(
-        settings.ai_url.rstrip("/") + "/api/chat",
-        json={
-            "model": settings.ai_model,
-            "stream": False,
-            "format": SCHEMA,
-            "keep_alive": "15m",
-            "options": {"temperature": 0, "num_ctx": 4096},
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": text}],
-        },
-        timeout=settings.ai_timeout,
-    )
-    r.raise_for_status()
-    import json  # noqa: PLC0415
-
-    out = json.loads(r.json()["message"]["content"])
+    """One structured chat call to the Ollama server. Raises on any failure, including an
+    answer longer than `MAX_ANSWER_BYTES`."""
+    body = {
+        "model": settings.ai_model,
+        "stream": False,
+        "format": SCHEMA,
+        "keep_alive": "15m",
+        "options": {"temperature": 0, "num_ctx": 4096},
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": text}],
+    }
+    with (
+        httpx.Client(
+            transport=transport, timeout=settings.ai_timeout, follow_redirects=False
+        ) as client,
+        client.stream("POST", settings.ai_url.rstrip("/") + "/api/chat", json=body) as r,
+    ):
+        r.raise_for_status()
+        raw = bytearray()
+        for chunk in r.iter_bytes():
+            raw += chunk
+            if len(raw) > MAX_ANSWER_BYTES:
+                raise ValueError("model answer is too long")
+    out = json.loads(json.loads(bytes(raw))["message"]["content"])
     if not isinstance(out, dict):
         raise ValueError("model answered something other than an object")
     return out
@@ -215,10 +243,23 @@ def clean(a: Ask, raw: dict[str, Any]) -> dict[str, Any]:
             out["status"] = match
     tags = raw.get("tags")
     if isinstance(tags, list):
-        names = [str(t).strip().lstrip("#") for t in tags if str(t).strip().lstrip("#")]
+        names = [n for n in (_tag(a, t) for t in tags) if n]
         if names:
-            out["tags"] = names[:10]
+            out["tags"] = list(dict.fromkeys(names))[:10]
     return out
+
+
+def _tag(a: Ask, raw: Any) -> str | None:
+    """A tag the model may set: well-formed, and either one already in use or one the
+    person's words name. Anything else is dropped on its own, never the whole list."""
+    try:
+        name = tags_svc.normalize(str(raw).strip().lstrip("#"))
+    except Invalid:
+        return None
+    if name in a.known_tags:
+        return name
+    words = " ".join(a.text.lower().split())
+    return name if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", words) else None
 
 
 def _still_as_filed(view: dict[str, Any], a: Ask) -> set[str]:
@@ -233,6 +274,43 @@ def _still_as_filed(view: dict[str, Any], a: Ask) -> set[str]:
         "tags": sorted(view["tags"]),
     }
     return {k for k, v in a.filed.items() if now.get(k) == v}
+
+
+_queued = 0
+_queued_lock = threading.Lock()
+# One fill at a time per event loop (the server has one; tests start several).
+_workers: weakref.WeakKeyDictionary[Any, anyio.CapacityLimiter] = weakref.WeakKeyDictionary()
+
+
+def queued() -> int:
+    """Fills waiting or running now."""
+    return _queued
+
+
+def _worker() -> anyio.CapacityLimiter:
+    import asyncio  # noqa: PLC0415
+
+    loop = asyncio.get_running_loop()
+    if loop not in _workers:
+        _workers[loop] = anyio.CapacityLimiter(1)
+    return _workers[loop]
+
+
+async def fill_later(a: Ask) -> None:
+    """Run `fill` after the response, one at a time, on a thread of its own: waiting for the
+    model never holds one of the threads that serve requests. Beyond `MAX_QUEUED` waiting
+    fills the card stays as typed."""
+    global _queued
+    with _queued_lock:
+        if _queued >= MAX_QUEUED:
+            log.warning("ai add: %d fills waiting, %s stays as typed", _queued, a.item_id)
+            return
+        _queued += 1
+    try:
+        await anyio.to_thread.run_sync(fill, a, limiter=_worker())
+    finally:
+        with _queued_lock:
+            _queued -= 1
 
 
 def fill(a: Ask) -> dict[str, Any]:

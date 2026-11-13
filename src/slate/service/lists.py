@@ -299,23 +299,6 @@ def update_list(
     return lst
 
 
-def archive_list(session: Session, actor: Actor, list_id: str) -> List:
-    """Soft: hides the list and its items from default queries."""
-    lst = get_list(session, list_id)
-    if lst.archived_at is None:
-        with apply_change(session, actor) as cx:
-            cx.set(lst, "archived_at", utcnow(), "list.archived")
-    return lst
-
-
-def unarchive_list(session: Session, actor: Actor, list_id: str) -> List:
-    lst = get_list(session, list_id)
-    if lst.archived_at is not None:
-        with apply_change(session, actor) as cx:
-            cx.set(lst, "archived_at", None, "list.unarchived")
-    return lst
-
-
 def set_statuses(
     session: Session,
     actor: Actor,

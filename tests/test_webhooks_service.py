@@ -62,7 +62,9 @@ def test_secret_never_appears_in_any_event(db, people):
     webhooks.update_webhook(
         db, people["agent"][0], hook.id, {"url": "https://b.example.com"}, by=people["agent"][1]
     )
-    webhooks.disable_webhook(db, people["agent"][0], hook.id, by=people["agent"][1])
+    webhooks.update_webhook(
+        db, people["agent"][0], hook.id, {"disabled": True}, by=people["agent"][1]
+    )
     events = list(db.scalars(select(Event).where(Event.subject_id == hook.id)))
     assert [e.type for e in events] == ["webhook.created", "webhook.updated", "webhook.disabled"]
     dump = json.dumps([[e.before_json, e.after_json] for e in events])
@@ -161,7 +163,7 @@ def test_scope_own_only_admin_sees_all(db, people):
     with pytest.raises(NotFound):
         webhooks.list_deliveries(db, m.id, by=agent_by)
     # admin can manage someone else's
-    webhooks.disable_webhook(db, people["alex"][0], m.id, by=admin_by)
+    webhooks.update_webhook(db, people["alex"][0], m.id, {"disabled": True}, by=admin_by)
     assert webhooks.get_webhook(db, m.id, by=agent2_by).disabled_at is not None
 
 

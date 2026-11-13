@@ -11,6 +11,7 @@ import secrets
 import threading
 import time
 from collections.abc import Iterable
+from datetime import datetime
 
 ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 ID_LENGTH = 12
@@ -69,6 +70,11 @@ def seed_event_clock(newest_ids: Iterable[str | None]) -> None:
     newest = max((event_id_ms(i) for i in newest_ids if i), default=0)
     with _lock:
         _last_ms = max(_last_ms, newest)
+
+
+def event_id_floor(at: datetime) -> str:
+    """The smallest event id minted at or after `at`: a primary-key bound for a time range."""
+    return _base62(max(int(at.timestamp() * 1000), 0), 7) + ALPHABET[0] * 5
 
 
 def slugify(name: str) -> str:

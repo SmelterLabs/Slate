@@ -79,7 +79,7 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
 
 ## Push delivery receipts
 
-`push_deliveries` (migration `0f6da629237e`) holds one receipt per subscription/event/kind:
+`push_deliveries` holds one receipt per subscription/event/kind:
 atomic enqueue plus cursor advancement, five attempts maximum in a 24-hour window, 30-second
 exponential backoff capped at one hour, and Retry-After seconds/HTTP dates capped at six hours.
 Each drain attempts at most 100 devices and expires at most 100 receipts. New subscriptions

@@ -91,7 +91,7 @@ EVENT_DOCS: dict[str, str] = {
     "item.updated": "One item field changed (`field` = title, priority, due_at, tags, "
     "waiting_on, body...; `before`/`after`).",
     "item.status_changed": "An item moved to another status (`before`/`after` = status ids).",
-    "item.assigned": "Assignees changed (`before`/`after` = account ids). Check-in news "
+    "item.assigned": "Assignees changed (`before`/`after` = sorted handles). Check-in news "
     "`assigned`/`unassigned`.",
     "item.moved": "An item moved to another list (`field` = `list_id`).",
     "item.split": "Subtasks were made from an item (`after` = the new ids).",
@@ -106,8 +106,9 @@ EVENT_DOCS: dict[str, str] = {
     "item.commented": "A comment was posted (`after` = the comment, mentions, reply_to). "
     "reply_to contains earlier discussion participants' account ids, excluding the author "
     "and an Ask's target (who gets comment.assigned instead). A reply never resolves an Ask.",
-    "item.mentioned": "A comment `@mentioned` an account (`after.account_id`). Check-in news "
-    "`mentioned`.",
+    "item.mentioned": "An edit to a comment added `@mentions` (`after` = `{comment_id, "
+    "mentions}`, only the newly added handles; a new comment's mentions ride on "
+    "`item.commented`). Check-in news `mentioned`.",
     "item.reported": "An agent reported on an item: working, blocked, review, done or idle "
     "(`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
@@ -265,8 +266,6 @@ EVENT_DOCS: dict[str, str] = {
     "doc.pinned_to_top": "A document was pinned to the top of its drawer or folder listing "
     "(`after`: at, by). Shared by everyone who sees the drawer.",
     "doc.unpinned_from_top": "A document came off the top of its listing (`before`: at, by).",
-    "doc.text_extracted": "Text was extracted for an older revision by `slate backfill-doc-text` "
-    "(`revision_no`, `chars`); search and compare can see inside it now.",
     "doc.revision_added": "A file doc got its next revision (`after`: revision_no, filename, "
     "size, note, restored_from; never bytes); the previous one is superseded.",
     "push.subscribed": "A device subscribed to Web Push notifications.",
@@ -638,24 +637,3 @@ def main(check: bool = False) -> int:
         return 1
     print(("wrote " + ", ".join(rel)) if rel else "docs/agents/reference is up to date")
     return 0
-
-
-# --- checking hand-written docs ---------------------------------------------------------------
-
-ROUTE_MENTION = re.compile(r"`(GET|POST|PATCH|PUT|DELETE) (/[^`\s]*)")
-
-
-def unknown_route_mentions(text: str) -> list[str]:
-    """Every "`METHOD /path`" in `text` that names no real route (ids may be `{x}` or `<x>`)."""
-    ops = rest_ops()
-    bad = []
-    for method, raw in ROUTE_MENTION.findall(text):
-        path = raw.split("?")[0].rstrip(".,;:)")
-        path = re.sub(r"\{[^}]*\}|<[^>]*>", SAMPLE_ID, path)
-        if not path.startswith(API):
-            path = API + path
-        if path == API + "/mcp" or path.startswith(API + "/mcp"):
-            continue
-        if match_route(method, path, ops) is None:
-            bad.append(f"{method} {raw}")
-    return bad

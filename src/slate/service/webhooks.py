@@ -298,14 +298,6 @@ def update_webhook(
     return webhook
 
 
-def disable_webhook(session: Session, actor: Actor, webhook_id: str, *, by: Principal) -> Webhook:
-    return update_webhook(session, actor, webhook_id, {"disabled": True}, by=by)
-
-
-def enable_webhook(session: Session, actor: Actor, webhook_id: str, *, by: Principal) -> Webhook:
-    return update_webhook(session, actor, webhook_id, {"disabled": False}, by=by)
-
-
 def create_test_delivery(
     session: Session, actor: Actor, webhook_id: str, *, by: Principal, now: datetime | None = None
 ) -> Delivery:

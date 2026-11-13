@@ -21,7 +21,7 @@ SPLIT_MAX = 100  # children in one split
 
 Audience = Literal["personal", "ai", "work", "family"]
 StatusKind = Literal["open", "active", "done", "cancelled"]
-ItemKind = Literal["task", "doc"]
+ItemKind = Literal["task"]
 Priority = Literal["urgent", "high", "normal", "low"]
 
 When = str  # ISO 8601 or YYYY-MM-DD; parsed by slate.dates.parse_when

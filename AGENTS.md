@@ -45,7 +45,7 @@ final report and PR, which list every changed file, not just the large changes.
 - **Regenerate the agent reference** with `uv run slate docs` whenever you add or change a route, an MCP action, a docstring or an event type (add its line to `docgen.EVENT_DOCS`); `tests/test_agent_docs.py` fails until you do. The agent-facing docs are `docs/agents/`.
 - **Update `TECHNICAL-GUIDE.md`** in the same pull request for anything a new contributor would need to know (new module, decision, gotcha). It is an index plus the architecture and the Decisions log; feature internals live in the topic files under `docs/` it points to, so a change to a feature updates its topic file. Update `USER-GUIDE.md` when user-facing behaviour changes. Keep both proportionate, and write them in the present tense: what the product does, not what changed.
 - **Say why in the pull request.** Each pull request and commit message says what changed and why. Questions go in the pull request, not into silent choices.
-- **Out of scope** (do not build without a maintainer decision): two-way sync with another task tool, calendar sync, a public hostname by default, anything specific to one agent runtime in `src/` (adapters under `integrations/` are allowed, per rule 5), and these removed features: custom fields, dashboards, goals, sprints, time tracking, forms, Slack/Discord channels, email-to-task, a GitHub integration, task and status templates, duplicate merge, a Workload page and an Import page on the board. The Timeline, Box, Calendar and Table layouts and the automations builder are kept but frozen.
+- **Out of scope** (do not build without a maintainer decision): two-way sync with another task tool, calendar sync, a public hostname by default, anything specific to one agent runtime in `src/` (adapters under `integrations/` are allowed, per rule 5), and these removed features: custom fields, dashboards, goals, sprints, time tracking, forms, Slack/Discord channels, email-to-task, a GitHub integration, task and status templates, duplicate merge, a ClickUp importer, a Workload page and an Import page on the board. The Timeline, Box, Calendar and Table layouts and the automations builder are kept but frozen.
 - **Secrets:** none in the repo, ever. Tokens are shown once at creation and stored hashed. `.env` is gitignored.
 - **Time:** all stored timestamps are UTC ISO 8601; display and recurrence use the workspace timezone (`SLATE_TIMEZONE`, an IANA name, default `UTC`).
 
@@ -64,7 +64,7 @@ cd web && npm ci && npm run dev          # board dev server (proxies /api to :80
 ## Repo layout
 
 ```
-src/slate/            package: app.py (FastAPI), db.py, models.py, service/ (the only place that writes), api/ (routers), mcp_tools.py + mcp_server.py, scheduler.py, importers/
+src/slate/            package: app.py (FastAPI), db.py, models.py, service/ (the only place that writes), api/ (routers), mcp_tools.py + mcp_server.py, scheduler.py
 alembic/              migrations
 tests/
 web/                  Svelte board

@@ -4,7 +4,7 @@ Where work goes when it leaves the board, and how data leaves Slate.
 
 ## Trash, Archive page, export and backup
 
-- **Trash** (`service/trash.py`, migration `0b5732291aa2`, column `items.trashed_at`). `trash_item`
+- **Trash** (`service/trash.py`, column `items.trashed_at`). `trash_item`
   stamps the item and its subtasks (`trashed_at`, and `archived_at` when not archived already), one
   `item.trashed` each. `restore_item` brings back the item and the subtasks trashed in the same
   instant; a subtask with a trashed parent is refused (restore the parent). `purge_item` (trashed
@@ -53,8 +53,8 @@ Where work goes when it leaves the board, and how data leaves Slate.
 
 ## Duplicates
 
-- **Link kind** `duplicates` (`LinkKind`, a non-native enum: migration `9d41c7e2a6b8` rebuilds
-  `item_links` with the wider CHECK; downgrade deletes duplicate links first). From an item's side
+- **Link kind** `duplicates` (`LinkKind`, a non-native enum held by a CHECK on
+  `item_links`). From an item's side
   the kinds are `duplicate_of` and `duplicated_by`; item views and `GET /items/{id}/links` carry
   both lists (`links.LINK_KEYS` is the one list of link fields). Duplicate links never block.
 - **Board**: cards and table rows of an open duplicate show a *Duplicate* badge (always on, not a
