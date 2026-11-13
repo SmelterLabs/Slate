@@ -288,9 +288,12 @@ request/response models to `api/schemas.py`; (4) add the route to the resource's
 - `DELETE /tokens/{id}`: admins revoke any token; any account revokes its own (needs only `read`).
   Revoking twice is a no-op 204.
 - **The owner outranks admins.** Only the owner (or the account itself) mints or revokes tokens on
-  the owner account, or disables/enables it (`accounts._require_owner_for_owner`: an admin who
-  could mint an owner token would be the owner). Renaming stays admin.
-- Handles: `^[a-z][a-z0-9_-]{1,31}$`.
+  an admin or the owner account, or renames, disables or enables it (`accounts._require_outranks`:
+  an admin who could mint another admin's token would act as them, and one who could disable them
+  would lock them out).
+- Handles: `^[a-z][a-z0-9_-]{1,31}$`. `slate` is reserved for Slate's own account, which takes
+  no tokens. Bootstrap is refused once any account other than `slate` exists (a scheduler alarm
+  before the first sign-in may create `slate`).
 
 ## Run / test / build
 

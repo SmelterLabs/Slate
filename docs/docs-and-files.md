@@ -31,7 +31,8 @@ list. The same tree also holds **file docs**.
 - **Discussion and review threads** (migration `a7c3e9f1b5d2`, table `doc_comments`,
   `service/doc_threads.py`, `api/doc_comments.py`): one table for two surfaces. A **review** root is
   anchored (`anchor_start`/`anchor_end`/`anchor_quote` on a page; `anchor_page`,
-  `anchor_x`/`anchor_y` in 0–1 on a file), can be resolved and reopened, and on a page may carry
+  `anchor_x`/`anchor_y` in 0–1 on a file), can be resolved and reopened (by its author, its
+  assignee, an admin, or someone with edit on the doc: `doc_threads._may_settle`), and on a page may carry
   `suggestion_md` (Accept = `update_doc` with `base_revision`, checking the immutable page-save
   identity and replacing only the exact span or unique quote, then `doc.comment_resolved
   reason=accepted`). A comment without an anchor is **discussion**. Replies carry `parent_id` (one

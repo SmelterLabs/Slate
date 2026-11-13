@@ -36,12 +36,28 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   (it becomes write) and from any limited token; `create_token` does the same at mint time. `GET
   /me` returns `access` (all, level, manage, limited, general, sections, lists); the board reads it
   to hide what it cannot do, the server enforces regardless.
+- **Who counts as an admin: one rule.** `access.grants_admin(role, scopes, limit)`: an owner or
+  admin account, through a token with the `admin` scope and no list or section limit. Every check
+  asks it: `access.is_admin(session)` (reads the bound caller, `session.info["slate_caller"]`,
+  which `attach` keeps even for an unrestricted caller; with no bound caller it is the named
+  account's role, else Slate's own session), `access.require_admin`, `Principal.is_admin` and
+  `Access.is_admin`; `GET /me` `access.manage` is the same answer. So the same owner on a write
+  token, or on a list-limited one, acts as a member. Never test "no `Access` on the session" for
+  admin: an unrestricted member has none either.
 - **Live paths.** The SSE stream builds an `access.EventGate` per connection: replays read through
   the caller's filter, live events pass `gate.allows()` (item -> list cache; message events by
   `after.channel`), and the gate reloads on `share.*`, `account.role_changed`, `list.*`,
   `section.*`. Webhook fan-out and Web Push use the same gate for the subscription's owner. The
   board reloads `/me` and its data when an event changes its own access
-  (`lib/permissions.affectsMyAccess`).
+  (`lib/permissions.affectsMyAccess`). The replay and the gate agree: a restricted member with
+  General gets `tag.*`, `account.*` and `capacity.*` from both.
+- **Personal events** (`access.is_personal`: `account.prefs_changed`, `account.digest`,
+  `channel.read`, `item.read`, `inbox.*`, `push.*`, `webhook.*`, `token.*`, `favorite.*`,
+  `session.*`, `agent.connection_*`) are about one account's own settings and bookkeeping. Only that
+  account and an admin read them, whatever else the caller reaches and whether or not anything is
+  private: a criterion `read_criteria` adds for every bound non-admin caller (`_owned`: the
+  subject is the caller, the payload's `account_id` is, or the subject is a token, webhook,
+  favorite or push device it owns), and `EventGate._owns` for live events.
 - **Chat.** `parse_channel` 404s a channel the caller cannot read; General is hidden from guests and
   list-limited tokens; a section seen only through one of its lists has no section channel.
 - **A project agent's chat starts at its share.** `agent:<id>` is one
@@ -67,11 +83,15 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   its list, else its `section_id` among the caller's sections at view or better, else General. `View` is
   filtered by its scope (`list`/`section` the caller sees; `everything` for General; the caller's
   own views; and `SEED_VIEWS`, Slate's landing views, for everyone, so `#/today` keeps working for a
-  guest). `DocTag` follows the doc (`_visible_docs`).
+  guest). A view with `shared` false is its owner's alone, admins included: a `View` criterion and
+  a `view.*` event criterion for every bound caller, and `EventGate._sees_view`. Changing or
+  archiving a view is for its owner or an admin, a landing view for an admin only
+  (`views._require_may_change`). `DocTag` follows the doc (`_visible_docs`).
 - **Tags.** The catalog is workspace-wide and `item_tags.tag_id` cascades, so
   renaming, recolouring, merging or deleting a tag touches items outside a restricted caller's reach
   with no event for those rows: `tags.update_tag`, `merge_tag` and `delete_tag` call
-  `access.require_admin` (owner/admin on an unlimited token, or a session with no `Access`).
+  `access.require_admin` (an admin by the rule above; members are refused whether or not
+  anything is private).
   Creating a tag and applying it are not admin-only (`Tag` is in `_GUEST_GLOBAL`). `tags.list_tags`
   gives a restricted caller only the tags on an item or doc it can see (the `ItemTag`/`DocTag`
   criteria do the work) plus those it created (`tag.created` events by it, read unrestricted). The
@@ -103,7 +123,8 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   it to a list or section it can edit (`access.check_scope`); a workspace-wide rule needs
   unrestricted access, and `run_now` needs edit on the item's list. The generic `list_id` branch
   also checks the destination of a `list_id` set (so a recurrence rule cannot be moved into a
-  view-only list). A list-limited token cannot subscribe a webhook (the fan-out gate knows the
+  view-only list), and a `move_list` action needs edit on its target list when the rule is
+  created or changed (`automations.clean_actions`). A list-limited token cannot subscribe a webhook (the fan-out gate knows the
   account, not the token). `EventGate.load` treats a disabled account or a revoked token as no
   access. Restricted callers bypass the item cache (`item_cache._restricted`): cached views are shared and theirs
   differ (filtered links).
@@ -124,7 +145,7 @@ admins included.
 
   | Key | Covers |
   |---|---|
-  | `delete` | `item.purged` (purge, empty the trash), `doc.deleted`, `doc.file_removed` |
+  | `delete` | `item.purged` (purge, empty the trash), `item.attachment_removed`, `doc.deleted`, `doc.file_removed` |
   | `trash` | `item.trashed` |
   | `archive_structure` | `section.archived`, `list.archived` |
   | `share` | `share.*`, `invitation.created`/`revoked`, `session.extended`, `account.role_changed`, `section.updated:private`, `list.updated:private` |
@@ -143,7 +164,8 @@ admins included.
   covered event types, so other writes pay nothing.
 - **Not checked:** Slate's own work (an actor with source `system`, or the `slate` account:
   the trash purge after its days, automations, due events); consequences written with
-  `Change.derive`; an agent revoking its *own* token or connection; `item.deleted`, which is only the
+  `Change.derive`; an agent revoking its *own* token or connection, or removing an attachment it
+  uploaded itself (`_OWN_OK`); `item.deleted`, which is only the
   creator's 10-minute undo of a task it just filed (`items.delete_item`), not a delete of
   anything someone else owns.
 - **Changing it:** `PUT /settings/agents {denied: [...]}` replaces the list (owner or admin
