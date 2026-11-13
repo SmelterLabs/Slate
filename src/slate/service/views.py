@@ -48,11 +48,11 @@ FILTER_FIELDS = {
     "blocked": {"is"},
     "estimate": {"empty", "not_empty", "gt", "lt"},
 }
-LAYOUTS = ("board", "list")
+LAYOUTS = ("board", "list", "table")
 # Layouts the board no longer has. A view saved with one still reads, as a list; a write with one
 # is refused. The two settings only they used are accepted on write and dropped, so a board page
 # opened before an upgrade can still save.
-REMOVED_LAYOUTS = ("table", "calendar", "timeline", "box")
+REMOVED_LAYOUTS = ("calendar", "timeline", "box")
 REMOVED_CONFIG_KEYS = ("calendar_span", "timeline_zoom")
 
 
@@ -183,7 +183,7 @@ def validate_config(config: Any, *, scope_kind: str) -> dict[str, Any]:
 
     layout = config.get("layout", "board")
     if layout in REMOVED_LAYOUTS:
-        raise Invalid(f"the {layout} layout is no longer available; use 'board' or 'list'")
+        raise Invalid(f"the {layout} layout is no longer available; use 'board', 'list' or 'table'")
     if layout not in LAYOUTS:
         raise Invalid(f"layout must be one of {list(LAYOUTS)}")
     group_by = config.get("group_by", "none")

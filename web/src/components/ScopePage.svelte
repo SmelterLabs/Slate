@@ -7,6 +7,7 @@
   import BulkBar from './BulkBar.svelte';
   import ListLayout from './ListLayout.svelte';
   import QuickAddBar from './QuickAddBar.svelte';
+  import TableView from './TableView.svelte';
   import Toolbar from './Toolbar.svelte';
   import ViewTabs from './ViewTabs.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -170,6 +171,8 @@
 
   {#if config.layout === 'board'}
     <BoardView {groups} {config} {wide} {scope} viewKey={active.key} {kiosk} />
+  {:else if config.layout === 'table'}
+    <TableView {groups} {config} {scope} />
   {:else}
     <ListLayout {groups} {config} {wide} />
   {/if}

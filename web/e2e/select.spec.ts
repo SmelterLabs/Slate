@@ -1,5 +1,5 @@
 // Multi-select shows what is selected: every selected card or row has a ticked box and a
-// selected outline while you pick more, in Board and List, on a PC and on a phone.
+// selected outline while you pick more, in Board, List and Table, on a PC and on a phone.
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,7 +48,7 @@ async function open(page: Page, listId: string) {
 test.describe('PC', () => {
   test.use({ viewport: { width: 1400, height: 900 } });
 
-  for (const layout of ['Board', 'List'] as const) {
+  for (const layout of ['Board', 'List', 'Table'] as const) {
     test(`${layout}: selected tasks show a ticked box while you pick more`, async ({ page }) => {
       const { listId, ids } = await makeList(`Select ${layout}`);
       await open(page, listId);

@@ -1961,6 +1961,13 @@ kbd {
 .assignee-picker .picker-list > li.muted {
   padding: 5px 8px;
 }
+/* In a table cell the scroll box would clip a floating popover, so it opens in the row. */
+@media (min-width: 761px) {
+  .table-wrap .assignee-picker .picker-pop {
+    position: static;
+    box-shadow: none;
+  }
+}
 
 /* recurrence */
 .rule-line {
@@ -2027,8 +2034,13 @@ kbd {
   align-items: center;
 }
 
-/* ClickUp parity: estimates, dependencies and the tag manager. */
+/* ClickUp parity: estimates, dependencies, tag manager and the table layout. */
 
+/* the status select takes its status's colour as --opt */
+.status-select {
+  border-left: 4px solid var(--opt, var(--line));
+  max-width: 100%;
+}
 .status-pill[style] {
   border-color: var(--opt);
 }
@@ -2167,6 +2179,150 @@ kbd {
 .tiny-wide {
   width: 140px;
   padding: 2px 6px;
+}
+
+/* table layout */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.grid-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.88rem;
+}
+.grid-table th,
+.grid-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.grid-table td.t-status,
+.grid-table td.t-assignees,
+.grid-table td.t-priority {
+  min-width: 120px;
+}
+.grid-table td.t-due,
+.grid-table td.t-start {
+  min-width: 132px;
+}
+.grid-table td.t-tags {
+  min-width: 190px;
+}
+.grid-table td + td,
+.grid-table th + th {
+  border-left: 1px solid var(--line);
+}
+.grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+.grid-table .t-title {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg);
+  min-width: 260px;
+  max-width: 420px;
+  white-space: normal;
+}
+.grid-table thead .t-title {
+  z-index: 4;
+  background: var(--panel);
+}
+.t-title-in {
+  min-width: 280px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.t-title-text {
+  flex: 1;
+  min-width: 120px;
+  overflow-wrap: anywhere;
+}
+.t-title-in .agent-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.t-title-edit {
+  flex: 1;
+}
+.t-title-text:hover {
+  color: var(--accent);
+}
+.t-rename,
+.t-row .card-more,
+.row .card-more {
+  visibility: hidden;
+}
+.t-row:hover .t-rename,
+.t-row:focus-within .t-rename,
+.t-row:hover .card-more,
+.t-row .card-more.on,
+.row:hover .card-more,
+.row:focus-within .card-more,
+.row .card-more.on {
+  visibility: visible;
+}
+.t-row:hover td {
+  background: var(--card-hover);
+}
+.t-row.closed .t-title-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.t-row.selected td {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.t-row .select {
+  opacity: 0;
+}
+.t-row:hover .select,
+.t-row .select:checked,
+.selecting .t-row .select {
+  opacity: 1;
+}
+.t-row > .t-title {
+  border-left: 3px solid transparent;
+}
+.t-row.prio-stripe-urgent > .t-title {
+  border-left-color: var(--prio-urgent);
+}
+.t-row.prio-stripe-high > .t-title {
+  border-left-color: var(--prio-high);
+}
+.t-row.prio-stripe-normal > .t-title {
+  border-left-color: var(--prio-normal);
+}
+.t-row.prio-stripe-low > .t-title {
+  border-left-color: var(--prio-low);
+}
+.grid-table .t-priority {
+  text-transform: capitalize;
+}
+.grid-table .t-tags {
+  white-space: normal;
+  min-width: 140px;
+}
+.grid-table .t-field {
+  min-width: 110px;
+}
+.t-group th {
+  background: var(--bg);
+  padding: 2px 4px;
+}
+.t-total td {
+  border-bottom: 2px solid var(--line);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- phone and installed app (PWA) ---

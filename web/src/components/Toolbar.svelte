@@ -89,6 +89,9 @@
     <button class:on={config.layout === 'list'} onclick={() => board.setConfig({ layout: 'list' })} title="List (b)"
       >List</button
     >
+    <button class:on={config.layout === 'table'} onclick={() => board.setConfig({ layout: 'table' })} title="Table"
+      >Table</button
+    >
   </div>
 
   <Dropdown title="Group by" cls="chip-btn {config.group_by !== 'none' ? 'active' : ''}" bind:open={groupOpen}>

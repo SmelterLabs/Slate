@@ -18,7 +18,7 @@ import type {
   StatusKind,
 } from './types';
 
-export const LAYOUTS = ['board', 'list'] as const;
+export const LAYOUTS = ['board', 'list', 'table'] as const;
 export type Layout = (typeof LAYOUTS)[number];
 
 /** Settings only removed layouts used; a stored view or draft may still carry them. */

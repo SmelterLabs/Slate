@@ -264,16 +264,16 @@ def test_bulk_status_kind_across_lists_in_one_transaction(client, alex, todo, db
     assert bad.status_code == 422
 
 
-# --- layouts: only board and list ----------------------------------------------------------
+# --- layouts: board, list and table ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("layout", ["table", "calendar", "timeline", "box"])
+@pytest.mark.parametrize("layout", ["calendar", "timeline", "box"])
 def test_a_removed_layout_is_refused_on_write(client, alex, todo, layout):
     old = {"name": "Old", "scope_kind": "list", "scope_id": todo["id"]}
     old["config"] = {"layout": layout}
     made = client.post(f"{API}/views", json=old, headers=alex)
     assert made.status_code == 422
-    assert "board" in made.text and "list" in made.text and layout in made.text
+    assert "board" in made.text and "table" in made.text and layout in made.text
 
     view = client.post(
         f"{API}/views",
@@ -338,3 +338,19 @@ def test_old_layout_settings_are_accepted_and_dropped(client, alex, todo):
     assert made.status_code == 201, made.text
     assert "calendar_span" not in made.json()["config"]
     assert "timeline_zoom" not in made.json()["config"]
+
+
+def test_the_table_layout_is_kept(client, alex, todo):
+    made = client.post(
+        f"{API}/views",
+        json={
+            "name": "Grid",
+            "scope_kind": "list",
+            "scope_id": todo["id"],
+            "config": {"layout": "table"},
+        },
+        headers=alex,
+    )
+    assert made.status_code == 201, made.text
+    got = client.get(f"{API}/views/{made.json()['id']}", headers=alex).json()
+    assert got["config"]["layout"] == "table"

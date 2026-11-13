@@ -5,7 +5,7 @@ import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/views';
 import { BASE_URL, seed } from './seed';
 
-// ClickUp parity: estimates, dependencies and the tag manager.
+// ClickUp parity: the Table layout, estimates, dependencies and the tag manager.
 // Builds its own section and list so it does not disturb the other specs' data.
 
 const shots = process.env.SLATE_PARITY_SHOTS ?? null;
@@ -64,6 +64,43 @@ async function openList(page: Page, listId: string) {
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
+
+test('Table: edit an estimate and the title in place; totals add up', async ({ page }) => {
+  const b = await setup();
+  await openList(page, b.listId);
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  const row = page.locator('tr.t-row', { hasText: 'Build the deck' });
+  await expect(row).toBeVisible();
+  await row.hover();
+  await row.getByLabel('Edit time estimate').click();
+  await row.getByLabel('Time estimate').fill('1h 30m');
+  await row.getByLabel('Time estimate').press('Enter');
+  await expect
+    .poll(async () => (await api<{ estimate_minutes: number }>('GET', `/items/${b.ids['Build the deck']}`)).estimate_minutes)
+    .toBe(90);
+
+  // The name opens the task window, as on the board; the pencil renames in place.
+  await row.getByRole('button', { name: 'Build the deck', exact: true }).click();
+  await expect(page.locator('.tw')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tw')).toHaveCount(0);
+  await row.hover();
+  await row.getByRole('button', { name: 'Rename Build the deck' }).click();
+  // While editing, the title is an input's value, not text, so find the row by id.
+  const editing = page.locator(`tr.t-row[data-item="${b.ids['Build the deck']}"]`);
+  await editing.getByLabel('Title').fill('Build the big deck');
+  await editing.getByLabel('Title').press('Enter');
+  await expect(page.locator('tr.t-row', { hasText: 'Build the big deck' })).toBeVisible();
+
+  const totals = page.locator('tr.t-total').first();
+  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('2h 30m');
+
+  // An agent's write lands in the table live.
+  await api('PATCH', `/items/${b.ids['Paint the shed']}`, { estimate_minutes: 45 }, seed().agent);
+  await expect(page.locator('tr.t-row', { hasText: 'Paint the shed' }).locator('td[data-col="estimate"]')).toHaveText('45m');
+  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('3h 15m');
+  await shot(page, 'table');
+});
 
 test('Item panels: estimate and a dependency', async ({ page }) => {
   const b = await setup();

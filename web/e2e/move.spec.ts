@@ -146,14 +146,15 @@ test('the selection bar moves several tasks with the same picker', async ({ page
   await expect.poll(() => listOf(b.id)).toBe(todo);
 });
 
-test('in the list layout the ⋯ menu sits above the rows below it, and Move to… works', async ({ page }) => {
-  const { stamp, home, todo } = await lab('rows');
+test('in the table layout the ⋯ menu sits above the rows below it, and Move to… works', async ({ page }) => {
+  const { stamp, home, todo } = await lab('table');
   const ids: string[] = [];
-  for (const t of ['Row first', 'Row second', 'Row third', 'Row fourth'])
+  for (const t of ['Table first', 'Table second', 'Table third', 'Table fourth'])
     ids.push((await api<{ id: string }>('POST', '/items', { list_id: home, title: t })).id);
   await page.goto(`/#/list/${home}`);
-  await page.getByTitle('List (b)', { exact: true }).first().click();
-  const row = page.locator('[data-item]', { hasText: 'Row first' });
+  // Exact: a section row's chat link is titled "Open #<section> chat", and this lab's name holds "table".
+  await page.getByTitle('Table', { exact: true }).first().click();
+  const row = page.locator('[data-item]', { hasText: 'Table first' });
   await row.hover();
   await row.getByRole('button', { name: 'Task actions' }).click();
   const moveItem = page.locator('.card-menu').getByRole('menuitem', { name: 'Move to…' });

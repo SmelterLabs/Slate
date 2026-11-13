@@ -7,7 +7,7 @@ const scope: Scope = { kind: 'list', id: 'l1' };
 describe('remembered views', () => {
   it('stores only what differs from the saved view and lays it back over it', () => {
     const base = defaultConfig(scope);
-    const draft = { ...base, layout: 'list' as const, sort: [{ field: 'due' as const, dir: 'desc' as const }] };
+    const draft = { ...base, layout: 'table' as const, sort: [{ field: 'due' as const, dir: 'desc' as const }] };
     const diff = draftDiff(draft, base);
     expect(Object.keys(diff).sort()).toEqual(['layout', 'sort']);
     expect(applyDiff(base, diff)).toEqual(draft);
@@ -16,9 +16,9 @@ describe('remembered views', () => {
 
   it('a newer change to the saved view still shows under the unsaved one', () => {
     const base = defaultConfig(scope);
-    const diff = draftDiff({ ...base, layout: 'list' }, base);
+    const diff = draftDiff({ ...base, layout: 'table' }, base);
     const savedLater = { ...base, density: 'compact' as const };
-    expect(applyDiff(savedLater, diff)).toMatchObject({ layout: 'list', density: 'compact' });
+    expect(applyDiff(savedLater, diff)).toMatchObject({ layout: 'table', density: 'compact' });
   });
 
   it('an unsaved switch to a removed layout shows the list, and drops its old settings', () => {
