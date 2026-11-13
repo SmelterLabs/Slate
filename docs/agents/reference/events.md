@@ -101,8 +101,8 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `doc.suggestion_accepted` | A review comment's `suggestion_md` was applied to the page (`quote`, `suggestion`); the page save is its own `doc.updated`. |
 | `doc.unarchived` | An archived doc was restored. |
 | `doc.unpinned_from_top` | A document came off the top of its listing (`before`: at, by). |
-| `doc.updated` | A doc's `title`, `icon` or `body_md` changed (field, before, after); field `version_no` when a page-history version was closed without an edit. |
-| `doc.version_restored` | An older version's title and body were put back (`restored_from`). |
+| `doc.updated` | A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, after); for `body_md`, before/after are `{version_no, chars}`: the page-history version holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field `version_no` when a page-history version was closed without an edit. |
+| `doc.version_restored` | An older version's title and body were put back (`restored_from`); before/after carry `title`, `version_no` and `chars`. |
 
 ## favorite
 
@@ -139,7 +139,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `item.archived` | An item was archived. |
-| `item.assigned` | Assignees changed (`before`/`after` = account ids). Check-in news `assigned`/`unassigned`. |
+| `item.assigned` | Assignees changed (`before`/`after` = sorted handles). Check-in news `assigned`/`unassigned`. |
 | `item.attachment_added` | A file was attached. |
 | `item.attachment_removed` | An attachment was removed. |
 | `item.blocked` | An item now waits on an open item (a dependency was added, or a task it waits on was reopened); `after.blocked_by` = the open blockers. Derived, never set by hand. |
@@ -149,7 +149,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.due` | Scheduler: the item's due time has arrived. A `work` hint for its agents. |
 | `item.due_soon` | Scheduler: the item is due within the lead time (`after.lead_hours`). |
 | `item.linked` | Two items were linked (blocks, waits on, relates to, duplicate of). |
-| `item.mentioned` | A comment `@mentioned` an account (`after.account_id`). Check-in news `mentioned`. |
+| `item.mentioned` | An edit to a comment added `@mentions` (`after` = `{comment_id, mentions}`, only the newly added handles; a new comment's mentions ride on `item.commented`). Check-in news `mentioned`. |
 | `item.moved` | An item moved to another list (`field` = `list_id`). |
 | `item.overdue` | Scheduler: the item is an hour past due and not done. |
 | `item.purged` | A trashed item was deleted for good, by hand or after the trash days (`before` = its last state). Its events stay. |

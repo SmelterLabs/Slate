@@ -12,6 +12,7 @@ from slate.dates import LOCAL
 from slate.models import Account, AccountKind, Event, Item, Source, utcnow
 from slate.service import (
     accounts,
+    chat_files,
     chatwake,
     docwake,
     due,
@@ -230,6 +231,7 @@ def test_due_events_are_a_scheduler_hook_after_recurrence(db, world):
         chatwake.expire,
         docwake.expire,
         sessions.notify_expiring,
+        chat_files.sweep_unsent,
     ]
     item = _item(db, world)
     scheduler.tick(DUE)

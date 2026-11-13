@@ -230,8 +230,8 @@ default-on (server and `views.ts`), the task window shows `[data-banner=blocked]
 Depends on card (`mywork.ts` `blocked`), and `lib/activity.ts` hides the `item.blocked` that just
 repeats an `item.linked`. E2E `e2e/blocked.spec.ts` (desktop and phone).
 
-**Tags.** `POST /tags/{tag}/merge {into}` retags every item (per-item events) and deletes the
-source; `DELETE /tags/{tag}` untags then deletes (`tag.deleted`).
+**Tags.** `POST /tags/{tag}/merge {into}` retags every item and doc (an `item.updated` or `doc.updated`, field `tags`, for each) and deletes the
+source; `DELETE /tags/{tag}` untags items and docs the same way, then deletes (`tag.deleted`).
 
 **Views.** `layout` includes `table`. Sort key `estimate`; filters `blocked`, `estimate`.
 

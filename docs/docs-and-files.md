@@ -13,15 +13,21 @@ list. The same tree also holds **file docs**.
   uploads are `doc_files` rows with a `revision_no` (1 upward, unique per doc), a `note` (what
   changed; **required for everyone**), `superseded_at` (stamped on the previous
   revision when the next arrives) and `restored_from`. Pages' inline images are `doc_files` rows
-  with `revision_no` NULL. `body_md` on a file doc is the description (Notes), versioned
+  with `revision_no` NULL. `GET /doc-files/{id}` serves both through `api/uploads.file_response`
+  (the one response for every stored file: inline for images, PDFs and text, never for HTML, SVG
+  or XML; names and types cleaned by `attachments.clean`, as for every upload). `body_md` on a file doc is the description (Notes), versioned
   like a page. Service: `add_revision` (25 MB, `MAX_REVISION_BYTES`; event `doc.revision_added`,
   metadata only), `restore_revision` (a new revision with the old bytes, never a rewrite),
   `revisions_of`, `get_revision`, `current_revisions` (one query for the index),
   `promote_attachment` (a task attachment becomes a file doc's revision 1, the attachment is
-  removed, the task gets a comment `[[doc:ID]]`; three changes in sequence, each its own event). A
-  revision is never removed (`remove_file` refuses one); archive the doc. `duplicate_doc` copies the
-  current revision as the copy's revision 1. `GET /docs?q=` also matches a current revision's
-  filename. Summaries carry `kind` and `file` (the current revision); `GET /docs/{id}` adds
+  removed, the task gets a comment `[[doc:ID]]`; one change with an event per step, the file read
+  before the write lock, so a step the caller may not take leaves nothing done). A
+  revision is never removed (`remove_file` refuses one); archive the doc. `add_revision` reads
+  the file before the write lock and picks the number under it, so two uploads at once get
+  consecutive numbers. `duplicate_doc` reads only the docs it copies and copies each current
+  revision (bytes, text and tables, never re-extracted) as the copy's revision 1. `GET /docs?q=` also matches a current revision's
+  filename and text, and only the current revision's (older ones are history, not hits); `%` and `_`
+  in `q` are plain characters (`search.like_pattern`). Summaries carry `kind` and `file` (the current revision); `GET /docs/{id}` adds
   `revisions`, newest first. REST: `POST /docs {kind: "file"}`, `GET|POST /docs/{id}/revisions` (raw
   body with `?filename=&note=`), `POST /docs/{id}/revisions/base64`, `POST
   /docs/{id}/revisions/{n}/restore`, `POST /attachments/{id}/promote`. MCP `slate_doc`
@@ -50,7 +56,9 @@ list. The same tree also holds **file docs**.
   are COMMENT-level writes for access (`_COMMENT_MODELS`, `_COMMENT_TYPES`), and `DocComment` rows
   follow the doc's visibility (`with_loader_criteria`). `GET /docs/{id}/activity` returns the
   comments plus the doc's `ACTIVITY_TYPES` events (created, updated, moved, revision_added,
-  version_restored, comment_resolved, suggestion_accepted) for the panel to fold in. Summaries carry
+  version_restored, comment_resolved, suggestion_accepted) for the panel to fold in, without page
+  bodies (`_activity_event`; a body save's event holds `docs.body_ref`, `{version_no, chars}`,
+  never the text, and the copy of the page in `doc.created` is left out). Summaries carry
   `comment_count` and `open_threads`. REST: `GET|POST /docs/{id}/comments`, `PATCH
   /doc-comments/{id}`, `POST /doc-comments/{id}/resolve|reopen|assign|accept`, `GET
   /docs/{id}/activity`; MCP `slate_doc`
@@ -67,7 +75,7 @@ list. The same tree also holds **file docs**.
   `docs.drawer_listing(list_id, folder)` is `GET /lists/{id}/drawer` (entries in tree order with
   `children_count`, the folder path, counts); `docs.to_drawer(page)` is `POST /docs/{id}/to-drawer`
   (a new drawer list named after a top-level page in a section; the page's subpages then the page
-  itself move to its top, each an ordinary `doc.moved`). The hub (`service/doc_hub.py`) is
+  itself move to its top, each an ordinary `doc.moved`, all in one change). The hub (`service/doc_hub.py`) is
   `drawers` (each with counts and how many `needs_you` entries are in it), `pages` (top-level,
   outside any drawer), `needs_you`, `counts`; it has no recent list or activity feed. MCP:
   `slate_doc drawer | to_drawer | pin_revision | unpin_revision`, `kind` on `slate_list create |
@@ -105,7 +113,8 @@ list. The same tree also holds **file docs**.
   of the stored text, `approximate: true` when either side is a PDF; images and the rest → `kind:
   none` (the board shows them side by side with a swipe). `GET
   /docs/{id}/revisions/compare?from=&to=`, MCP `slate_doc compare_revisions`. Revisions carry
-  `has_text`. Dependencies: `openpyxl`, `pypdf` (pure Python, in `pyproject.toml`). Board:
+  `has_text`, read as a NULL test (`_file_rows`): listings never load the text, and a search reads it
+  only for the hits it quotes. Dependencies: `openpyxl`, `pypdf` (pure Python, in `pyproject.toml`). Board:
   `lib/docs.ts` `sideBySide` (a unified diff as aligned columns; removed/added pairs read as one
   change) and `cellChanges`; `components/docs/RevisionCompare.svelte` (From/To pickers, text
   side-by-side or inline with an approximate note for PDFs, sheet tabs and a painted table, image
@@ -174,7 +183,15 @@ list. The same tree also holds **file docs**.
   page), `base_revision` (409 `conflict` when someone saved in between), `new_version`, `note`.
   **Versions**: `_checkpoint` folds a save into the latest version when it is the same author,
   unnamed and under 10 minutes old; otherwise it seals that version and starts a new one. A note
-  names a version and seals it. Restore writes a new version, never rewrites history. **Gotcha**:
+  names a version and seals it. Restore writes a new version, never rewrites history.
+  `update_doc` and `create_task` re-read the doc with `fresh_doc` (`populate_existing`) as the
+  first thing inside `apply_change` and make the `base_revision` check and the `append_md` /
+  `replace_section` / `replace` edit on that row, so a save that committed while the request
+  waited for the lock is a 409, not a silent overwrite, and two appends both land. `move_doc`
+  reads the tree and checks it (not under itself, at most `MAX_DEPTH` deep) inside its
+  `apply_change`, with `_all(fresh=True)`, so two moves at once cannot build a parent cycle; the
+  tree walkers (`_ancestors`, `_descendants`, `_height`, `_tree_order`) still stop on one. There is
+  no database trigger for doc cycles (items have one). **Gotcha**:
   any query inside `apply_change` autoflushes, and an uncovered dirty row raises
   `WriteWithoutEvent`; read the latest version *before* the change block and give new rows explicit
   ids and timestamps.
@@ -184,7 +201,9 @@ list. The same tree also holds **file docs**.
   replaces the selected text (`replace`, `occurrence`) with the embed or appends it. `GET
   /docs?embeds=<item id>` lists pages that mention a task (the task window's "In docs"); `GET
   /docs/{id}` returns the embedded tasks as item views plus backlinks, outline, path, children and
-  files.
+  files. `doc_out` (the response of every page read and write) reads the tree once and finds
+  backlinks with one `LIKE` over page bodies for `[[doc:<id>]]`; that scan grows with the doc
+  library (a `doc_links` table would make it an index lookup, at the cost of a migration).
 - **Archive and delete**: archiving a page hides its subtree; pages in archived lists or sections
   are hidden too. Delete only works on an archived page and takes its subpages. Export
   (`service/export.py`) includes docs in scope.
@@ -279,8 +298,17 @@ list. The same tree also holds **file docs**.
   `_check_archive` measures an XLSX's zip
   members (declared sizes, total, a 200x inflation ratio over 4 MiB, then a chunked inflate under
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even
-  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX uses the same cap; `_pdf_text` measures
-  each page's content streams with a capped `zlib` inflate before opening the page. CSV/TSV/XLSX
+  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX has its own check (`_docx_text` inflates only `word/document.xml`, in chunks, under the same
+  cap) rather than `_check_archive`. Cells read out of a
+  table are cut to `MAX_CELL` (1,000) characters and all of a revision's tables share one
+  `MAX_TABLE_CHARS` (4 M) budget, because every cell of a workbook may point at one long shared
+  string; the searchable text is written up to `MAX_TEXT` and no further. `_pdf_text` reads at
+  most `MAX_PDF_PAGES` (300) pages, stops at a `PDF_SECONDS` (15 s) deadline checked between
+  pages, and before opening a page measures its content streams and nested form XObjects through
+  their whole filter chain (abbreviated names such as `/Fl` normalised as pypdf reads them; Flate
+  inflated with an output cap) against `min(cap, PDF_CONTENT_BYTES)` (16 MiB); a stream it cannot
+  measure (LZW, run-length, broken data) leaves that page unread. Extraction still runs in the
+  server process: a subprocess with OS limits would bound it harder. CSV/TSV/XLSX
   tables are stored as JSON in `doc_files.tables_json` (`[[sheet, rows], ...]`,
   64 sheets max); **`compare` reads only `text` and `tables_json` and never opens a file** (opening
   two 2 MB workbooks measured 7 s per GET): a revision with either NULL answers `kind: none` with a
@@ -288,7 +316,9 @@ list. The same tree also holds **file docs**.
   Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
   the body through `api/uploads.read_body`, which refuses a declared length over the cap, counts
   `request.stream()` as it arrives and stops at the cap with the same 422; `Content-Length` is not
-  trusted (a chunked request has none). Board: `notIndexed` in `lib/docs.ts`, "not
+  trusted (a chunked request has none). The two doc routes are `async` only to stream the body;
+  they hand the write (and its text extraction) to `run_in_threadpool`, so an upload waiting for
+  the write lock never stalls the event loop. Board: `notIndexed` in `lib/docs.ts`, "not
   searchable" in `FileRevisions`, the compare `message` in `RevisionCompare`.
 - DOCX text extraction uses stdlib ZIP + ElementTree, reads only `word/document.xml`, never extracts
   paths/resolves relationships, rejects DTDs and bounds that part to the extraction cap plus the
