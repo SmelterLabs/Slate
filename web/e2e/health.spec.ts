@@ -1,18 +1,10 @@
 // Health: the owner sees the verdict, every check, the background jobs and calls per token
 // (an agent's failed call shows up with its route and status), the same sections on a phone,
 // and finds the page from the palette. An agent (not an owner or admin) is refused.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { BASE_URL, seed, signIn } from './support';
+import { expect, test } from '@playwright/test';
+import { BASE_URL, screenshots, seed, signIn } from './support';
 
-const shots = process.env.SLATE_HEALTH_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string, fullPage = true) {
-  if (!shots) return;
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: join(shots, `${name}.png`), fullPage });
-}
+const shot = screenshots('SLATE_HEALTH_SHOTS', { fullPage: true });
 
 async function asAgent(path: string, init: RequestInit = {}) {
   return fetch(`${BASE_URL}/api/v1${path}`, {
@@ -72,5 +64,5 @@ test('the palette opens Health, and a phone shows the same sections', async ({ p
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(wide).toBe(false);
   await shot(page, 'health-phone');
-  await shot(page, 'health-phone-top', false);
+  await shot(page, 'health-phone-top', { fullPage: false });
 });

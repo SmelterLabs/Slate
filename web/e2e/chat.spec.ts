@@ -2,13 +2,9 @@
 // message into a task, task links as cards, unread badges in the sidebar, and the same Chat
 // page on a phone.
 import { expect, test } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, seed, signedIn, signIn } from './support';
+import { api, screenshots, seed, signedIn, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img') : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const shot = screenshots();
 
 async function scratch(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} space`, audience: 'work' });
@@ -64,12 +60,12 @@ test.describe('desktop', () => {
     const dialog = page.getByRole('dialog', { name: 'Turn into task' });
     await expect(dialog.getByRole('textbox', { name: 'Task title' })).toHaveValue(/Can someone clear the shelves/);
     await dialog.getByRole('textbox', { name: 'Task title' }).fill('Clear the garage shelves');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-make-task.png') });
+    await shot(page, 'chat-make-task');
     await dialog.getByRole('button', { name: 'Create task' }).click();
     const card = mine.locator('.chat-task-card');
     await expect(card).toContainText('Clear the garage shelves');
     await expect(card).toContainText('Made from this message');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-channel.png') });
+    await shot(page, 'chat-channel');
     await card.click();
     await expect(page.getByRole('dialog', { name: /Clear the garage shelves/ })).toBeVisible();
   });
@@ -152,7 +148,7 @@ test.describe('desktop', () => {
     const msg = page.locator('.chat-msg', { hasText: 'Reminder:' });
     await expect(msg.locator('.task-ref')).toHaveText('#Pick up dry cleaning');
     await expect(msg.locator('.chat-task-card')).toContainText('Pick up dry cleaning');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-page.png') });
+    await shot(page, 'chat-page');
   });
 
   test('# links a page and a list; a reader without access gets the gone screen, not the title', async ({ page, browser }) => {
@@ -219,13 +215,13 @@ test.describe('phone', () => {
     await thread.getByRole('textbox', { name: 'Reply…' }).fill('Yes, after 10');
     await thread.getByRole('button', { name: 'Send' }).click();
     await expect(thread.locator('.chat-msg', { hasText: 'Yes, after 10' })).toBeVisible();
-    if (shots) await page.screenshot({ path: join(shots, 'chat-phone-thread.png') });
+    await shot(page, 'chat-phone-thread');
     await thread.getByRole('button', { name: 'Close thread' }).click();
     await expect(thread).toBeHidden();
     await expect(view.getByRole('button', { name: /1 reply/ })).toBeVisible();
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(width).toBeLessThanOrEqual(390);
-    if (shots) await page.screenshot({ path: join(shots, 'chat-phone.png') });
+    await shot(page, 'chat-phone');
     await view.getByRole('button', { name: 'All chats' }).click();
     await expect(page.locator(`[data-channel="list:${listId}"]`)).toBeVisible();
     expect(msg.id).toBeTruthy();

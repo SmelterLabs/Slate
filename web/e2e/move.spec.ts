@@ -1,16 +1,10 @@
 // "Move to…": a searchable list picker, grouped by section, in the card's right-click and ⋯
 // menus, the open task window, and the selection bar. Subtasks travel with their parent.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, signIn } from './support';
+import { api, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const shot = screenshots();
 
 const made: string[] = [];
 test.afterAll(async () => {
@@ -74,7 +68,7 @@ test('right-click a card, Move to…, search and Enter: it moves with its subtas
   await expect(menu.getByRole('menuitem', { name: new RegExp(`Home ${stamp}.*here now`) })).toBeDisabled();
   await find.fill(`to do ${stamp}`);
   await expect(menu.getByRole('menuitem')).toHaveCount(2); // the back row and the one match
-  if (shots) await page.screenshot({ path: join(shots, 'move-to-picker.png'), clip: (await menu.boundingBox())! });
+  await shot(page, 'move-to-picker', { clip: (await menu.boundingBox())! });
   await find.press('Enter');
 
   await expect.poll(() => listOf(parent.id)).toBe(todo);
@@ -106,7 +100,7 @@ test('the open task window moves a task from its header and from the List field'
   const tw = page.locator('.tw');
   await tw.getByRole('button', { name: 'Move to another list' }).click();
   await onTop(page.getByLabel('Find a list'));
-  if (shots) await page.screenshot({ path: join(shots, 'move-to-window.png'), clip: (await tw.boundingBox())! });
+  await shot(page, 'move-to-window', { clip: (await tw.boundingBox())! });
   await page.getByLabel('Find a list').click();
   await page.getByLabel('Find a list').fill(`To Do ${stamp}`);
   await page.getByLabel('Find a list').press('Enter');

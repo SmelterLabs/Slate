@@ -2,14 +2,10 @@
 // them from the Share dialog, see the guest's board hold only that list (with the "can
 // comment" note), take it away live, and read the audit log with filters and a CSV export.
 // SLATE_SHOTS=<dir> also saves screenshots (desktop and phone).
-import { expect, test, type Page } from '@playwright/test';
-import { api, seed, signIn } from './support';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signIn } from './support';
 
-const SHOTS = process.env.SLATE_SHOTS;
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` });
-}
+const shot = screenshots('SLATE_SHOTS');
 
 test('invite a guest, share one list, guest sees only it, audit log', async ({ page, browser }) => {
   const { agent } = seed();

@@ -2,19 +2,10 @@
 // desktop: real touch events through Chromium's DevTools protocol, so the browser scrolls,
 // fires its own long-press menu and synthesizes clicks exactly as it would under a finger.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, seed, signedIn } from './support';
+import { api, screenshots, seed, shotsDir, signedIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
+const shot = screenshots();
 
 interface Made {
   listId: string;
@@ -181,7 +172,7 @@ test.describe('iPhone', () => {
     }
     await signedIn(page, '/#/home');
     await expect(page.locator('.work-row', { hasText: 'Swipe done' })).toBeVisible();
-    if (shots) {
+    if (shotsDir()) {
       const c = await center(page, '.work-row:has-text("Swipe done")');
       await finger(page, c, [{ x: c.x + 120, y: c.y }, { run: () => shot(page, 'touch-swipe') }, { x: c.x, y: c.y }], 0);
     }

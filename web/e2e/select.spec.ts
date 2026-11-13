@@ -1,16 +1,11 @@
 // Multi-select shows what is selected: every selected card or row has a ticked box and a
 // selected outline while you pick more, in Board, List and Table, on a PC and on a phone.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { api, signIn } from './support';
+import { api, screenshots, signIn } from './support';
+
+const shot = screenshots('SLATE_SHOTS_DIR');
 
 // SLATE_SHOTS_DIR=<dir> writes screenshots there.
-const shots = process.env.SLATE_SHOTS_DIR ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
 
 // Each test's section is archived after it, so its tasks stay off later tests' Everything board.
 const made: string[] = [];

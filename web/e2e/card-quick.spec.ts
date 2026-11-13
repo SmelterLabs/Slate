@@ -1,24 +1,17 @@
 // The card's ⋯ menu Due row (Today, Tomorrow, a date picker) and the copy-ID chip in each card's
 // bottom-right corner: it copies the ID, says "Copied", and never opens or drags the card.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, signIn } from './support';
+import { api, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const capture = screenshots();
 /** A close-up around the given region (x, y, width, height), padded. */
-async function shot(page: Page, name: string, box: { x: number; y: number; width: number; height: number }) {
-  if (!shots) return;
+function shot(page: Page, name: string, box: { x: number; y: number; width: number; height: number }) {
   const pad = 16;
   const clip = { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + 2 * pad, height: box.height + 2 * pad };
-  await page.screenshot({ path: join(shots, `${name}.png`), clip });
+  return capture(page, name, { clip });
 }
 
 /** The smallest box around several elements. */

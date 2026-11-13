@@ -1,18 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, seed, signIn } from './support';
+import { api, screenshots, seed, signIn } from './support';
+
+const shot = screenshots('SLATE_PARITY_SHOTS');
 
 // ClickUp parity: the Table layout, estimates, dependencies and the tag manager.
 // Builds its own section and list so it does not disturb the other specs' data.
-
-const shots = process.env.SLATE_PARITY_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: false });
-}
 
 interface Built {
   listId: string;

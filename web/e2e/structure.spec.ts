@@ -1,23 +1,11 @@
 // Sections and lists from the nav, list settings, the drawer's editors and the
 // recurrence editor, against a real server. Each test makes its own section or items so the
 // order of files does not matter.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { api, signedIn } from './support';
+import { api, screenshots, signedIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 interface ListOut {
   id: string;

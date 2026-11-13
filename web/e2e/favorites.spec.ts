@@ -1,15 +1,9 @@
 // The favorites bar: pin from the nav and view menu, one-click open, live from the API, drag to
 // reorder, unpin, and the phone row. Every test removes its favorites so later files see none.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, signedIn, signIn } from './support';
+import { api, screenshots, signedIn, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const shot = screenshots();
 
 interface Fav {
   id: string;
@@ -77,11 +71,7 @@ test('a view pinned over the API appears live; drag reorders; × unpins', async 
   await expect(page).toHaveURL(new RegExp(`#/list/${listId}/v/${view.id}$`));
   await expect(page.locator('.view-tab.on .fav-mark')).toBeVisible();
 
-  if (shots) {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.screenshot({ path: join(shots, 'favorites-bar.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
-    await page.emulateMedia({ colorScheme: null });
-  }
+  await shot(page, 'favorites-bar', { scheme: 'dark', clip: { x: 0, y: 0, width: 1280, height: 200 } });
 
   // Drag the view chip onto the list chip's left half: it lands first.
   const listChip = bar(page).locator('.fav-chip[data-fav="list"]');

@@ -1,18 +1,12 @@
 // The Overdue column on the day board wears a soft red wash (like Today's amber one), in light
 // and dark, and the other plain columns stay grey.
 import { expect, test } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, signIn } from './support';
+import { api, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const shot = screenshots();
 
 /** "rgb(r, g, b)" or "color(srgb r g b)" -> [r, g, b] in 0..255. */
 function rgb(css: string): number[] {
@@ -60,8 +54,7 @@ test('the Overdue column is washed red in light and dark; plain columns are not'
     await expect.poll(redLean, { message: `${scheme}: overdue column leans red` }).toBeGreaterThan(8);
     const [pr, pg, pb] = await bg(plain);
     expect(Math.abs(pr - pg) + Math.abs(pg - pb), `${scheme}: plain column stays grey`).toBeLessThan(8);
-    await page.waitForTimeout(500);
-    if (shots) await page.screenshot({ path: join(shots, `overdue-tint-${scheme}.png`), animations: 'disabled' });
+    await shot(page, `overdue-tint-${scheme}`);
   }
   await page.emulateMedia({ colorScheme: null });
   await api('PATCH', `/sections/${sectionId}`, { archived: true });

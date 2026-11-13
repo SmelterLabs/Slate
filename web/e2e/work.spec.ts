@@ -1,15 +1,9 @@
 // Productivity: the command palette, natural quick add, My Work, the inbox (live from an
 // agent's comment), undo, j/k and g-chords.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, seed, signedIn } from './support';
+import { api, screenshots, seed, signedIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const shot = screenshots();
 
 interface Item {
   id: string;
@@ -38,7 +32,7 @@ test('Ctrl+K finds a task by fuzzy title and opens it', async ({ page }) => {
   await page.keyboard.type('insurance crd');
   const row = palette(page).getByRole('option').first();
   await expect(row).toContainText('Renew the insurance card');
-  if (shots) await page.screenshot({ path: join(shots, 'palette.png') });
+  await shot(page, 'palette');
   await page.keyboard.press('Enter');
   await expect(palette(page)).toBeHidden();
   await expect(page.getByRole('dialog', { name: /Renew the insurance card/ })).toBeVisible();
@@ -122,7 +116,7 @@ test('an agent mention lands in the inbox live; opening it marks it read', async
   await expect(row).toHaveClass(/unread/);
   await expect(row).toContainText('commented');
   await expect(page.getByRole('link', { name: /^Inbox \d+ unread/ })).toBeVisible();
-  if (shots) await page.screenshot({ path: join(shots, 'inbox.png') });
+  await shot(page, 'inbox');
   await row.locator('.inbox-main').click();
   await expect(page.getByRole('dialog', { name: /Check the gutter quote/ })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -141,7 +135,7 @@ test('My Work shows my tasks by due date', async ({ page }) => {
   await expect(region.locator('[data-bucket="overdue"]')).toContainText('Mine late');
   await expect(region.locator('.work-main')).not.toContainText('Not mine');
   await expect(region.locator('.work-side')).toContainText('Not mine'); // delegated
-  if (shots) await page.screenshot({ path: join(shots, 'my-work.png') });
+  await shot(page, 'my-work');
   // j moves the cursor, e completes it, Ctrl+Z undoes that.
   await page.locator('body').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('j');
@@ -177,10 +171,10 @@ test('phone: My Work, the inbox bell and search are in the top bar', async ({ pa
   await signedIn(page, '/#/home', { ready: true });
   await expect(page.getByRole('region', { name: 'My Work' })).toBeVisible();
   await expect(page.locator('.topbar .where')).toHaveText('My Work');
-  if (shots) await page.screenshot({ path: join(shots, 'mobile-my-work.png') });
+  await shot(page, 'mobile-my-work');
   await page.locator('.topbar').getByRole('button', { name: 'Search' }).click();
   await expect(palette(page)).toBeVisible();
-  if (shots) await page.screenshot({ path: join(shots, 'mobile-palette.png') });
+  await shot(page, 'mobile-palette');
   await page.keyboard.press('Escape');
   await page.locator('.topbar .top-inbox').click();
   await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();

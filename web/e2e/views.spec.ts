@@ -1,23 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, seed, signedIn } from './support';
+import { api, screenshots, seed, signedIn } from './support';
+
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 // The views board. Runs after board.spec.ts against the same seeded server.
-
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
 
 // A monitor-sized window: the due board is ten columns wide, and a drag does not autoscroll.
 test.use({ viewport: { width: 1920, height: 1080 } });

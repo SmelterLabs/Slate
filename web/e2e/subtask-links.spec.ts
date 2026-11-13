@@ -1,21 +1,10 @@
 // With "Subtasks" on, a subtask card says whose it is and a thin curve joins it to its parent,
 // in the same column (an elbow down the indent) or across columns.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, signIn } from './support';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.locator('.kanban').screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark', selector: '.kanban' });
+const selectShot = screenshots('SLATE_SHOTS_DIR', { selector: '.kanban' });
 
 test('subtask cards are labelled and linked to their parent', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Linked', audience: 'personal' });
@@ -117,7 +106,7 @@ test('the select box is top left, clear of the title and the subtask line', asyn
   await expect(first).toHaveClass(/selected/);
   await page.mouse.move(900, 600);
   await expect(first.getByLabel('Select')).toBeVisible();
-  if (process.env.SLATE_SHOTS_DIR) await page.locator('.kanban').screenshot({ path: `${process.env.SLATE_SHOTS_DIR}/select-corner.png` });
+  await selectShot(page, 'select-corner');
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 

@@ -1,21 +1,9 @@
 // The task window: opened by link, checklists, description tick boxes, files, reactions,
 // watching, and the activity column as an agent works the task.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { api, seed, signIn, upload } from './support';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signIn, upload } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string, scheme: 'dark' | 'light' = 'dark') {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: scheme });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 // A 2x2 PNG, so the attachment shows a thumbnail.
 const PNG = Buffer.from(
@@ -100,7 +88,7 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
   await expect(tw.locator('.activity .ev', { hasText: 'You checked “Mount the rail”' })).toBeVisible();
   await page.mouse.move(0, 0);
   await shot(page, 'task-window-full');
-  await shot(page, 'task-window-light', 'light');
+  await shot(page, 'task-window-light', { scheme: 'light' });
 
   // Esc closes and the link leaves the URL.
   await page.keyboard.press('Escape');

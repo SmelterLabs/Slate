@@ -1,16 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { api, seed, signedIn } from './support';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signedIn } from './support';
+
+const shot = screenshots('SLATE_LASTVIEW_SHOTS');
 
 // Coming back to a list shows it the way you left it: the last view tab, and its unsaved
 // layout, grouping and filters. They live on the account, so a reload and another device agree.
-
-const shots = process.env.SLATE_LASTVIEW_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
 
 const forget = () => api('PATCH', '/me/prefs', { last_view: null, view_drafts: null });
 

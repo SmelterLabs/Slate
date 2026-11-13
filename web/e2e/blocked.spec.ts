@@ -1,14 +1,10 @@
 // Blocked state: a task waiting on an open one shows Blocked on its card, table row, task window
 // and My Work, and clears live (no reload) when an agent finishes what it waits on; the assignee
 // hears "Ready to start". Same on the phone.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { api, seed, signedIn } from './support';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signedIn } from './support';
 
-const shots = process.env.SLATE_BLOCKED_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-const shot = (page: Page, name: string) => (shots ? page.screenshot({ path: join(shots, `${name}.png`) }) : null);
+const shot = screenshots('SLATE_BLOCKED_SHOTS');
 
 // Sections made here are archived after each test, so their undated tasks never crowd the shared
 // Everything board other specs read (its No due date column shows 25 cards before "Show more").

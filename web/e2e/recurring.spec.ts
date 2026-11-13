@@ -1,17 +1,11 @@
 // ClickUp's recurrence options: "When done" with reopen and skip weekends from the task window,
 // the repeat label on cards, and future repeats drawn on the calendar.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { expect, test } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, signedIn } from './support';
+import { api, screenshots, signedIn } from './support';
 
-const shots = process.env.SLATE_RECUR_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
-}
+const shot = screenshots('SLATE_RECUR_SHOTS');
 
 async function scratch(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} home`, audience: 'personal' });

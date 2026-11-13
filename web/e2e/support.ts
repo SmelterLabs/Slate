@@ -1,6 +1,9 @@
 // Shared helpers for the browser tests: call the API, sign in, open More in the left menu,
 // take optional screenshots. Every spec imports these instead of carrying its own copy.
 import { expect, type Locator, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BASE_URL, seed } from './seed';
 
 export { BASE_URL, seed, SEED_FILE, type Seed } from './seed';
@@ -93,21 +96,37 @@ export interface ShotOptions {
   scheme?: 'dark' | 'light';
   fullPage?: boolean;
   clip?: { x: number; y: number; width: number; height: number };
-  /** Capture only this element instead of the page. */
-  target?: Locator;
+  /** Capture only the element this CSS selector finds instead of the page. */
+  selector?: string;
+}
+
+const DOCS_IMG = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img');
+
+/**
+ * Where a spec's screenshots go, or null when they are off (the default). `SLATE_SCREENSHOTS=1`
+ * writes the documentation images into docs/img/; a spec's own variable names a folder.
+ */
+export function shotsDir(variable = 'SLATE_SCREENSHOTS'): string | null {
+  const value = process.env[variable];
+  if (!value) return null;
+  const dir = variable === 'SLATE_SCREENSHOTS' ? DOCS_IMG : value;
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 /**
- * A `shot(page, name)` that saves `<dir>/<name>.png`, or does nothing when `dir` is unset (the
- * screenshots are for documentation runs only). `defaults` apply to every capture.
+ * A `shot(page, name)` that saves `<name>.png` into `shotsDir(variable)`, or does nothing when
+ * screenshots are off. `defaults` apply to every capture. Animations are finished first, so a
+ * capture needs no pause for a transition to settle.
  */
-export function screenshotter(dir: string | null | undefined, defaults: ShotOptions = {}) {
+export function screenshots(variable = 'SLATE_SCREENSHOTS', defaults: ShotOptions = {}) {
+  const dir = shotsDir(variable);
   return async (page: Page, name: string, options: ShotOptions = {}): Promise<void> => {
     if (!dir) return;
-    const { scheme, fullPage, clip, target } = { ...defaults, ...options };
+    const { scheme, fullPage, clip, selector } = { ...defaults, ...options };
     if (scheme) await page.emulateMedia({ colorScheme: scheme });
-    const path = `${dir}/${name}.png`;
-    if (target) await target.screenshot({ path, animations: 'disabled' });
+    const path = join(dir, `${name}.png`);
+    if (selector) await page.locator(selector).screenshot({ path, animations: 'disabled' });
     else await page.screenshot({ path, fullPage, clip, animations: 'disabled' });
     if (scheme) await page.emulateMedia({ colorScheme: null });
   };
