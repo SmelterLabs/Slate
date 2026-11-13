@@ -336,7 +336,7 @@ the server's `.env`, not in the repo.
 - **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
   `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
   10m×5, run as the service user's uid with every capability dropped and `no-new-privileges`,
-  forwarded headers trusted from loopback and `172.16.0.0/12` only, never `*`); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
+  forwarded headers trusted from loopback and Docker's bridge pools `172.16.0.0/12` and `192.168.0.0/16` only, never `*`); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
   `slate-backup.service/.timer` + `backup.sh` (daily at 03:30; `backup.py`, fed to the container's
   Python on stdin, takes the SQLite online backup, refuses a missing or non-Slate database and
   streams the copy out; `backup.sh` checks its SHA-256 and keeps 30 days in `/opt/slate/backups/`,
