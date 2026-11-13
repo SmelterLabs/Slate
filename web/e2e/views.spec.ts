@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, seed, signedIn } from './support';
+import { api, screenshots, seed, signedIn, streamLive } from './support';
 
 const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
@@ -138,7 +138,7 @@ test('a change made through the API appears live on the Everything board', async
 test('monitor mode hides nav and toolbar, shows a clock, stays live', async ({ page }) => {
   await workBoard(page, '?kiosk=1');
   await expect(page.locator('.kiosk-bar .clock')).toBeVisible();
-  await expect(page.locator('.conn-live')).toBeVisible();
+  await streamLive(page);
   await expect(page.locator('.nav')).toHaveCount(0);
   await expect(page.locator('.toolbar')).toHaveCount(0);
   await expect(page.getByLabel('Quick add')).toHaveCount(0);

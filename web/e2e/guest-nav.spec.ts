@@ -2,7 +2,7 @@
 // channel they can see (not General), and workspace pages (Members) are out of the nav,
 // the palette and the g-chords, the same on a phone.
 import { expect, test } from '@playwright/test';
-import { api, seed, signIn } from './support';
+import { api, openMore, seed, signIn } from './support';
 
 async function guestToken(): Promise<string> {
   const { listId } = seed();
@@ -20,7 +20,7 @@ test('a guest: chat opens a shared channel, workspace pages are not offered', as
   await expect(page.getByText(/channel general not found/)).toHaveCount(0);
 
   const nav = page.locator('nav').first();
-  await nav.getByRole('button', { name: 'More', exact: true }).click(); // the rest of the pages live under More
+  await openMore(nav); // the rest of the pages live under More
   await expect(nav.getByRole('link', { name: 'Agents', exact: true })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Members', exact: true })).toHaveCount(0);
 

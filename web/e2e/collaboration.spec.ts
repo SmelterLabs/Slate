@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, signedIn } from './support';
+import { api, openMore, signedIn, streamLive } from './support';
 
 async function project(name: string) {
   const section = await api('POST', '/sections', { name, audience: 'work' });
@@ -66,7 +66,7 @@ test('admin invitation UI, guest project, cookie reload, docs, discussion, logou
   await expect(guest).not.toHaveURL(/secret=/);
   await guest.getByRole('button', { name: 'Accept invitation & sign in' }).click();
   await expect(guest.getByLabel('Project home')).toBeVisible();
-  await expect(guest.locator('.conn-live')).toBeVisible();
+  await streamLive(guest);
   await expect(guest.locator('.me-ends')).toContainText('Access ends'); // the session's end date, guests only
   await expect(page.locator('.me-ends')).toHaveCount(0);
   await expect(guest.getByLabel('Project participants')).toContainText('Project Guest');
@@ -86,7 +86,7 @@ test('admin invitation UI, guest project, cookie reload, docs, discussion, logou
   await guest.getByLabel('New project list').fill('Ideas');
   await guest.getByRole('button', { name: 'Create list', exact: true }).click();
   await expect(guest).toHaveURL(/#\/list\//);
-  await guest.reload(); await expect(guest.locator('.conn-live')).toBeVisible();
+  await guest.reload(); await streamLive(guest);
   expect(await guest.evaluate(() => localStorage.getItem('slate.token'))).toBe('@browser-session');
   const cookies = await guest.context().cookies();
   expect(cookies.find(c => c.name === 'slate_session')?.httpOnly).toBe(true);
@@ -129,7 +129,7 @@ test('admin invitation UI, guest project, cookie reload, docs, discussion, logou
   await guest.getByLabel('Token', { exact: true }).fill(second);
   await guest.getByRole('button', { name: 'Sign in' }).click();
   await expect(guest.getByLabel('Project home')).toBeVisible();
-  await expect(guest.locator('.conn-live')).toBeVisible();
+  await streamLive(guest);
   expect(await guest.evaluate(() => localStorage.getItem('slate.token'))).toBe('@browser-session');
   await expect(dialog.getByTestId('invite-row').filter({ hasText: 'Access ends' })).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Extend 30 days' }).click();
@@ -145,7 +145,7 @@ test('phone sidebar More and section ordering via touch menu', async ({ browser 
   await expect(page.getByLabel('Project home')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await page.getByRole('button', { name: 'More', exact: true }).tap();
+  await openMore(page, { tap: true });
   await expect(page.getByRole('link', { name: 'Agents', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Phone project options' }).tap();
   await page.getByRole('menuitem', { name: 'Move up', exact: true }).tap();
@@ -162,7 +162,7 @@ test('revoking a project share removes an open guest doc without manual refresh'
   const guest = await browser.newPage();
   await guest.goto(`/#/invite?secret=${encodeURIComponent(invitation.secret)}`);
   await guest.getByRole('button', { name: 'Accept invitation & sign in' }).click();
-  await expect(guest.locator('.conn-live')).toBeVisible();
+  await streamLive(guest);
   await guest.goto(`/#/docs/${doc.id}`);
   await expect(guest.getByText('Content disappears after revocation', { exact: true })).toBeVisible();
   await api('PUT', '/shares', { account_id: invitation.account_id, scope_kind: 'section', scope_id: section.id, level: null });

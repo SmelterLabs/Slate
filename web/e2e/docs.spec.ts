@@ -2,7 +2,7 @@
 // embeds as a live card; Alex edits the page and it autosaves; the slash menu adds a checklist;
 // page history lists the versions; and a phone gets the same page and tools.
 import { expect, test } from '@playwright/test';
-import { api, seed, signIn } from './support';
+import { api, openMore, seed, signIn } from './support';
 
 interface Doc {
   id: string;
@@ -22,7 +22,7 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
 
   await signIn(page);
   await page.goto('/#/home');
-  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await openMore(page);
   await page.getByRole('link', { name: 'Docs & Files', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Docs & Files', level: 1 })).toBeVisible();
   await page.getByRole('tree', { name: 'Pages and files' }).getByRole('link', { name: /Offsite plan/ }).click();

@@ -2,7 +2,7 @@
 // back), find it in the trash, restore it, delete another for good, see done and archived
 // tasks, and download an export.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
+import { api, BASE_URL, openMore, seed, signIn } from './support';
 
 test('trash, restore and the archive page', async ({ page }) => {
   const { alex } = seed();
@@ -36,7 +36,7 @@ test('trash, restore and the archive page', async ({ page }) => {
   await expect(page.locator(`[data-item="${bin.id}"]`)).toHaveCount(0);
 
   // The Archive page: Done first.
-  await page.getByRole('button', { name: 'More', exact: true }).click(); // Archive lives under More
+  await openMore(page); // Archive lives under More
   await page.getByRole('link', { name: 'Archive' }).first().click();
   await expect(page.getByRole('heading', { name: 'Archive' })).toBeVisible();
   const rows = page.locator('.arch-row');
