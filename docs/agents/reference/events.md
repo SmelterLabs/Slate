@@ -133,7 +133,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 |---|---|
 | `invitation.accepted` | Single-use invitation consumed; session linked. Actor is the guest. |
 | `invitation.created` | A seven-day private-section guest/edit invitation. No secret or hash. |
-| `invitation.revoked` | An admin cancelled an invitation and its associated browser session. |
+| `invitation.revoked` | An invitation was cancelled: by an admin, with its browser session, or because the guest's section share was removed or a sibling link was cancelled. |
 
 ## item
 

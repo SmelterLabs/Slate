@@ -67,7 +67,8 @@ EVENT_DOCS: dict[str, str] = {
     "share.revoked": "A share was removed (`before` = the share).",
     "invitation.created": "A seven-day private-section guest/edit invitation. No secret or hash.",
     "invitation.accepted": "Single-use invitation consumed; session linked. Actor is the guest.",
-    "invitation.revoked": "An admin cancelled an invitation and its associated browser session.",
+    "invitation.revoked": "An invitation was cancelled: by an admin, with its browser session, "
+    "or because the guest's section share was removed or a sibling link was cancelled.",
     "session.created": "Thirty-day browser token expiry and marker set. No credential.",
     "session.expiring": "A guest browser session ends in three days (`after`: section, date, "
     "inviter; `for` = guest | inviter). Subject is the account told; inbox reason `access`.",
