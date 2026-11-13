@@ -289,7 +289,8 @@
   const FOCUSABLE =
     'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
   function trapTab(e: KeyboardEvent) {
-    if (e.key !== 'Tab' || !dialog) return;
+    // Docked, the window is not modal: Tab moves on to the board beside it.
+    if (e.key !== 'Tab' || !dialog || docked) return;
     const active = document.activeElement;
     // Something over the window (the viewer, the palette, a floated menu) has focus: its turn.
     if (active && active !== document.body && !dialog.contains(active)) return;
