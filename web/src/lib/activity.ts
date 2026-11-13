@@ -211,6 +211,6 @@ export function canDeleteComment(c: Comment, me: Me | null | undefined): boolean
 
 /** The question asked before a comment is deleted. */
 export function deleteCommentQuestion(c: Comment, me: string, authorName: string | undefined): string {
-  const whose = c.author_id === me ? 'your comment' : `${authorName ?? 'this person'}’s comment`;
+  const whose = c.author_id === me ? 'your comment' : `${authorName ?? (c.author_handle ? `@${c.author_handle}` : 'this person')}’s comment`;
   return `Delete ${whose}? It goes for good; the history keeps a record that it was deleted.`;
 }

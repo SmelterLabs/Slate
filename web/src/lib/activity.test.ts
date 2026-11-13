@@ -163,6 +163,11 @@ describe('deleting a comment', () => {
     expect(canDeleteComment(comment, null)).toBe(false);
   });
 
+  it('names the author from the comment itself when the board does not know the account yet', () => {
+    expect(deleteCommentQuestion({ ...comment, author_handle: 'alex' }, 'acc_other', undefined)).toMatch(/^Delete @alex’s comment?/);
+    expect(deleteCommentQuestion(comment, 'acc_other', undefined)).toMatch(/^Delete this person’s comment?/);
+  });
+
   it('asks whose comment goes', () => {
     expect(deleteCommentQuestion(comment, 'acc_alex', 'Alex')).toMatch(/^Delete your comment\?/);
     expect(deleteCommentQuestion(comment, 'acc_other', 'Alex')).toMatch(/^Delete Alex’s comment\?/);

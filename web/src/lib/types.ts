@@ -256,6 +256,7 @@ export interface Comment {
   resolved_at?: string | null;
   resolved_by_id?: string | null;
   /** person, agent or guest: who wrote it (the server's view, for agents' adapters). */
+  author_handle?: string | null;
   author_kind?: 'person' | 'agent' | 'guest' | null;
 }
 

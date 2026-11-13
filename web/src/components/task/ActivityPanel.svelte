@@ -147,6 +147,8 @@
     title: (id: string) => board.items[id]?.title,
   };
 
+  const authorName = (c: Comment) => board.accountName(c.author_id) ?? (c.author_handle ? '@' + c.author_handle : undefined);
+
   function statusName(id: string): string | undefined {
     for (const l of Object.values(board.lists)) {
       const s = l.statuses.find((x) => x.id === id);
@@ -211,7 +213,7 @@
   }
 
   async function removeComment(c: Comment) {
-    if (!window.confirm(deleteCommentQuestion(c, task.me, board.accountName(c.author_id)))) return;
+    if (!window.confirm(deleteCommentQuestion(c, task.me, authorName(c)))) return;
     if (await task.deleteComment(c.id)) saveDraft(draftKey.editComment(c.id), '');
   }
 
@@ -288,7 +290,7 @@
           title="Show the whole message"
           onclick={() => (opened[c.id] = true)}
         >
-          <strong>{board.accountName(c.author_id) ?? 'Someone'}</strong>
+          <strong>{authorName(c)}</strong>
           <span class="chat-line">{firstLine(c.body_md)}</span>
           <time datetime={c.created_at}>{stamp(c.created_at, board.now)}</time>
         </button>
@@ -306,7 +308,7 @@
         >
           <div class="who">
             <Avatars people={person(c.author_id)} />
-            <strong>{board.accountName(c.author_id) ?? 'Someone'}</strong>
+            <strong>{authorName(c)}</strong>
             <time class="muted" datetime={c.created_at} title={fullStamp(c.created_at)}>{stamp(c.created_at, board.now)}</time>
             {#if c.edited_at}<span class="muted" title="Edited {fullStamp(c.edited_at)}">(edited)</span>{/if}
             {#if c.assignee_id}
