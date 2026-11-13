@@ -601,7 +601,9 @@ Design choices and the reason for each, with the alternatives that were rejected
   without a list checks nothing; a list that is empty or malformed still fails. A hit in a CI log
   names the file and line, never the word. `tests/test_private_terms.py` fails if a `.sha256` list
   is tracked. After `python scripts/check_private_terms.py --add WORD`, update the secret with
-  `gh secret set PRIVATE_TERMS_SHA256 < .git/private_terms.sha256`.
+  `gh secret set PRIVATE_TERMS_SHA256 < .git/private_terms.sha256`. A term is one word of
+  letters and digits, compared without case or accents: `--add` refuses anything else and names
+  the words to add instead (`my-host` is `my` and `host`), since a hash of a phrase never matches.
 - **The private-terms check covers the bytes being committed.** The pre-commit hook scans index
   contents and filenames (including paths with spaces), not a potentially different working copy.
   The check also scans lockfiles, the license, Office XML and Office metadata. Commit-message
