@@ -126,6 +126,7 @@ def require(scope: str) -> Callable[..., Auth]:
         release(session)
         return Auth(principal=principal, actor=actor)
 
+    dependency.scope = scope  # type: ignore[attr-defined]  # read by slate.mcp_tools.bind
     return dependency
 
 

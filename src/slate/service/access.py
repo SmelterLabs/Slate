@@ -63,6 +63,7 @@ from slate.models import (
     Doc,
     DocComment,
     DocFile,
+    DocLink,
     DocTag,
     DocVersion,
     DocWake,
@@ -756,6 +757,7 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(DocComment, DocComment.doc_id.in_(docs)),
         with_loader_criteria(DocWake, DocWake.doc_id.in_(docs)),
         with_loader_criteria(DocTag, DocTag.doc_id.in_(docs)),
+        with_loader_criteria(DocLink, DocLink.doc_id.in_(docs)),
         with_loader_criteria(Capacity, ws),
         # A saved view follows its scope; a workspace-wide one is General's, except Slate's
         # own landing views and the caller's own.
@@ -1154,7 +1156,7 @@ def check_object(
                 "automations",
             )
         return
-    if isinstance(obj, Doc | DocVersion | DocFile | DocComment | DocWake):
+    if isinstance(obj, Doc | DocVersion | DocFile | DocComment | DocWake | DocLink):
         if access.doc_level(doc_place(session, obj if isinstance(obj, Doc) else obj.doc_id)) < need:
             raise _deny(need, "change this doc")
         return

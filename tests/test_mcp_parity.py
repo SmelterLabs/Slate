@@ -162,3 +162,35 @@ def test_mcp_params_match_the_rest_route(tool, action):
         if not _traced(name, getattr(params, name), sent_query | sent_body, blob, call.path):
             problems.append(f"MCP param `{name}` reaches neither the path, query nor body")
     assert not problems, f"{tool} {action} vs {op.method} {op.path}:\n  " + "\n  ".join(problems)
+
+
+@cache
+def _routes() -> dict[tuple[str, str], Any]:
+    import pkgutil
+    from importlib import import_module
+
+    from fastapi.routing import APIRoute
+
+    import slate.api
+
+    out = {}
+    for info in pkgutil.iter_modules(slate.api.__path__):
+        router = getattr(import_module(f"slate.api.{info.name}"), "router", None)
+        for route in getattr(router, "routes", []):
+            if isinstance(route, APIRoute):
+                path = route.path if route.path.startswith(docgen.API) else docgen.API + route.path
+                out.update({(method, path): route for method in route.methods})
+    return out
+
+
+@pytest.mark.parametrize(("tool", "action"), ACTIONS, ids=lambda v: v)
+def test_mcp_scope_is_the_rest_route_scope(tool, action):
+    """The MCP door checks `Action.scope` itself (the REST `require` never runs there), so it
+    must be the scope the route demands: a lower one lets a read token write over MCP."""
+    from slate.mcp_tools import _scope_of
+
+    act = TOOLS[tool].actions[action]
+    call = act.rest(filled(act.params))
+    op = docgen.match_route(call.method, docgen.API + call.path)
+    assert op is not None, f"{call.method} {call.path} is not a route"
+    assert act.scope == _scope_of(_routes()[(op.method, op.path)]), (tool, action)
