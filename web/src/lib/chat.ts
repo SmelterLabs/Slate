@@ -4,6 +4,7 @@
 
 import { workspaceFormatter } from './timezone';
 import { MENTION_RE, highlightMentions } from './activity';
+import { escape } from './mdcore';
 import { renderMarkdown, type RefResolvers } from './markdown';
 
 export interface Channel {
@@ -262,7 +263,7 @@ export function renderBody(
         : part.replace(/(^|[^\w/#&])#([0-9A-Za-z]{12})(?![0-9A-Za-z])/g, (all, pre: string, id: string) => {
             const title = titleOf(id);
             if (!title) return all;
-            const safe = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safe = escape(title);
             return `${pre}<a class="task-ref" href="#/everything?task=${id}" data-task="${id}">#${safe}</a>`;
           }),
     )
