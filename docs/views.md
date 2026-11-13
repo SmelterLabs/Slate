@@ -105,7 +105,10 @@ event and drop tables: `docs/board.md`.
 item to the first status of that kind in the item's own list (after any `list_id` move), so a
 cross-list status change is one transaction. A list with no status of that kind refuses the whole
 batch (422 naming the lists). The bulk bar leaves those items out client-side first and flashes
-which lists were skipped.
+which lists were skipped. `changes` is checked by `schemas.BulkChanges` (the PATCH fields and
+types plus `add_tags`, `remove_tags`, `archive`, `trash`, `list_id`, `status_kind`; unknown fields
+and wrong types are a 422 before anything runs); it stays a plain object in the schema so the MCP
+tool's input schema has no `$ref`.
 
 ## View polish
 

@@ -138,23 +138,18 @@ def test_ids_filter_returns_those_items_in_order(client, alex, board):
 
 def test_a_write_from_another_process_drops_the_cache(client, alex, board, db):
     """No in-process event: the cache sees the database's newest event moved and starts over."""
-    from sqlalchemy import text
-
+    from conftest import raw_write
     from slate.ids import new_event_id
 
     _warm(client, alex)
     actor = client.get(f"{API}/me", headers=alex).json()["account"]["id"]
-    # One shared in-memory connection in tests: no request may run between these and commit.
-    db.execute(text("UPDATE items SET title = 'outside' WHERE id = :id"), {"id": board["a"]["id"]})
-    db.execute(
-        text(
-            "INSERT INTO events (id, item_id, subject_id, actor_id, source, type, at) "
-            "VALUES (:id, :item, :item, :actor, 'system', 'item.updated', "
-            "'2026-10-24T00:00:00.000000Z')"
-        ),
+    raw_write("UPDATE items SET title = 'outside' WHERE id = :id", {"id": board["a"]["id"]})
+    raw_write(
+        "INSERT INTO events (id, item_id, subject_id, actor_id, source, type, at) "
+        "VALUES (:id, :item, :item, :actor, 'system', 'item.updated', "
+        "'2026-10-24T00:00:00.000000Z')",
         {"id": new_event_id(), "item": board["a"]["id"], "actor": actor},
     )
-    db.commit()
     titles = {i["id"]: i["title"] for i in client.get(f"{API}/items", headers=alex).json()}
     assert titles[board["a"]["id"]] == "outside"
 

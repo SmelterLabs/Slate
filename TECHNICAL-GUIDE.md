@@ -42,7 +42,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 
 | Path | What it is |
 |---|---|
-| `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health`, the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
+| `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
 | `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is in `env.example`). |
 | `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
@@ -84,7 +84,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
 | `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
-| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models; counted raw upload bodies; the long-poll helpers. |
+| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`) and counted raw upload bodies; the long-poll helpers. |
 | `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search; plus `events` and `recurrences`. |
 
 ## Schema notes
@@ -154,20 +154,24 @@ blocks join the outer one (same actor required), so service functions can call e
 commit once. Event payloads never include `token_hash`, `secret_hash` or `secret_enc`
 (`core.SECRET_COLUMNS`).
 
-**The guard** (`core.guard_flush`/`guard_bulk`, hooked onto every `Session` in `db.py` so import
-order cannot skip it):
+**The guard** (`core.guard_flush`/`guard_bulk`/`guard_cursor`, hooked onto every `Session` and
+the engine in `db.py` so import order cannot skip it):
 
 - any insert/update/delete flushed with no `apply_change()` open → `WriteOutsideChange`;
 - inside a block, any written object not passed through `create`/`set`/`delete`/`record(covers=...)`
   → `WriteWithoutEvent`;
 - ORM bulk `insert()/update()/delete()` outside a block → `WriteOutsideChange`; inside a block it
   must record at least one event;
+- any other SQL write a session sends (`text()`, `session.connection().execute`,
+  `exec_driver_sql`, `bulk_insert_mappings`), seen at the cursor by `guard_cursor`: the same
+  rule as an ORM bulk write;
 - an `Event` modified or deleted → refused (and the database triggers refuse it too).
 
 The exemptions: `core.BOOKKEEPING` (`Token.last_used_at`, refreshed by `resolve_token()` at most
 once a minute) and `core.BOOKKEEPING_MODELS` (`Delivery` rows: the deliveries table is itself the
 webhook delivery log; logging each attempt as an event would flood the log and loop back into
-webhooks). Raw `engine.connect()` SQL is not guarded; only tests use it.
+webhooks). SQL on a bare `engine.connect()` connection, outside any session, is not guarded;
+only migrations and tests use it (tests seed old rows with `conftest.raw_write`).
 
 **How to add a mutation:** write a function in `slate/service/<area>.py` taking `(session, actor,
 ...)`, validate, then do every write through `cx.*` inside `apply_change()`. Then classify it in
@@ -713,9 +717,12 @@ maintainer decision. None of them has a table in the schema.
   column's scroll does not clip it on the first card, and the column head gives up the same. A
   card's ⋯ mounts on first focus, so an empty `.card-more-slot` holds its place; without it the
   first tap on a phone moves Complete under the finger.
-- SQLite + many concurrent agents: WAL mode and a single writer connection pool
-  (`check_same_thread=False`, pool size small). Long transactions are the enemy; keep service
-  functions short.
+- SQLite + many concurrent agents: WAL mode, one process write lock, and a connection pool that
+  never makes a caller wait (`db.POOL_SIZE` kept open, more opened on demand). `require()` hands
+  the request's connection back once the token is checked, and long-polls end their read before
+  they wait, so a request holds a connection only while it queries. Never hold a session's
+  transaction open across an `await` on anything but the database. Long transactions are the
+  enemy; keep service functions short.
 - The board's `EventSource` listens to an explicit list of event types (`store.svelte.ts`
   `EVENT_TYPES`). A new event type is silently never heard until it is added there; the symptom is
   "the write succeeds, nothing live-updates". `tests/test_board_event_types.py` fails when the list

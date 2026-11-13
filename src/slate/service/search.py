@@ -5,8 +5,8 @@
 Three queries, each already access-filtered by the session's read criteria (service/access.py),
 so a guest only finds what it can see: tasks through `items.query_items(q=)` (title and body),
 docs through `docs.list_docs(q=)` (title, page text and the text inside files), and chat
-messages through a `LIKE` over `messages.body_md`, the one query new here. In that pattern `%`
-and `_` typed by the caller are literal (`escape="\\"`).
+messages through a `LIKE` over `messages.body_md`, the one query new here. All three match with
+`db.contains`: any case (Unicode, not only A-Z), and `%` and `_` typed by the caller literal.
 
 Hits come back tasks first, then docs, then messages, newest first within chat. Each group gets
 an equal share of `limit`; what a short group leaves over goes to the next groups in order, so
@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from slate.db import contains
 from slate.models import List, Message, Section
 from slate.service import access, chat, docs
 from slate.service import items as items_svc
@@ -107,19 +108,13 @@ def _docs(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
     return out
 
 
-def like_pattern(q: str) -> str:
-    """`%q%` with the caller's `%`, `_` and `\\` escaped (use with `escape="\\"`)."""
-    body = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{body}%"
-
-
 def _messages(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
     rows = list(
         session.scalars(
             select(Message)
             .where(
                 Message.deleted_at.is_(None),
-                func.lower(Message.body_md).like(like_pattern(q), escape="\\"),
+                contains(Message.body_md, q),
             )
             .order_by(Message.id.desc())
             .limit(limit)

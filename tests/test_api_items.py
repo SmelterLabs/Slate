@@ -6,9 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
-from sqlalchemy import text
 
-from conftest import API
+from conftest import API, raw_write
 
 
 def _item(client, h, list_id, title="Thing", **fields):
@@ -79,16 +78,13 @@ def test_subtasks_nest_four_deep(client, alex, todo, db):
     assert "depth exceeds 4" in r.json()["detail"]
     with pytest.raises(Exception, match="item depth exceeds 4"):
         # Straight SQL, under the service layer: the database holds the rule on its own.
-        db.execute(
-            text(
-                "INSERT INTO items (id, list_id, parent_id, kind, title, body_md, due_date_only,"
-                " position, created_by, created_at, updated_at) VALUES ('deep12345678', :l, :p,"
-                " 'task', 'too deep', '', 0, 9, :a, '2026-01-01T00:00:00Z',"
-                " '2026-01-01T00:00:00Z')"
-            ),
+        raw_write(
+            "INSERT INTO items (id, list_id, parent_id, kind, title, body_md, due_date_only,"
+            " position, created_by, created_at, updated_at) VALUES ('deep12345678', :l, :p,"
+            " 'task', 'too deep', '', 0, 9, :a, '2026-01-01T00:00:00Z',"
+            " '2026-01-01T00:00:00Z')",
             {"l": todo["id"], "p": chain[4]["id"], "a": chain[0]["created_by"]},
         )
-    db.rollback()
     detail = client.get(f"{API}/items/{chain[1]['id']}", headers=alex).json()
     assert [s["id"] for s in detail["subtasks"]] == [chain[2]["id"]]
     assert detail["subtasks"][0]["subtask_count"] == 1
@@ -610,3 +606,64 @@ def test_patch_external_ref_taken_409(client, alex, todo):
         headers=alex,
     )
     assert r.status_code == 409, r.text
+
+
+# --- bulk: the same validation as PATCH ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"position": None},
+        {"position": "abc"},
+        {"title": 5},
+        {"due_at": 12345},
+        {"estimate_minutes": "lots"},
+        {"assignees": "alex"},
+        {"tags": "x"},
+        {"add_tags": "abc"},
+        {"remove_tags": "abc"},
+        {"body_md": 7},
+        {"archive": "yes"},
+        {"archive": None},
+        {"status_kind": "nope"},
+        {"no_such_field": 1},
+    ],
+)
+def test_bulk_refuses_wrong_types_like_patch(client, alex, todo, changes):
+    item = _item(client, alex, todo["id"], "A")
+    r = client.post(
+        f"{API}/items/bulk", json={"ids": [item["id"]], "changes": changes}, headers=alex
+    )
+    assert r.status_code == 422, r.text
+    after = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert after["tags"] == [] and after["title"] == "A" and after["archived_at"] is None
+
+
+def test_bulk_tag_changes_read_every_item_tags_in_one_query(client, alex, todo):
+    from sqlalchemy import event
+
+    from slate.db import engine
+
+    ids = [_item(client, alex, todo["id"], f"t{n}", tags=["old"])["id"] for n in range(30)]
+    count = {"n": 0}
+
+    def on_exec(*_a, **_k):  # noqa: ANN002, ANN003
+        count["n"] += 1
+
+    def statements(changes: dict) -> int:
+        count["n"] = 0
+        r = client.post(f"{API}/items/bulk", json={"ids": ids, "changes": changes}, headers=alex)
+        assert r.status_code == 200, r.text
+        return count["n"]
+
+    event.listen(engine, "before_cursor_execute", on_exec)
+    try:
+        plain = statements({"priority": "high"})
+        tagged = statements({"add_tags": ["x"], "remove_tags": ["old"]})
+    finally:
+        event.remove(engine, "before_cursor_execute", on_exec)
+    # Writing the tags costs about six statements per item; reading them must add none.
+    assert tagged < plain + 8 * len(ids), (plain, tagged)  # was ~16 per item
+    tags = {i["id"]: i["tags"] for i in client.get(f"{API}/items", headers=alex).json()}
+    assert all(tags[i] == ["x"] for i in ids)

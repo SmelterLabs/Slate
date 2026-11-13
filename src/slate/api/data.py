@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Annotated, Literal
@@ -70,12 +71,16 @@ def backup(auth: AdminAuth, session: DbSession, tasks: BackgroundTasks) -> FileR
     folder = Path(tempfile.mkdtemp(prefix="slate-backup-"))
     name = f"slate-backup-{utcnow().strftime('%Y-%m-%d-%H%M')}.db"
     path = folder / name
-    size = export.backup_to(session, path)
-    log.info("backup downloaded by %s (%d bytes)", auth.principal.account.handle, size)
 
     def cleanup() -> None:
-        path.unlink(missing_ok=True)
-        folder.rmdir()
+        shutil.rmtree(folder, ignore_errors=True)
+
+    try:
+        size = export.backup_to(session, path)
+    except BaseException:
+        cleanup()  # a disk-full or refused copy leaves no partial file behind
+        raise
+    log.info("backup downloaded by %s (%d bytes)", auth.principal.account.handle, size)
 
     tasks.add_task(cleanup)
     return FileResponse(path, media_type="application/vnd.sqlite3", filename=name)

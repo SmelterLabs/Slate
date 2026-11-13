@@ -7,7 +7,9 @@ report reads from the database.
 
 The Health page (`#/health`, `components/health/HealthPage.svelte`, owners and admins) and `GET
 /api/v1/health` / MCP `slate_health` read `service/health.py report()`; `GET /health` (slate.app, no
-auth) is `summary()`: status and per-check status, no details, HTTP 503 when the status is `fail`.
+auth) is `summary()`: status and per-check status, no details, HTTP 503 when the status is `fail`;
+its answer is kept for 10 s (`app.HEALTH_CACHE_SECONDS`), so callers without a token cannot turn
+the report's table scans into load.
 `/healthz` is the separate deploy check. The report has no table of its own.
 
 - **Counters live in memory** (`slate/monitor.py`) and start over on restart. `calls`: per token,

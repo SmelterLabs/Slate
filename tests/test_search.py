@@ -142,3 +142,34 @@ async def test_search_through_mcp(client, alex, todo):
         out = ok(await call(mcp, "slate_search", "search", q="gutter"))
     assert out["q"] == "gutter"
     assert [(h["kind"], h["title"]) for h in out["hits"]] == [("task", "Fix the gutter")]
+
+
+# --- case folding and wildcards are the same in every group -------------------------------
+
+
+def test_case_folds_beyond_ascii_in_every_search(client, alex, todo):
+    task = _item(client, alex, todo["id"], "Österreich trip", body_md="Visit ÉCOLE friends")
+    page = _doc(client, alex, title="Ärzte list", body_md="Call the ÜBER office")
+    msg = _say(client, alex, f"list:{todo['id']}", "Packed the ÇANTA bag")
+    for q in ("Österreich", "österreich", "ÖSTERREICH", "école"):
+        assert [h["id"] for h in _search(client, alex, q)] == [task["id"]], q
+        got = client.get(f"{API}/items", params={"q": q}, headers=alex).json()
+        assert [i["id"] for i in got] == [task["id"]], q
+    for q in ("ärzte", "ÄRZTE", "über"):
+        assert [h["id"] for h in _search(client, alex, q)] == [page["id"]], q
+        got = client.get(f"{API}/docs", params={"q": q}, headers=alex).json()
+        rows = got["docs"] if isinstance(got, dict) else got
+        assert [d["id"] for d in rows] == [page["id"]], q
+    assert [h["id"] for h in _search(client, alex, "çanta")] == [msg["id"]]
+
+
+def test_percent_and_underscore_are_literal_for_tasks_and_docs_too(client, alex, todo):
+    _item(client, alex, todo["id"], "plain task")
+    hit = _item(client, alex, todo["id"], "50% off_sale")
+    _doc(client, alex, title="plain page")
+    doc = _doc(client, alex, title="Q3_plan at 10%")
+    for q in ("_", "%"):
+        got = {h["id"] for h in _search(client, alex, q)}
+        assert got == {hit["id"], doc["id"]}, q
+        items = client.get(f"{API}/items", params={"q": q}, headers=alex).json()
+        assert [i["id"] for i in items] == [hit["id"]], q

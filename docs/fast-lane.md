@@ -31,7 +31,10 @@ README). The internals:
   (inner service blocks join it; one commit; publishes only on success); `BatchFailed(index, cause)`
   maps to the cause's HTTP status plus `failed_op` (`api.status_of()`). Non-atomic rolls back the
   failed op only. `EXCLUDED` holds actions that must not run under the write lock (webhook test does
-  network I/O) and nested batches. `$ref.path` substitution only replaces strings that are exactly a
+  network I/O) and nested batches; `_prepare` refuses any op with `wait` above 0 (a long-poll
+  would sleep holding the lock), and `longpoll.wait_*` refuse to wait inside a change. A
+  rollback or commit under an open `apply_change()` fails the change (`ChangeRolledBack`), so
+  a batch never answers `ok` for writes that were thrown away. `$ref.path` substitution only replaces strings that are exactly a
   ref expression *and* name an earlier ref; anything else stays literal. **Views after commit**
   (`views`, default `"final"`): `_run_one` gives write actions a `Local` whose `later` list is set,
   so `mcp_tools._item_views()` returns `batch.Later(id)` marks instead of building `ItemOut` dicts;
