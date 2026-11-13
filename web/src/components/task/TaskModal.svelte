@@ -1163,51 +1163,6 @@
   }
 
   /* Shared by the task window's sections (subtasks, checklists, attachments). */
-  .tw :global(.block) {
-    margin: 0 0 20px;
-  }
-  .tw :global(.block > header) {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-  .tw :global(.block h3) {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
-  .tw :global(.block .count) {
-    color: var(--muted);
-    font-weight: 500;
-  }
-  .tw :global(.progress) {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .tw :global(.progress .bar) {
-    width: 90px;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--chip);
-    overflow: hidden;
-  }
-  .tw :global(.progress .bar > span) {
-    display: block;
-    height: 100%;
-    background: var(--kind-done);
-    border-radius: 3px;
-  }
-  .tw :global(.block > header .menu) {
-    margin-left: auto;
-  }
-
   @media (max-width: 1000px) {
     .fields {
       grid-template-columns: 1fr;

@@ -507,17 +507,17 @@
 }
 /* In the viewer's Needs you: the reason's tone on the edge (NeedsPanel's colors). */
 .card.cu.needs-me {
-  --need-tone: var(--danger);
+  --need-tone: var(--need-waiting);
   /* a ring, not the border: the left edge stays the priority stripe */
   box-shadow:
     0 0 0 1.5px color-mix(in srgb, var(--need-tone) 70%, transparent),
     var(--card-shadow);
 }
 .card.cu.needs-me[data-need='asked'] {
-  --need-tone: var(--accent);
+  --need-tone: var(--need-asked);
 }
 .card.cu.needs-me[data-need='review'] {
-  --need-tone: var(--prio-high);
+  --need-tone: var(--need-review);
 }
 .card-needs {
   align-self: flex-start;

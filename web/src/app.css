@@ -1658,6 +1658,54 @@ a.nav-heading.active {
   white-space: nowrap;
 }
 /* In the task window the estimate lines up with the property grid above it. */
+
+/* A task window's section blocks (attachments, subtasks, checklists): a heading row, a count and a
+   progress bar. Global because the sections are separate components and the window's style would
+   not reach them. */
+.tw .block {
+  margin: 0 0 20px;
+}
+.tw .block > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tw .block h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tw .block .count {
+  color: var(--muted);
+  font-weight: 500;
+}
+.tw .progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tw .progress .bar {
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--chip);
+  overflow: hidden;
+}
+.tw .progress .bar > span {
+  display: block;
+  height: 100%;
+  background: var(--kind-done);
+  border-radius: 3px;
+}
+.tw .block > header .menu {
+  margin-left: auto;
+}
 .tw .estimate-panel {
   grid-template-columns: 128px minmax(0, 1fr);
   gap: 4px 0;
@@ -2719,7 +2767,7 @@ a.nav-heading,
 
 /* "Needs you" on a sidebar list (Nav.svelte needsMark): same colors as the bottom-right pill. */
 .needs-mark {
-  --tone: var(--prio-high);
+  --tone: var(--need-review);
   margin-left: auto;
   margin-right: 8px;
   display: inline-flex;
@@ -2743,8 +2791,8 @@ a.nav-heading,
 }
 .needs-mark.need-waiting,
 .needs-mark.need-blocked {
-  --tone: var(--danger);
+  --tone: var(--need-waiting);
 }
 .needs-mark.need-asked {
-  --tone: var(--accent);
+  --tone: var(--need-asked);
 }

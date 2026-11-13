@@ -5,6 +5,12 @@
    task window and the sheet use for centring), and stops entirely for reduced motion. */
 
 :root {
+  /* "Needs you" colours: waiting and blocked are danger, asked is the accent, review is high
+     priority. The badge, the home panel, the sidebar mark and the card ring all read these. */
+  --need-waiting: var(--danger);
+  --need-blocked: var(--danger);
+  --need-asked: var(--accent);
+  --need-review: var(--prio-high);
   --col-bg: color-mix(in srgb, var(--text) 5%, var(--bg));
   --col-today: color-mix(in srgb, var(--warning) 9%, var(--col-bg));
   --col-overdue: color-mix(in srgb, var(--overdue) 9%, var(--col-bg));
