@@ -8,10 +8,6 @@ const file = (id: string): ChatFile => ({
   filename: `${id}.png`,
   content_type: 'image/png',
   size: 10,
-  channel: 'general',
-  message_id: null,
-  created_at: '2026-11-01T00:00:00Z',
-  created_by: null,
 });
 
 describe('chat thumbnails', () => {
