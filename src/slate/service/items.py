@@ -45,7 +45,7 @@ from slate.service import links as links_svc
 from slate.service import lists as lists_svc
 from slate.service import tags as tags_svc
 from slate.service import trash as trash_svc
-from slate.service.core import Actor, Change, apply_change
+from slate.service.core import Actor, Change, apply_change, event_payload
 from slate.service.errors import ExternalRefTaken, Invalid, NotFound
 
 UNDO_WINDOW = timedelta(minutes=10)
@@ -437,7 +437,9 @@ def item_detail(session: Session, item_id: str) -> dict[str, Any]:
         {"id": a.id, "handle": a.handle, "display_name": a.display_name, "kind": a.kind}
         for a in watchers.watchers_of(session, item.id)
     ]
-    detail["events"] = item_events(session, item.id, limit=RECENT_EVENTS)
+    detail["events"] = [
+        event_payload(e) for e in item_events(session, item.id, limit=RECENT_EVENTS)
+    ]
     return detail
 
 

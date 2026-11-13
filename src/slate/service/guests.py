@@ -9,7 +9,12 @@ what a workspace agent wrote on a card (chat between members and it is hidden fr
 - an Ask addressed to it (card comment or doc thread), or a reassignment to it: `Forbidden`;
 - assigning it to an item, or Run now on an item it is assigned to: `Forbidden`;
 - an `@mention` of it by a guest (card comment, doc, chat) is dropped from the mentions that
-  notify and wake, and a guest's reply is never its next turn.
+  notify and wake, and a guest's reply is never its next turn;
+- on a task assigned to it, what the task asks and when it runs (title, description,
+  acceptance, checklists, due and start dates, reopening it once done): `Forbidden`, in the
+  write check (`access._refuse_steering`), so no write path skips it. A guest's comments reach
+  its brief only quoted, as information; everything else on the card (status, priority, tags,
+  comments, files) stays the guest's to change.
 
 Read-only helpers: no writes, no events.
 """
