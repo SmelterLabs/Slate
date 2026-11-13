@@ -60,14 +60,20 @@ export const requests: { method: string; path: string; body: unknown }[] = [];
 async function fetchStub(url: string, init: RequestInit = {}): Promise<Response> {
   const path = url.replace(/^\/api\/v1/, '').split('?')[0];
   const method = init.method ?? 'GET';
-  const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+  const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
   calls.push(path);
   requests.push({ method, path, body });
   const route = routes.get(`${method} ${path}`) ?? routes.get(path);
   const answer = await (route?.(body) ?? []);
   const status = failed(answer) ? answer.status : 200;
   const data = failed(answer) ? answer.body : answer;
-  return { ok: status < 300, status, statusText: '', json: async () => data } as unknown as Response;
+  return {
+    ok: status < 300,
+    status,
+    statusText: '',
+    json: async () => data,
+    blob: async () => (data instanceof Blob ? data : new Blob([JSON.stringify(data)])),
+  } as unknown as Response;
 }
 
 export function deferred<T>() {
