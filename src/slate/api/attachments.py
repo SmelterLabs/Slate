@@ -16,8 +16,8 @@ from starlette.concurrency import run_in_threadpool
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import AttachmentOut
+from slate.api.uploads import BASE64_MAX_CHARS, file_response, read_body
 from slate.api.uploads import CSP as CSP  # api/docs.py serves doc files under it too
-from slate.api.uploads import file_response, read_body
 from slate.models import Attachment
 from slate.service import attachments
 from slate.service.items import get_item
@@ -65,7 +65,9 @@ class Base64In(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     filename: str = Field(min_length=1, max_length=255)
-    content_base64: str = Field(description="The file, base64-encoded (up to 25 MB decoded)")
+    content_base64: str = Field(
+        max_length=BASE64_MAX_CHARS, description="The file, base64-encoded (up to 25 MB decoded)"
+    )
     content_type: str | None = Field(default=None, description="MIME type; guessed if omitted")
 
 

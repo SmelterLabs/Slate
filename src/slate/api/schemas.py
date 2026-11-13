@@ -11,6 +11,14 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictBool, model_validator
 
+# Generous limits on the long text fields (characters), so one write cannot carry tens of
+# megabytes into the item, its body versions, its event and every board and webhook. The
+# whole request is capped as well (api/uploads.BodyLimit).
+ITEM_BODY_MAX = 200_000  # a task's body_md and acceptance_md, a recurrence's template
+COMMENT_MAX = 50_000  # a task comment (agents post long reports)
+PAGE_BODY_MAX = 1_000_000  # a doc page's body_md
+SPLIT_MAX = 100  # children in one split
+
 Audience = Literal["personal", "ai", "work", "family"]
 StatusKind = Literal["open", "active", "done", "cancelled"]
 ItemKind = Literal["task", "doc"]
@@ -157,14 +165,14 @@ class TagMergeIn(BaseModel):
 class _ItemFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    body_md: str | None = None
+    body_md: str | None = Field(default=None, max_length=ITEM_BODY_MAX)
     body_note: str | None = Field(default=None, max_length=500, description="Note on the version")
     status: str | None = Field(default=None, description="Status id or name in the item's list")
     priority: Priority | None = None
     start_at: When | None = None
     due_at: When | None = Field(default=None, description="ISO 8601, or YYYY-MM-DD = 17:00 CT")
     waiting_on_account_id: str | None = Field(default=None, description="Account id or handle")
-    acceptance_md: str | None = None
+    acceptance_md: str | None = Field(default=None, max_length=ITEM_BODY_MAX)
     position: int | None = None
     kind: ItemKind | None = None
     external_ref: str | None = Field(default=None, max_length=200)
@@ -214,7 +222,7 @@ class BulkChanges(ItemPatch):
 
 
 class SplitIn(BaseModel):
-    children: list[ChildIn] = Field(min_length=1)
+    children: list[ChildIn] = Field(min_length=1, max_length=SPLIT_MAX)
 
 
 class AssigneeOut(BaseModel):
@@ -388,7 +396,7 @@ class EventOut(_Out):
 
 
 class CommentIn(BaseModel):
-    body_md: str = Field(min_length=1)
+    body_md: str = Field(min_length=1, max_length=COMMENT_MAX)
     assignee: str | None = Field(
         default=None,
         description="Ask: address the comment to this account (handle or id); it stays open "
@@ -403,7 +411,9 @@ class CommentIn(BaseModel):
 class CommentPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    body_md: str | None = Field(default=None, min_length=1, description="New text (author)")
+    body_md: str | None = Field(
+        default=None, min_length=1, max_length=COMMENT_MAX, description="New text (author)"
+    )
     assignee: str | None = Field(
         default=None,
         description="Address it to this account (handle or id), or null to take it off "

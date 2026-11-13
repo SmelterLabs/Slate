@@ -34,6 +34,7 @@ from slate import (
 )
 from slate.api import events as events_api
 from slate.api import recurrences as recurrences_api
+from slate.api import uploads
 from slate.build import build_info
 from slate.db import SessionLocal, engine
 from slate.models import utcnow
@@ -298,6 +299,7 @@ def create_app() -> FastAPI:
     mcp_server.install(app)
     fastlane.install(app)
     runner_compat.install(app)
+    uploads.install(app)  # outermost: the body cap sees every request first
 
     if settings.static_dir and settings.static_dir.is_dir():
         app.mount("/", BoardFiles(directory=settings.static_dir, html=True), name="board")

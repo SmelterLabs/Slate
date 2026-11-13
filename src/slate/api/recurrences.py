@@ -12,7 +12,7 @@ from fastapi import APIRouter, FastAPI, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
-from slate.api.schemas import ItemOut, Priority
+from slate.api.schemas import ITEM_BODY_MAX, ItemOut, Priority
 from slate.service import items, recurrences
 from slate.service.errors import Invalid
 
@@ -26,7 +26,9 @@ class _RuleFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     body_template_md: str | None = Field(
-        default=None, description="Markdown; {date} and {iso_date} are filled in"
+        default=None,
+        max_length=ITEM_BODY_MAX,
+        description="Markdown; {date} and {iso_date} are filled in",
     )
     priority: Priority | None = None
     tags: list[str] | None = Field(default=None, description="Tag names for each instance")

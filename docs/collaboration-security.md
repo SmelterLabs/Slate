@@ -76,12 +76,19 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
   and both doc upload routes stream `request.stream()` with a running count and stop at the cap with a 422,
   so a chunked request (no `Content-Length`) cannot skip the pre-check and be buffered whole; a
   non-numeric length is a 422, not a 500.
+- **Every request body is capped** (`api/uploads.BodyLimit`, outermost middleware): 36 MB, which
+  fits a 25 MB file sent as base64 JSON. A declared `Content-Length` over it is a 413 before any
+  byte is read; a chunked body is counted as it arrives and refused with 413 at the cap, so no
+  JSON route buffers an unbounded body. The long text fields have their own limits
+  (`api/schemas.py`): a task's body and acceptance 200,000 characters, a comment 50,000, a page
+  body 1,000,000, a split 100 children, `content_base64` a 25 MB file's length.
 
 Tests: `tests/test_collaboration_security_final.py` (xlsx bomb refused before openpyxl, in under
 a second and under 4 MB traced; absurd ratio; a small workbook still indexes; PDF budget),
 `tests/test_doc_compare.py` (compare reads stored tables with every parser monkeypatched to
 fail; not-indexed message and backfill; an over-cap upload succeeds, opens, is unindexed),
-`tests/test_uploads.py` (chunked bodies through httpx).
+`tests/test_uploads.py` (chunked bodies through httpx), `tests/test_body_limits.py` (the app
+cap, declared and chunked; 25 MB raw and base64 uploads still pass; the field limits).
 
 ## DOCX resource contract
 
