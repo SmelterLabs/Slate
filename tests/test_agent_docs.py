@@ -4,6 +4,7 @@ hand-written pages mention exists."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,23 @@ import pytest
 from slate import docgen
 
 DOCS = Path(__file__).resolve().parent.parent / "docs" / "agents"
+ROUTE_MENTION = re.compile(r"`(GET|POST|PATCH|PUT|DELETE) (/[^`\s]*)")
+
+
+def unknown_route_mentions(text: str) -> list[str]:
+    """Every "`METHOD /path`" in `text` that names no real route (ids may be `{x}` or `<x>`)."""
+    ops = docgen.rest_ops()
+    bad = []
+    for method, raw in ROUTE_MENTION.findall(text):
+        path = raw.split("?")[0].rstrip(".,;:)")
+        path = re.sub(r"\{[^}]*\}|<[^>]*>", docgen.SAMPLE_ID, path)
+        if not path.startswith(docgen.API):
+            path = docgen.API + path
+        if path.startswith(docgen.API + "/mcp"):
+            continue
+        if docgen.match_route(method, path, ops) is None:
+            bad.append(f"{method} {raw}")
+    return bad
 
 
 def test_generated_reference_is_current():
@@ -48,10 +66,10 @@ def test_mcp_action_calls_a_real_route_with_the_same_scope(tool, action):
 
 @pytest.mark.parametrize("page", sorted(p.name for p in DOCS.glob("*.md")))
 def test_routes_mentioned_in_the_guides_exist(page):
-    assert docgen.unknown_route_mentions((DOCS / page).read_text(encoding="utf-8")) == []
+    assert unknown_route_mentions((DOCS / page).read_text(encoding="utf-8")) == []
 
 
 def test_route_mention_checker_catches_a_typo():
-    assert docgen.unknown_route_mentions("call `GET /itemz/{id}` then `GET /items/<id>`") == [
+    assert unknown_route_mentions("call `GET /itemz/{id}` then `GET /items/<id>`") == [
         "GET /itemz/{id}"
     ]

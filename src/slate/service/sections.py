@@ -110,20 +110,3 @@ def update_section(
                     "section.archived" if archived else "section.unarchived",
                 )
     return section
-
-
-def archive_section(session: Session, actor: Actor, section_id: str) -> Section:
-    """Soft: hides the section, its lists and their items from default queries."""
-    section = get_section(session, section_id)
-    if section.archived_at is None:
-        with apply_change(session, actor) as cx:
-            cx.set(section, "archived_at", utcnow(), "section.archived")
-    return section
-
-
-def unarchive_section(session: Session, actor: Actor, section_id: str) -> Section:
-    section = get_section(session, section_id)
-    if section.archived_at is not None:
-        with apply_change(session, actor) as cx:
-            cx.set(section, "archived_at", None, "section.unarchived")
-    return section

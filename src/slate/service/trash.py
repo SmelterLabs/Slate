@@ -4,14 +4,14 @@ Trashing stamps `trashed_at` on the item and its subtasks and, when they are not
 already, `archived_at` with the same instant, so every path that hides archived items (the
 board, Today, check-in, due events, recurrence's open instance, automations, blockers) hides
 trashed ones with no change. One `item.trashed` event per item, `after = {trashed_at,
-archived_at}`. Timers running on them stop.
+archived_at}`.
 
 Restoring clears `trashed_at`, and `archived_at` only where the trash set it (an item archived
 before it was trashed comes back archived). Subtasks trashed with their parent come back with
 it; a subtask cannot be restored while its parent is in the trash. One `item.restored` each.
 
-Purging deletes for good (subtasks first): comments, checklists, files, time and links go with
-the row by cascade; its events stay, plus `item.purged` holding its last state. Only trashed
+Purging deletes for good (subtasks first): comments, checklists, files and links go with the
+row by cascade; its events stay, plus `item.purged` holding its last state. Only trashed
 items can be purged. The scheduler purges items trashed more than `settings.trash_days` ago
 (`purge_expired`, as the `slate` system agent); `empty_trash` purges everything (admins).
 """
