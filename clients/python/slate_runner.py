@@ -7,7 +7,11 @@
 
 `--config`: one runner per machine. The TOML file lists the agents (`[[agent]]`: name, token,
 command, env), and each gets its own stream and runs in this one process (`load_config`,
-`serve`; example: runner.example.toml).
+`serve`; example: runner.example.toml). Each agent's command gets only its own token and
+environment: the runner's basic variables (`BASE_ENV`: PATH, home, temp, locale, proxies), the
+agent's own `env_file` and `env` table. The shared top-level `env_file` and the rest of the
+runner's environment only fill `${VAR}` and `token_env`, and no other agent's token reaches a
+command wherever it was put.
 
 It holds the agent's live stream (`GET /checkin/stream`) and, for each `work` hint (a task was
 assigned, came due, or someone pressed Run now), takes that task (`POST /work/next {item_id}`)
@@ -32,8 +36,10 @@ the agent's comment in that thread, or a new discussion thread for a mention in 
 (`POST /work/doc/finish`); anything else posts nothing, as in chat.
 
 The command gets the task (the `/work/next` answer: `item`, `lease`, `context`) as JSON on
-stdin, and env `SLATE_URL`, `SLATE_TOKEN`, `SLATE_ITEM_ID`, `SLATE_ITEM_TITLE`, `SLATE_ITEM_URL`
-(the board link). While it runs:
+stdin, and env `SLATE_URL`, `SLATE_TOKEN`, `SLATE_ITEM_ID`, `SLATE_ITEM_URL` (the board link).
+Card text (the title, comments) is only on stdin: the command runs through a shell, and a title
+in its environment could be expanded into the command line, so an `exec` that names
+`SLATE_ITEM_TITLE` is refused. While it runs:
 
 - every stdout line that is a JSON object without `outcome` is progress, sent at once as a
   heartbeat: `{"note": "Opened chat", "url": "https://...", "thread": {"ref": "<session id>"}}`,
@@ -66,8 +72,13 @@ automatic same-account resume. Definitive auth/control refusal stops the local c
 Upgrade without interruption: create the state path with suffix `.drain`, wait for the
 matching `.status.json` receipt (fresh pid/at, admission_closed=true, drained=true), then stop
 the process. Admission is latched closed. A caller may time out but must not kill active jobs.
-Failed result delivery is saved durably and `retry_delivery(key)` resends the identical body
-without relaunching the command; it never falls back to unfenced reports or comments.
+Failed result delivery is saved durably and resent (`retry_due`, from the live loop, backing
+off from 5 s to 5 min; `--retry-delivery KEY` by hand) as the identical body, without
+relaunching the command; it never falls back to unfenced reports or comments. A fresh grant for
+a key whose earlier result is still undelivered means the server settled that run (its lease
+ran out and a person cleared it, or a person asked again): the stale result is dropped and the
+grant is run. A record a dead process left `taken` or `running` is unknown remote state, read
+as `reconciliation_required` on start.
 
 `--once`: take one task (`--item` for a given one), run it, exit. Exit codes: 0 the task
 finished done, review or later; 1 it finished blocked or released; 2 nothing was free; 3 an error.
@@ -122,6 +133,57 @@ RESULT_KEYS = (
     "progress",
 )
 PROGRESS_KEYS = ("note", "progress", "url", "thread")
+# The runner's own environment variables a command needs to run at all (find programs, a home,
+# temp files, the locale, proxies and CA bundles). In --config mode nothing else of the
+# runner's environment reaches an agent's command. Names compare upper-case (Windows).
+BASE_ENV = frozenset(
+    {
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "OS",
+        "PROCESSOR_ARCHITECTURE",
+        "NUMBER_OF_PROCESSORS",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "COMMONPROGRAMFILES",
+        "USER",
+        "USERNAME",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+        "PYTHONUTF8",
+        "PYTHONIOENCODING",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "SLATE_WORK_KINDS",  # the runner's own setting, read from the agent's environment
+    }
+)
+BASE_ENV_PREFIXES = ("LC_", "XDG_")
+# Card text a shell could expand into the command line; it is on stdin only.
+_CARD_TEXT = re.compile(r"%SLATE_ITEM_TITLE%|\$\{?SLATE_ITEM_TITLE\b")
+RETRY_FIRST = 5.0
+RETRY_MAX = 300.0
 
 
 class SlateHTTPError(Exception):
@@ -247,6 +309,13 @@ class Runner:
             saved = json.loads(self.state_path.read_text(encoding="utf-8"))
             self._records = saved.get("runs", {})
             self._cursor = saved.get("cursor")
+            # A take or a run a dead process left behind: the server keeps that run until it
+            # is reconciled or cleared, exactly like one this process stopped (`stop`).
+            for row in self._records.values():
+                if row.get("state") in ("taken", "running"):
+                    row.update(state="reconciliation_required", remote_state="unknown")
+        # key -> (when the next delivery retry is due, the wait after that one)
+        self._retry: dict[str, tuple[float, float]] = {}
         self.drain_path = self.state_path.with_suffix(".drain") if self.state_path else None
         self.status_path = self.state_path.with_suffix(".status.json") if self.state_path else None
         self._admission_closed = False
@@ -345,18 +414,11 @@ class Runner:
             with self._state_lock:
                 if self._closed():
                     return None
-                # A `reconciliation_required` record is no fence of its own: the server keeps
-                # that attempt quarantined until it is reconciled, so a fresh grant for the key
-                # proves it was settled (by this agent's reconcile or a person's Clear).
-                active = (
-                    self._claimed
-                    | self.running.keys()
-                    | {
-                        k
-                        for k, r in self._records.items()
-                        if r.get("state") not in ("delivered", "reconciliation_required")
-                    }
-                )
+                # A `reconciliation_required` or undelivered record is no fence of its own: the
+                # server keeps that attempt until it is settled, so a fresh grant for the key
+                # proves it was (by this agent's reconcile or finish, a person's Clear, or a
+                # person asking again). Only work this process holds right now is busy.
+                active = self._claimed | self.running.keys()
                 if item_id in active:
                     return None
             try:
@@ -385,16 +447,25 @@ class Runner:
                 self._give_back(key, proof)
                 return None
             with self._state_lock:
-                if self._records.get(key, {}).get("state") == "reconciliation_required":
+                old = self._records.get(key, {})
+                if old.get("state") == "delivery_failed" and old.get("run_id") != proof:
+                    self.log(
+                        f"{key}: the server settled an earlier run whose result was never "
+                        "delivered; dropping that result and running the new grant"
+                    )
+                if old.get("state") in ("reconciliation_required", "delivery_failed"):
                     del self._records[key]  # settled remotely; start a clean record
+                    self._retry.pop(key, None)
             self._record(key, run_id=proof, state="taken", remote_state="not_started")
             with self._state_lock:
                 self._claimed.add(key)
             return got
 
     def _env(self, task: dict[str, Any]) -> dict[str, str]:
+        base = os.environ if self.env is None else self.env
         env = {
-            **(os.environ if self.env is None else self.env),
+            # The command's own token is SLATE_TOKEN; never another one this process can see.
+            **{k: v for k, v in base.items() if not k.upper().startswith("SLATE_TOKEN")},
             "SLATE_URL": self.url,
             "SLATE_TOKEN": self.token,
             "SLATE_RUN_ID": self._records.get(task_key(task), {}).get("run_id", ""),
@@ -404,7 +475,6 @@ class Runner:
             return {
                 **env,
                 "SLATE_ITEM_ID": item["id"],
-                "SLATE_ITEM_TITLE": item.get("title") or "",
                 "SLATE_ITEM_URL": f"{self.url}/#/list/{item['list_id']}?task={item['id']}",
             }
         doc = task.get("doc")
@@ -708,10 +778,45 @@ class Runner:
 
     def retry_delivery(self, key: str) -> str:
         """Retry a saved result without executing again, including after restart."""
-        row = self._records[key]
+        row = self._records.get(key) or {}
         if row.get("state") != "delivery_failed":
             raise ValueError("no pending terminal delivery")
         return self._deliver(key, row["path"], row["result"])
+
+    def retry_due(self, now: float | None = None) -> list[str]:
+        """Resend every undelivered result whose retry is due (the live loop calls this each
+        second): the first `RETRY_FIRST` seconds after it is seen, then backing off to
+        `RETRY_MAX`. The body is identical and the server's receipt makes a resend of a result
+        it already has harmless. Returns the keys tried."""
+        now = time.monotonic() if now is None else now
+        with self._state_lock:
+            failed = [
+                k
+                for k, r in self._records.items()
+                if r.get("state") == "delivery_failed" and k not in self._claimed
+            ]
+            for k in list(self._retry):
+                if k not in failed:
+                    del self._retry[k]
+            for k in failed:
+                self._retry.setdefault(k, (now + RETRY_FIRST, RETRY_FIRST))
+            due = [k for k in failed if self._retry[k][0] <= now]
+        tried = []
+        for key in due:
+            if self.stopping.is_set():
+                break
+            tried.append(key)
+            try:
+                outcome = self.retry_delivery(key)
+            except ValueError:  # delivered or replaced meanwhile
+                continue
+            with self._state_lock:
+                if outcome == "delivery_failed":
+                    wait = min(self._retry.get(key, (0, RETRY_FIRST))[1] * 2, RETRY_MAX)
+                    self._retry[key] = (now + wait, wait)
+                else:
+                    self._retry.pop(key, None)
+        return tried
 
     def _result(
         self,
@@ -915,6 +1020,11 @@ class Runner:
         def monitor_drain():
             while not self.stopping.wait(1):
                 self.drain_status()
+                try:
+                    if self.retry_due() and not self._closed():
+                        self.dispatch(None)  # a delivered result may free the next task
+                except Exception as e:  # noqa: BLE001 - a retry must never stop the loop
+                    self.log(f"delivery retry failed: {e}")
 
         threading.Thread(target=monitor_drain, daemon=True).start()
         for _ in range(self.parallel):
@@ -1018,12 +1128,38 @@ def _expand(value: str, env: dict[str, str]) -> str:
     return _VAR.sub(lambda m: env.get(m.group(1), ""), value)
 
 
+def base_env(source: dict[str, str] | None = None) -> dict[str, str]:
+    """The basic variables of `source` (default: this process's environment) a command needs to
+    run at all (`BASE_ENV`)."""
+    source = os.environ if source is None else source
+    return {
+        k: v
+        for k, v in source.items()
+        if k.upper() in BASE_ENV or k.upper().startswith(BASE_ENV_PREFIXES)
+    }
+
+
+def check_command(command: str) -> str:
+    """Refuse an exec line that expands card text into the shell's command line."""
+    if _CARD_TEXT.search(command):
+        raise ValueError(
+            "exec must not expand SLATE_ITEM_TITLE: card text is on stdin, never in the command "
+            "line (a title could carry shell syntax)"
+        )
+    return command
+
+
 def load_config(path: str | Path) -> list[dict[str, Any]]:
     """Read a runner config (TOML; docs/agents/runner.md) into one dict per agent: `name`,
     `url`, `token`, `command`, `env` (the command's whole environment), `parallel`, `lease`,
     `state` and `cwd`. Relative paths are relative to the config file. `${VAR}` in `exec`,
-    `env` values and `url` is filled from the agent's environment: this process's, then
-    `env_file` (top level, then the agent's), then the agent's `env` table."""
+    `env` values and `url`, and `token_env`, are filled from this process's environment, then
+    the top-level `env_file`, then the agent's own `env_file`, then the agent's `env` table.
+
+    The command's environment is narrower: `base_env()`, the agent's own `env_file` and its
+    `env` table. The top-level `env_file` and the rest of this process's environment never
+    reach a command, and every agent's token is dropped from every other agent's environment,
+    by name (`token_env`, any `SLATE_TOKEN*`) and by value, wherever it was put."""
     import tomllib
 
     path = Path(path).expanduser().resolve()
@@ -1037,6 +1173,9 @@ def load_config(path: str | Path) -> list[dict[str, Any]]:
     agents = cfg.get("agent") or []
     if not agents:
         raise ValueError(f"{path}: no [[agent]] entries")
+    shared = dict(os.environ)
+    if cfg.get("env_file"):
+        shared.update(read_env_file(rel(cfg["env_file"])))
     out = []
     names: set[str] = set()
     for a in agents:
@@ -1044,36 +1183,51 @@ def load_config(path: str | Path) -> list[dict[str, Any]]:
         if not name or name in names:
             raise ValueError(f"{path}: every [[agent]] needs a unique name (got {name!r})")
         names.add(name)
-        env = dict(os.environ)
-        for f in (cfg.get("env_file"), a.get("env_file")):
-            if f:
-                env.update(read_env_file(rel(f)))
+        own = read_env_file(rel(a["env_file"])) if a.get("env_file") else {}
+        lookup = {**shared, **own}
+        env = {**base_env(), **own}
         for k, v in (a.get("env") or {}).items():
-            env[k] = _expand(str(v), env)
+            env[k] = lookup[k] = _expand(str(v), lookup)
         if a.get("token_file"):
             token = rel(a["token_file"]).read_text(encoding="utf-8").strip()
         else:
-            token = env.get(a.get("token_env") or "SLATE_TOKEN", "")
+            token = lookup.get(a.get("token_env") or "SLATE_TOKEN", "")
         if not token:
             raise ValueError(f"{path}: no token for {name} (set token_env or token_file)")
-        url = _expand(str(a.get("url") or cfg.get("url") or ""), env)
+        url = _expand(str(a.get("url") or cfg.get("url") or ""), lookup)
         command = a.get("exec") or cfg.get("exec")
         if not url or not command:
             raise ValueError(f"{path}: {name} needs url and exec")
+        try:
+            check_command(str(command))
+        except ValueError as e:
+            raise ValueError(f"{path}: {name}: {e}") from None
         state_dir = rel(cfg.get("state_dir") or ".")
         out.append(
             {
                 "name": name,
                 "url": url,
                 "token": token,
-                "command": _expand(str(command), env),
+                "command": _expand(str(command), lookup),
                 "env": env,
+                "token_env": a.get("token_env") or "SLATE_TOKEN",
                 "parallel": int(a.get("parallel") or cfg.get("parallel") or 1),
                 "lease": int(a.get("lease") or cfg.get("lease") or 900),
                 "state": rel(a["state"]) if a.get("state") else state_dir / f"{name}-state.json",
                 "cwd": here,
             }
         )
+    # No agent's token reaches a command: by its variable's name, or by value under any name.
+    token_names = {a.pop("token_env").upper() for a in out}
+    tokens = {a["token"] for a in out}
+    for a in out:
+        a["env"] = {
+            k: v
+            for k, v in a["env"].items()
+            if k.upper() not in token_names
+            and not k.upper().startswith("SLATE_TOKEN")
+            and v not in tokens
+        }
     return out
 
 
@@ -1137,6 +1291,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", default="~/.slate-runner.json", help="where the cursor is kept")
     p.add_argument("--once", action="store_true", help="run one task and exit")
     p.add_argument("--item", help="with --once: this task")
+    p.add_argument(
+        "--retry-delivery",
+        metavar="KEY",
+        help="resend the saved, undelivered result for KEY (a task id, chat:... or doc:...) "
+        "from --state, without running the command again; exit 0 delivered, 2 nothing saved "
+        "for KEY, 3 still undelivered",
+    )
     args = p.parse_args(argv)
     if args.config:
         try:
@@ -1148,8 +1309,13 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, lambda *_: stop.set())
         serve(agents, stop)
         return 0
-    if not args.url or not args.command:
+    if not args.url or not (args.command or args.retry_delivery):
         p.error("--url and --exec are required (or use --config)")
+    try:
+        check_command(args.command or "")
+    except ValueError as e:
+        print(f"slate-runner: {e}", file=sys.stderr)
+        return 3
     token = os.environ.get(args.token_env)
     if not token:
         print(f"slate-runner: set {args.token_env} to the agent's token", file=sys.stderr)
@@ -1157,12 +1323,19 @@ def main(argv: list[str] | None = None) -> int:
     runner = Runner(
         args.url,
         token,
-        args.command,
+        args.command or "",
         parallel=args.parallel,
         lease=args.lease,
         state_path=args.state,
     )
     try:
+        if args.retry_delivery:
+            try:
+                outcome = runner.retry_delivery(args.retry_delivery)
+            except ValueError:
+                print(f"slate-runner: no undelivered result for {args.retry_delivery}")
+                return 2
+            return 3 if outcome == "delivery_failed" else 0
         if args.once:
             return runner.once(args.item)
 

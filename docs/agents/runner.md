@@ -65,13 +65,25 @@ env = { RUNNER_API_URL = "https://agents.example.com", RUNNER_AGENT_ID = "..." }
 | `url` | top or agent | Slate's address |
 | `exec` | top or agent | The command run once per task; it runs in the config file's folder |
 | `token_env` / `token_file` | agent | The agent's token: an env var name (default `SLATE_TOKEN`) or a file holding it |
-| `env` | agent | Extra env for the command; `${VAR}` is filled from the agent's environment |
-| `env_file` | top and agent | `KEY=VALUE` files merged into the environment (top first, then the agent's) |
+| `env` | agent | Env for the command; `${VAR}` is filled from this process's environment, the top `env_file`, the agent's `env_file` and earlier keys |
+| `env_file` | top and agent | `KEY=VALUE` files. The top one only fills `${VAR}` and `token_env` and never reaches a command; the agent's is also passed to that agent's command |
 | `parallel`, `lease` | top or agent | As the options above |
 | `state` / `state_dir` | agent / top | The cursor file; default `<state_dir>/<name>-state.json` |
 
 Each agent holds its own stream and runs its own tasks with its own environment; one agent's
-bad token or outage doesn't stop the others (it is retried every 5 minutes). Ctrl-C or SIGTERM
+bad token or outage doesn't stop the others (it is retried every 5 minutes).
+
+**Each command sees only its own agent's secrets.** Agent commands are AI runtimes fed card and
+chat text, so a command must never hold another agent's token. A command's environment is
+the runner's basic variables (`PATH`, the home and temp folders, the locale, proxies and CA
+bundles: `slate_runner.BASE_ENV`), the agent's own `env_file`, its `env` table and `SLATE_*`
+(its own `SLATE_TOKEN`). Nothing else of the runner's environment and nothing of the top-level
+`env_file` reaches it, and every agent's token is removed from every other agent's environment
+wherever it was put (by its variable's name, any `SLATE_TOKEN*`, and by value). Keep every
+agent's Slate token in the shared `env_file` (or a `token_file`); put a key one agent's command
+reads in that agent's own `env_file`, or name it in its `env` table
+(`HERMES_API_KEY = "${API_SERVER_KEY}"`). A command that relied on inheriting some other
+variable from the runner's shell gets it the same way: `env = { NAME = "${NAME}" }`. Ctrl-C or SIGTERM
 stops them all the same way as below. A full example: `clients/python/runner.example.toml`.
 The `exec` paths above are the layout `slate-runner-assets --output <dir>` exports
 (`hermes/run_task.py`, `hermes/run_task_cli.py`, `runner-example/run_task.py`); in a checkout
@@ -250,8 +262,10 @@ also change the page with its own token; the turn itself only answers.
 **Input.** The task as JSON on stdin: the `/work/next` answer (`item`, `lease`, `context` =
 the last comments and events, `asks`, `reply` = the answer on the card for this turn, `thread`
 = your session for this task; or `chat` for a chat turn, or `doc` for a doc turn, above). Env: `SLATE_URL`,
-`SLATE_TOKEN`, `SLATE_ITEM_ID`, `SLATE_ITEM_TITLE`, `SLATE_ITEM_URL` (the board link to the
-task).
+`SLATE_TOKEN`, `SLATE_ITEM_ID`, `SLATE_ITEM_URL` (the board link to the task). Card text (the
+title, comments, chat) is only on stdin: the command runs through a shell, and text in its
+environment could be expanded into the command line (`%VAR%` on Windows is expanded before
+`&` and `|` are read), so an `exec` that names `SLATE_ITEM_TITLE` is refused.
 
 **Progress.** Any stdout line that is a JSON object without `outcome` is sent at once as a
 heartbeat. Print the place you work in first, so the card links to it within a second. Add
@@ -326,6 +340,16 @@ drained=true. Admission stays closed. Pending/unknown results or unstarted persi
 prevent a drained receipt. Stop only after all runners are proven drained, install matching
 files/server, and remove the drain files before starting fresh processes. Timeout means wait
 or abort, not kill active work.
+
+**An undelivered result is resent on its own.** When a finish cannot be delivered (the server
+restarting, the network down), the result is saved in the state file and the live loop resends
+the identical body, five seconds later and then backing off to five minutes, without running the
+command again; `--retry-delivery KEY` (a task id, or the `chat:`/`doc:` key in the state file)
+does it by hand and exits 0 delivered, 2 nothing saved for that key, 3 still undelivered. If the
+server settles that run first (its lease ran out and a person cleared it, or a person asked
+again), its next grant for the card is run, and the stale result is dropped with a log line. A
+record that a runner killed mid-run left behind is read as unknown remote state on the next
+start, like an interrupted run.
 
 Finish retries return the saved semantic receipt; then take next separately. Keep the local
 state private, since it contains execution proof. Direct reports must not clear active
