@@ -484,3 +484,49 @@ def test_a_view_that_is_not_shared_is_its_owners_alone(client, alex, world):
     r = client.patch(f"{API}/views/{private['id']}", json={"shared": True}, headers=mh)
     assert r.status_code == 200, r.text
     assert client.get(f"{API}/views/{private['id']}", headers=alex).status_code == 200
+
+
+# --- Unauthenticated doors --------------------------------------------------------------------
+
+BROWSER = {"X-Slate-Client": "browser"}
+
+
+def test_bad_attempts_from_many_addresses_do_not_lock_out_a_real_visitor(client, monkeypatch):
+    from slate.api import collaboration, connections
+
+    monkeypatch.setattr(collaboration, "attempts", collaboration.Attempts())
+    monkeypatch.setattr(connections, "exchange_attempts", collaboration.Attempts())
+    for limiter in (collaboration.attempts, connections.exchange_attempts):
+        for address in range(30):  # 300 bad attempts, ten from each of 30 addresses
+            for _ in range(10):
+                limiter.take(f"198.51.100.{address}")
+    r = client.post(f"{API}/invitations/accept", json={"secret": "bad"}, headers=BROWSER)
+    assert r.status_code == 410, r.text
+    r = client.post(f"{API}/exchange", json={"code": "bad"})
+    assert r.status_code != 429, r.text
+
+
+def test_guesses_at_one_invitation_are_limited_whatever_the_address(client, alex, monkeypatch):
+    from slate.api import collaboration
+
+    monkeypatch.setattr(collaboration, "attempts", collaboration.Attempts())
+    monkeypatch.setattr(collaboration, "invite_attempts", collaboration.Attempts())
+    section = client.post(
+        f"{API}/sections", json={"name": "Project", "audience": "work"}, headers=alex
+    ).json()
+    client.patch(f"{API}/sections/{section['id']}", json={"private": True}, headers=alex)
+    inv = client.post(
+        f"{API}/invitations",
+        json={"section_id": section["id"], "handle": "visitor", "display_name": "Visitor"},
+        headers=alex,
+    ).json()
+    ident = inv["secret"].split("_")[1]
+    for _ in range(10):  # ten guesses at it, from anywhere
+        collaboration.invite_attempts.take(ident)
+    guess = f"invite_{ident}_{'x' * 43}"
+    r = client.post(f"{API}/invitations/accept", json={"secret": guess}, headers=BROWSER)
+    assert r.status_code == 429, r.text
+    # Another invitation is untouched.
+    other = f"invite_{'A' * 12}_{'x' * 43}"
+    r = client.post(f"{API}/invitations/accept", json={"secret": other}, headers=BROWSER)
+    assert r.status_code == 410, r.text

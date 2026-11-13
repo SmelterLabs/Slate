@@ -20,7 +20,6 @@ def reset_attempts():
 
     for attempts in (exchange_attempts, issue_attempts):
         attempts.clients.clear()
-        attempts.all.clear()
 
 
 @pytest.fixture
