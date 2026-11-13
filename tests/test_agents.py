@@ -211,3 +211,40 @@ def test_claim_only_goes_with_working(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"])
     assert _report(client, ch, item["id"], state="review", claim=True).status_code == 422
+
+
+@pytest.fixture
+def counted_binds(monkeypatch):
+    from slate.service import access
+
+    binds = {"n": 0}
+    real = access.bind
+
+    def counted(*a, **k):  # noqa: ANN002, ANN003
+        binds["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(access, "bind", counted)
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "rate_limit_reads_per_minute", 2)
+    return binds
+
+
+def test_a_refused_call_costs_no_access_computation(client, make_account, counted_binds):
+    """The limiter answers before the caller's access is worked out, so a runaway loop that
+    is being refused stays cheap."""
+    _, agent = make_account("my-agent")
+    counted_binds["n"] = 0
+    statuses = [client.get(f"{API}/me", headers=agent).status_code for _ in range(5)]
+    assert statuses == [200, 200, 429, 429, 429]
+    assert counted_binds["n"] == 2
+
+
+async def test_a_refused_mcp_call_costs_no_access_computation(alex, counted_binds):
+    from test_mcp import call, http_mcp
+
+    async with http_mcp(alex) as mcp:
+        answers = [await call(mcp, "slate_today") for _ in range(4)]
+    refused = [a for a in answers if a.is_error and "rate limit" in a.content[0].text]
+    assert len(refused) == 2
+    assert counted_binds["n"] == 2

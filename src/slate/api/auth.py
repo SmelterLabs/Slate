@@ -98,8 +98,8 @@ def require(scope: str) -> Callable[..., Auth]:
         request.state.caller = (principal.token_id, principal.account.id)
         if not principal.has(scope):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"token lacks '{scope}' scope")
-        access.bind(session, principal.account, principal.token_id)
-        presence.seen(principal.account.id, "api")
+        # The limiter answers before the access computation below: a runaway loop that is
+        # being refused must stay cheap.
         verdict = limiter.take(
             principal.token_id, principal.account.id, "read" if scope == "read" else "write"
         )
@@ -116,6 +116,8 @@ def require(scope: str) -> Callable[..., Auth]:
                     "X-RateLimit-Remaining": "0",
                 },
             )
+        access.bind(session, principal.account, principal.token_id)
+        presence.seen(principal.account.id, "api")
         actor = Actor(
             account_id=principal.account.id,
             source=request_source(request, x_slate_source),
