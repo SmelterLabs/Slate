@@ -19,11 +19,9 @@ import { flushSync } from 'svelte';
 import { setWorkspaceTimezone } from './timezone';
 import type {
   RunMode,
-  Account,
   Favorite,
   FavoriteKind,
   Item,
-  ItemDetail,
   LinkKind,
   List,
   Me,
@@ -31,7 +29,6 @@ import type {
   Recurrence,
   RecurTrigger,
   RulePreview,
-  SavedView,
   Section,
   SlateEvent,
   Capacity,
@@ -46,7 +43,7 @@ import { agents } from './agents.svelte';
 import { pickupSince, pickupStatus } from './pickup';
 import { affectsMyAccess } from './permissions';
 import { applyEvent } from './reducer';
-import { type CommentDot, dotsChangedBy } from './commentdots';
+import { dotsChangedBy } from './commentdots';
 import { changeLabel, groupReverts, revertPatch } from './undo';
 import { LEAVES } from './words';
 import { applyTheme, asTheme } from './theme';
@@ -54,12 +51,12 @@ import { place, reorder, type StatusDraft, placeSection } from './structure';
 import { dayOf, isClosed, onDay, quickDays, reopenStatus, statusOfKind, type Drop } from './views';
 import { COOKIE_SESSION, inviteSecretFrom } from './collaboration';
 import { TOKEN_KEY } from './board/state.svelte';
-import { BoardViews } from './board/views.svelte';
+import { BoardLoad } from './board/load.svelte';
 import { EVENT_TYPES } from './board/events';
 
 export { scopeKey, type ActiveView, type Conn, type Selection } from './board/state.svelte';
 
-class Board extends BoardViews {
+class Board extends BoardLoad {
   #dotsTimer: ReturnType<typeof setTimeout> | undefined;
 
   #source: EventSource | null = null;
@@ -221,9 +218,6 @@ class Board extends BoardViews {
     this.lastEventId = '';
   }
 
-  // Full reloads overlap (a burst of list.statuses_changed, a share change during a refresh):
-  // only the newest one may write, so an older answer never overwrites a newer one.
-  #loadGen = 0;
   #reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Reload everything soon: one load for a burst of events that each ask for it. */
@@ -235,75 +229,9 @@ class Board extends BoardViews {
     }, 100);
   }
 
-  protected async loadAll() {
-    const gen = ++this.#loadGen;
-    const [sections, lists, items, views, favorites] = await Promise.all([
-      get<Section[]>('/sections'),
-      get<List[]>('/lists'),
-      get<Item[]>('/items'),
-      get<SavedView[]>('/views'),
-      get<Favorite[]>('/favorites'),
-      agents.refreshRoster(),
-    ]);
-    if (gen !== this.#loadGen) return; // a newer load is answering instead
-    this.views = Object.fromEntries(views.map((v) => [v.id, v]));
-    this.favorites = favorites;
-    this.sections = sections.sort((a, b) => a.position - b.position);
-    this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
-    this.items = Object.fromEntries(structuredClone(items).map((i) => [i.id, i]));
-    this.syncAll(items);
-    void this.loadTags(); // tag colours on chips
-    void this.loadCommentDots(); // the dot in a card's corner
-    void this.loadRules(); // repeat labels on cards
-    void this.loadCapacities(); // the Agents page
-    await this.loadAccounts();
-    if (this.selection.kind === 'list' && !this.lists[this.selection.id]) {
-      this.selection = { kind: 'everything' };
-    }
-  }
-
-  protected async loadAccounts() {
-    const known: Record<string, Account> = {};
-    if (this.me) known[this.me.account.id] = this.me.account;
-    if (this.me?.scopes.includes('admin')) {
-      for (const a of await get<Account[]>('/accounts')) known[a.id] = a;
-    }
-    // The scoped roster is already loaded with the board. Guests cannot call /accounts;
-    // shared agents still need names/handles for @picking and the chat turn indicator even
-    // in a brand-new project with no assigned tasks or previous messages.
-    for (const { account } of agents.roster) known[account.id] ??= account;
-    for (const i of Object.values(this.items)) for (const a of i.assignees) known[a.id] ??= a;
-    // A private section is a shared project: its participants are named on the board for
-    // everyone in it (a guest's board would otherwise show an author it has no row for as
-    // "Someone"), and its agents are who the Ask picker starts on (`projectAgents`).
-    const agentsBySection: Record<string, Account[]> = {};
-    await Promise.all(
-      this.sections
-        .filter((s) => s.private && !s.archived_at)
-        .map(async (s) => {
-          try {
-            const p = await get<{ participants: Account[] }>(`/sections/${s.id}/project`);
-            for (const a of p.participants) known[a.id] ??= a;
-            agentsBySection[s.id] = p.participants.filter((a) => a.kind === 'agent');
-          } catch {
-            // not this account's project after all: nothing to name
-          }
-        }),
-    );
-    this.accounts = known;
-    this.sectionAgents = agentsBySection;
-  }
 
 
 
-  protected async loadStructure() {
-    const [sections, lists] = await Promise.all([
-      get<Section[]>('/sections'),
-      get<List[]>('/lists'),
-    ]);
-    this.sections = sections.sort((a, b) => a.position - b.position);
-    this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
-  }
 
   // --- live stream --------------------------------------------------------------------------
 
@@ -529,41 +457,6 @@ class Board extends BoardViews {
     await this.refetchItems(ids);
   }
 
-  /** Several items in one `GET /items?ids=` per 200 (the item cache answers it); an id that
-   * comes back missing was deleted or trashed, as a fresh load would leave it out. */
-  async refetchItems(ids: string[]) {
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const q = new URLSearchParams({ ids: chunk.join(','), include_archived: 'true' });
-      try {
-        const got = await get<Item[]>(`/items?${q}`);
-        const seen = new Set(got.map((it) => it.id));
-        for (const it of got) this.storeItem(it);
-        for (const id of chunk) {
-          if (!seen.has(id) && this.items[id]) {
-            delete this.items[id];
-            this.sync(id);
-          }
-        }
-      } catch (e) {
-        if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
-      }
-    }
-  }
-
-  async refetchItem(id: string) {
-    try {
-      const d = await get<ItemDetail>(`/items/${id}`);
-      const { subtasks: _s, comments: _c, events: _e, checklists: _k, attachments: _a, watchers: _w, ...item } =
-        d;
-      this.storeItem(item);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        delete this.items[id];
-        this.sync(id);
-      }
-    }
-  }
 
 
   // --- writes -------------------------------------------------------------------------------
@@ -1154,13 +1047,6 @@ class Board extends BoardViews {
 
   // --- favorites bar ------------------------------------------------------------------------
 
-  protected async loadFavorites() {
-    try {
-      this.favorites = await get<Favorite[]>('/favorites');
-    } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
-    }
-  }
 
   favoriteOf(kind: FavoriteKind, targetId: string): Favorite | undefined {
     return this.favorites.find((f) => f.kind === kind && f.target_id === targetId);
@@ -1214,58 +1100,6 @@ class Board extends BoardViews {
     }
   }
 
-  // --- drawer -------------------------------------------------------------------------------
-  async open(id: string) {
-    this.openId = id;
-    this.detail = null;
-    this.#markRead(id);
-    await this.refreshDetail();
-  }
-
-  /** Which items have comments new to this account since it last opened them. A dot on the
-   * card that is open right now is read at once: you are looking at the comment. */
-  async loadCommentDots() {
-    try {
-      const dots = await get<Record<string, CommentDot>>('/me/comment-dots');
-      const open = this.openId;
-      if (open && dots[open]) {
-        delete dots[open];
-        this.#markRead(open);
-      }
-      this.commentDots = dots;
-    } catch {
-      /* the next comment or reload retries */
-    }
-  }
-
-  /** Opening a card clears its dot (`POST /items/{id}/read`; a no-op when nothing is new). */
-  #markRead(id: string) {
-    if (id in this.commentDots) delete this.commentDots[id];
-    post(`/items/${id}/read`).catch(() => {
-      /* the dot comes back on the next load: harmless */
-    });
-  }
-
-  close() {
-    this.openId = null;
-    this.detail = null;
-  }
-
-  async refreshDetail() {
-    const id = this.openId;
-    if (!id) return;
-    try {
-      const d = await get<ItemDetail>(`/items/${id}`);
-      if (this.openId !== id) return;
-      // The detail's `events` are only the last 20; the History tab loads the full log.
-      this.detail = d;
-      if (d.recurrence_id && !this.recurrences[d.recurrence_id]) {
-        await this.loadRule(d.recurrence_id);
-      }
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) this.close();
-    }
-  }
 
   // --- structure & editors ------------------------------------------------------------------
   // Every write here is one REST call; the stream then confirms it to every other board.
@@ -1273,10 +1107,6 @@ class Board extends BoardViews {
 
 
 
-  async reloadStructure() {
-    await this.loadStructure();
-    if (this.archivedSections.length || this.archivedLists.length) await this.loadArchived();
-  }
 
   async createSection(name: string, audience: Section['audience']): Promise<Section | null> {
     const s = await this.attempt(() => post<Section>('/sections', { name, audience }));
@@ -1359,21 +1189,6 @@ class Board extends BoardViews {
     else await this.reloadEverything();
   }
 
-  protected async reloadEverything() {
-    await this.loadAll();
-    await this.loadArchived();
-  }
-
-  /** Archived sections, and archived lists whose section is not archived (Archived panel). */
-  async loadArchived() {
-    const [sections, lists] = await Promise.all([
-      get<Section[]>('/sections?include_archived=true'),
-      get<List[]>('/lists?include_archived=true'),
-    ]);
-    this.archivedSections = sections.filter((s) => s.archived_at);
-    const gone = new Set(this.archivedSections.map((s) => s.id));
-    this.archivedLists = lists.filter((l) => l.archived_at && !gone.has(l.section_id));
-  }
 
   openShare(kind: 'section' | 'list', id: string) {
     this.shareTarget = { kind, id };
@@ -1417,13 +1232,6 @@ class Board extends BoardViews {
     return true;
   }
 
-  async loadTags() {
-    try {
-      this.tags = await get<Tag[]>('/tags');
-    } catch {
-      // Autocomplete is a nicety; typing a tag still works without it.
-    }
-  }
 
   /** Move to another list (keeps a status of the same kind there). */
   async moveItem(id: string, listId: string) {
@@ -1452,24 +1260,6 @@ class Board extends BoardViews {
 
   // Recurrence rules ---------------------------------------------------------------------------
 
-  async loadRules() {
-    try {
-      const rules = await get<Recurrence[]>('/recurrences');
-      this.recurrences = Object.fromEntries(rules.map((r) => [r.id, r]));
-    } catch {
-      // labels fall back to "Recurring"
-    }
-  }
-
-  async loadRule(id: string): Promise<Recurrence | null> {
-    try {
-      const r = await get<Recurrence>(`/recurrences/${id}`);
-      this.recurrences[id] = r;
-      return r;
-    } catch {
-      return null;
-    }
-  }
 
   /** Try a rule without saving it. Throws ApiError with Slate's reason for a bad rule. */
   previewRule(
@@ -1580,14 +1370,6 @@ class Board extends BoardViews {
 
   // --- capacity ---------------------------------------------------------------------
 
-  async loadCapacities() {
-    try {
-      const list = await get<Capacity[]>('/capacities');
-      this.capacities = Object.fromEntries(list.map((c) => [c.account_id, c]));
-    } catch {
-      /* a token that cannot see capacities gets the defaults on the page */
-    }
-  }
 
   /** Set some of an account's capacity fields (yours, or anyone's as an owner or admin). */
   async setCapacity(accountId: string, changes: Partial<Omit<Capacity, 'account_id' | 'custom'>>): Promise<boolean> {
