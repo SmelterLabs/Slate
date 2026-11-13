@@ -7,6 +7,8 @@ in the workspace is private, and for every door (REST, MCP, the live gate).
 
 from __future__ import annotations
 
+import base64
+
 import test_permissions
 from test_permissions import share  # noqa: F401
 
@@ -112,3 +114,149 @@ def test_capacity_of_another_account_needs_an_admin_token(client, alex, world):
     r = client.patch(url, json={"tasks_per_day": 3}, headers=write_only)
     assert r.status_code == 403, r.text
     assert client.patch(url, json={"tasks_per_day": 3}, headers=alex).status_code == 200
+
+
+# --- Personal events --------------------------------------------------------------------------
+
+# Push keys are only length-checked: an uncompressed point (65 bytes) and 16 bytes.
+P256 = base64.urlsafe_b64encode(b"\x04" + b"k" * 64).rstrip(b"=").decode()
+PUSH_AUTH = base64.urlsafe_b64encode(b"a" * 16).rstrip(b"=").decode()
+PERSONAL = ("account.prefs_changed", "push.", "webhook.", "token.", "favorite.", "inbox.")
+
+
+def _personal_history(client, alex, world) -> None:
+    """alex changes prefs, adds a device, a webhook and a favorite, and reads the inbox."""
+    me = _me(client, alex)
+    r = client.patch(f"{API}/me/prefs", json={"email_to": "alex@example.com"}, headers=alex)
+    assert r.status_code == 200, r.text
+    r = client.post(
+        f"{API}/push/subscriptions",
+        json={
+            "endpoint": "https://push.example.com/send/abc",
+            "keys": {"p256dh": P256, "auth": PUSH_AUTH},
+            "label": "Alex phone",
+        },
+        headers=alex,
+    )
+    assert r.status_code in (200, 201), r.text
+    r = client.post(
+        f"{API}/webhooks",
+        json={"url": "https://rx.example.com/hook?key=K-123", "events": ["item.due"]},
+        headers=alex,
+    )
+    assert r.status_code == 201, r.text
+    hook = r.json()["id"]
+    r = client.patch(f"{API}/webhooks/{hook}", json={"disabled": True}, headers=alex)
+    assert r.status_code == 200, r.text
+    fav = client.post(
+        f"{API}/favorites", json={"kind": "list", "target_id": world["todo"]["id"]}, headers=alex
+    )
+    assert fav.status_code in (200, 201), fav.text
+    assert client.delete(f"{API}/favorites/{fav.json()['id']}", headers=alex).status_code == 204
+    tok = client.post(f"{API}/accounts/{me}/tokens", json={"scopes": ["read"]}, headers=alex)
+    assert client.delete(f"{API}/tokens/{tok.json()['id']}", headers=alex).status_code == 204
+    r = client.post(f"{API}/inbox/read", json={"all": True}, headers=alex)
+    assert r.status_code == 200, r.text
+
+
+def _about(e: dict, account_id: str) -> bool:
+    snaps = [s for s in (e.get("before"), e.get("after")) if isinstance(s, dict)]
+    return e["subject_id"] == account_id or any(s.get("account_id") == account_id for s in snaps)
+
+
+def _personal(events: list[dict], who: str, viewer: str | None = None) -> list[str]:
+    """Personal event types `who` caused, leaving out those about `viewer` itself."""
+    return sorted(
+        {
+            e["type"]
+            for e in events
+            if e["type"].startswith(PERSONAL)
+            and (e.get("actor_id") or (e.get("actor") or {}).get("id")) == who
+            and not (viewer and _about(e, viewer))
+        }
+    )
+
+
+def _gate_passes(db, account_id: str, who: str) -> list[str]:
+    from sqlalchemy import select
+
+    from slate.models import Event
+    from slate.service import access
+    from slate.service.core import event_payload
+
+    gate = access.EventGate(account_id)
+    gate.load(db)
+    evs = [event_payload(e) for e in db.scalars(select(Event).order_by(Event.id))]
+    return sorted(
+        {
+            e["type"]
+            for e in evs
+            if e["type"].startswith(PERSONAL)
+            and e["actor_id"] == who
+            and not (account_id != who and _about(e, account_id))
+            and gate.allows(db, e)
+        }
+    )
+
+
+def test_member_never_reads_another_accounts_personal_events(client, alex, world, db):
+    me = _me(client, alex)
+    _personal_history(client, alex, world)
+    member, mh = world["account"]("member2", "member", scopes=("read",))
+    # Nothing is private: the member's access is unrestricted, and still none of it shows.
+    for path in ("/events", "/audit"):
+        r = client.get(f"{API}{path}", params={"limit": 500}, headers=mh)
+        assert r.status_code == 200, r.text
+        rows = r.json().get("events") or r.json().get("entries")
+        assert _personal(rows, me, member["id"]) == [], path
+    assert "K-123" not in client.get(f"{API}/events", params={"limit": 500}, headers=mh).text
+    assert _gate_passes(db, member["id"], me) == []
+    # The account itself and an admin see them.
+    own = client.get(f"{API}/events", params={"limit": 500}, headers=alex).json()["events"]
+    assert {"account.prefs_changed", "push.subscribed", "webhook.created"} <= set(
+        _personal(own, me)
+    )
+    assert "webhook.disabled" in _gate_passes(db, me, me)
+    # Once something is private the member is restricted: the same rule, the same answer.
+    client.patch(f"{API}/sections/{world['work']['id']}", json={"private": True}, headers=alex)
+    rows = client.get(f"{API}/events", params={"limit": 500}, headers=mh).json()["events"]
+    assert _personal(rows, me, member["id"]) == []
+    db.expire_all()
+    assert _gate_passes(db, member["id"], me) == []
+
+
+def test_member_sees_its_own_personal_events(client, alex, world):
+    member, mh = world["account"]("member2", "member")
+    r = client.patch(f"{API}/me/prefs", json={"email_to": "member@example.com"}, headers=mh)
+    assert r.status_code == 200, r.text
+    rows = client.get(f"{API}/events", params={"limit": 500}, headers=mh).json()["events"]
+    assert "account.prefs_changed" in _personal(rows, member["id"])
+
+
+def test_restricted_member_replay_matches_the_live_gate_for_tags_and_accounts(
+    client, alex, world, db
+):
+    from slate.service import access
+    from slate.service.core import event_payload
+
+    client.patch(f"{API}/sections/{world['work']['id']}", json={"private": True}, headers=alex)
+    member, mh = world["account"]("member2", "member")
+    assert client.post(f"{API}/tags", json={"name": "fresh"}, headers=alex).status_code == 201
+    world["account"]("newcomer", "member")
+    rows = client.get(f"{API}/events", params={"limit": 500}, headers=mh).json()["events"]
+    replay = {e["id"] for e in rows if e["type"].startswith(("tag.", "account."))}
+
+    from sqlalchemy import select
+
+    from slate.models import Event
+
+    gate = access.EventGate(member["id"])
+    gate.load(db)
+    live = {
+        e["id"]
+        for e in map(event_payload, db.scalars(select(Event).order_by(Event.id)))
+        if e["type"].startswith(("tag.", "account.")) and gate.allows(db, e)
+    }
+    assert replay == live
+    assert any(e["type"] == "tag.created" for e in rows)
+    assert sum(e["type"] == "account.created" for e in rows) >= 3

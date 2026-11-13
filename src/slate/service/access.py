@@ -383,6 +383,42 @@ _docs = Doc.__table__
 # Workspace-wide things: capacities belong to no list, so they follow General
 # (members yes; guests and list-limited tokens no).
 _WORKSPACE_TYPES = ("capacity.",)
+# Events about one account's own settings and bookkeeping: only that account and an admin
+# read them, whatever else the caller can see (`_owned`, `EventGate._owns`).
+PERSONAL_PREFIXES = (
+    "agent.connection_",
+    "favorite.",
+    "inbox.",
+    "push.",
+    "session.",
+    "token.",
+    "webhook.",
+)
+PERSONAL_TYPES = ("account.prefs_changed", "account.digest", "channel.read", "item.read")
+
+
+def is_personal(type_: str) -> bool:
+    return type_ in PERSONAL_TYPES or type_.startswith(PERSONAL_PREFIXES)
+
+
+def _owner_tables() -> list[Any]:
+    from slate.models import Favorite, PushSubscription, Webhook
+
+    return [Token.__table__, Webhook.__table__, Favorite.__table__, PushSubscription.__table__]
+
+
+def _owned(c: Any, me: str) -> Any:
+    """SQL: the event is not personal, or it is `me`'s (subject, payload or owning row)."""
+    personal = or_(c.type.in_(PERSONAL_TYPES), *(c.type.startswith(p) for p in PERSONAL_PREFIXES))
+    return or_(
+        ~personal,
+        c.subject_id == me,
+        c.after_json["account_id"].as_string() == me,
+        c.before_json["account_id"].as_string() == me,
+        *(c.subject_id.in_(select(t.c.id).where(t.c.account_id == me)) for t in _owner_tables()),
+    )
+
+
 _ITEM_SCOPED: list[type] = []
 _LIST_SCOPED: list[type] = []
 # Slate's own landing views (service/views.py SEED_VIEWS): generic lenses, so everyone's.
@@ -463,18 +499,12 @@ def _chat_visible(
 
 
 def read_criteria(state: ORMExecuteState) -> None:
-    # Connection events are private even for members with unrestricted project access.
-    connection_access: Access | None = state.session.info.get(CALLER_KEY)
-    if state.is_select and connection_access is not None and not connection_access.is_admin:
-        connection_me = connection_access.account_id
+    # Personal events are private even for members with unrestricted project access.
+    bound: Access | None = state.session.info.get(CALLER_KEY)
+    if state.is_select and bound is not None and not bound.is_admin:
+        owner = bound.account_id
         state.statement = state.statement.options(
-            with_loader_criteria(
-                Event,
-                lambda c: or_(
-                    ~c.type.startswith("agent.connection_"), c.subject_id == connection_me
-                ),
-                include_aliases=True,
-            )
+            with_loader_criteria(Event, lambda c: _owned(c, owner), include_aliases=True)
         )
     access: Access | None = state.session.info.get(ACCESS_KEY)
     if access is None or access.lists is None or not state.is_select:
@@ -537,6 +567,16 @@ def read_criteria(state: ORMExecuteState) -> None:
                 ),
                 c.subject_id.in_(docs),
                 c.subject_id == me,
+                # Workspace-wide news, as the live gate passes it (personal ones are filtered
+                # for every caller above).
+                and_(
+                    ws,
+                    or_(
+                        c.type.startswith("tag."),
+                        c.type.startswith("account."),
+                        c.type.startswith("capacity."),
+                    ),
+                ),
                 and_(
                     c.type.startswith("share."),
                     or_(
@@ -1054,12 +1094,12 @@ class EventGate:
             self.access = Access(
                 self.account_id, Role.guest, VIEW, lists={}, sections={}, general=False
             )
-            self._connection_manager = False
+            self._admin = False
         else:
             with unrestricted(session):
                 found = compute(session, account, token)
             self.access = None if found.unrestricted else found
-            self._connection_manager = found.is_admin
+            self._admin = found.is_admin
         now = self.access
         self.narrowed = bool(
             self._loaded
@@ -1235,8 +1275,8 @@ class EventGate:
     def _allows_outer(self, session: Session, payload: dict[str, Any]) -> bool:
         if self.denied:
             return False
-        if str(payload.get("type", "")).startswith("agent.connection_"):
-            return self._connection_manager or payload.get("subject_id") == self.account_id
+        if is_personal(str(payload.get("type", ""))) and not self._admin:
+            return self._owns(session, payload)
         a = self.access
         if a is None or a.lists is None:
             return True
@@ -1301,8 +1341,25 @@ class EventGate:
         if type_.startswith("tag."):
             return a.general
         if type_.startswith("account."):
-            return a.general and type_ != "account.prefs_changed"
+            return a.general
         return False
+
+    def _owns(self, session: Session, payload: dict[str, Any]) -> bool:
+        """A personal event is this caller's: about its account, or its token, device, hook."""
+        me = self.account_id
+        subject = payload.get("subject_id")
+        if subject == me:
+            return True
+        for key in ("after", "before"):
+            snap = payload.get(key)
+            if isinstance(snap, dict) and snap.get("account_id") == me:
+                return True
+        if not subject:
+            return False
+        return any(
+            session.execute(select(t.c.account_id).where(t.c.id == subject)).scalar() == me
+            for t in _owner_tables()
+        )
 
 
 def _parse_at(value: Any) -> datetime | None:
