@@ -297,7 +297,13 @@ READS = {
         "day_capacity",
         "boxes",
     },
-    "slate.service.health": {"require_viewer", "report", "summary", "worst"},
+    "slate.service.health": {
+        "require_viewer",
+        "report",
+        "summary",
+        "worst",
+        "backup_status_path",
+    },
     "slate.service.reminders": {
         "effective_at",
         "reminder_view",

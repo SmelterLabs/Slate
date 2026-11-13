@@ -24,15 +24,15 @@ def test_git_aware_tests_skip_outside_a_checkout(tmp_path):
     shutil.copytree(ROOT / "scripts", tree / "scripts")
     (tree / "src" / "slate").mkdir(parents=True)
     shutil.copyfile(ROOT / "src/slate/build.py", tree / "src/slate/build.py")
-    for name in ["pyproject.toml", "compose.yaml", "Dockerfile", ".dockerignore"]:
+    for name in ["pyproject.toml", "uv.lock", "compose.yaml", "Dockerfile", ".dockerignore"]:
         shutil.copyfile(ROOT / name, tree / name)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "SLATE_PRIVATE"))}
     env["GIT_CEILING_DIRECTORIES"] = str(tmp_path)  # Git must not find a repository above
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-rs"]
         + ["--basetemp", str(tmp_path / "inner")]
-        # The two wheel-building tests need no Git and are slow; the rest run.
-        + ["-k", "not outside_checkout and not sdist_is_minimal"]
+        # The wheel-building tests need no Git and are slow; the rest run.
+        + ["-k", "not outside_checkout and not sdist_is_minimal and not installed_wheel"]
         + [f"tests/{name}" for name in GIT_AWARE],
         cwd=tree,
         env=env,
