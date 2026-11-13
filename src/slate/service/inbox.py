@@ -45,6 +45,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from slate.ids import event_id_floor
 from slate.models import (
     Account,
     Event,
@@ -61,6 +62,8 @@ from slate.service.errors import Invalid
 
 WINDOW = timedelta(days=30)
 MAX_ENTRIES = 500
+# Candidates read per query; the inbox pages on until it has its entries or the window ends.
+PAGE = 500
 
 MENTION_TYPES = (
     "item.commented",
@@ -273,66 +276,102 @@ def entries(
         m.event_id: m.cleared
         for m in session.scalars(select(InboxMark).where(InboxMark.account_id == account.id))
     }
+    read_through = state.read_through if state else None
+    q = _candidates(account, f, state, unread_only=unread_only)
+    out: list[dict[str, Any]] = []
+    edits: set[tuple[str | None, str]] = set()
+    waited = waits(session, account.id)
+    want = min(limit, MAX_ENTRIES)
+    before: str | None = None
+    while len(out) < want:
+        page = session.scalars(q if before is None else q.where(Event.id < before)).all()
+        for ev in page:
+            why = reason_for(ev, account, f)
+            if why is None or marks.get(ev.id) is True or waiting_covers(ev, why, waited):
+                continue
+            if why == "watching" and ev.field == "body_md":
+                # Description autosaves: one entry per author and item, the newest.
+                if (ev.item_id, ev.actor_id) in edits:
+                    continue
+                edits.add((ev.item_id, ev.actor_id))
+            if reason and why != reason:
+                continue
+            read = ev.id in marks or (read_through is not None and ev.id <= read_through)
+            if unread_only and read:
+                continue
+            out.append({"event": event_payload(ev), "reason": why, "read": read})
+            if len(out) >= want:
+                break
+        if len(page) < PAGE:
+            break
+        before = page[-1].id
+    _attach_items(session, out)
+    return out
+
+
+def _in_after(path: str, value: str) -> Any:
+    """SQL: the JSON array at `path` in the event's `after` holds `value`."""
+    each = func.json_each(Event.after_json, path).table_valued("value")
+    return select(each.c.value).where(each.c.value == value).exists()
+
+
+def _candidates(account: Account, f: Follows, state: InboxState | None, *, unread_only: bool):
+    """The events `reason_for` could say yes to for this account, newest first, one page.
+
+    Every condition names the account (its handle, its id, an item it follows), so other
+    people's traffic never fills the page; `reason_for` stays the judge. The window is also a
+    primary-key range (event ids are time-ordered), so the scan stops at the window's start.
+    """
     since = utcnow() - WINDOW
+    me = account.id
+
+    def after(path: str) -> Any:
+        return func.json_extract(Event.after_json, path)
+
     conds = [
-        Event.type == "item.reminder",
-        (Event.type == "account.digest") & (Event.subject_id == account.id),
-        (Event.type == "session.expiring") & (Event.subject_id == account.id),
-        Event.type.in_(MENTION_TYPES),
-        Event.type.in_(("item.assigned", "comment.assigned")),
-        Event.field == "waiting_on_account_id",
-        Event.type == "item.run_requested",
-        (Event.type == "item.reported")
-        & (func.json_extract(Event.after_json, "$.waiting_on") == account.id),
+        (Event.type == "item.reminder") & (after("$.account_id") == me),
+        (Event.type == "account.digest") & (Event.subject_id == me),
+        (Event.type == "session.expiring") & (Event.subject_id == me),
+        Event.type.in_(MENTION_TYPES) & _in_after("$.mentions", account.handle),
+        Event.type.in_(MENTION_TYPES) & _in_after("$", account.handle),
+        Event.type.in_(("item.commented", "doc.mentioned")) & _in_after("$.reply_to", me),
+        (Event.type == "message.posted") & _in_after("$.thread_followers", me),
+        (Event.type == "item.assigned") & _in_after("$", account.handle),
+        (Event.type == "comment.assigned") & (after("$.assignee_id") == me),
+        (Event.field == "waiting_on_account_id") & (after("$") == me),
+        (Event.type == "item.run_requested") & _in_after("$.notify", me),
+        (Event.type == "item.reported") & (after("$.waiting_on") == me),
+        (Event.type == "item.watched") & Event.field.is_(None) & (after("$") == me),
+        (Event.type == "item.unwatched") & (func.json_extract(Event.before_json, "$") == me),
     ]
     if _sees_health(account):
         conds.append(Event.type.in_(HEALTH_TYPES))
     if f.followed:
         conds.append(Event.item_id.in_(f.followed) & Event.type.in_(FOLLOW_TYPES + ASSIGNEE_TYPES))
-    conds.append((Event.type == "item.watched") & (Event.field.is_(None)))
-    conds.append(
-        (Event.type == "item.unwatched") & (func.json_extract(Event.before_json, "$") == account.id)
-    )
     if f.watched:
         conds.append(Event.item_id.in_(f.watched) & Event.type.in_(WATCH_TYPES))
-        conds.append(
-            (Event.type == "item.created")
-            & func.json_extract(Event.after_json, "$.parent_id").in_(f.watched)
-        )
+        conds.append((Event.type == "item.created") & after("$.parent_id").in_(f.watched))
     from slate.service.comments import not_about_deleted_comment  # noqa: PLC0415
 
-    q = select(Event).where(
-        Event.at >= since,
-        Event.actor_id != account.id,
-        not_about_deleted_comment(),
-        or_(*conds),
-    )
+    # A day's slack on the id bound: `at` stays the exact test.
+    floor = event_id_floor(since - timedelta(days=1))
     if state and state.cleared_through:
-        q = q.where(Event.id > state.cleared_through)
-    q = q.order_by(Event.id.desc()).limit(MAX_ENTRIES * 4)
-    read_through = state.read_through if state else None
-    out: list[dict[str, Any]] = []
-    edits: set[tuple[str | None, str]] = set()
-    waited = waits(session, account.id)
-    for ev in session.scalars(q):
-        why = reason_for(ev, account, f)
-        if why is None or marks.get(ev.id) is True or waiting_covers(ev, why, waited):
-            continue
-        if why == "watching" and ev.field == "body_md":
-            # Description autosaves: one entry per author and item, the newest.
-            if (ev.item_id, ev.actor_id) in edits:
-                continue
-            edits.add((ev.item_id, ev.actor_id))
-        if reason and why != reason:
-            continue
-        read = ev.id in marks or (read_through is not None and ev.id <= read_through)
-        if unread_only and read:
-            continue
-        out.append({"event": event_payload(ev), "reason": why, "read": read})
-        if len(out) >= min(limit, MAX_ENTRIES):
-            break
-    _attach_items(session, out)
-    return out
+        floor = max(floor, state.cleared_through)
+    if unread_only and state and state.read_through:
+        # Read through the cursor is never unread; marks past it are checked in Python.
+        floor = max(floor, state.read_through)
+    return (
+        select(Event)
+        .where(
+            Event.id > floor,
+            Event.at >= since,
+            Event.actor_id != me,
+            not_about_deleted_comment(),
+            or_(*conds),
+        )
+        .order_by(Event.id.desc())
+        .limit(PAGE)
+    )
 
 
 def _attach_items(session: Session, out: list[dict[str, Any]]) -> None:
