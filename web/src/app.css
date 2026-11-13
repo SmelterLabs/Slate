@@ -2465,6 +2465,17 @@ html.touch-dragging .kanban {
 .nav-list:hover .count {
   visibility: hidden;
 }
+/* The hover actions sit over the row's right end, which would hide a needs badge. On a row that
+   has one, they join the row's flow instead and the count steps out, so the badge moves left of
+   the star and ⋯ and stays visible and clickable. */
+@media (hover: hover) {
+  .nav-list:has(.needs-mark):is(:hover, :focus-within) .nav-actions {
+    position: static;
+  }
+  .nav-list:has(.needs-mark):is(:hover, :focus-within) .count {
+    display: none;
+  }
+}
 .nav-section {
   margin-top: 4px;
 }
