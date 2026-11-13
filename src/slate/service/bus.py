@@ -28,10 +28,6 @@ class Subscription:
         self._queue: asyncio.Queue[Message] = asyncio.Queue(maxsize=max_queue)
         self.dropped = 0  # events discarded since the consumer last reset this
 
-    @property
-    def overflowed(self) -> bool:
-        return self.dropped > 0
-
     def _offer(self, message: Message) -> None:
         # Runs on the subscriber's loop, so it never races the consumer.
         if self._queue.full():

@@ -99,10 +99,8 @@ READS = {
     # Builds item views it is missing with items.views(); writes only its in-memory cache.
     "slate.service.item_cache": {"render", "warm", "trim"},
     "slate.service.items": {
-        "ancestors_of",
         "depth_of",
         "descendants_of",
-        "height_of",
         "resolve_account",
         "get_item",
         "views",
@@ -126,7 +124,6 @@ READS = {
         "reply_target",
     },
     "slate.service.chat": {
-        "channel_key",
         "members_only_post",
         "place",
         "parse_channel",
@@ -247,9 +244,7 @@ READS = {
     },
     "slate.service.doc_compare": {
         "text_kind",
-        "tables_of",
         "extract",
-        "extract_text",
         "compare",
     },
     "slate.service.doc_hub": {"section_documents"},
@@ -380,7 +375,6 @@ INFRASTRUCTURE = {
         "guest_payloads",
         "attach",
         "bind",
-        "can_see_list",
         "participant_ids",
         "check_object",
         "check_record",
@@ -665,21 +659,12 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.favorites": {
         "add_favorite": lambda db, a, p: _pin(db, a),
         "remove_favorite": lambda db, a, p: favorites.remove_favorite(db, a, _pin(db, a).id),
-        "remove_target": lambda db, a, p: favorites.remove_target(
-            db, a, kind="list", target_id=_pin(db, a).target_id
-        ),
         "reorder_favorites": lambda db, a, p: _reorder(db, a),
     },
     "slate.service.webhooks": {
         "create_webhook": lambda db, a, p: _webhook(db, a),
         "update_webhook": lambda db, a, p: webhooks.update_webhook(
             db, a, _webhook(db, a).id, {"events": ["item.due"]}, by=p
-        ),
-        "disable_webhook": lambda db, a, p: webhooks.disable_webhook(
-            db, a, _webhook(db, a).id, by=p
-        ),
-        "enable_webhook": lambda db, a, p: webhooks.enable_webhook(
-            db, a, webhooks.disable_webhook(db, a, _webhook(db, a).id, by=p).id, by=p
         ),
         "create_test_delivery": lambda db, a, p: webhooks.create_test_delivery(
             db, a, _webhook(db, a).id, by=p
@@ -829,18 +814,10 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "update_section": lambda db, a, p: sections.update_section(
             db, a, _section(db, a).id, name="Home"
         ),
-        "archive_section": lambda db, a, p: sections.archive_section(db, a, _section(db, a).id),
-        "unarchive_section": lambda db, a, p: sections.unarchive_section(
-            db, a, sections.archive_section(db, a, _section(db, a).id).id
-        ),
     },
     "slate.service.lists": {
         "create_list": lambda db, a, p: _list(db, a),
         "update_list": lambda db, a, p: lists.update_list(db, a, _list(db, a).id, name="Later"),
-        "archive_list": lambda db, a, p: lists.archive_list(db, a, _list(db, a).id),
-        "unarchive_list": lambda db, a, p: lists.unarchive_list(
-            db, a, lists.archive_list(db, a, _list(db, a).id).id
-        ),
         "set_statuses": lambda db, a, p: lists.set_statuses(
             db, a, _list(db, a).id, [{"name": "todo"}, {"name": "done", "kind": "done"}]
         ),
@@ -855,10 +832,13 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db, a, tags.create_tag(db, a, name="h3").id, name="h4"
         ),
         "merge_tag": lambda db, a, p: tags.merge_tag(
-            db, a, items.set_tags(db, a, _item(db, a).id, ["h3", "ai"]) and "h3", into="ai"
+            db,
+            a,
+            items.update_item(db, a, _item(db, a).id, {"tags": ["h3", "ai"]}) and "h3",
+            into="ai",
         ),
         "delete_tag": lambda db, a, p: tags.delete_tag(
-            db, a, items.set_tags(db, a, _item(db, a).id, ["h3"]) and "h3"
+            db, a, items.update_item(db, a, _item(db, a).id, {"tags": ["h3"]}) and "h3"
         ),
     },
     "slate.service.items": {
@@ -867,8 +847,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "update_item": lambda db, a, p: items.update_item(
             db, a, _item(db, a).id, {"body_md": "x", "status": "done", "due_at": "2026-11-01"}
         ),
-        "set_assignees": lambda db, a, p: items.set_assignees(db, a, _item(db, a).id, ["alex"]),
-        "set_tags": lambda db, a, p: items.set_tags(db, a, _item(db, a).id, ["h3"]),
         "archive_item": lambda db, a, p: items.archive_item(db, a, _item(db, a).id),
         "unarchive_item": lambda db, a, p: items.unarchive_item(
             db, a, items.archive_item(db, a, _item(db, a).id).id

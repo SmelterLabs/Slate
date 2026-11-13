@@ -634,24 +634,3 @@ def main(check: bool = False) -> int:
         return 1
     print(("wrote " + ", ".join(rel)) if rel else "docs/agents/reference is up to date")
     return 0
-
-
-# --- checking hand-written docs ---------------------------------------------------------------
-
-ROUTE_MENTION = re.compile(r"`(GET|POST|PATCH|PUT|DELETE) (/[^`\s]*)")
-
-
-def unknown_route_mentions(text: str) -> list[str]:
-    """Every "`METHOD /path`" in `text` that names no real route (ids may be `{x}` or `<x>`)."""
-    ops = rest_ops()
-    bad = []
-    for method, raw in ROUTE_MENTION.findall(text):
-        path = raw.split("?")[0].rstrip(".,;:)")
-        path = re.sub(r"\{[^}]*\}|<[^>]*>", SAMPLE_ID, path)
-        if not path.startswith(API):
-            path = API + path
-        if path == API + "/mcp" or path.startswith(API + "/mcp"):
-            continue
-        if match_route(method, path, ops) is None:
-            bad.append(f"{method} {raw}")
-    return bad

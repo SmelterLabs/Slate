@@ -292,17 +292,6 @@ def _pdf_text(data: bytes) -> str:
     return "\n".join(pages)
 
 
-def tables_of(filename: str, content_type: str, data: bytes) -> list[tuple[str, list[list[str]]]]:
-    """Named tables in a CSV/TSV (one, named after the file) or an XLSX (one per sheet). Upload
-    stores this (`extract`); compare reads the stored copy and never calls it."""
-    kind = text_kind(filename, content_type)
-    if kind == "table":
-        return [(filename, _csv_rows(_decode(data)))]
-    if kind == "xlsx":
-        return _xlsx_sheets(data)
-    return []
-
-
 Tables = list[list[Any]]  # [[sheet name, rows], ...]: the JSON in `doc_files.tables_json`
 
 
@@ -336,11 +325,6 @@ def extract(filename: str, content_type: str, data: bytes) -> tuple[str | None, 
         return None, None
     text = text.replace("\x00", "")
     return (text[:MAX_TEXT] if text.strip() else None), tables
-
-
-def extract_text(filename: str, content_type: str, data: bytes) -> str | None:
-    """The searchable text of a revision (see `extract`)."""
-    return extract(filename, content_type, data)[0]
 
 
 def _unified(a: str, b: str, from_no: int, to_no: int) -> tuple[str, int, int]:

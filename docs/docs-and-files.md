@@ -95,7 +95,7 @@ list. The same tree also holds **file docs**.
   `slate.docs.filter`); `DocPage` shows a `TagEditor` under the title (`docs.setTags`). Tests:
   `tests/test_doc_hub.py`, `web/e2e/hub.spec.ts`, Vitest for the helpers.
 - **Compare** (`service/doc_compare.py`): `doc_files.text` holds
-  text extracted once on upload (`extract_text`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
+  text extracted once on upload (`extract`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
   as they are; XLSX through `openpyxl` read-only, one `## Sheet` block per sheet, cells tab-joined;
   PDF through `pypdf` per page; `MAX_TEXT` 300k chars; never raises, a file that cannot be read
   uploads without text). `GET /docs?q=` matches it and the snippet comes from the current revision's
