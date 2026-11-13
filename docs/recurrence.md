@@ -92,7 +92,8 @@ tick (for `/healthz`).
 
 **Hooks** (`scheduler.hooks`, in order): `recurrences.materialize`, `notify.due_events_tick`,
 `notify.reminders_tick`, `notify.digest_tick`, `trash.purge_expired`, `work.expire_leases`,
-`chatwake.expire`, `docwake.expire`, `sessions.notify_expiring`; `scheduler.POLLERS` names each on
+`chatwake.expire`, `docwake.expire`, `sessions.notify_expiring`, `chat_files.sweep_unsent`;
+`scheduler.POLLERS` names each on
 the Health page.
 **Adding one:** write `fn(session, now)` (idempotent, writes through `apply_change()`) and add it to
 the `hooks` list in `scheduler.py`. Do not edit `_loop` or `tick`. Work that needs a faster cadence

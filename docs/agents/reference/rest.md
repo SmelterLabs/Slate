@@ -1026,7 +1026,7 @@ Post to the channel; `parent_id` replies in that message's thread. `@handle` men
 
 Scope: `write`
 
-Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it.
+Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it. You hold at most 20 unsent uploads (100 MB); one unsent for 24 hours is deleted.
 
 - Query: `filename`\*
 - Body: `application/octet-stream`

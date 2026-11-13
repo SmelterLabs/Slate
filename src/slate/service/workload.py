@@ -29,10 +29,10 @@ from slate.models import (
 )
 from slate.service import access
 from slate.service.core import Actor, apply_change
+from slate.service.due import SYSTEM_HANDLE
 from slate.service.errors import Forbidden, Invalid, NotFound
 
 MAX_DAYS = 92
-SYSTEM_HANDLE = "slate"
 
 DEFAULTS: dict[str, dict[str, Any]] = {
     "person": {

@@ -68,6 +68,7 @@ POLLERS: dict[str, tuple[str, timedelta]] = {
     "chat_turns": ("Agent chat turns", timedelta(minutes=1)),
     "doc_turns": ("Agent doc turns", timedelta(minutes=1)),
     "sessions": ("Guest session expiry notices", timedelta(minutes=1)),
+    "chat_uploads": ("Unsent chat upload sweep", timedelta(minutes=1)),
 }
 ENGINES: dict[str, str] = {
     "scheduler": "Scheduler",

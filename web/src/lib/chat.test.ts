@@ -8,6 +8,7 @@ import {
   chatChannelOf,
   chatHref,
   dayLabel,
+  exposureBatches,
   hashPicks,
   insertHashPick,
   insertTaskRef,
@@ -266,5 +267,24 @@ describe('pastedName', () => {
   it('keeps a real file name', () => {
     expect(pastedName('floor-plan.pdf', 'application/pdf', at)).toBe('floor-plan.pdf');
     expect(pastedName('IMG_2041.png', 'image/png', at)).toBe('IMG_2041.png');
+  });
+});
+
+describe('exposureBatches', () => {
+  it('sends one call per channel, sorted, split at the server limit', () => {
+    const pending = new Map([
+      ['general', new Set(['b', 'a', 'c'])],
+      ['list:L1', new Set(['z'])],
+    ]);
+    expect(exposureBatches(pending)).toEqual([
+      ['general', ['a', 'b', 'c']],
+      ['list:L1', ['z']],
+    ]);
+    expect(exposureBatches(pending, 2)).toEqual([
+      ['general', ['a', 'b']],
+      ['general', ['c']],
+      ['list:L1', ['z']],
+    ]);
+    expect(exposureBatches(new Map())).toEqual([]);
   });
 });
