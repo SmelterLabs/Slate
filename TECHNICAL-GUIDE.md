@@ -307,8 +307,8 @@ the server's `.env`, not in the repo.
 
 - **Build on the host.** The server clones the repository (a private fork needs only a read-only
   deploy key) into `/opt/slate/repo` and `docker compose -p slate up -d --build` builds the image
-  there; Node exists only inside the Dockerfile's build stage. The CI GHCR job publishes an image
-  on tags, but the runbook does not pull it.
+  there; Node exists only inside the Dockerfile's build stage. CI publishes no image: nothing
+  pulls one, and a publish job would need a token that can write packages.
 - **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
   `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
   10m×5); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
@@ -600,7 +600,12 @@ Design choices and the reason for each, with the alternatives that were rejected
   exactly the words it exists to keep out. The list lives in the clone's Git directory
   (`.git/private_terms.sha256`, shared by its worktrees) or in the file
   `SLATE_PRIVATE_TERMS_FILE` names; CI writes it from the `PRIVATE_TERMS_SHA256` repository
-  secret and skips the check where that secret is absent (pull requests from forks). A clone
+  secret and skips the check where that secret is absent (pull requests from forks). CI's
+  `private-terms` job hands the secret only to the base branch's copy of the checker, run with
+  the system Python on the change's files and on each new commit's message and author and
+  committer addresses; no code from the change runs in that job, so a change to the checker
+  takes effect after it merges. Every workflow token is read-only, every checkout drops the token,
+  actions are pinned by commit and Dependabot moves the pins (`tests/test_ci.py`). A clone
   without a list checks nothing; a list that is empty or malformed still fails. A hit in a CI log
   names the file and line, never the word. `tests/test_private_terms.py` fails if a `.sha256` list
   is tracked. After `python scripts/check_private_terms.py --add WORD`, update the secret with

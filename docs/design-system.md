@@ -53,8 +53,8 @@ One look across every screen, ClickUp-style, with a violet brand.
   commit count of the checked-out branch, `git rev-list --count HEAD`, so it only grows) and
   `commit` (short sha). The Docker build writes `src/slate/build.json` in its own small `rev` stage
   (`scripts/build_metadata.py`), from the repo's `.git` (so `.git` must stay out of
-  `.dockerignore`; the CI image job checks out with `fetch-depth: 0`, since a shallow clone's count
-  is wrong) or from the `SLATE_REV`/`SLATE_COMMIT` build args when the build context has no usable
+  `.dockerignore`; a build from a shallow clone needs `fetch-depth: 0` or the build args, since a
+  shallow clone's count is wrong) or from the `SLATE_REV`/`SLATE_COMMIT` build args when the build context has no usable
   `.git` (a worktree, an archive); a dev checkout asks `git` once at startup, and a shallow clone
   or no git says `dev`. `SLATE_REV`/`SLATE_COMMIT` in the environment override everything (not
   Settings fields: nobody sets them by hand, so they stay out of `env.example`). The board reads
