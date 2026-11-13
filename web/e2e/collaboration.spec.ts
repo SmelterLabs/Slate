@@ -1,16 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, signedIn } from './support';
 
-async function api(method: string, path: string, body?: unknown) {
-  const response = await fetch(`${BASE_URL}/api/v1${path}`, { method, headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  expect(response.ok, `${method} ${path}: ${response.status}`).toBeTruthy();
-  return response.status === 204 ? null : response.json();
-}
-async function signIn(page: Page, route = '#/home') {
-  await page.addInitScript(token => localStorage.setItem('slate.token', token), seed().alex);
-  await page.goto('/' + route);
-  await expect(page.locator('.conn-live')).toBeVisible();
-}
 async function project(name: string) {
   const section = await api('POST', '/sections', { name, audience: 'work' });
   await api('PATCH', `/sections/${section.id}`, { private: true });
@@ -18,7 +8,7 @@ async function project(name: string) {
 }
 
 test('four primary destinations, More preference, deep-link discovery, keyboard', async ({ page }) => {
-  await signIn(page);
+  await signedIn(page, '/#/home', { live: true });
   const nav = page.getByRole('navigation', { name: 'Lists' });
   await expect(nav.locator(':scope > a.nav-item')).toHaveCount(4);
   await expect(nav.getByRole('link', { name: 'Agents', exact: true })).toBeHidden();
@@ -39,8 +29,8 @@ test('section drag persists across reload and second board; keyboard menu fallba
   const a = await project('Drag project A');
   const b = await project('Drag project B');
   await api('POST', '/lists', { section_id: a.id, name: 'Stays inside A' });
-  await signIn(page);
-  const other = await browser.newPage(); await signIn(other);
+  await signedIn(page, '/#/home', { live: true });
+  const other = await browser.newPage(); await signedIn(other, '/#/home', { live: true });
   const target = page.getByRole('group', { name: 'Section Drag project A', exact: true });
   const source = page.getByRole('group', { name: 'Section Drag project B', exact: true });
   await source.dragTo(target, { targetPosition: { x: 50, y: 4 } });
@@ -62,7 +52,7 @@ test('admin invitation UI, guest project, cookie reload, docs, discussion, logou
   const section = await project('Customer collaboration');
   await api('PATCH', `/sections/${section.id}`, { whiteboard_url: 'https://example.com/whiteboard' });
   await api('POST', '/docs', { title: 'Customer plan', section_id: section.id, body_md: 'Our shared plan' });
-  await signIn(page, `#/section/${section.id}`);
+  await signedIn(page, `/#/section/${section.id}`, { live: true });
   await page.getByRole('button', { name: 'Share & invite', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Share Customer collaboration' });
   await dialog.getByLabel('Guest name').fill('Project Guest');
@@ -151,7 +141,7 @@ test('phone sidebar More and section ordering via touch menu', async ({ browser 
   const section = await project('Phone project');
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
-  await signIn(page, `#/section/${section.id}`);
+  await signedIn(page, `/#/section/${section.id}`, { live: true });
   await expect(page.getByLabel('Project home')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Menu', exact: true }).click();

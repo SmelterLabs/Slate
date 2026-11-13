@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { BASE_URL, seed, signIn } from './support';
 
 const shots = process.env.SLATE_HEALTH_SHOTS ?? null;
 if (shots) mkdirSync(shots, { recursive: true });
@@ -30,7 +30,7 @@ test('the owner reads Slate health; an agent call that failed is listed', async 
   expect(pub.status).toBe(200);
   expect((await pub.json()).checks.length).toBeGreaterThan(3);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/health');
   const main = page.getByRole('region', { name: 'Health' });
   await expect(main.getByRole('heading', { name: 'Health', level: 1 })).toBeVisible();
@@ -55,7 +55,7 @@ test('the owner reads Slate health; an agent call that failed is listed', async 
 });
 
 test('the palette opens Health, and a phone shows the same sections', async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/home');
   await page.keyboard.press('Control+k');
   await page.keyboard.type('health');

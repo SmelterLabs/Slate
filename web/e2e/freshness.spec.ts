@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { seed } from './seed';
+import { signIn } from './support';
 
 // A board left open across a deploy reloads into the new build by itself, but never while
 // someone is typing. The server names its bundle in /healthz `board`.
@@ -7,7 +7,7 @@ import { seed } from './seed';
 test.use({ serviceWorkers: 'block' });
 
 async function open(page: import('@playwright/test').Page) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   // The SSE connection starts a build check too. Let it finish before simulating
   // visibility: freshness intentionally coalesces a check while one is in flight.
   const initialCheck = page.waitForResponse((r) => new URL(r.url()).pathname === '/healthz');

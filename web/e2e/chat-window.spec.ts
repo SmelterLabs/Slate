@@ -1,9 +1,9 @@
 // Window chrome must stay usable above chat; size changes never navigate or remount it.
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, signIn } from './support';
 
 async function openChat(page: Page) {
-  await page.addInitScript((token) => localStorage.setItem('slate.token', token), seed().alex);
+  await signIn(page);
   await page.goto('/#/home?chat=general');
   const panel = page.getByRole('complementary', { name: 'Chat panel' });
   await expect(panel.getByRole('textbox', { name: 'Message #General' })).toBeVisible();
@@ -20,18 +20,10 @@ async function hitTarget(control: Locator) {
 
 test('long channel names and an open thread survive resizing down to the grip minimum', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  const post = async (path: string, body: unknown): Promise<{ id: string }> => {
-    const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    expect(res.ok).toBe(true);
-    return res.json();
-  };
+  const post = (path: string, body: unknown) => api<{ id: string }>('POST', path, body);
   const section = await post('/sections', { name: 'A project with a very long descriptive name to test the chat header', audience: 'personal' });
   const root = await post(`/channels/section:${section.id}/messages`, { body_md: 'Keep this thread open' });
-  await page.addInitScript((token) => localStorage.setItem('slate.token', token), seed().alex);
+  await signIn(page);
   await page.goto(`/#/home?chat=section:${section.id}&thread=${root.id}`);
   const panel = page.getByRole('complementary', { name: 'Chat panel' });
   const draft = panel.getByRole('textbox', { name: 'Reply…' });

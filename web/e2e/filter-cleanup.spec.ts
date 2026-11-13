@@ -1,21 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api as call, seed, signedIn } from './support';
 
+// Every view a test makes is archived after it, so the next test starts from a clean toolbar.
 const createdViews: string[] = [];
 async function api(method: string, path: string, body?: unknown) {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path}: ${res.status}`).toBe(true);
-  const result = await res.json();
+  const result = await call(method, path, body);
   if (method === 'POST' && path === '/views') createdViews.push(result.id);
   return result;
 }
 async function open(page: Page, suffix = '') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(`/#/section/${seed().workSectionId}${suffix}`);
+  await signedIn(page, `/#/section/${seed().workSectionId}${suffix}`);
   await expect(page.locator('.toolbar')).toBeVisible();
 }
 const filter = (page: Page) => page.getByRole('button', { name: 'Filter', exact: true });

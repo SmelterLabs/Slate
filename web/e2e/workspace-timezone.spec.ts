@@ -1,16 +1,6 @@
 // Isolated fixture metadata: exercise changing workspace configuration without restarting a server.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api(method: string, path: string, body?: unknown) {
-  const response = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(response.ok, `${method} ${path}: ${response.status} ${response.ok ? '' : await response.text()}`).toBe(true);
-  return response.json();
-}
+import { api, signIn } from './support';
 
 test('workspace metadata changes home, cards and new rules; stored rule zones survive editing', async ({ page }, info) => {
   const errors: string[] = [];
@@ -21,7 +11,7 @@ test('workspace metadata changes home, cards and new rules; stored rule zones su
     list_id: list.id, title: 'Timezone boundary', due_at: '2030-01-01T23:30:00Z',
   });
   await page.clock.setFixedTime(new Date('2030-01-01T23:30:00Z'));
-  await page.addInitScript((token) => localStorage.setItem('slate.token', token), seed().alex);
+  await signIn(page);
   let zone = 'Asia/Tokyo';
   await page.route('**/api/v1/me', async (route) => {
     const response = await route.fetch();
