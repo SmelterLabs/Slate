@@ -1,7 +1,7 @@
 <script lang="ts">
   // How much one person or agent can take on: hours a day (for time estimates), tasks a day,
   // and the days they work. Empty = no limit in that unit.
-  // Used by the Box view (the gear on a box) and the Agents page. Saves in one PATCH.
+  // Opened from the Agents page. Saves in one PATCH.
   import { board } from '../lib/store.svelte';
   import type { Account } from '../lib/types';
   import { capacityOf } from '../lib/workload';

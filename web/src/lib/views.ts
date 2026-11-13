@@ -18,7 +18,20 @@ import type {
   StatusKind,
 } from './types';
 
-export type Layout = 'board' | 'list' | 'table' | 'calendar' | 'timeline' | 'box';
+export const LAYOUTS = ['board', 'list'] as const;
+export type Layout = (typeof LAYOUTS)[number];
+
+/** Settings only removed layouts used; a stored view or draft may still carry them. */
+const RETIRED_KEYS = ['calendar_span', 'timeline_zoom'];
+
+/** A config with any removed layout read as `list`, as the server reads it, and without the
+ *  settings only those layouts used. */
+export function withKnownLayout(c: ViewConfig): ViewConfig {
+  const out = { ...c } as ViewConfig & Record<string, unknown>;
+  for (const k of RETIRED_KEYS) delete out[k];
+  if (!(LAYOUTS as readonly string[]).includes(out.layout)) out.layout = 'list';
+  return out;
+}
 export type GroupBy =
   | 'none'
   | 'status'
@@ -83,10 +96,6 @@ export interface ViewConfig {
   hide_empty_groups: boolean;
   density: 'comfortable' | 'compact';
   card_fields: CardField[];
-  /** Calendar layout: a month grid or one week. */
-  calendar_span?: 'month' | 'week';
-  /** Timeline (Gantt) layout: the width of a day on the axis. */
-  timeline_zoom?: 'day' | 'week' | 'month';
   /** Lines of title a card shows before "…"; 0 shows it all. */
   title_lines: number;
   /** Empty columns shrink to a thin strip (ClickUp), still a drop target. */
@@ -261,7 +270,7 @@ export function defaultConfig(scope: Scope): ViewConfig {
 
 /** Fill in whatever a stored config leaves out, so old or agent-made views always render. */
 export function normalizeConfig(raw: Partial<ViewConfig> | null | undefined, scope: Scope): ViewConfig {
-  const c = { ...baseConfig(), ...(raw ?? {}) } as ViewConfig;
+  const c = withKnownLayout({ ...baseConfig(), ...(raw ?? {}) } as ViewConfig);
   if (c.group_by === 'status' && scope.kind !== 'list') c.group_by = 'status_kind';
   if (!Array.isArray(c.sort)) c.sort = [];
   if (!c.filter || !Array.isArray(c.filter.rules)) c.filter = { op: 'and', rules: [] };

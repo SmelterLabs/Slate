@@ -33,7 +33,7 @@
   let managing = $state<string | null>(null); // the agent whose usage and tokens are open
   let sizing = $state<string | null>(null); // the agent whose capacity editor is open
 
-  /** "8h a day · 2 tasks a day · every day": what the Box view counts this agent against. */
+  /** "8h a day · 2 tasks a day · every day": what this agent can take on (GET /workload/boxes). */
   function capacityText(account: AgentEntry['account']): string {
     const c = capacityOf(account, board.capacities);
     const parts = [
@@ -237,7 +237,7 @@
               {#if !privatePresence}<AgentWake account={a.account} wake={a.wake ?? 'push'} {admin} onchange={() => void agents.load()} />{/if}
             {/if}
             <div class="agent-capacity">
-              <span class="muted small" title="What the Box view counts this agent against">
+              <span class="muted small" title="How much this agent can take on in a day">
                 <Icon name="users" size={13} /> Capacity: {capacityText(a.account)}
               </span>
               {#if admin || board.me?.account.id === a.account.id}

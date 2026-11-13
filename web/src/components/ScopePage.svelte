@@ -5,12 +5,8 @@
   import { runView, type Scope, type ViewConfig } from '../lib/views';
   import BoardView from './BoardView.svelte';
   import BulkBar from './BulkBar.svelte';
-  import CalendarView from './CalendarView.svelte';
   import ListLayout from './ListLayout.svelte';
   import QuickAddBar from './QuickAddBar.svelte';
-  import TableView from './TableView.svelte';
-  import TimelineView from './TimelineView.svelte';
-  import BoxView from './BoxView.svelte';
   import Toolbar from './Toolbar.svelte';
   import ViewTabs from './ViewTabs.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -167,7 +163,7 @@
         >
       {/if}
     </EmptyState>
-  {:else if !shown && !kiosk && config.layout !== 'board' && config.layout !== 'calendar' && config.layout !== 'timeline' && config.layout !== 'box'}
+  {:else if !shown && !kiosk && config.layout !== 'board'}
     <EmptyState
       icon="sparkle"
       title={scope.kind === 'everything' ? 'All clear' : 'Nothing here yet'}
@@ -177,14 +173,6 @@
 
   {#if config.layout === 'board'}
     <BoardView {groups} {config} {wide} {scope} viewKey={active.key} {kiosk} />
-  {:else if config.layout === 'table'}
-    <TableView {groups} {config} {scope} />
-  {:else if config.layout === 'calendar'}
-    <CalendarView {groups} {config} {scope} viewKey={active.key} />
-  {:else if config.layout === 'timeline'}
-    <TimelineView {groups} {config} {scope} />
-  {:else if config.layout === 'box'}
-    <BoxView {groups} {config} {scope} />
   {:else}
     <ListLayout {groups} {config} {wide} />
   {/if}

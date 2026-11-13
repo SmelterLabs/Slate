@@ -127,28 +127,3 @@ test('the rule editor sets who each new one is assigned to', async ({ page }) =>
   const after = await api<{ assignee_ids: string[] }>('GET', `/recurrences/${got.recurrence_id}`);
   expect(after.assignee_ids.sort()).toEqual([agent.id, accounts.find((a) => a.handle === 'alex')!.id].sort());
 });
-
-test('future repeats show dashed on the calendar', async ({ page }) => {
-  const list = await scratch('Trash');
-  const today = workspaceDay(new Date());
-  const rule = await api<{ id: string }>('POST', '/recurrences', {
-    list_id: list.id,
-    title_template: 'Trash out',
-    rrule: 'FREQ=DAILY;INTERVAL=2',
-    dtstart: today,
-    lead_days: 0,
-  });
-  await api('POST', `/recurrences/${rule.id}/run-now`);
-  await signedIn(page, `/#/list/${list.id}`);
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
-  await page.getByRole('button', { name: 'Next' }).click(); // next month: all of it is ahead
-  const ghosts = page.locator(`.cal-chip.ghost[data-repeat-of="${rule.id}"]`);
-  await expect(ghosts.first()).toBeVisible();
-  // Every repeat lands two days apart and none sits on a day that already has the task.
-  const days = await ghosts.evaluateAll((els) => els.map((e) => e.closest('.cal-day')?.getAttribute('data-day')));
-  for (const d of days) expect(d! > today).toBe(true);
-  await shot(page, 'recurring-calendar');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(ghosts.first()).toBeVisible();
-  await shot(page, 'recurring-calendar-phone');
-});

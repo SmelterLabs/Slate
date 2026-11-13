@@ -2,10 +2,10 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays, dayOf, weekday } from '../src/lib/views';
+import { addDays } from '../src/lib/views';
 import { BASE_URL, seed } from './seed';
 
-// ClickUp parity: Table and Calendar layouts, estimates, dependencies and the tag manager.
+// ClickUp parity: estimates, dependencies and the tag manager.
 // Builds its own section and list so it does not disturb the other specs' data.
 
 const shots = process.env.SLATE_PARITY_SHOTS ?? null;
@@ -64,73 +64,6 @@ async function openList(page: Page, listId: string) {
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test('Table: edit an estimate and the title in place; totals add up', async ({ page }) => {
-  const b = await setup();
-  await openList(page, b.listId);
-  await page.getByRole('button', { name: 'Table', exact: true }).click();
-  const row = page.locator('tr.t-row', { hasText: 'Build the deck' });
-  await expect(row).toBeVisible();
-  await row.hover();
-  await row.getByLabel('Edit time estimate').click();
-  await row.getByLabel('Time estimate').fill('1h 30m');
-  await row.getByLabel('Time estimate').press('Enter');
-  await expect
-    .poll(async () => (await api<{ estimate_minutes: number }>('GET', `/items/${b.ids['Build the deck']}`)).estimate_minutes)
-    .toBe(90);
-
-  // The name opens the task window, as on the board; the pencil renames in place.
-  await row.getByRole('button', { name: 'Build the deck', exact: true }).click();
-  await expect(page.locator('.tw')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.tw')).toHaveCount(0);
-  await row.hover();
-  await row.getByRole('button', { name: 'Rename Build the deck' }).click();
-  // While editing, the title is an input's value, not text, so find the row by id.
-  const editing = page.locator(`tr.t-row[data-item="${b.ids['Build the deck']}"]`);
-  await editing.getByLabel('Title').fill('Build the big deck');
-  await editing.getByLabel('Title').press('Enter');
-  await expect(page.locator('tr.t-row', { hasText: 'Build the big deck' })).toBeVisible();
-
-  const totals = page.locator('tr.t-total').first();
-  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('2h 30m');
-
-  // An agent's write lands in the table live.
-  await api('PATCH', `/items/${b.ids['Paint the shed']}`, { estimate_minutes: 45 }, seed().agent);
-  await expect(page.locator('tr.t-row', { hasText: 'Paint the shed' }).locator('td[data-col="estimate"]')).toHaveText('45m');
-  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('3h 15m');
-  await shot(page, 'table');
-});
-
-test('Calendar: items sit on their due day; drag reschedules, Unscheduled clears', async ({ page }) => {
-  const b = await setup();
-  await openList(page, b.listId);
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
-  const today = workspaceDay(new Date());
-  const todayCell = page.locator(`.cal-day[data-day="${today}"]`);
-  await expect(todayCell.locator('.cal-chip', { hasText: 'Plan the deck' })).toBeVisible();
-  await expect(page.locator('.cal-side .cal-chip', { hasText: 'Paint the shed' })).toBeVisible();
-  await shot(page, 'calendar');
-
-  // Into the week view; the other day is tomorrow, or yesterday on a Saturday (weeks start on
-  // Sunday, so Saturday's tomorrow is on the next page).
-  await page.getByRole('button', { name: 'Week', exact: true }).click();
-  const tomorrow = addDays(today, weekday(today) === 6 ? -1 : 1);
-  await todayCell.locator('.cal-chip', { hasText: 'Plan the deck' }).dragTo(page.locator(`.cal-day[data-day="${tomorrow}"]`));
-  await expect
-    .poll(async () => dayOf((await api<{ due_at: string }>('GET', `/items/${b.ids['Plan the deck']}`)).due_at))
-    .toBe(tomorrow);
-
-  await page.locator('.cal-side .cal-chip', { hasText: 'Paint the shed' }).dragTo(page.locator(`.cal-day[data-day="${tomorrow}"]`));
-  await expect
-    .poll(async () => (await api<{ due_at: string | null }>('GET', `/items/${b.ids['Paint the shed']}`)).due_at)
-    .not.toBeNull();
-  await page.locator(`.cal-day[data-day="${tomorrow}"] .cal-chip`, { hasText: 'Paint the shed' }).dragTo(page.locator('.cal-side'));
-  await expect
-    .poll(async () => (await api<{ due_at: string | null }>('GET', `/items/${b.ids['Paint the shed']}`)).due_at)
-    .toBeNull();
-  await shot(page, 'calendar-week');
-});
 
 test('Item panels: estimate and a dependency', async ({ page }) => {
   const b = await setup();

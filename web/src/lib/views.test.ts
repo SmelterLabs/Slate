@@ -499,3 +499,18 @@ describe('speed', () => {
     expect(each).toBeLessThan(40);
   });
 });
+
+describe('layouts', () => {
+  it('a view saved with a removed layout opens as a list, without its old settings', () => {
+    for (const layout of ['table', 'calendar', 'timeline', 'box']) {
+      const raw = { layout, calendar_span: 'week', timeline_zoom: 'month', group_by: 'due' };
+      const c = normalizeConfig(raw as unknown as Partial<ViewConfig>, EVERYTHING);
+      expect(c.layout).toBe('list');
+      expect(c.group_by).toBe('due');
+      expect('calendar_span' in c || 'timeline_zoom' in c).toBe(false);
+    }
+    expect(normalizeConfig({ layout: 'board' }, EVERYTHING).layout).toBe('board');
+    expect(normalizeConfig({ layout: 'list' }, EVERYTHING).layout).toBe('list');
+    expect(normalizeConfig(null, EVERYTHING).layout).toBe('board');
+  });
+});
