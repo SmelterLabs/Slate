@@ -195,13 +195,13 @@ def test_a_stale_or_cleared_badge_can_be_claimed(client, alex, todo, make_accoun
     # Age the badge past CLAIM_FRESH (a direct column write, outside the change path).
     from sqlalchemy import update
 
-    with db.connection() as conn:
-        conn.execute(
-            update(Item)
-            .where(Item.id == item["id"])
-            .values(agent_state_at=utcnow() - CLAIM_FRESH - timedelta(minutes=1))
-        )
-        conn.commit()
+    from conftest import raw_write
+
+    raw_write(
+        update(Item)
+        .where(Item.id == item["id"])
+        .values(agent_state_at=utcnow() - CLAIM_FRESH - timedelta(minutes=1))
+    )
     assert _report(client, hh, item["id"], state="working", claim=True).status_code == 200
     assert _report(client, hh, item["id"], state="idle").status_code == 200
     assert _report(client, ch, item["id"], state="working", claim=True).status_code == 200

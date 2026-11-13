@@ -13,7 +13,9 @@ from slate.service import accounts
 from slate.service.core import Actor, apply_change
 
 
-def test_event_id_prefix_decodes_to_its_millisecond():
+def test_event_id_prefix_decodes_to_its_millisecond(monkeypatch):
+    # An earlier test's burst or future clock may have run the logical clock ahead.
+    monkeypatch.setattr(ids, "_last_ms", 0)
     before = int(time.time() * 1000)
     ms = ids.event_id_ms(ids.new_event_id())
     assert before <= ms <= int(time.time() * 1000) + 1
