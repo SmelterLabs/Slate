@@ -8,7 +8,7 @@ digest privacy and extraction bounds are `docs/collaboration-security.md`.
 ## Private shared projects
 
 See [shared-project collaboration](shared-project-collaboration.md) for the invitation/session
-security contract, migration `d41b0c8e2a19`, section project home, scoped directory/event rules, and
+security contract, section project home, scoped directory/event rules, and
 sidebar behavior. Browser guests use expiring HttpOnly sessions; bearer tokens work alongside
 them.
 
@@ -26,7 +26,7 @@ the authority; the cookie is only the browser's ceiling); the sidebar footer sho
 <date>" to guests. `service/sessions.py:notify_expiring` is a scheduler hook (Health key
 `sessions`): three days before a session ends it records `session.expiring` for the guest and the
 inviter (inbox reason `access`, pushed by default, both board and server reason tables), idempotent
-through `tokens.expiry_notified_at` (migration `b7c2d9e4f1a3`), re-armed by an extension. Admin
+through `tokens.expiry_notified_at`, re-armed by an extension. Admin
 routes `POST /invitations/{id}/extend` (`session.extended`, +30 days from now, refused once
 cancelled or signed out) and `POST /invitations/{id}/reissue` (a fresh single-use secret for the
 same guest and section, `after.reissued_from`; the old link stays valid) back the **Extend 30 days**
@@ -41,8 +41,8 @@ Tests: `tests/test_guest_sessions.py`, `web/src/lib/collaboration.test.ts`, the 
 ## Members-only chat (workspace agents on a project)
 
 A **workspace agent** is any agent account that is not a guest
-(`chat.workspace_agent`); a project's own agent is a guest. `Message.members_only` (migration
-`e3b7c1a9d5f2`) is set at post time by `chat.members_only_post`: a
+(`chat.workspace_agent`); a project's own agent is a guest. `Message.members_only`
+is set at post time by `chat.members_only_post`: a
 workspace agent's post, a non-guest's post that @mentions one, and every reply in a thread whose
 root is members-only; an edit that adds such a mention sets it and nothing ever clears it.
 Guests (`Access.role == guest`, people and agents) are filtered in `access.read_criteria`
