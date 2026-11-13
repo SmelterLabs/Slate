@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from slate import dates
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     AgentState,
@@ -193,7 +194,6 @@ def plan(
     holds now with their age. Agents with nothing coming last. A restricted caller sees only
     the agents and the lists it reaches (the read filter and `work.eligible`'s scope rule)."""
     from slate.service import work
-    from slate.service.due import SYSTEM_HANDLE
 
     now = now or utcnow()
     until = until or now + PLAN_HORIZON

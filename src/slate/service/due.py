@@ -38,6 +38,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from slate import dates
 from slate.ids import new_id
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     Item,
@@ -51,7 +52,6 @@ from slate.models import (
 from slate.service import webhooks
 from slate.service.core import Actor, apply_change, in_change, jsonable
 
-SYSTEM_HANDLE = "slate"
 OVERDUE_AFTER = timedelta(hours=1)
 
 

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
 
-from slate.models import Account, AccountKind, Source, WorkspaceSetting
+from slate.models import SYSTEM_HANDLE, Account, AccountKind, Source, WorkspaceSetting
 from slate.service.errors import Forbidden, Invalid
 
 if TYPE_CHECKING:
@@ -149,8 +149,6 @@ def view(session: Session) -> dict[str, Any]:
 
 
 def _is_agent(session: Session, account_id: str) -> bool:
-    from slate.service.due import SYSTEM_HANDLE
-
     with session.no_autoflush:
         account = session.get(Account, account_id)
     return (

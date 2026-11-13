@@ -72,6 +72,7 @@ READS = {
         "is_guest",
         "viewer_is_guest",
         "workspace_agent_ids",
+        "workspace_agents",
         "may_reach",
         "refuse",
         "reachable_handles",

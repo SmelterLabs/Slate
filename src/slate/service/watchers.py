@@ -19,11 +19,10 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from slate.models import Account, AccountKind, Watcher
+from slate.models import SYSTEM_HANDLE, Account, AccountKind, Watcher
 from slate.service import access
 from slate.service.accounts import AUTO_WATCH as AUTO_WATCH
 from slate.service.core import Actor, Change, apply_change
-from slate.service.due import SYSTEM_HANDLE  # Slate's own account never watches anything
 from slate.service.items import get_item, resolve_account
 
 

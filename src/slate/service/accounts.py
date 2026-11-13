@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from slate.dates import LOCAL
 from slate.ids import new_id
-from slate.models import Account, AccountKind, Event, Role, Source, Token, utcnow
+from slate.models import SYSTEM_HANDLE, Account, AccountKind, Event, Role, Source, Token, utcnow
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Conflict, Forbidden, Gone, Invalid, NotFound
 
@@ -99,8 +99,6 @@ def _normalize_scopes(scopes: list[str] | tuple[str, ...] | set[str]) -> str:
 
 
 def _validate_account(handle: str, display_name: str, kind: str) -> AccountKind:
-    from slate.service.due import SYSTEM_HANDLE
-
     if not HANDLE_RE.match(handle):
         raise Invalid("handle must be 2-32 chars: lowercase letter, then a-z 0-9 _ -")
     if handle == SYSTEM_HANDLE:
@@ -200,8 +198,6 @@ def account_count(session: Session) -> int:
 
 def _bootstrapped(session: Session) -> bool:
     """Someone besides Slate's own account exists (which a scheduler alarm can create first)."""
-    from slate.service.due import SYSTEM_HANDLE
-
     return (
         session.scalar(select(Account.id).where(Account.handle != SYSTEM_HANDLE).limit(1))
         is not None
@@ -369,8 +365,6 @@ def create_token(
     `{"list_ids": [...], "section_ids": [...], "level": "view|comment|edit"}`. A limited token
     is never an admin token. `by` is the caller: only the owner mints tokens for the owner
     account (an admin holding an owner token would be the owner)."""
-    from slate.service.due import SYSTEM_HANDLE
-
     scope_str = _normalize_scopes(scopes)
     account = get_account(session, account_id)
     if account.handle == SYSTEM_HANDLE:
@@ -445,8 +439,6 @@ def update_account(
     if not by.is_admin:
         raise Forbidden("only an admin can change an account")
     account = get_account(session, account_id)
-    from slate.service.due import SYSTEM_HANDLE
-
     if account.handle == SYSTEM_HANDLE:
         raise Invalid(
             "`slate` is Slate's own account: due dates, reminders and automations are recorded "

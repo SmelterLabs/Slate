@@ -87,6 +87,7 @@ from slate.models import (
     WorkspaceSetting,
     utcnow,
 )
+from slate.service import guests
 from slate.service.errors import Forbidden
 
 ACCESS_KEY = "slate_access"
@@ -700,7 +701,7 @@ def read_criteria(state: ORMExecuteState) -> None:
                 ),
                 or_(
                     members,
-                    c.account_id.not_in(_workspace_agents()),
+                    c.account_id.not_in(guests.workspace_agents()),
                 ),
             ),
             include_aliases=True,
@@ -853,7 +854,7 @@ def hidden_agents(session: Session) -> tuple[frozenset[str], frozenset[str]]:
     cached = session.info.get(_HIDDEN_KEY)
     if cached is None or cached[0] is not caller:
         with unrestricted(session):
-            ids = frozenset(session.scalars(_workspace_agents()))
+            ids = frozenset(session.scalars(guests.workspace_agents()))
             handles = frozenset(
                 session.scalars(select(_accounts.c.handle).where(_accounts.c.id.in_(ids)))
             )
@@ -888,13 +889,6 @@ def scrub(session: Session, value: Any) -> Any:
     return _scrubbed(value, ids, handles)
 
 
-def _workspace_agents() -> Any:
-    """Ids of the workspace's own agents (non-guest agents, service/guests.py)."""
-    return select(_accounts.c.id).where(
-        _accounts.c.kind == "agent", _accounts.c.role != "guest", _accounts.c.handle != "slate"
-    )
-
-
 def _guest_criteria() -> list[Any]:
     """A project's guests see no trace of a workspace agent: not its card or page comments,
     nor comments addressed to it, nor its place among a card's assignees, nor anything it did
@@ -904,28 +898,28 @@ def _guest_criteria() -> list[Any]:
         with_loader_criteria(
             Comment,
             lambda c: and_(
-                c.author_id.not_in(_workspace_agents()),
-                or_(c.assignee_id.is_(None), c.assignee_id.not_in(_workspace_agents())),
+                c.author_id.not_in(guests.workspace_agents()),
+                or_(c.assignee_id.is_(None), c.assignee_id.not_in(guests.workspace_agents())),
             ),
             include_aliases=True,
         ),
         with_loader_criteria(
             DocComment,
             lambda c: and_(
-                c.author_id.not_in(_workspace_agents()),
-                or_(c.assignee_id.is_(None), c.assignee_id.not_in(_workspace_agents())),
+                c.author_id.not_in(guests.workspace_agents()),
+                or_(c.assignee_id.is_(None), c.assignee_id.not_in(guests.workspace_agents())),
             ),
             include_aliases=True,
         ),
         with_loader_criteria(
             ItemAssignee,
-            lambda c: c.account_id.not_in(_workspace_agents()),
+            lambda c: c.account_id.not_in(guests.workspace_agents()),
             include_aliases=True,
         ),
         with_loader_criteria(
             Event,
             lambda c: and_(
-                c.actor_id.not_in(_workspace_agents()),
+                c.actor_id.not_in(guests.workspace_agents()),
                 c.subject_id.not_in(_hidden_comments()),
                 ~_assigns_only_agents(c),
             ),
@@ -938,7 +932,7 @@ def _assigns_only_agents(c: Any) -> Any:
     """An `item.assigned` event (`c`: `events` columns) whose only change is a workspace agent
     joining or leaving the card: with the agent scrubbed it says nothing, so a guest is not
     shown it."""
-    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(_workspace_agents()))
+    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(guests.workspace_agents()))
     added = func.json_each(c.after_json).table_valued("value").alias("assigned_after")
     was = func.json_each(c.before_json).table_valued("value").alias("assigned_before")
     kept = func.json_each(c.before_json).table_valued("value").alias("assigned_kept")
@@ -964,13 +958,15 @@ def _hidden_comments() -> Any:
     or addressed to one stays hidden: its row is gone, so its `comment.deleted` event says."""
     gone = _events.c.before_json
     return union_all(
-        select(_comments.c.id).where(_comments.c.assignee_id.in_(_workspace_agents())),
-        select(_doc_comments.c.id).where(_doc_comments.c.assignee_id.in_(_workspace_agents())),
+        select(_comments.c.id).where(_comments.c.assignee_id.in_(guests.workspace_agents())),
+        select(_doc_comments.c.id).where(
+            _doc_comments.c.assignee_id.in_(guests.workspace_agents())
+        ),
         select(_events.c.subject_id).where(
             _events.c.type == "comment.deleted",
             or_(
-                func.json_extract(gone, "$.author_id").in_(_workspace_agents()),
-                func.json_extract(gone, "$.assignee_id").in_(_workspace_agents()),
+                func.json_extract(gone, "$.author_id").in_(guests.workspace_agents()),
+                func.json_extract(gone, "$.assignee_id").in_(guests.workspace_agents()),
             ),
         ),
     )
@@ -1233,7 +1229,7 @@ def _refuse_steering(session: Session, item_id: str) -> None:
         assigned = session.scalar(
             select(ItemAssignee.item_id).where(
                 ItemAssignee.item_id == item_id,
-                ItemAssignee.account_id.in_(_workspace_agents()),
+                ItemAssignee.account_id.in_(guests.workspace_agents()),
             )
         )
     if assigned is not None:
@@ -1532,7 +1528,7 @@ class EventGate:
         """A guest sees no trace of a workspace agent (service/guests.py)."""
         if self._agents is None:
             with unrestricted(session):
-                self._agents = set(session.scalars(_workspace_agents()))
+                self._agents = set(session.scalars(guests.workspace_agents()))
                 self._agent_handles = set(
                     session.scalars(
                         select(_accounts.c.handle).where(_accounts.c.id.in_(self._agents))
@@ -1761,7 +1757,7 @@ def participant_ids(session: Session) -> set[str] | None:
             ids.update(session.scalars(select(Account.id).where(Account.role == Role.member)))
         if a.role == Role.guest:
             # A guest knows no workspace agent (service/guests.py), on any roster or plan.
-            ids -= set(session.scalars(_workspace_agents()))
+            ids -= set(session.scalars(guests.workspace_agents()))
     return ids
 
 

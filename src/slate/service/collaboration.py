@@ -28,7 +28,7 @@ from slate.models import (
     Token,
     utcnow,
 )
-from slate.service import access, accounts, chat, permissions, sections
+from slate.service import access, accounts, guests, permissions, sections
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.errors import Gone, Invalid, NotFound
 
@@ -257,7 +257,7 @@ def project(session: Session, section_id: str) -> dict:
         account = by_id[entry["account_id"]]
         # A guest is not shown the workspace's own agents: what they say on a project
         # is members-only (service/chat.py `members_only_post`).
-        if caller and caller.role == Role.guest and chat.workspace_agent(account):
+        if caller and caller.role == Role.guest and guests.workspace_agent(account):
             continue
         participants.append(
             {
