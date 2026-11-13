@@ -29,8 +29,10 @@ overtaken one gives up at its next await. Full reloads asked for by events (`fx.
 so an older answer never overwrites a newer one. The reducer is idempotent (the catch-up replay
 repeats events): counts the payload does not carry (`comment_count`, a deleted subtask's parent) are
 refetched, never incremented. `store.test.ts` covers the lifecycle with a fake `fetch` and
-`EventSource`. The task window is a real modal: it takes focus on open, traps Tab, and hands focus
-back to its opener on close (`TaskModal.svelte`). Full design, the catch-up sequence, the quick-add
+`EventSource`. Every modal dialog (the task window, the file viewer, the
+palette, settings and pickers) uses one action, `use:trapFocus` (`lib/focustrap.ts`): it takes
+focus on open, keeps Tab (and lost focus) inside, closes the top dialog only on Escape, and hands focus back to its
+opener on close. The docked task window turns the Tab trap off. `e2e/dialogs.spec.ts` checks each. Full design, the catch-up sequence, the quick-add
 grammar, the named-event gotcha (new event types must be added to `EVENT_TYPES`) and how to run the
 unit and Playwright tests: **`docs/board.md`**. CI job `web`: `npm ci`, `npm run check`, `npm run
 build`, `npm test` (Vitest, then Playwright against a real `slate serve`).

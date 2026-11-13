@@ -31,6 +31,7 @@
   import Picker, { type PickerOption } from './Picker.svelte';
   import TreeRow from './TreeRow.svelte';
   import UploadRevision from './UploadRevision.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   let { id = null }: { id?: string | null } = $props();
 
@@ -440,7 +441,7 @@
 
 {#if creating}
   <div class="picker-scrim" role="presentation" onclick={() => (creating = false)}></div>
-  <div class="picker new-doc" role="dialog" aria-label="New page">
+  <div class="picker new-doc" role="dialog" aria-modal="true" aria-label="New page" use:trapFocus={{ onescape: () => (creating = false) }}>
     <header>New page</header>
     <label class="nd-where">
       <span>Where</span>

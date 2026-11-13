@@ -147,7 +147,7 @@ list. The same tree also holds **file docs**.
   rail, `tr.pinned` wash. Test:
   `tests/test_drawers.py::test_pin_entries_to_the_top_of_a_drawer_or_folder`, e2e in
   `drawer.spec.ts`. Gotcha: the board's `EventSource` listens to an explicit list of event
-  type names (`store.svelte.ts`, after the `// Every event type Slate emits` comment), so a new
+  type names (`lib/board/events.ts`), so a new
   event type is silently never heard until it is added there; the symptom is "the write succeeds,
   nothing live-updates". Add the type to that list in the same change as `docgen.EVENT_DOCS`.
 - **Dated from the name:** `docs.date_in_name` (ISO, US `m-d-y[y]`, compact `yyyymmdd`,

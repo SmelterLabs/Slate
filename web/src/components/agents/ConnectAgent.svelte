@@ -10,6 +10,7 @@
   import PairingSetup from './PairingSetup.svelte';
   import { canManageConnections, type Pairing } from '../../lib/connections';
   import { listLevel } from '../../lib/permissions';
+  import { trapFocus } from '../../lib/focustrap';
 
   let {
     agents,
@@ -32,9 +33,7 @@
   let manualDone = $state(false);
   let dialog: HTMLDivElement;
   onMount(() => {
-    const previous = document.activeElement as HTMLElement | null;
     dialog.querySelector<HTMLInputElement>('input')?.focus();
-    return () => previous?.focus();
   });
   let name = $state('');
   let handle = $state('');
@@ -148,21 +147,8 @@
   }
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape') onclose();
-    if (e.key === 'Tab' && dialog) {
-      const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]')).filter((el) => el.getClientRects().length);
-      const first = controls[0], last = controls.at(-1);
-      if (!controls.includes(document.activeElement as HTMLElement)) { e.preventDefault(); (e.shiftKey ? last : first)?.focus(); }
-      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-    }
-  }}
-/>
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={onclose}></button>
-<div bind:this={dialog} class="settings connect-agent" role="dialog" aria-label="Add my agent" aria-modal="true">
+<div bind:this={dialog} class="settings connect-agent" role="dialog" aria-label="Add my agent" aria-modal="true" use:trapFocus={{ onescape: onclose }}>
   <div class="drawer-top">
     <h2 tabindex="-1">{made ? `Connect @${made.handle}` : 'Add my agent'}</h2>
     <button class="icon" aria-label="Close" onclick={onclose}><Icon name="x" size={16} /></button>

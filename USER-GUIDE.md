@@ -121,7 +121,7 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 **Monitor mode.** Add `?kiosk=1` before the `#` (`https://slate.example.com/?kiosk=1#/everything`) for a wall screen: no menu or toolbar, bigger type, every column fitting the screen, a clock and a live dot. The pointer hides after three seconds still.
 
-**Keyboard.** `Ctrl K` (⌘K) search everything · `/` search this view · `c` quick add · `b` board or list · `f` filter · `j`/`k` move between tasks · Enter open · `e` complete · `x` select · `s` star the open task or the card under the pointer · `Ctrl Z` undo · `g` then `h` My Work, `i` Inbox, `e` Everything, `m` Chat, `p` Docs · `Esc` close · `?` lists them all.
+**Keyboard.** `Ctrl K` (⌘K) search everything · `/` search this view · `c` quick add · `b` board or list · `f` filter · `j`/`k` move between tasks · Enter open · `e` complete · `x` select · `s` star the open task or the card under the pointer · `Ctrl Z` undo · `g` then `h` My Work, `i` Inbox, `e` Everything, `m` Chat, `p` Docs · `Esc` close · `?` lists them all. In any dialog, Tab stays inside it, Esc closes that dialog only (not the task window behind it), and focus goes back to what opened it.
 
 ## Dependencies, estimates, duplicates and tags
 

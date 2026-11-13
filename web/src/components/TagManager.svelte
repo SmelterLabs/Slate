@@ -7,6 +7,7 @@
   import type { Tag } from '../lib/types';
   import Icon from './Icon.svelte';
   import TagPill from './TagPill.svelte';
+  import { trapFocus } from '../lib/focustrap';
 
   let q = $state('');
   let renaming = $state<string | null>(null);
@@ -46,14 +47,8 @@
   }
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape') board.closeTagManager();
-  }}
-/>
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={() => board.closeTagManager()}></button>
-<div class="settings tag-manager" role="dialog" aria-label="Tags" aria-modal="true">
+<div class="settings tag-manager" role="dialog" aria-label="Tags" aria-modal="true" use:trapFocus={{ onescape: () => board.closeTagManager() }}>
   <div class="drawer-top">
     <h2>Tags</h2>
     <button class="icon" aria-label="Close" onclick={() => board.closeTagManager()}><Icon name="x" size={16} /></button>

@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import { trapFocus } from '../../lib/focustrap';
   export interface PickerOption {
     id: string;
     label: string;
@@ -67,11 +68,7 @@
   }
 
   function keys(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onclose();
-    } else if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown') {
       e.preventDefault();
       cursor = Math.min(total - 1, cursor + 1);
     } else if (e.key === 'ArrowUp') {
@@ -85,7 +82,7 @@
 </script>
 
 <div class="picker-scrim" role="presentation" onclick={onclose}></div>
-<div class="picker" role="dialog" aria-label={title}>
+<div class="picker" role="dialog" aria-modal="true" aria-label={title} use:trapFocus={{ onescape: onclose }}>
   <header>{title}</header>
   <input bind:this={input} bind:value={query} {placeholder} aria-label={placeholder} onkeydown={keys} />
   <div class="doc-picker-list" role="listbox">

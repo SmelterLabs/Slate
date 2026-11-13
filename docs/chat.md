@@ -99,7 +99,7 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   fetched before one does not overwrite the turns. The two event types do not refetch a message.
   Tests: `tests/test_chat_wake.py` (`agent_turns`), `lib/chat.test.ts`, `lib/chat-turns.test.ts`,
   `e2e/agent-working.spec.ts`.
-- **Gotcha:** the board's EventSource only hears event types listed in `store.svelte.ts`
+- **Gotcha:** the board's EventSource only hears event types listed in `lib/board/events.ts`
   `EVENT_TYPES`; `tests/test_board_event_types.py` fails when a new server event type is missing
   there.
 - **Naming:** to a person the thing is **Chat** everywhere

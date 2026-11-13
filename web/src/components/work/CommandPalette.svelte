@@ -10,6 +10,7 @@
   import type { DocSummary } from '../../lib/docs';
   import { SEARCH_DEBOUNCE_MS, groupHits, hitHref, searchAll, shouldSearch, type SearchHit } from '../../lib/search';
   import { board } from '../../lib/store.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   // Ctrl/Cmd+K: find any task, list, section, view, chat channel or tag and jump
   // there, or run a command.
@@ -309,10 +310,6 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       run(cursor);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onclose();
     }
   }
 
@@ -331,7 +328,7 @@
 </script>
 
 <button class="palette-scrim" aria-label="Close search" tabindex="-1" onclick={onclose}></button>
-<div class="palette" role="dialog" aria-modal="true" aria-label="Search and commands">
+<div class="palette" role="dialog" aria-modal="true" aria-label="Search and commands" use:trapFocus={{ onescape: onclose }}>
   <div class="palette-input">
     <span class="palette-icon" aria-hidden="true">⌕</span>
     <input

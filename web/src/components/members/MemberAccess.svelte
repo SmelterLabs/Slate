@@ -8,6 +8,7 @@
   import { board } from '../../lib/store.svelte';
   import type { Level, Member, Share } from '../../lib/types';
   import Icon from '../Icon.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   let { member, onclose }: { member: Member; onclose: () => void } = $props();
 
@@ -69,10 +70,8 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={onclose}></button>
-<div class="settings member-access" role="dialog" aria-label="Access for {member.account.display_name}" aria-modal="true">
+<div class="settings member-access" role="dialog" aria-label="Access for {member.account.display_name}" aria-modal="true" use:trapFocus={{ onescape: onclose }}>
   <div class="drawer-top">
     <h2>{member.account.display_name}<span class="muted"> · {ROLE_LABEL[member.role]}</span></h2>
     <button class="icon" aria-label="Close" onclick={onclose}>✕</button>
