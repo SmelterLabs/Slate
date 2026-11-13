@@ -1019,4 +1019,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for name in reversed(TABLE_NAMES):
-        op.execute(f'DROP TABLE "{name}"')
+        op.drop_table(name)
