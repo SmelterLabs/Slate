@@ -178,6 +178,87 @@ def test_walking_a_broken_tree_ends():
     assert sorted(d.id for d in docs_svc._descendants([a, b, c], "a")) == ["b", "c"]
 
 
+# --- saves ------------------------------------------------------------------------------------
+
+
+def _race_first_change(monkeypatch, other_write):
+    """Run `other_write(session)` in its own session just before the first change block of
+    the code under test takes the write lock (after that code has read the doc)."""
+    from contextlib import contextmanager
+
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+
+    real = docs_svc.apply_change
+    raced = []
+
+    @contextmanager
+    def racing(session, who):
+        if not raced:
+            raced.append(1)
+            with SessionLocal() as other:
+                other_write(other)
+        with real(session, who) as cx:
+            yield cx
+
+    monkeypatch.setattr(docs_svc, "apply_change", racing)
+
+
+def test_a_save_against_a_stale_revision_is_refused_even_mid_flight(
+    client, alex, todo, monkeypatch
+):
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+    from slate.service.errors import Conflict
+
+    d = _doc(client, alex, title="Plan", list_id=todo["id"], body_md="v1")
+    actor = _actor(client, alex)
+    _race_first_change(
+        monkeypatch,
+        lambda s: docs_svc.update_doc(
+            s, actor, d["id"], {"body_md": "A's text", "base_revision": 1}
+        ),
+    )
+    with SessionLocal() as mine, pytest.raises(Conflict):
+        docs_svc.update_doc(mine, actor, d["id"], {"body_md": "B's text", "base_revision": 1})
+    got = client.get(f"{API}/docs/{d['id']}", headers=alex).json()
+    assert (got["body_md"], got["revision"]) == ("A's text", 2)
+
+
+def test_two_appends_at_once_both_land(client, alex, todo, monkeypatch):
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+
+    d = _doc(client, alex, title="Log", list_id=todo["id"], body_md="## Log")
+    actor = _actor(client, alex)
+    _race_first_change(
+        monkeypatch,
+        lambda s: docs_svc.update_doc(s, actor, d["id"], {"append_md": "- entry from A"}),
+    )
+    with SessionLocal() as mine:
+        docs_svc.update_doc(mine, actor, d["id"], {"append_md": "- entry from B"})
+    body = client.get(f"{API}/docs/{d['id']}", headers=alex).json()["body_md"]
+    assert "- entry from A" in body and "- entry from B" in body
+
+
+def test_create_task_from_a_doc_checks_the_doc_as_it_stands(client, alex, todo, monkeypatch):
+    from slate.db import SessionLocal
+    from slate.service import docs as docs_svc
+    from slate.service.errors import Conflict
+
+    d = _doc(client, alex, title="Plan", list_id=todo["id"], body_md="call the venue")
+    actor = _actor(client, alex)
+    _race_first_change(
+        monkeypatch,
+        lambda s: docs_svc.update_doc(s, actor, d["id"], {"append_md": "and the caterer"}),
+    )
+    with SessionLocal() as mine, pytest.raises(Conflict):
+        docs_svc.create_task(
+            mine, actor, d["id"], title="Call", replace="call the venue", base_revision=1
+        )
+    assert client.get(f"{API}/items", params={"list_id": todo["id"]}, headers=alex).json() == []
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

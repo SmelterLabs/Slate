@@ -119,6 +119,22 @@ def get_doc(session: Session, doc_id: str) -> Doc:
     return doc
 
 
+def fresh_doc(session: Session, doc_id: str) -> Doc:
+    """The doc as the database has it now, body included, overwriting this session's copy.
+    Read it first thing inside `apply_change` (nothing is dirty yet, so nothing flushes) when a
+    check or an edit depends on the current text: the copy loaded before the write lock may
+    be stale by the time the lock is held."""
+    doc = session.scalar(
+        select(Doc)
+        .options(undefer(Doc.body_md))
+        .where(Doc.id == doc_id)
+        .execution_options(populate_existing=True)
+    )
+    if doc is None:
+        raise NotFound(f"doc {doc_id} not found")
+    return doc
+
+
 def _all(session: Session, *, fresh: bool = False) -> list[Doc]:
     """Every doc without bodies: enough to walk the tree. `fresh` overwrites rows this session
     already holds with what the database has now (for a check made under the write lock)."""
@@ -1150,43 +1166,46 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
     unknown = set(changes) - UPDATABLE
     if unknown:
         raise Invalid(f"cannot update {sorted(unknown)}")
-    doc = get_doc(session, doc_id)
-    base = changes.get("base_revision")
-    if base is not None and base != doc.revision:
-        raise Conflict(
-            f"doc changed since revision {base} (now {doc.revision}); reload it and reapply "
-            "your edit"
-        )
-    wanted: dict[str, Any] = {}
-    if changes.get("title") is not None:
-        wanted["title"] = _title(changes["title"])
-    if "icon" in changes:
-        wanted["icon"] = _icon(changes["icon"])
-    body = doc.body_md
-    touched = False
-    if changes.get("body_md") is not None:
-        body, touched = _body(changes["body_md"]), True
-    if changes.get("replace_section"):
-        spec = changes["replace_section"]
-        heading = str(spec.get("heading") or "").strip()
-        if not heading:
-            raise Invalid("replace_section needs a heading")
-        body, touched = replace_section(body, heading, str(spec.get("body_md") or "")), True
-    if changes.get("append_md"):
-        body, touched = _append(body, str(changes["append_md"])), True
-    if touched:
-        wanted["body_md"] = _body(body)
+    get_doc(session, doc_id)
+    spec = changes.get("replace_section")
+    heading = str(spec.get("heading") or "").strip() if spec else ""
+    if spec and not heading:
+        raise Invalid("replace_section needs a heading")
     note = str(changes.get("note") or "").strip()[:200] or None
     seal = bool(changes.get("new_version")) or note is not None
-    diffs = {k: v for k, v in wanted.items() if getattr(doc, k) != v}
     tag_names = changes.get("tags")
-    if not diffs and not seal:
-        if tag_names is not None:
-            with apply_change(session, actor) as cx:
-                _set_tags(cx, doc, list(tag_names))
-        return doc
-    latest = _version(session, doc)
     with apply_change(session, actor) as cx:
+        # The check and the new body are worked out from the doc as it stands under the write
+        # lock, so a save that committed since this request began is never overwritten unseen:
+        # a stale `base_revision` is a 409 and two `append_md` calls both land.
+        doc = fresh_doc(session, doc_id)
+        latest = _version(session, doc)
+        base = changes.get("base_revision")
+        if base is not None and base != doc.revision:
+            raise Conflict(
+                f"doc changed since revision {base} (now {doc.revision}); reload it and reapply "
+                "your edit"
+            )
+        wanted: dict[str, Any] = {}
+        if changes.get("title") is not None:
+            wanted["title"] = _title(changes["title"])
+        if "icon" in changes:
+            wanted["icon"] = _icon(changes["icon"])
+        body = doc.body_md
+        touched = False
+        if changes.get("body_md") is not None:
+            body, touched = _body(changes["body_md"]), True
+        if spec:
+            body, touched = replace_section(body, heading, str(spec.get("body_md") or "")), True
+        if changes.get("append_md"):
+            body, touched = _append(body, str(changes["append_md"])), True
+        if touched:
+            wanted["body_md"] = _body(body)
+        diffs = {k: v for k, v in wanted.items() if getattr(doc, k) != v}
+        if not diffs and not seal:
+            if tag_names is not None:
+                _set_tags(cx, doc, list(tag_names))
+            return doc
         if tag_names is not None:
             _set_tags(cx, doc, list(tag_names))
         befores = {k: getattr(doc, k) for k in diffs}
@@ -1798,24 +1817,26 @@ def create_task(
     Exactly one item is created (AGENTS.md rule 1).
     """
     doc = get_doc(session, doc_id)
-    if base_revision is not None and base_revision != doc.revision:
-        raise Conflict(
-            f"doc changed since revision {base_revision} (now {doc.revision}); reload it first"
-        )
     target = list_id or root_of(session, doc).list_id
     if target is None:
         raise Invalid("list_id is required: this doc is not in a list")
-    body = doc.body_md
-    at = -1
-    if replace:
-        for _ in range(occurrence + 1):
-            at = body.find(replace, at + 1)
-            if at < 0:
-                raise Invalid("the selected text is not in the doc (it may have changed)")
     link = f"From doc [[doc:{doc.id}]]"
     desc = str(fields.pop("body_md", "") or "").strip()
-    latest = _version(session, doc)
     with apply_change(session, actor) as cx:
+        # Checked against the doc as it stands under the write lock (see `update_doc`).
+        doc = fresh_doc(session, doc_id)
+        latest = _version(session, doc)
+        if base_revision is not None and base_revision != doc.revision:
+            raise Conflict(
+                f"doc changed since revision {base_revision} (now {doc.revision}); reload it first"
+            )
+        body = doc.body_md
+        at = -1
+        if replace:
+            for _ in range(occurrence + 1):
+                at = body.find(replace, at + 1)
+                if at < 0:
+                    raise Invalid("the selected text is not in the doc (it may have changed)")
         item = items_svc.create_item(
             session,
             actor,

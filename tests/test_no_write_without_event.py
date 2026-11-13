@@ -269,6 +269,7 @@ READS = {
         "date_in_name",
         "created_from_name",
         "get_doc",
+        "fresh_doc",
         "root_of",
         "list_docs",
         "snippet",

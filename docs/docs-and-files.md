@@ -178,7 +178,11 @@ list. The same tree also holds **file docs**.
   page), `base_revision` (409 `conflict` when someone saved in between), `new_version`, `note`.
   **Versions**: `_checkpoint` folds a save into the latest version when it is the same author,
   unnamed and under 10 minutes old; otherwise it seals that version and starts a new one. A note
-  names a version and seals it. Restore writes a new version, never rewrites history. `move_doc`
+  names a version and seals it. Restore writes a new version, never rewrites history.
+  `update_doc` and `create_task` re-read the doc with `fresh_doc` (`populate_existing`) as the
+  first thing inside `apply_change` and make the `base_revision` check and the `append_md` /
+  `replace_section` / `replace` edit on that row, so a save that committed while the request
+  waited for the lock is a 409, not a silent overwrite, and two appends both land. `move_doc`
   reads the tree and checks it (not under itself, at most `MAX_DEPTH` deep) inside its
   `apply_change`, with `_all(fresh=True)`, so two moves at once cannot build a parent cycle; the
   tree walkers (`_ancestors`, `_descendants`, `_height`, `_tree_order`) still stop on one. There is
