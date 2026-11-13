@@ -282,7 +282,9 @@ Slate without a card.
   the project is not private; the project's guests and list-limited tokens), and a member outside
   a private project does not. A project agent works in **one project**: `permissions.share`
   refuses to share it into a second section, or into a list of another section (422), because
-  its one channel would carry one project's talk to the other's guests. An agent left in two
+  its one channel would carry one project's talk to the other's guests. `permissions.set_role`
+  likewise refuses to make an agent a guest while it holds shares in two or more projects (422,
+  naming them). An agent left in two
   projects by older data has a chat no restricted caller reads (`access._project_agents` skips
   it) until an admin removes one share. Only a share counts as "in the project", not being
   assigned a card there. A view-level guest reads but cannot post (403). It is not a private DM:

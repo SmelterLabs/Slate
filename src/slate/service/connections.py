@@ -15,7 +15,17 @@ from sqlalchemy.orm import Session
 
 from slate.connection_models import AgentConnection
 from slate.ids import new_id
-from slate.models import Account, AccountKind, Event, List, Section, Source, Token, utcnow
+from slate.models import (
+    SYSTEM_HANDLE,
+    Account,
+    AccountKind,
+    Event,
+    List,
+    Section,
+    Source,
+    Token,
+    utcnow,
+)
 from slate.runner_compat import MIN_RUNNER_PROTOCOL
 from slate.service import access, accounts
 from slate.service.accounts import Principal
@@ -55,7 +65,12 @@ def _manager(session: Session, by: Principal) -> bool:
 
 def _agent_scope(session: Session, account_id: str, list_ids: list[str], issuer: Principal):
     agent = session.get(Account, account_id, populate_existing=True)
-    if not agent or agent.kind != AccountKind.agent or agent.disabled_at or agent.handle == "slate":
+    if (
+        not agent
+        or agent.kind != AccountKind.agent
+        or agent.disabled_at
+        or agent.handle == SYSTEM_HANDLE
+    ):
         raise Invalid("Select an enabled agent account, not the system account.")
     if not list_ids or len(list_ids) > 100 or not all(isinstance(x, str) for x in list_ids):
         raise Invalid("Select at least one editable list (at most 100).")

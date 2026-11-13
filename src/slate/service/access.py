@@ -41,6 +41,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import and_, exists, false, func, literal, or_, select, true, union_all
 from sqlalchemy import inspect as sa_inspect
@@ -86,6 +87,7 @@ from slate.models import (
     WorkspaceSetting,
     utcnow,
 )
+from slate.service import guests
 from slate.service.errors import Forbidden
 
 ACCESS_KEY = "slate_access"
@@ -699,7 +701,7 @@ def read_criteria(state: ORMExecuteState) -> None:
                 ),
                 or_(
                     members,
-                    c.account_id.not_in(_workspace_agents()),
+                    c.account_id.not_in(guests.workspace_agents()),
                 ),
             ),
             include_aliases=True,
@@ -852,7 +854,7 @@ def hidden_agents(session: Session) -> tuple[frozenset[str], frozenset[str]]:
     cached = session.info.get(_HIDDEN_KEY)
     if cached is None or cached[0] is not caller:
         with unrestricted(session):
-            ids = frozenset(session.scalars(_workspace_agents()))
+            ids = frozenset(session.scalars(guests.workspace_agents()))
             handles = frozenset(
                 session.scalars(select(_accounts.c.handle).where(_accounts.c.id.in_(ids)))
             )
@@ -887,13 +889,6 @@ def scrub(session: Session, value: Any) -> Any:
     return _scrubbed(value, ids, handles)
 
 
-def _workspace_agents() -> Any:
-    """Ids of the workspace's own agents (non-guest agents, service/guests.py)."""
-    return select(_accounts.c.id).where(
-        _accounts.c.kind == "agent", _accounts.c.role != "guest", _accounts.c.handle != "slate"
-    )
-
-
 def _guest_criteria() -> list[Any]:
     """A project's guests see no trace of a workspace agent: not its card or page comments,
     nor comments addressed to it, nor its place among a card's assignees, nor anything it did
@@ -903,28 +898,28 @@ def _guest_criteria() -> list[Any]:
         with_loader_criteria(
             Comment,
             lambda c: and_(
-                c.author_id.not_in(_workspace_agents()),
-                or_(c.assignee_id.is_(None), c.assignee_id.not_in(_workspace_agents())),
+                c.author_id.not_in(guests.workspace_agents()),
+                or_(c.assignee_id.is_(None), c.assignee_id.not_in(guests.workspace_agents())),
             ),
             include_aliases=True,
         ),
         with_loader_criteria(
             DocComment,
             lambda c: and_(
-                c.author_id.not_in(_workspace_agents()),
-                or_(c.assignee_id.is_(None), c.assignee_id.not_in(_workspace_agents())),
+                c.author_id.not_in(guests.workspace_agents()),
+                or_(c.assignee_id.is_(None), c.assignee_id.not_in(guests.workspace_agents())),
             ),
             include_aliases=True,
         ),
         with_loader_criteria(
             ItemAssignee,
-            lambda c: c.account_id.not_in(_workspace_agents()),
+            lambda c: c.account_id.not_in(guests.workspace_agents()),
             include_aliases=True,
         ),
         with_loader_criteria(
             Event,
             lambda c: and_(
-                c.actor_id.not_in(_workspace_agents()),
+                c.actor_id.not_in(guests.workspace_agents()),
                 c.subject_id.not_in(_hidden_comments()),
                 ~_assigns_only_agents(c),
             ),
@@ -937,7 +932,7 @@ def _assigns_only_agents(c: Any) -> Any:
     """An `item.assigned` event (`c`: `events` columns) whose only change is a workspace agent
     joining or leaving the card: with the agent scrubbed it says nothing, so a guest is not
     shown it."""
-    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(_workspace_agents()))
+    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(guests.workspace_agents()))
     added = func.json_each(c.after_json).table_valued("value").alias("assigned_after")
     was = func.json_each(c.before_json).table_valued("value").alias("assigned_before")
     kept = func.json_each(c.before_json).table_valued("value").alias("assigned_kept")
@@ -963,13 +958,15 @@ def _hidden_comments() -> Any:
     or addressed to one stays hidden: its row is gone, so its `comment.deleted` event says."""
     gone = _events.c.before_json
     return union_all(
-        select(_comments.c.id).where(_comments.c.assignee_id.in_(_workspace_agents())),
-        select(_doc_comments.c.id).where(_doc_comments.c.assignee_id.in_(_workspace_agents())),
+        select(_comments.c.id).where(_comments.c.assignee_id.in_(guests.workspace_agents())),
+        select(_doc_comments.c.id).where(
+            _doc_comments.c.assignee_id.in_(guests.workspace_agents())
+        ),
         select(_events.c.subject_id).where(
             _events.c.type == "comment.deleted",
             or_(
-                func.json_extract(gone, "$.author_id").in_(_workspace_agents()),
-                func.json_extract(gone, "$.assignee_id").in_(_workspace_agents()),
+                func.json_extract(gone, "$.author_id").in_(guests.workspace_agents()),
+                func.json_extract(gone, "$.assignee_id").in_(guests.workspace_agents()),
             ),
         ),
     )
@@ -1232,7 +1229,7 @@ def _refuse_steering(session: Session, item_id: str) -> None:
         assigned = session.scalar(
             select(ItemAssignee.item_id).where(
                 ItemAssignee.item_id == item_id,
-                ItemAssignee.account_id.in_(_workspace_agents()),
+                ItemAssignee.account_id.in_(guests.workspace_agents()),
             )
         )
     if assigned is not None:
@@ -1297,17 +1294,74 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
     return {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
 
 
+# --- Webhook addresses in automation rules --------------------------------------------------
+
+
+def webhook_host(url: str) -> str:
+    """`scheme://host[:port]` of a webhook address: what a reader who may not see it gets."""
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}"
+
+
+def masked_hook_urls(value: Any) -> Any:
+    """`value` with every `webhook` action's `url` cut to its host (`webhook_host`)."""
+    if isinstance(value, list):
+        return [masked_hook_urls(v) for v in value]
+    if isinstance(value, dict):
+        if value.get("type") == "webhook" and isinstance(value.get("url"), str):
+            return {**value, "url": webhook_host(value["url"])}
+        return {k: masked_hook_urls(v) for k, v in value.items()}
+    return value
+
+
+def reads_hook_urls(session: Session, author_id: str | None) -> bool:
+    """Whether this session's caller reads an automation rule's webhook addresses in full. An
+    address often carries a secret, so it is the rule's author's and the admins' (Slate's own
+    session, with no caller, reads everything)."""
+    found = caller(session)
+    return found is None or found.is_admin or found.account_id == author_id
+
+
+def hook_urls_for(
+    session: Session, reader_id: str | None, rule_id: str | None, before: Any, after: Any
+) -> tuple[Any, Any]:
+    """An `automation.*` event's `before` and `after` as `reader_id` may read them (None: an
+    admin or Slate's own session, which read everything)."""
+    if reader_id is None:
+        return before, after
+    masked = masked_hook_urls(before), masked_hook_urls(after)
+    if masked == (before, after):
+        return before, after
+    author = next(
+        (s["created_by"] for s in (after, before) if isinstance(s, dict) and s.get("created_by")),
+        None,
+    )
+    if author is None and rule_id:
+        with unrestricted(session):
+            author = session.scalar(select(Automation.created_by).where(Automation.id == rule_id))
+    return (before, after) if author == reader_id else masked
+
+
 def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
     """An event's `before` and `after` as this session's caller may read them: every reader of
     stored events goes through here (`core.event_payload`, the audit log)."""
     if session is None:
         return ev.before_json, ev.after_json
+    if ev.type.startswith("automation."):
+        found = caller(session)
+        return hook_urls_for(
+            session,
+            None if found is None or found.is_admin else found.account_id,
+            ev.subject_id,
+            scrub(session, ev.before_json),
+            scrub(session, ev.after_json),
+        )
     if ev.type != "account.digest":
         return scrub(session, ev.before_json), scrub(session, ev.after_json)
-    caller = current(session)
+    reader = current(session)
     return (
-        digest_snapshot(session, ev.before_json, caller) if ev.before_json is not None else None,
-        digest_snapshot(session, ev.after_json, caller),
+        digest_snapshot(session, ev.before_json, reader) if ev.before_json is not None else None,
+        digest_snapshot(session, ev.after_json, reader),
     )
 
 
@@ -1428,6 +1482,15 @@ class EventGate:
             payload = self._for_guest(session, payload)
             if payload is None:
                 return None
+        if str(payload.get("type", "")).startswith("automation."):
+            before, after = hook_urls_for(
+                session,
+                None if getattr(self, "_admin", False) else self.account_id,
+                payload.get("subject_id"),
+                payload.get("before"),
+                payload.get("after"),
+            )
+            return {**payload, "before": before, "after": after}
         if payload.get("type") != "account.digest":
             return payload
         after = digest_snapshot(session, payload.get("after"), self.access)
@@ -1465,7 +1528,7 @@ class EventGate:
         """A guest sees no trace of a workspace agent (service/guests.py)."""
         if self._agents is None:
             with unrestricted(session):
-                self._agents = set(session.scalars(_workspace_agents()))
+                self._agents = set(session.scalars(guests.workspace_agents()))
                 self._agent_handles = set(
                     session.scalars(
                         select(_accounts.c.handle).where(_accounts.c.id.in_(self._agents))
@@ -1694,7 +1757,7 @@ def participant_ids(session: Session) -> set[str] | None:
             ids.update(session.scalars(select(Account.id).where(Account.role == Role.member)))
         if a.role == Role.guest:
             # A guest knows no workspace agent (service/guests.py), on any roster or plan.
-            ids -= set(session.scalars(_workspace_agents()))
+            ids -= set(session.scalars(guests.workspace_agents()))
     return ids
 
 

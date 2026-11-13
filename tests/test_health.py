@@ -181,7 +181,7 @@ def test_public_health_is_the_verdict_without_details(client, alex, monkeypatch)
     monkeypatch.setattr(settings, "health_alert_after", 1)
 
     def poll_tick(session, now):
-        return {"errors": ["the mail server answered 401"]}
+        return {"errors": ["the mail server answered 401 unauthorized-for-relay"]}
 
     monkeypatch.setattr(scheduler, "hooks", [poll_tick])
     monkeypatch.setattr(scheduler, "POLLERS", {poll_tick: "reminders"})
@@ -192,7 +192,10 @@ def test_public_health_is_the_verdict_without_details(client, alex, monkeypatch)
     assert body["status"] == "fail"
     gh = next(c for c in body["checks"] if c["key"] == "poller:reminders")
     assert gh["status"] == "fail"
-    assert "401" not in json.dumps(body)  # details stay behind the login
+    # Details stay behind the login. The error text is matched whole: a bare "401" can turn up
+    # in a timestamp or a duration of the public body.
+    assert "unauthorized-for-relay" not in json.dumps(body)
+    assert all(set(c) == {"key", "label", "status"} for c in body["checks"])
 
 
 def test_stuck_poller_shows_as_failing(client, alex):

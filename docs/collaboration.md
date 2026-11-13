@@ -40,8 +40,10 @@ Tests: `tests/test_guest_sessions.py`, `web/src/lib/collaboration.test.ts`, the 
 
 ## Members-only chat (workspace agents on a project)
 
-A **workspace agent** is any agent account that is not a guest
-(`chat.workspace_agent`); a project's own agent is a guest. `Message.members_only`
+A **workspace agent** is any agent account that is not a guest and not Slate's own account
+(`models.SYSTEM_HANDLE`). `guests.workspace_agent` is that rule for an account in hand and
+`guests.workspace_agents()` the same rule in SQL; nothing else spells it out. A project's own
+agent is a guest. `Message.members_only`
 is set at post time by `chat.members_only_post`: a
 workspace agent's post, a non-guest's post that @mentions one, and every reply in a thread whose
 root is members-only; an edit that adds such a mention sets it and nothing ever clears it.
