@@ -3,7 +3,7 @@
 Reading a body under a size cap without trusting `Content-Length`: a chunked request carries
 no length, and `await request.body()` would buffer the whole thing before the service's own
 check saw it. Attachments, chat files and the two doc upload routes read their bodies through
-`read_body`. `file_response` serves an attachment or a chat file.
+`read_body`. `file_response` serves every stored file: an attachment, a chat file, a doc file.
 """
 
 from __future__ import annotations
@@ -41,12 +41,26 @@ async def read_body(request: Request, limit: int, message: str | None = None) ->
 
 # Uploaded HTML or SVG must never run scripts as this origin.
 CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+# Types a browser renders as a page of its own (markup, scripts aside): always a download, so
+# nobody's upload opens as a page under Slate's address.
+_NEVER_INLINE = {
+    "text/html",
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/xml",
+    "application/xml",
+}
 
 
 def file_response(filename: str, content_type: str, data: bytes, *, download: bool) -> Response:
-    """A stored file's bytes. Images, PDFs and text show inline unless `download`; nothing is
+    """A stored file's bytes: task attachments, chat files and doc files alike. Images, PDFs
+    and text show inline unless `download`; HTML, SVG and XML always download; nothing is
     sniffed, cached or allowed to run a script."""
-    inline = not download and content_type.startswith(("image/", "application/pdf", "text/"))
+    inline = (
+        not download
+        and content_type.startswith(("image/", "application/pdf", "text/"))
+        and content_type.split(";")[0].strip().lower() not in _NEVER_INLINE
+    )
     disposition = "inline" if inline else "attachment"
     return Response(
         content=data,

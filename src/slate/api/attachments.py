@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import AttachmentOut
-from slate.api.uploads import CSP as CSP  # api/docs.py serves doc files under it too
 from slate.api.uploads import file_response, read_body
 from slate.models import Attachment
 from slate.service import attachments

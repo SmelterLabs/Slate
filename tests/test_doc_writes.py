@@ -507,6 +507,69 @@ def test_a_doc_upload_waiting_for_the_write_lock_does_not_stall_other_requests(
     assert result["r"].status_code == 201, result["r"].text
 
 
+# --- serving stored files ---------------------------------------------------------------------
+
+
+ACTIVE = [
+    ("page.html", "text/html"),
+    ("page.xhtml", "application/xhtml+xml"),
+    ("pic.svg", "image/svg+xml"),
+    ("feed.xml", "text/xml"),
+    ("data.xml", "application/xml"),
+]
+PASSIVE = [("notes.txt", "text/plain"), ("pic.png", "image/png"), ("scan.pdf", "application/pdf")]
+
+
+def _stored(client, alex, todo):
+    """One URL per way Slate serves an upload: a page's file, a file doc's revision, a task
+    attachment. Returns a function that uploads (name, type) and gives back its URL."""
+    page = _doc(client, alex, title="Notes", list_id=todo["id"])
+    item = client.post(f"{API}/items", json={"list_id": todo["id"], "title": "T"}, headers=alex)
+    item_id = item.json()["id"]
+
+    def up(kind, name, ctype):
+        if kind == "page":
+            url, params = f"{API}/docs/{page['id']}/files", {"filename": name}
+        elif kind == "revision":
+            d = _doc(client, alex, kind="file", title=name)
+            url, params = f"{API}/docs/{d['id']}/revisions", {"filename": name, "note": "first"}
+        else:
+            url, params = f"{API}/items/{item_id}/attachments", {"filename": name}
+        r = client.post(
+            url, params=params, content=b"<b>x</b>", headers={**alex, "Content-Type": ctype}
+        )
+        assert r.status_code == 201, r.text
+        return r.json()["url"] if kind != "attachment" else f"{API}/attachments/{r.json()['id']}"
+
+    return up
+
+
+@pytest.mark.parametrize("kind", ["page", "revision", "attachment"])
+def test_markup_that_could_render_as_a_page_is_always_a_download(client, alex, todo, kind):
+    up = _stored(client, alex, todo)
+    for name, ctype in ACTIVE:
+        r = client.get(up(kind, name, ctype), headers=alex)
+        assert r.status_code == 200, r.text
+        assert r.headers["content-disposition"].startswith("attachment;"), (name, r.headers)
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert "sandbox" in r.headers["content-security-policy"]
+    for name, ctype in PASSIVE:
+        r = client.get(up(kind, name, ctype), headers=alex)
+        assert r.headers["content-disposition"].startswith("inline;"), (name, r.headers)
+        r = client.get(up(kind, name, ctype), params={"download": "true"}, headers=alex)
+        assert r.headers["content-disposition"].startswith("attachment;")
+
+
+def test_every_upload_route_cleans_name_and_type_the_same_way(client, alex, todo):
+    up = _stored(client, alex, todo)
+    long_type = "image/" + "x" * 200
+    for kind in ("page", "revision", "attachment"):
+        r = client.get(up(kind, 'a"b\\c.png', long_type), headers=alex)
+        assert r.status_code == 200
+        assert len(r.headers["content-type"]) <= 127, kind
+        assert "a_b_c.png" in r.headers["content-disposition"], kind
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

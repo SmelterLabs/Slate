@@ -93,14 +93,22 @@ def add_attachment(
         return _attach(cx, item, filename, data, content_type)
 
 
-def clean(filename: str | None, data: bytes, content_type: str | None) -> tuple[str, str]:
-    """The stored name and type of an upload, or `Invalid` (no name, empty, over the cap).
-    Chat files (service/chat_files.py) are checked by the same rules."""
+def clean(
+    filename: str | None,
+    data: bytes,
+    content_type: str | None,
+    *,
+    limit: int = MAX_BYTES,
+    noun: str = "attachment",
+) -> tuple[str, str]:
+    """The stored name and type of an upload, or `Invalid` (no name, empty, over `limit`).
+    Every upload is checked by these rules: attachments, chat files (service/chat_files.py) and
+    doc files (service/docs.py, `noun` "file")."""
     name = _filename(filename)
     if not data:
-        raise Invalid("attachment is empty")
-    if len(data) > MAX_BYTES:
-        raise Invalid(f"attachment is larger than {MAX_BYTES // (1024 * 1024)} MB")
+        raise Invalid(f"{noun} is empty")
+    if len(data) > limit:
+        raise Invalid(f"{noun} is larger than {limit // (1024 * 1024)} MB")
     ctype = (content_type or "").split(";")[0].strip().lower()
     if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
         # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.

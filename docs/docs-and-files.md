@@ -13,7 +13,9 @@ list. The same tree also holds **file docs**.
   uploads are `doc_files` rows with a `revision_no` (1 upward, unique per doc), a `note` (what
   changed; **required for everyone**), `superseded_at` (stamped on the previous
   revision when the next arrives) and `restored_from`. Pages' inline images are `doc_files` rows
-  with `revision_no` NULL. `body_md` on a file doc is the description (Notes), versioned
+  with `revision_no` NULL. `GET /doc-files/{id}` serves both through `api/uploads.file_response`
+  (the one response for every stored file: inline for images, PDFs and text, never for HTML, SVG
+  or XML; names and types cleaned by `attachments.clean`, as for every upload). `body_md` on a file doc is the description (Notes), versioned
   like a page. Service: `add_revision` (25 MB, `MAX_REVISION_BYTES`; event `doc.revision_added`,
   metadata only), `restore_revision` (a new revision with the old bytes, never a rewrite),
   `revisions_of`, `get_revision`, `current_revisions` (one query for the index),

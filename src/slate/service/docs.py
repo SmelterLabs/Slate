@@ -33,7 +33,6 @@ Embeds are plain text so agents read and write them without a special API:
 from __future__ import annotations
 
 import difflib
-import mimetypes
 import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -46,6 +45,7 @@ from sqlalchemy.orm import Session, load_only, undefer
 from slate.ids import new_id
 from slate.models import Doc, DocFile, DocTag, DocVersion, Item, List, Section, Tag, utcnow
 from slate.service import access, guests
+from slate.service import attachments as attachments_svc
 from slate.service import items as items_svc
 from slate.service import tags as tags_svc
 from slate.service.comments import mentions_in
@@ -55,8 +55,6 @@ from slate.service.lists import get_list
 from slate.service.sections import get_section
 from slate.settings import settings
 
-_CTYPE = re.compile(r"^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$")
-
 MAX_DEPTH = 8  # a top page is depth 1
 MAX_BODY = 500_000
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -65,7 +63,6 @@ KINDS = ("page", "file", "folder")
 FOLD_MINUTES = 10
 EMBED_RE = re.compile(r"\[\[(task|doc):([0-9A-Za-z]{12})\]\]")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_UNSAFE_NAME = re.compile(r'[\x00-\x1f/\\"]+')
 
 # Starting points offered by "New doc" on the board and `template` on create.
 TEMPLATES: dict[str, dict[str, str]] = {
@@ -1507,17 +1504,7 @@ def add_file(
     """Upload an image or file into a doc; its `markdown` is ready to paste into the body."""
     if get_doc(session, doc_id).kind == "folder":
         raise Invalid("a folder holds documents, not files; put the file in a doc inside it")
-    name = _UNSAFE_NAME.sub("_", (filename or "").strip()).strip(". ")[:255]
-    if not name:
-        raise Invalid("filename is empty")
-    if not data:
-        raise Invalid("file is empty")
-    if len(data) > MAX_FILE_BYTES:
-        raise Invalid(f"file is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
-    ctype = (content_type or "").split(";")[0].strip().lower()
-    if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
-        # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    name, ctype = _clean_file(filename, data, content_type, MAX_FILE_BYTES)
     f = DocFile(
         id=new_id(),
         doc_id=doc_id,
@@ -1549,18 +1536,8 @@ def remove_file(session: Session, actor: Actor, file_id: str) -> None:
 def _clean_file(
     filename: str, data: bytes, content_type: str | None, limit: int
 ) -> tuple[str, str]:
-    name = _UNSAFE_NAME.sub("_", (filename or "").strip()).strip(". ")[:255]
-    if not name:
-        raise Invalid("filename is empty")
-    if not data:
-        raise Invalid("file is empty")
-    if len(data) > limit:
-        raise Invalid(f"file is larger than {limit // (1024 * 1024)} MB")
-    ctype = (content_type or "").split(";")[0].strip().lower()
-    if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
-        # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    return name, ctype[:127]
+    """A doc file's stored name and type, by the rules every upload follows."""
+    return attachments_svc.clean(filename, data, content_type, limit=limit, noun="file")
 
 
 def _revision_row(
@@ -1920,7 +1897,6 @@ def promote_attachment(
 ) -> Doc:
     """Move a task's attachment into the library: a new file doc with the bytes as revision 1,
     the attachment removed from the task, and a comment on the task saying where it went."""
-    from slate.service import attachments as attachments_svc
     from slate.service.comments import add_comment
 
     att, data = attachments_svc.read_bytes(session, attachment_id)

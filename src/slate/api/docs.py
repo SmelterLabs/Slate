@@ -10,17 +10,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from slate.api.attachments import CSP
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.lists import list_out
 from slate.api.schemas import ChildIn, ItemOut, ListOut
-from slate.api.uploads import read_body
+from slate.api.uploads import file_response, read_body
 from slate.service import attachments as attachments_svc
 from slate.service import docs
 
@@ -734,20 +732,10 @@ def promote_attachment(
 def download_file(
     file_id: str, _: ReadAuth, session: DbSession, download: bool = False
 ) -> Response:
-    """The file's bytes; images show inline unless `?download=true`."""
+    """The file's bytes; images, PDFs and plain text show inline unless `?download=true`
+    (HTML, SVG and XML always download)."""
     f = docs.get_file(session, file_id)
-    inline = not download and f.content_type.startswith(("image/", "application/pdf", "text/"))
-    return Response(
-        content=f.data,
-        media_type=f.content_type,
-        headers={
-            "Content-Disposition": f"{'inline' if inline else 'attachment'}; "
-            f"filename*=UTF-8''{quote(f.filename)}",
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-store",
-            "Content-Security-Policy": CSP,
-        },
-    )
+    return file_response(f.filename, f.content_type, f.data, download=download)
 
 
 @router.delete("/doc-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
