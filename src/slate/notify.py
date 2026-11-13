@@ -42,8 +42,11 @@ Clock = Callable[[], datetime]
 # Tests swap in an `httpx.MockTransport`; None means real network.
 transport: httpx.BaseTransport | None = None
 
-# How often the loop prunes finished delivery rows (the first tick after a start prunes too).
+# How often the loop prunes finished delivery rows (the first tick after a start prunes too),
+# and for how long at most each time: batch after batch, so the prune keeps up with any
+# delivery rate instead of a fixed number of rows an hour.
 PRUNE_EVERY = timedelta(hours=1)
+PRUNE_BUDGET_SECONDS = 2.0
 
 
 def attempt(delivery_id: str, *, clock: Clock = utcnow, retry: bool = True) -> Delivery | None:
@@ -125,11 +128,18 @@ class Dispatcher:
         return len(ids)
 
     def prune_once(self, limit: int = deliveries.BATCH) -> int:
-        """Delete one batch of finished rows past the retention. Returns how many."""
+        """Delete the finished rows past the retention, `limit` at a time, until none are left
+        or `PRUNE_BUDGET_SECONDS` have passed (the rest go next time). Returns how many."""
         now = self.clock()
         self._pruned_at = now
+        stop = time.monotonic() + PRUNE_BUDGET_SECONDS
+        pruned = 0
         with slate_db.SessionLocal() as session:
-            pruned = deliveries.prune(session, now=now, limit=limit)
+            while True:
+                n = deliveries.prune(session, now=now, limit=limit)
+                pruned += n
+                if n < limit or time.monotonic() > stop:
+                    break
         if pruned:
             log.info("pruned %d finished webhook deliveries", pruned)
         return pruned

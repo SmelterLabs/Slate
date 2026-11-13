@@ -102,7 +102,8 @@ apply_change() commits ──► bus.publish ──(doorbell)──► Dispatche
   stored once per (webhook, event): a `retry` row hands it to the next attempt's row and keeps `""`.
 - **Retention:** finished rows (`ok`, `failed`, `skipped`, `retry`) older than
   `SLATE_DELIVERY_RETENTION_DAYS` (30; 0 keeps everything) are pruned by the dispatcher once an
-  hour, at most 500 per tick (`deliveries.prune`). Queued rows (`pending`, `sending`) are never
+  hour, 500 rows a batch until none are left or two seconds have passed (`notify.prune_once`,
+  `deliveries.prune`), so the prune keeps up with any delivery rate. Queued rows (`pending`, `sending`) are never
   pruned, so the Health page's queue counts and a restart's recovery are unaffected; the delivery
   list simply ends where the retention does.
 - **Restart:** pending rows are in the database, so they resume. On start the dispatcher puts
