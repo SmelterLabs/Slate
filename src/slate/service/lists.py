@@ -25,6 +25,7 @@ from slate.models import (
     utcnow,
 )
 from slate.service import sections
+from slate.service.colors import clean_color
 from slate.service.core import Actor, Change, apply_change
 from slate.service.errors import Conflict, Invalid, NotFound
 
@@ -66,7 +67,8 @@ def _clean_statuses(specs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             kind = StatusKind(spec.get("kind") or "open")
         except ValueError:
             raise Invalid(f"status kind must be one of {[k.value for k in StatusKind]}") from None
-        out.append({"id": spec.get("id"), "name": name, "kind": kind, "color": spec.get("color")})
+        color = clean_color(spec.get("color"))
+        out.append({"id": spec.get("id"), "name": name, "kind": kind, "color": color})
     return out
 
 

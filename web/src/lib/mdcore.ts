@@ -19,12 +19,14 @@ export function escape(s: string): string {
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const NAMED_COLOR = /^[a-zA-Z]{3,20}$/;
+const THEME_COLOR = /^var\(--[\w-]+\)$/;
 
-/** A colour that is safe to put in a `style` value: a hex colour or a plain CSS colour name.
- * Anything else (a stored value from before colours were checked) is dropped. */
+/** A colour that is safe to put in a `style` value: a hex colour, a plain CSS colour name or one
+ * of the board's own theme variables. The server accepts only the first two; anything else (a
+ * value stored before colours were checked) gives `fallback`. */
 export function safeColor(c: string | null | undefined, fallback = ''): string {
-  const v = (c ?? '').trim();
-  return HEX_COLOR.test(v) || NAMED_COLOR.test(v) ? v : fallback;
+  const v = c ?? '';
+  return HEX_COLOR.test(v) || NAMED_COLOR.test(v) || THEME_COLOR.test(v) ? v : fallback;
 }
 
 /** Stash finished HTML; returns its placeholder. */

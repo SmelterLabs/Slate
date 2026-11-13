@@ -9,7 +9,7 @@
 // point at an uploaded doc file carry `data-file` instead of `src`: the page fetches them with
 // the bearer token (lib/docs.svelte.ts `fileUrl`).
 
-import { FILE_URL, HEADING, escape, renderBlocks, renderInline, type Block, type Keep } from './mdcore';
+import { FILE_URL, HEADING, escape, renderBlocks, renderInline, safeColor, type Block, type Keep } from './mdcore';
 
 export { escape, type Block };
 
@@ -37,9 +37,10 @@ function tokens(out: string, keep: Keep, ctx: DocCtx): string {
     .replace(/\[\[task:([0-9A-Za-z]{12})\]\]/g, (_, id: string) => {
       const t = ctx.task(id);
       if (!t) return keep(`<span class="task-chip missing" data-task="${id}">Task not found</span>`);
+      const color = safeColor(t.color);
       return keep(
         `<a class="task-chip${t.done ? ' done' : ''}" href="#task=${id}" data-task="${id}">` +
-          `<span class="dot" style="background:${escape(t.color)}"></span>${escape(t.title)}</a>`,
+          `<span class="dot"${color ? ` style="background:${color}"` : ''}></span>${escape(t.title)}</a>`,
       );
     })
     .replace(/\[\[doc:([0-9A-Za-z]{12})\]\]/g, (_, id: string) => {
