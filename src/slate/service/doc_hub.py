@@ -20,16 +20,14 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from slate.models import Doc, DocComment, Event
+from slate.models import DocComment, Event
 from slate.service import access, doc_threads
 from slate.service import docs as docs_svc
 from slate.service import lists as lists_svc
+from slate.service.doc_listing import doc_ref, kind_counts
+from slate.service.doc_tree import top_of
 from slate.service.errors import NotFound
 from slate.service.sections import get_section
-
-
-def _ref(d: Doc) -> dict[str, Any]:
-    return {"id": d.id, "title": d.title, "icon": d.icon, "kind": d.kind}
 
 
 def section_documents(session: Session, section_id: str, me: str | None) -> dict[str, Any]:
@@ -45,10 +43,6 @@ def section_documents(session: Session, section_id: str, me: str | None) -> dict
         lst for lst in lists_svc.list_lists(session, section_id=section_id) if lst.kind == "drawer"
     ]
     counts = doc_threads.counts(session, ids) if ids else {}
-
-    def top(d: Doc) -> Doc:
-        chain = docs_svc._ancestors(by_id, d)  # noqa: SLF001 - same package
-        return chain[-1] if chain else d
 
     needs: list[dict[str, Any]] = []
     if me is not None and ids:
@@ -97,8 +91,8 @@ def section_documents(session: Session, section_id: str, me: str | None) -> dict
             needs.append(
                 {
                     "kind": kind,
-                    "doc": _ref(doc),
-                    "list_id": top(doc).list_id,
+                    "doc": doc_ref(doc),
+                    "list_id": top_of(by_id, doc).list_id,
                     "comment": doc_threads.views(session, doc, [c])[0],
                     "url": f"/#/docs/{doc.id}?comment={c.id}",
                 }
@@ -106,16 +100,11 @@ def section_documents(session: Session, section_id: str, me: str | None) -> dict
 
     out_drawers = []
     for lst in drawers:
-        mine = [d for d in docs if top(d).list_id == lst.id]
+        mine = [d for d in docs if top_of(by_id, d).list_id == lst.id]
         out_drawers.append(
             {
                 "list": lst,
-                "counts": {
-                    "docs": sum(1 for d in mine if d.kind != "folder"),
-                    "files": sum(1 for d in mine if d.kind == "file"),
-                    "folders": sum(1 for d in mine if d.kind == "folder"),
-                    "open_threads": sum(counts.get(d.id, (0, 0))[1] for d in mine),
-                },
+                "counts": kind_counts(mine, counts),
                 "needs_you": sum(1 for n in needs if n["list_id"] == lst.id),
             }
         )
@@ -124,9 +113,5 @@ def section_documents(session: Session, section_id: str, me: str | None) -> dict
         "drawers": out_drawers,
         "pages": docs_svc.summaries(session, pages),
         "needs_you": needs,
-        "counts": {
-            "docs": sum(1 for d in docs if d.kind != "folder"),
-            "files": sum(1 for d in docs if d.kind == "file"),
-            "open_threads": sum(open_n for _, open_n in counts.values()),
-        },
+        "counts": {k: v for k, v in kind_counts(docs, counts).items() if k != "folders"},
     }

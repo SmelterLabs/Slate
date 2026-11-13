@@ -273,38 +273,56 @@ READS = {
         "counts",
         "activity",
     },
-    "slate.service.docs": {
-        "parse_facts",
-        "pinned_first",
-        "date_in_name",
+    "slate.service.doc_files": {
         "created_from_name",
-        "get_doc",
-        "fresh_doc",
-        "unified",
-        "body_ref",
-        "root_of",
-        "list_docs",
-        "snippet",
-        "doc_summary",
-        "summaries",
-        "embeds_in",
-        "outline",
-        "doc_out",
-        "versions_of",
-        "get_version",
-        "revisions_of",
-        "get_revision",
-        "revision_out",
         "current_revisions",
-        "tags_of",
-        "drawer_listing",
-        "version_out",
-        "diff",
+        "date_in_name",
         "file_out",
         "get_file",
-        "templates",
-        "replace_section",
+        "get_revision",
+        "revision_out",
+        "revisions_of",
+    },
+    "slate.service.doc_listing": {
+        "doc_ref",
+        "doc_summary",
+        "drawer_listing",
         "in_scope",
+        "kind_counts",
+        "list_docs",
+        "pinned_first",
+        "snippet",
+        "summaries",
+        "tags_of",
+    },
+    "slate.service.doc_pages": {
+        "body_ref",
+        "diff",
+        "embeds_in",
+        "get_version",
+        "outline",
+        "parse_facts",
+        "replace_section",
+        "templates",
+        "unified",
+        "version_out",
+        "versions_of",
+    },
+    "slate.service.doc_shape": {"backlinks", "doc_out", "sync_links"},
+    "slate.service.doc_tree": {
+        "all_docs",
+        "ancestors",
+        "depth",
+        "fresh_doc",
+        "get_doc",
+        "height",
+        "live",
+        "place",
+        "renumber",
+        "root_of",
+        "siblings",
+        "top_of",
+        "tree_order",
     },
     "slate.service.workload": {
         "capacity_view",
@@ -751,37 +769,45 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "start": None,
         "process": None,
     },
-    "slate.service.docs": {
-        "create_doc": lambda db, a, p: _doc(db, a),
-        "update_doc": lambda db, a, p: docs.update_doc(db, a, _doc(db, a).id, {"body_md": "x"}),
-        "move_doc": lambda db, a, p: docs.move_doc(
-            db, a, _doc(db, a).id, {"parent_id": _doc(db, a).id}
-        ),
-        "archive_doc": lambda db, a, p: _archived_doc(db, a),
-        "unarchive_doc": lambda db, a, p: docs.unarchive_doc(db, a, _archived_doc(db, a).id),
-        "delete_doc": lambda db, a, p: docs.delete_doc(db, a, _archived_doc(db, a).id),
-        "restore_version": lambda db, a, p: docs.restore_version(db, a, _doc(db, a).id, 1),
-        "duplicate_doc": lambda db, a, p: docs.duplicate_doc(db, a, _doc(db, a).id),
+    "slate.service.doc_files": {
         "add_file": lambda db, a, p: _doc_file(db, a),
         "remove_file": lambda db, a, p: docs.remove_file(db, a, _doc_file(db, a).id),
-        "create_task": lambda db, a, p: docs.create_task(
-            db, a, _doc(db, a, list_id=_list(db, a).id).id, title="Call"
-        ),
         "add_revision": lambda db, a, p: _file_doc(db, a),
         "restore_revision": lambda db, a, p: docs.restore_revision(db, a, _file_doc(db, a).id, 1),
-        "promote_attachment": lambda db, a, p: docs.promote_attachment(
-            db, a, _attachment(db, a).id
-        ),
         "pin_revision": lambda db, a, p: docs.pin_revision(db, a, _file_doc(db, a).id, 1),
         "unpin_revision": lambda db, a, p: docs.unpin_revision(
             db, a, docs.pin_revision(db, a, _file_doc(db, a).id, 1).id
         ),
+    },
+    "slate.service.doc_listing": {
         "pin_to_top": lambda db, a, p: docs.pin_to_top(db, a, _file_doc(db, a).id),
         "unpin_from_top": lambda db, a, p: docs.unpin_from_top(
             db, a, docs.pin_to_top(db, a, _file_doc(db, a).id).id
         ),
         "to_drawer": lambda db, a, p: docs.to_drawer(
             db, a, _doc(db, a, section_id=_section(db, a).id).id
+        ),
+    },
+    "slate.service.doc_pages": {
+        "create_doc": lambda db, a, p: _doc(db, a),
+        "update_doc": lambda db, a, p: docs.update_doc(db, a, _doc(db, a).id, {"body_md": "x"}),
+        "restore_version": lambda db, a, p: docs.restore_version(db, a, _doc(db, a).id, 1),
+        "duplicate_doc": lambda db, a, p: docs.duplicate_doc(db, a, _doc(db, a).id),
+        "create_task": lambda db, a, p: docs.create_task(
+            db, a, _doc(db, a, list_id=_list(db, a).id).id, title="Call"
+        ),
+    },
+    "slate.service.doc_tree": {
+        "move_doc": lambda db, a, p: docs.move_doc(
+            db, a, _doc(db, a).id, {"parent_id": _doc(db, a).id}
+        ),
+        "archive_doc": lambda db, a, p: _archived_doc(db, a),
+        "unarchive_doc": lambda db, a, p: docs.unarchive_doc(db, a, _archived_doc(db, a).id),
+        "delete_doc": lambda db, a, p: docs.delete_doc(db, a, _archived_doc(db, a).id),
+    },
+    "slate.service.docs": {
+        "promote_attachment": lambda db, a, p: docs.promote_attachment(
+            db, a, _attachment(db, a).id
         ),
     },
     "slate.service.doc_threads": {
