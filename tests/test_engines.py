@@ -125,10 +125,10 @@ def test_a_webhook_event_that_cannot_be_summarised_does_not_stop_the_rest(
     _item(client, alex, todo, "Good")
     real = deliveries.delivery_body
 
-    def body(session, ev):
+    def body(session, ev, reader=None):
         if ev.item_id == bad["id"]:
             raise KeyError("broken summary")
-        return real(session, ev)
+        return real(session, ev, reader)
 
     monkeypatch.setattr(deliveries, "delivery_body", body)
     new_cursor, queued = deliveries.fan_out(db, cursor, now=utcnow())
