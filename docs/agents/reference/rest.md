@@ -1026,7 +1026,7 @@ Post to the channel; `parent_id` replies in that message's thread. `@handle` men
 
 Scope: `write`
 
-Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it.
+Upload a file to send with a message (raw body, up to 25 MB). Until you post a message with its `id` in `file_ids`, only you can read it. You hold at most 20 unsent uploads (100 MB); one unsent for 24 hours is deleted.
 
 - Query: `filename`\*
 - Body: `application/octet-stream`
@@ -1820,7 +1820,7 @@ Move a task's attachment into Docs & Files: a new file doc with the bytes as rev
 
 Scope: `read`
 
-The file's bytes; images show inline unless `?download=true`.
+The file's bytes; images, PDFs and plain text show inline unless `?download=true` (HTML, SVG and XML always download).
 
 - Query: `download`
 - Returns: `200`

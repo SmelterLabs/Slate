@@ -209,7 +209,7 @@ def create_item_ai(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
     item = aiadd.file(session, auth.actor, body.list_id, body.text, extra)
-    tasks.add_task(aiadd.fill, aiadd.ask(session, auth.actor, item, body.text))
+    tasks.add_task(aiadd.fill_later, aiadd.ask(session, auth.actor, item, body.text))
     return items.views(session, [item])[0]
 
 

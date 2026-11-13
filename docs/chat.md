@@ -18,10 +18,17 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   Cursor/read-all calls are intentional prefix reads. `chat.unread_messages()` is the
   shared read predicate: callers such as push re-nudges must honor exact exposures, not just the
   cursor. Channels return `first_unread_id`, `first_unread_thread_id` and persistent
-  `unread_threads` counts. Own/deleted messages are never unread.
+  `unread_threads` counts. Own/deleted messages are never unread. `chat.unread()` gives the
+  same answer as counting `unread_messages()`, but in SQL: one `GROUP BY channel, parent_id`
+  past the cursor (mentions through `json_each`), then one small query per channel with exposed
+  ids to take those back out, so `GET /channels` loads no message rows. `GET /channels/{key}`
+  (`channel_view`) counts only its own channel (`list_channels(only=key)`), keeping the position
+  the full list gives it.
 - **Exposure is not mounting.** `exposure.ts` requires 99% intersection, an uncovered message,
   visible document and focused window continuously for 500ms. The chat store rechecks lifecycle
-  before an exact write; opening a channel never clears its Inbox wholesale. Oversized messages
+  before an exact write and gathers exposures for `EXPOSE_BATCH_MS` (1 s), then sends one read
+  call per channel with all of them (`exposureBatches`, at most 200 ids a call), so scrolling
+  through a busy channel writes a handful of `channel.read` events, not one per message; opening a channel never clears its Inbox wholesale. Oversized messages
   conservatively stay unread. First unread pages back or opens the thread. There is no recipient
   seen-receipt UI. Project home reuses loaded, access-filtered items and `myWork` scoped to its
   non-drawer lists; DocsHub is the source for document Needs you. The mention picker warns
@@ -210,11 +217,15 @@ picked file (`service/chat_files.py`, `message_files`, migration `b4f8d2e6a1c9`)
   the file's message through the caller's read filter, so channel access, a project agent's
   share date and members-only apply to the file exactly as to the message; anyone else gets the
   404 of a file that does not exist. Served by `api/uploads.file_response`: `nosniff`,
-  `no-store`, the sandbox CSP, inline only for images, PDFs and text.
+  `no-store`, the sandbox CSP, inline only for images, PDFs and text (never HTML, SVG or XML).
 - **Unsent is private.** Until it is sent only its uploader reads or discards a file
   (`DELETE /message-files/{id}`). `message.file_uploaded` / `message.file_discarded` have the
-  uploader as subject and no channel, so `access` shows them to nobody else. An upload never
-  sent is swept on its uploader's next upload once it is `UNSENT_KEEP` (24 h) old.
+  uploader as subject and no channel, so `access` shows them to nobody else. One account holds
+  at most `MAX_UNSENT_FILES` (20) unsent uploads and `MAX_UNSENT_BYTES` (100 MB); past that an
+  upload is refused (422) until one is sent or discarded. An upload never sent is swept once it
+  is `UNSENT_KEEP` (24 h) old, on its uploader's next upload and by the scheduler hook
+  `chat_files.sweep_unsent` (as the `slate` account). The raw upload route reads the body on the
+  event loop and writes in the thread pool, so the write lock never stalls live streams.
 - **Deleting the message deletes its files** (rows and bytes, in the same change;
   `message.deleted` `before.files` keeps the metadata). **Make a task** copies the files onto
   the task as attachments; the message keeps its own.
