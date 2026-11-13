@@ -15,6 +15,14 @@ from test_agent_stream import _agent, _item, _setup
 from test_api_events import _bearer, _open, live  # noqa: F401 (live is a fixture)
 
 API = "/api/v1"
+# httpx gives up on a read after 5 s by default. With the whole suite running, a request (or a
+# gap between two stream messages) can take longer than that, and a ReadTimeout then fails a
+# test that is waiting correctly. The tests' own waits (`drain`) are what bound them.
+CLIENT_TIMEOUT = httpx.Timeout(60.0)
+
+
+def _client(live) -> httpx.AsyncClient:  # noqa: F811
+    return httpx.AsyncClient(base_url=live.url, timeout=CLIENT_TIMEOUT)
 
 
 class Reader:
@@ -29,17 +37,21 @@ class Reader:
             msg = await stream.event(timeout=3600)
             await self.queue.put(msg)
 
-    async def drain(self, quiet: float = 0.5, expect: int = 0, patience: float = 10.0) -> list:
+    async def drain(
+        self, quiet: float = 0.5, expect: int = 0, patience: float = 10.0, until=None
+    ) -> list:
         """Every event message until the stream is quiet for `quiet` seconds.
 
         With `expect`, first wait up to `patience` seconds for that many messages: a busy
         server (CI at full load) can take longer than the quiet window to deliver the first
-        one, and a drain that gives up early reads as "nothing arrived".
+        one, and a drain that gives up early reads as "nothing arrived". With `until` (a test
+        on the messages so far), wait the same way until it holds: one event can bring more
+        than one message, so a count can be met before a later event's messages arrive.
         """
         got = []
         loop = asyncio.get_running_loop()
         deadline = loop.time() + patience
-        while len(got) < expect:
+        while len(got) < expect or (until is not None and not until(got)):
             remaining = deadline - loop.time()
             if remaining <= 0:
                 break
@@ -67,7 +79,10 @@ def _hints(msgs) -> list[tuple[str, str]]:
 
 
 async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -81,7 +96,8 @@ async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
         # The scheduler reaches its due time: the run stage and item.due both hint.
         with live.Session() as s:
             due.emit_due_events(s, now=datetime.now(UTC))
-        msgs = await stream.drain(expect=2)
+        # Each of the two events brings news and a hint: wait for both hints, not two messages.
+        msgs = await stream.drain(until=lambda got: len(_hints(got)) >= 2)
         hints = _hints(msgs)
         assert sorted(t for _, t in hints) == ["item.due", "item.run_requested"]
         assert {i for i, _ in hints} == {late["id"]}
@@ -95,7 +111,10 @@ async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
 
 
 async def test_due_soon_is_news_and_run_now_hints_the_pressed_task(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -119,7 +138,10 @@ async def test_due_soon_is_news_and_run_now_hints_the_pressed_task(live):  # noq
 
 
 async def test_another_agents_run_wakes_nobody_else(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         await _agent(client, live.admin_token, "agent2")
@@ -142,7 +164,7 @@ async def test_runner_on_the_live_stream_runs_the_pressed_task(live, tmp_path): 
     from slate_runner import Runner
 
     example = Path(__file__).resolve().parent.parent / "clients" / "python" / "run_one_example.py"
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         later = (datetime.now(UTC) + timedelta(days=2)).isoformat()
@@ -225,7 +247,7 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
         "    out.update(outcome='blocked', waiting_on='alex', reply='Test needs a person')\n"
         "print(json.dumps(out))\n"
     )
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         when = datetime.now(UTC) + timedelta(seconds=2)
@@ -304,7 +326,10 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
 
 
 async def test_an_ask_wakes_the_asked_agent(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -338,7 +363,7 @@ async def test_one_runner_process_serves_every_agent_in_its_config(live, tmp_pat
         "json.load(sys.stdin)\n"
         "print(json.dumps({'outcome': 'done', 'reply': 'ran as ' + os.environ['WHO']}))\n"
     )
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, agent = await _agent(client, live.admin_token, "agent")
         _, agent2 = await _agent(client, live.admin_token, "agent2")

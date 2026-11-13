@@ -314,15 +314,16 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   configured `HERMES_CWD`.
 - **Open link schemes** (`settings.link_schemes` / `SLATE_LINK_SCHEMES`, default
   `["http","https"]`): `reports.check_url` accepts a `url` or `thread.url` only with a listed
-  scheme, and every scheme still needs a host part (`hermes://chat/<id>?profile=my-agent` passes,
-  `hermes:chat` does not). `GET /me` carries `link_schemes`, and the board
+  scheme, and every scheme still needs a host part (with `myapp` listed,
+  `myapp://chat/<id>?profile=my-agent` passes and `myapp:chat` does not). `GET /me` carries `link_schemes`, and the board
   (`conversation.safeAgentUrl`, used by `AgentBadge`) renders an Open link only for a scheme the
   server named (http(s) when it named none), so a desktop app's link is followed only where Slate
   was configured for it; a non-http(s) link opens in the same tab (the OS hands it to the app)
   instead of `_blank`. `javascript`, `data`, `vbscript`, `blob` and `file` are never
   accepted (`settings.UNSAFE_LINK_SCHEMES`): the setting refuses them at start-up, and
-  `check_url` and `/me` drop them even so. Slate still knows nothing about Hermes: the scheme is configuration on the
-  server, and the Hermes adapter (`integrations/hermes/run_task.py` `thread_ref`) is what sends
+  `check_url` and `/me` drop them even so. Slate knows nothing about any agent runtime: the
+  scheme is configuration on the server, and the adapter decides what link it sends. The
+  bundled Hermes adapter (`integrations/hermes/run_task.py` `thread_ref`) is what sends
   `hermes://chat/<session id>?profile=<profile>` (profile from `HERMES_PROFILE`, else the
   `/p/<profile>` tail of `HERMES_API_URL`), which Hermes Desktop's `hermes://chat` deep link opens
   on the owning profile. `HERMES_SESSION_LINK=0` keeps the ref without the url for a Slate that

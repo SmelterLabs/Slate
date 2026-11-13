@@ -257,3 +257,45 @@ def test_a_project_agents_chat_is_for_those_who_see_the_project(client, alex, tw
     ws, wh = _acct(client, alex, "my-agent", "agent", "member")
     _post(client, alex, f"agent:{ws['id']}", "Hello agent")
     assert _bodies(client, oh, f"agent:{ws['id']}") == ["Hello agent"]
+
+
+def test_an_agent_shared_into_two_projects_cannot_become_a_guest(client, alex, db):
+    a, b = _section(client, alex, "Project A"), _section(client, alex, "Project B")
+    bot, _ = _acct(client, alex, "my-agent", "agent", "member")
+    _share(client, alex, bot["id"], a["id"])
+    lst = client.post(f"{API}/lists", json={"section_id": b["id"], "name": "B work"}, headers=alex)
+    r = client.put(
+        f"{API}/shares",
+        json={"account_id": bot["id"], "scope_kind": "list", "scope_id": lst.json()["id"]}
+        | {"level": "view"},
+        headers=alex,
+    )
+    assert r.status_code == 200, r.text
+    r = client.put(f"{API}/accounts/{bot['id']}/role", json={"role": "guest"}, headers=alex)
+    assert r.status_code == 422, r.text
+    assert "one project" in r.text and "Project A" in r.text and "Project B" in r.text
+    [me] = [
+        m
+        for m in client.get(f"{API}/members", headers=alex).json()
+        if m["account"]["id"] == bot["id"]
+    ]
+    assert me["role"] == "member"
+    # With its shares in one project left, it becomes that project's agent.
+    [share] = [
+        s
+        for s in client.get(f"{API}/shares", params={"account_id": bot["id"]}, headers=alex).json()
+        if s["scope_kind"] == "list"
+    ]
+    assert client.delete(f"{API}/shares/{share['id']}", headers=alex).status_code == 204
+    r = client.put(f"{API}/accounts/{bot['id']}/role", json={"role": "guest"}, headers=alex)
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "guest"
+
+
+def test_a_person_in_two_projects_can_still_become_a_guest(client, alex):
+    a, b = _section(client, alex, "Project A"), _section(client, alex, "Project B")
+    person, _ = _acct(client, alex, "guest-a", "person", "member")
+    _share(client, alex, person["id"], a["id"])
+    _share(client, alex, person["id"], b["id"])
+    r = client.put(f"{API}/accounts/{person['id']}/role", json={"role": "guest"}, headers=alex)
+    assert r.status_code == 200, r.text

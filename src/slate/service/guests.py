@@ -22,25 +22,41 @@ Read-only helpers: no writes, no events.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from slate.models import Account, AccountKind, Role
+from slate.models import SYSTEM_HANDLE, Account, AccountKind, Role
 from slate.service.errors import Forbidden
 
-SYSTEM_HANDLE = "slate"  # Slate's own scheduler account (service/accounts.py)
+_accounts = Account.__table__
 
 
 def workspace_agent(account: Account | None) -> bool:
     """An agent that belongs to the workspace rather than to one project: any agent account
-    that is not a guest."""
+    that is not a guest. `workspace_agents()` is the same rule in SQL."""
     return (
         account is not None
         and account.kind == AccountKind.agent
         and account.role != Role.guest
-        and account.handle != SYSTEM_HANDLE  # Slate's own scheduler is not an agent here
+        and account.handle != SYSTEM_HANDLE  # Slate's own account is not an agent here
     )
+
+
+def _is_workspace_agent() -> tuple[Any, ...]:
+    """`workspace_agent` as SQL conditions on the accounts table. Table columns, not the
+    mapped class, so the read filter never narrows it inside another query."""
+    return (
+        _accounts.c.kind == AccountKind.agent,
+        _accounts.c.role != Role.guest,
+        _accounts.c.handle != SYSTEM_HANDLE,
+    )
+
+
+def workspace_agents() -> Any:
+    """SQL: the ids of the workspace agents (`workspace_agent`), for `IN` and `NOT IN`."""
+    return select(_accounts.c.id).where(*_is_workspace_agent())
 
 
 def is_guest(session: Session, account_id: str | None) -> bool:
@@ -60,15 +76,7 @@ def workspace_agent_ids(session: Session) -> set[str]:
     from slate.service import access  # noqa: PLC0415
 
     with access.unrestricted(session):
-        return set(
-            session.scalars(
-                select(Account.id).where(
-                    Account.kind == AccountKind.agent,
-                    Account.role != Role.guest,
-                    Account.handle != SYSTEM_HANDLE,
-                )
-            )
-        )
+        return set(session.scalars(workspace_agents()))
 
 
 def may_reach(session: Session, actor_id: str | None, target: Account | None) -> bool:
@@ -91,11 +99,8 @@ def reachable_handles(session: Session, actor_id: str | None, handles: Iterable[
         return handles
     blocked = set(
         session.scalars(
-            select(Account.handle).where(
-                Account.handle.in_(handles),
-                Account.kind == AccountKind.agent,
-                Account.role != Role.guest,
-                Account.handle != SYSTEM_HANDLE,
+            select(_accounts.c.handle).where(
+                _accounts.c.handle.in_(handles), *_is_workspace_agent()
             )
         )
     )

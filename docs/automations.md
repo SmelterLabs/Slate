@@ -50,6 +50,14 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   Needs `SLATE_SECRET_KEY` (else 503). One attempt, 5 s timeout, outside any write transaction; the
   result goes in the run. URLs pass `webhooks.validate_url` (https, or http to a private host). For
   retried delivery an agent registers a real webhook subscription instead.
+- **Who reads a webhook address.** An address often carries a secret, so only the rule's author
+  and admins (`access.is_admin`) read it in full. Everyone else gets each `webhook` action with
+  its `url` cut to `scheme://host[:port]` (`access.masked_hook_urls`), in `GET /automations`, MCP
+  and the `automation.*` events (stored history through `access.event_snapshots`, live payloads
+  through `EventGate.project`, webhook delivery bodies). A member who edits the rule's actions
+  and sends a webhook action back with that host-only `url` keeps the hidden address (the
+  webhook at the same position first, else the first on the same host); any other `url`
+  replaces it.
 - **Run now** (`POST /automations/{id}/run {item_id}`, MCP `run`): the actions on one item, skipping
   trigger and conditions.
 - **Triggers on items in archived lists or sections, and archived items, do nothing.** `moved_in`
