@@ -398,10 +398,12 @@ export class Slate {
   }
 
   /**
-   * Check in every `intervalMs`; claim each queue item and call `handle(item)`. When it
-   * resolves (optionally to a result comment) the item is reported done; if it throws, the
-   * item is reported blocked with the error and skipped for the rest of this run. `once`
-   * does a single pass. Stop the loop with `signal`.
+   * The older item-shaped loop, now `workForever` underneath: takes each task with
+   * `POST /work/next` (long-polling up to `intervalMs`, at most 60 s) and calls `handle(item)`.
+   * When it resolves (optionally to a result comment) the task is finished done; if it throws,
+   * it is finished blocked with the error, and the server pauses it for this agent for an hour
+   * (`BLOCKED_PAUSE`) unless someone answers or presses Run now. `onNews` gets the check-in
+   * news before each task. `once` does a single pass. Stop the loop with `signal`.
    */
   async runForever(
     handle: (item: Item) => Promise<string | void> | string | void,

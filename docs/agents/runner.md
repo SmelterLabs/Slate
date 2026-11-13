@@ -318,8 +318,14 @@ sys.stdout.flush()
 print(json.dumps({"outcome": "done", "note": f"Did: {item['title']}"}))
 ```
 
-For Claude Code: `--exec "claude -p \"$(cat)\" --output-format json"` (wrap it in a script
-that prints a result line from Claude's answer).
+For a one-shot agent CLI (Claude Code's `claude -p`, say), use a small wrapper script as the
+command, never the task JSON as the prompt (`claude -p "$(cat)"`): that JSON is card and chat
+text without the brief's framing (who wrote each comment, comments quoted as information, the
+`SLATE:` line to end with), and `$(cat)` does not work under cmd.exe, the runner's shell on
+Windows. The wrapper reads the task from stdin, fetches `GET /items/{id}/brief` with
+`SLATE_TOKEN`, passes its `text` to the CLI as one argument (an argument list, no shell), and
+prints a result line from the `SLATE:` line its answer ends with.
+`integrations/hermes/run_task_cli.py` is that wrapper for the Hermes CLI, and a model to copy.
 
 ## Stopping and recovery
 
