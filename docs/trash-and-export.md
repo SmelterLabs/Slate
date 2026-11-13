@@ -29,8 +29,10 @@ Where work goes when it leaves the board, and how data leaves Slate.
 - **REST**: `POST /items/{id}/trash|restore` (item), `POST /items/{id}/purge` (204), `POST
   /trash/empty` (admin, `{purged}`), `GET
   /export?format=json|csv&list_id=|section_id=&include_archived=` (attachment; CSV has a BOM for
-  Excel), `GET /admin/backup` (admin; SQLite online backup into a temp file, removed after the
-  response). **MCP**: `slate_item` `trash|restore|purge`; `slate_export` `json` (JSON only, because
+  Excel, and a text cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a
+  leading `'` so a spreadsheet shows it as text instead of running it), `GET /admin/backup`
+  (admin; SQLite online backup into a temp folder, removed after the response, or at once when
+  the copy fails). **MCP**: `slate_item` `trash|restore|purge`; `slate_export` `json` (JSON only, because
   the stdio binding parses every REST answer as JSON) and `empty_trash` (admin).
 - **Export** (`service/export.py`): JSON is `{format: "slate-export", version: 1, exported_at,
   scope, accounts, sections, lists (with statuses), tags, items (the API item shape), comments,

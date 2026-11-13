@@ -249,7 +249,8 @@ def export_csv(
         lst = lists.get(v["list_id"])
         status = v["status"] or {}
         writer.writerow(
-            [
+            csv_cell(c)
+            for c in [
                 v["id"],
                 v["title"],
                 sections.get(lst.section_id, "") if lst else "",
@@ -273,6 +274,18 @@ def export_csv(
             ]
         )
     return out.getvalue()
+
+
+# A cell starting with one of these is a formula to Excel and Sheets (OWASP "CSV injection").
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_cell(value: object) -> object:
+    """A CSV cell a spreadsheet shows as text: a leading `'` defuses a formula. Dates (which
+    start with a digit) and numbers pass unchanged."""
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return "'" + value
+    return value
 
 
 def _iso(value: datetime | None) -> str:

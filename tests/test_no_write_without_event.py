@@ -200,7 +200,14 @@ READS = {
     },
     "slate.service.today": {"today"},
     "slate.service.trash": {"purge_due_at"},
-    "slate.service.export": {"scope_of", "filename", "export_json", "export_csv", "backup_to"},
+    "slate.service.export": {
+        "scope_of",
+        "filename",
+        "export_json",
+        "export_csv",
+        "csv_cell",
+        "backup_to",
+    },
     "slate.service.views": {
         "validate_config",
         "view_out",
