@@ -67,7 +67,8 @@ EVENT_DOCS: dict[str, str] = {
     "share.revoked": "A share was removed (`before` = the share).",
     "invitation.created": "A seven-day private-section guest/edit invitation. No secret or hash.",
     "invitation.accepted": "Single-use invitation consumed; session linked. Actor is the guest.",
-    "invitation.revoked": "An admin cancelled an invitation and its associated browser session.",
+    "invitation.revoked": "An invitation was cancelled: by an admin, with its browser session, "
+    "or because the guest's section share was removed or a sibling link was cancelled.",
     "session.created": "Thirty-day browser token expiry and marker set. No credential.",
     "session.expiring": "A guest browser session ends in three days (`after`: section, date, "
     "inviter; `for` = guest | inviter). Subject is the account told; inbox reason `access`.",
@@ -161,8 +162,8 @@ EVENT_DOCS: dict[str, str] = {
     "`channel_name`, `mentions`; a reply also carries `thread_followers`, the account ids of "
     "the thread's earlier authors). Check-in news `mentioned` or `reply`.",
     "message.edited": "A chat message's text changed (`after.mentions` = handles the edit added).",
-    "message.deleted": "A chat message was deleted by its author (the text goes, the thread "
-    "stays).",
+    "message.deleted": "A chat message was deleted by its author or an owner or admin (the text "
+    "goes, the thread stays; `before` keeps it).",
     "message.file_uploaded": "A file was uploaded to send with a chat message (`after` = "
     "its metadata, no channel: until it is sent only its uploader hears of it; a sent "
     "message carries its files in `message.posted` `after.files`).",

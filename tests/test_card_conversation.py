@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy import select
 
 from conftest import API
+from conftest import item_events as _events
 from run_proofs import remember, run_fields
 from slate import webpush
 from slate.models import Event
@@ -48,11 +49,6 @@ def _comment(client, h, item_id, body, **kw):
 
 def _comments(client, h, item_id):
     return client.get(f"{API}/items/{item_id}/comments", headers=h).json()
-
-
-def _events(client, h, item_id, type_=None):
-    evs = client.get(f"{API}/items/{item_id}/events", headers=h).json()
-    return [e for e in evs if type_ is None or e["type"] == type_]
 
 
 def _view(client, h, item_id):

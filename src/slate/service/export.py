@@ -39,12 +39,12 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
+    Item,
     ItemLink,
     List,
     Message,
     MessageReaction,
     Section,
-    Tag,
     utcnow,
 )
 from slate.service import access, agent_rules
@@ -52,6 +52,7 @@ from slate.service import docs as docs_svc
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
 from slate.service import sections as sections_svc
+from slate.service import tags as tags_svc
 from slate.service.core import jsonable, snapshot
 
 FORMAT = "slate-export"
@@ -143,18 +144,23 @@ def export_json(
         stmt = select(model).where(model.item_id.in_(ids)).order_by(*order)
         return [snapshot(r) for r in session.scalars(stmt)]
 
-    links = (
-        [
-            snapshot(r)
-            for r in session.scalars(
+    link_rows = (
+        list(
+            session.scalars(
                 select(ItemLink).where(
                     or_(ItemLink.from_item_id.in_(ids), ItemLink.to_item_id.in_(ids))
                 )
             )
-        ]
+        )
         if ids
         else []
     )
+    # A link whose other end the caller cannot read is left out, as the item views leave it.
+    ends = {r.from_item_id for r in link_rows} | {r.to_item_id for r in link_rows}
+    readable = set(session.scalars(select(Item.id).where(Item.id.in_(ends)))) if ends else set()
+    links = [
+        snapshot(r) for r in link_rows if r.from_item_id in readable and r.to_item_id in readable
+    ]
     if scope["kind"] == "everything":
         in_channels: Any = true()
     else:
@@ -188,7 +194,8 @@ def export_json(
         }
         for d in docs_in_scope
     ]
-    return jsonable(
+    # A guest's copy names no workspace agent (raw snapshots carry account ids).
+    body = jsonable(
         {
             "format": FORMAT,
             "version": VERSION,
@@ -214,7 +221,7 @@ def export_json(
                 }
                 for lst in lists
             ],
-            "tags": [snapshot(t) for t in session.scalars(select(Tag).order_by(Tag.name))],
+            "tags": [snapshot(t) for t in tags_svc.list_tags(session)],
             "items": items_svc.views(session, rows),
             "comments": by_item(Comment, Comment.created_at),
             "checklists": by_item(Checklist, Checklist.position),
@@ -225,6 +232,7 @@ def export_json(
             "message_reactions": [snapshot(r) for r in reactions],
         }
     )
+    return access.scrub(session, body)
 
 
 def export_csv(

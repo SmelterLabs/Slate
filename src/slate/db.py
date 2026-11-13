@@ -167,9 +167,9 @@ def _seed_event_clock(dbapi_connection, _record) -> None:  # noqa: ANN001
     cursor = dbapi_connection.cursor()
     try:
         newest = []
-        for table in ("events", "messages"):
+        for newest_id in ("SELECT max(id) FROM events", "SELECT max(id) FROM messages"):
             try:
-                cursor.execute(f"SELECT max(id) FROM {table}")  # noqa: S608 (fixed names)
+                cursor.execute(newest_id)
                 newest.append(cursor.fetchone()[0])
             except sqlite3.OperationalError:  # not migrated yet: nothing to continue after
                 pass

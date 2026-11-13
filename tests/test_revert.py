@@ -7,6 +7,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from conftest import API
+from conftest import item_events as _events
 from slate.models import Event
 from test_mcp import call, err, http_mcp, ok
 from test_permissions import share
@@ -22,15 +23,6 @@ def _patch(client, h, item_id, **changes):
     r = client.patch(f"{API}/items/{item_id}", json=changes, headers=h)
     assert r.status_code == 200, r.text
     return r.json()
-
-
-def _events(client, h, item_id, type_=None, field=None):
-    rows = client.get(f"{API}/items/{item_id}/events", headers=h).json()
-    return [
-        e
-        for e in rows
-        if (type_ is None or e["type"] == type_) and (field is None or e["field"] == field)
-    ]
 
 
 def _last(client, h, item_id, type_=None, field=None):

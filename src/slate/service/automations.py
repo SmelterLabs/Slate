@@ -850,13 +850,19 @@ def run_rule(
             if kind == "webhook":
                 if send is None:
                     raise Invalid("webhooks are not being sent (engine not running)")
-                payload = jsonable(
-                    {
-                        "automation": {"id": rule.id, "name": rule.name},
-                        "event": event_payload(event) if event is not None else None,
-                        "item": items_svc.views(session, [item])[0],
-                    }
-                )
+                author = session.get(Account, rule.created_by)
+                if author is None:
+                    raise Invalid("the rule's author no longer exists")
+                # What the author could read, not what the engine can (links to lists the
+                # author cannot see, a workspace agent hidden from a guest author).
+                with access.reading_as(session, author):
+                    payload = jsonable(
+                        {
+                            "automation": {"id": rule.id, "name": rule.name},
+                            "event": event_payload(event) if event is not None else None,
+                            "item": items_svc.views(session, [item])[0],
+                        }
+                    )
                 ok, detail = send(action["url"], payload, signing_secret(rule))
                 results.append({"action": kind, "ok": ok, "detail": detail})
                 continue

@@ -34,7 +34,31 @@ def installed_server(tmp_path_factory):
     venv = outside / "venv"
     checked("uv", "venv", "--python", sys.executable, str(venv), cwd=outside)
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    checked("uv", "pip", "install", "--python", str(python), str(wheel), cwd=outside)
+    # The wheel's dependencies resolve to the versions uv.lock pins, never whatever the index
+    # has today: the floors in pyproject.toml are only lower bounds.
+    constraints = outside / "constraints.txt"
+    checked(
+        "uv",
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--no-emit-project",
+        "--no-hashes",
+        "--output-file",
+        str(constraints),
+        cwd=ROOT,
+    )
+    checked(
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(python),
+        "-c",
+        str(constraints),
+        str(wheel),
+        cwd=outside,
+    )
     env = {k: v for k, v in os.environ.items() if not k.startswith("SLATE_")}
     env.pop("PYTHONPATH", None)
     env.update(
@@ -45,6 +69,45 @@ def installed_server(tmp_path_factory):
         SLATE_SECRET_KEY="ab" * 32,
     )
     return outside, wheel, python, env
+
+
+def _pins(text: str) -> dict[str, str]:
+    pins = {}
+    for line in text.splitlines():
+        line = line.split(";")[0].split("#")[0].strip()
+        if "==" in line:
+            name, version = line.split("==", 1)
+            pins[name.strip().lower().replace("_", "-")] = version.strip()
+    return pins
+
+
+def test_dependency_floors_are_tested_and_capped():
+    """Every runtime dependency names a floor no newer than the version uv.lock pins (the one
+    the tests run) and an upper bound, except tzdata, whose new data is always wanted."""
+    import tomllib
+
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked = {p["name"]: Version(p["version"]) for p in lock["package"] if "version" in p}
+    for line in project["project"]["dependencies"]:
+        req = Requirement(line)
+        floors = [Version(s.version) for s in req.specifier if s.operator == ">="]
+        caps = [s for s in req.specifier if s.operator == "<"]
+        assert floors, f"{line}: no floor"
+        assert floors[0] <= locked[req.name.lower()], f"{line}: floor newer than uv.lock"
+        assert caps or req.name == "tzdata", f"{line}: no upper bound"
+
+
+def test_installed_wheel_has_the_locked_versions(installed_server):
+    outside, _, python, _ = installed_server
+    locked = _pins((outside / "constraints.txt").read_text(encoding="utf-8"))
+    installed = _pins(checked("uv", "pip", "freeze", "--python", str(python), cwd=outside))
+    installed.pop("slate", None)
+    assert installed, "nothing installed"
+    assert {name: locked.get(name) for name in installed} == installed
 
 
 def test_installed_server_migrates_outside_checkout(installed_server):
@@ -120,7 +183,7 @@ def test_server_sdist_is_minimal(installed_server):
     assert not any("static" in parts or "__pycache__" in parts for parts in members)
 
 
-def test_archive_build_metadata_and_git_identity(tmp_path):
+def test_archive_build_metadata_and_git_identity(tmp_path, request):
     import shutil
 
     script = ROOT / "scripts" / "build_metadata.py"
@@ -148,6 +211,7 @@ def test_archive_build_metadata_and_git_identity(tmp_path):
         cwd=tmp_path,
     )
     assert json.loads(output.read_text()) == {"rev": "42", "commit": "abc1234"}
+    request.getfixturevalue("git_checkout")  # the rest reads this checkout's own identity
     checked(
         sys.executable, str(script), "--source", str(ROOT), "--output", str(output), cwd=tmp_path
     )
@@ -172,6 +236,8 @@ def test_portable_compose_and_archive_docker_contract():
     assert service["environment"]["SLATE_TIMEZONE"] == "${SLATE_TIMEZONE:-UTC}"
     assert "SLATE_SECRET_KEY:?" in service["environment"]["SLATE_SECRET_KEY"]
     assert service["environment"]["SLATE_WEBHOOK_PRIVATE_TARGETS"] == "false"
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
     docker = (ROOT / "Dockerfile").read_text()
     assert "COPY .git" not in docker
     assert "scripts/build_metadata.py" in docker

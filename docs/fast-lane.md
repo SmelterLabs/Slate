@@ -53,8 +53,8 @@ README). The internals:
   ~40% of a 2,000-item list read); `links.links_of` builds its `aliased()` constructs once at import
   and skips the blocker query when no item has blockers (aliasing copied every column, ~2 ms per
   item view).
-- **Benchmark:** `uv run python scripts/bench_api.py [items]` starts a real server on a temp
-  database and prints p50/p95 for the common calls. The load test is `scripts/load_test.py` (see
+- **Benchmark:** `uv run python scripts/bench_agent.py [--items N]` starts a real server on a
+  temp database and prints p50/p95/p99 for the agent loop and the owner's common calls. The load test is `scripts/load_test.py` (see
   "Performance at scale").
 
 ## Performance at scale

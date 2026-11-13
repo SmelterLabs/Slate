@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 # Generous limits on the long text fields (characters), so one write cannot carry tens of
 # megabytes into the item, its body versions, its event and every board and webhook. The
@@ -382,6 +382,9 @@ class ItemOut(BaseModel):
 
 
 class EventOut(_Out):
+    """Built from `core.event_payload()` (never from a stored row: the payload is what this
+    reader may see)."""
+
     id: str
     type: str
     item_id: str | None
@@ -389,8 +392,8 @@ class EventOut(_Out):
     actor_id: str | None = Field(description="Null to a project's guest for a workspace agent")
     source: Literal["ui", "api", "mcp", "system"]
     field: str | None
-    before: Any = Field(validation_alias=AliasChoices("before_json", "before"))
-    after: Any = Field(validation_alias=AliasChoices("after_json", "after"))
+    before: Any
+    after: Any
     session_ref: str | None
     at: datetime
 

@@ -39,6 +39,7 @@ class HealthOut(BaseModel):
     automations: dict[str, Any]
     queues: dict[str, Any]
     db: dict[str, Any]
+    backups: dict[str, Any] | None = None  # the deploy pack's last backup run, when it records one
 
 
 @router.get("/health", response_model=HealthOut)
