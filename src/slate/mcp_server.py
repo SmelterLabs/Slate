@@ -88,7 +88,7 @@ class LocalBackend:
     def _run(self, spec: ToolSpec, name: str, params: BaseModel, session_ref: str | None) -> Any:
         action = spec.actions[name]
         with db.SessionLocal() as session:
-            principal = accounts.resolve_token(session, self.token)
+            principal = accounts.authenticate(session, self.token)
             if principal is None:
                 raise ToolError("invalid or revoked token")
             if not principal.has(action.scope):
@@ -438,8 +438,9 @@ def _http_backend(ctx: Any) -> Backend:
 
 
 def _token_ok(token: str) -> bool:
+    """The gate only reads: the tool call resolves the token again, and stamps its use."""
     with db.SessionLocal() as session:
-        return accounts.resolve_token(session, token) is not None
+        return accounts.authenticate(session, token, touch=False) is not None
 
 
 class BearerGate:

@@ -34,8 +34,10 @@ def _account(client, alex, handle, kind="person", role="member"):
     )
     assert r.status_code == 201, r.text
     acct = r.json()
+    # Admin powers come with an admin token; a write token acts as an ordinary member.
+    scopes = ["admin"] if role == "admin" else ["write"]
     tok = client.post(
-        f"{API}/accounts/{acct['id']}/tokens", json={"scopes": ["write"]}, headers=alex
+        f"{API}/accounts/{acct['id']}/tokens", json={"scopes": scopes}, headers=alex
     ).json()
     return acct, {"Authorization": f"Bearer {tok['token']}"}
 

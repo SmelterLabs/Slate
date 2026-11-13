@@ -37,9 +37,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
-from slate.models import Account, Doc, DocComment, DocFile, Event, Role, utcnow
+from slate.models import Doc, DocComment, DocFile, Event, utcnow
+from slate.service import access, guests
 from slate.service import docs as docs_svc
-from slate.service import guests
 from slate.service.comments import authors_of, mentions_in
 from slate.service.core import Actor, Change, apply_change, event_payload, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -254,11 +254,6 @@ def _anchor(spec: Mapping[str, Any] | None, doc: Doc) -> dict[str, Any]:
     return out
 
 
-def _is_admin(session: Session, account_id: str) -> bool:
-    role = session.scalar(select(Account.role).where(Account.id == account_id))
-    return role in (Role.owner, Role.admin)
-
-
 def _record_mentions(
     session: Session,
     cx: Change,
@@ -463,10 +458,22 @@ def _root(c: DocComment) -> DocComment:
     return c
 
 
+def _may_settle(session: Session, actor: Actor, c: DocComment, what: str) -> None:
+    """Resolve and reopen: the thread's author, its assignee, an admin, or edit on the doc."""
+    if actor.account_id in (c.author_id, c.assignee_id) or access.is_admin(
+        session, actor.account_id
+    ):
+        return
+    found = access.caller(session)
+    if found is not None and found.doc_level(access.doc_place(session, c.doc_id)) < access.EDIT:
+        raise Forbidden(f"only its author, its assignee, an admin or an editor can {what} it")
+
+
 def resolve_comment(session: Session, actor: Actor, comment_id: str) -> DocComment:
     """Close a review thread or an Ask (its author, its assignee, an admin, or anyone who can
     edit the doc). Already resolved: no change."""
     c = _root(get_comment(session, comment_id))
+    _may_settle(session, actor, c, "resolve")
     if c.resolved_at is not None:
         return c
     with apply_change(session, actor) as cx:
@@ -475,7 +482,9 @@ def resolve_comment(session: Session, actor: Actor, comment_id: str) -> DocComme
 
 
 def reopen_comment(session: Session, actor: Actor, comment_id: str) -> DocComment:
+    """Reopen a resolved thread: the same people who may resolve it."""
     c = _root(get_comment(session, comment_id))
+    _may_settle(session, actor, c, "reopen")
     if c.resolved_at is None:
         return c
     with apply_change(session, actor) as cx:
@@ -489,7 +498,7 @@ def assign_comment(
     """Address a comment to an account (an Ask), or take it off with None: for the author or
     an admin. Assigning reopens a resolved thread."""
     c = get_comment(session, comment_id)
-    if c.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+    if c.author_id != actor.account_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the comment's author or an admin can assign it")
     target = resolve_account(session, assignee) if assignee else None
     guests.refuse(session, actor.account_id, target)

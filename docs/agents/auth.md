@@ -45,7 +45,9 @@ PATCH /accounts/{id}                 {"display_name": "..."} or {"disabled": tru
 DELETE /tokens/{token_id}            revoke now
 ```
 
-Creating accounts and tokens and changing accounts need `admin`. Any account can list its own
+Creating accounts and tokens and changing accounts need `admin` (an owner or admin account, on
+a token not limited to some lists); tokens and changes for an admin or the owner are the owner's.
+The handle `slate` is Slate's own account and takes no tokens. Any account can list its own
 tokens, read its own usage, and revoke its own token. Disabling an account stops all its tokens
 at once and takes it off the roster; its history and assignments stay, and
 `{"disabled": false}` brings it back. You cannot disable yourself.
@@ -56,7 +58,8 @@ Over MCP these are `slate_account` actions: `me`, `list`, `create`, `create_toke
 ## First run
 
 On an empty Slate, `POST /bootstrap {"handle": "alex", "display_name": "Alex"}` creates the
-first person with an `admin` token. It answers `410` once any account exists.
+first person with an `admin` token. It answers `410` once any account other than Slate's own
+exists.
 
 ## Rate limits
 
