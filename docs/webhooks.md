@@ -69,10 +69,11 @@ apply_change() commits ──► bus.publish ──(doorbell)──► Dispatche
 
 - **Body** = the flat `core.event_payload()` shape the SSE stream sends (`id, type, item_id,
   subject_id, actor_id, source, field, before, after, session_ref, at`) plus `item` (compact summary
-  at event time: `id, title, list_id, status` name, `priority, due_at, assignees` handles, `tags`;
-  or `null`) and `actor` (`{id, handle, kind}`). One shape everywhere: webhooks have no nested
-  shape of their own. Built once per event at fan-out and stored in
-  `deliveries.body`, so retries send identical bytes.
+  when the event is fanned out, usually within a second of it: `id, title, list_id, status` name,
+  `priority, due_at, assignees` handles, `tags`; or `null`) and `actor` (`{id, handle, kind}`). One
+  shape everywhere: webhooks have no nested shape of their own. Built once per event and owner at
+  fan-out, through the owner's read filter (a guest's body names no workspace agent, as its own
+  `GET` would not), and stored in `deliveries.body`, so retries send identical bytes.
 - **Headers:** `Content-Type: application/json`, `X-Slate-Event: <type>`, `X-Slate-Delivery:
   <attempt row id>` (new per attempt; dedupe on the body's `id` = event id), `X-Slate-Signature:
   sha256=<hex HMAC-SHA256(secret, raw body)>`, `User-Agent: Slate/<version>`.

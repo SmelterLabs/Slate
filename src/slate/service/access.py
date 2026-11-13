@@ -350,12 +350,16 @@ _BOUND_KEYS = (ACCESS_KEY, "slate_connection_event_access", "slate_connection_ev
 
 
 @contextmanager
-def reading_as(session: Session, account: Account) -> Iterator[Access]:
-    """`with access.reading_as(session, account):` reads as `account` would (its read filter),
-    for background work done on its behalf (a push it is sent), then restores the session."""
+def reading_as(session: Session, who: Account | Access) -> Iterator[Access]:
+    """`with access.reading_as(session, who):` reads as `who` (an account, or an access already
+    computed) would, through its read filter, for background work done on its behalf (a push
+    it is sent, a webhook it owns, an automation it wrote), then restores the session."""
     saved = {k: session.info[k] for k in _BOUND_KEYS if k in session.info}
-    with unrestricted(session):
-        found = compute(session, account)
+    if isinstance(who, Access):
+        found = who
+    else:
+        with unrestricted(session):
+            found = compute(session, who)
     attach(session, found)
     try:
         yield found

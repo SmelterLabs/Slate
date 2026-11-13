@@ -13,9 +13,10 @@ These rows are bookkeeping (`core.BOOKKEEPING_MODELS`): the table is itself the 
 so writing it records no event. The HTTP side is `slate.notify`.
 
 Body: the flat `core.event_payload()` shape the SSE stream sends, plus `item` (a compact
-summary at event time, or null) and `actor` (`{id, handle, kind}`). Stored as the exact JSON
-text that is signed, so every retry sends identical bytes. It is stored once per (webhook,
-event): a retry hands it to the next attempt's row and keeps `""`.
+summary when the event is fanned out, usually within a second of it, or null) and `actor`
+(`{id, handle, kind}`), built as the webhook's owner may read them (`access.reading_as`).
+Stored as the exact JSON text that is signed, so every retry sends identical bytes. It is
+stored once per (webhook, event): a retry hands it to the next attempt's row and keeps `""`.
 """
 
 from __future__ import annotations
@@ -80,9 +81,14 @@ def item_summary(session: Session, item_id: str | None) -> dict[str, Any] | None
     )
 
 
-def delivery_body(session: Session, ev: Event) -> str:
-    actor = session.get(Account, ev.actor_id)
+def delivery_body(session: Session, ev: Event, reader: access.Access | None = None) -> str:
+    """The signed body; with `reader` (the owner's access when it is restricted), built through
+    its read filter, so the item summary shows what the owner's own GET would."""
+    if reader is not None:
+        with access.reading_as(session, reader):
+            return delivery_body(session, ev)
     body = event_payload(ev)
+    actor = session.get(Account, body["actor_id"]) if body["actor_id"] else None
     body["item"] = item_summary(session, ev.item_id)
     body["actor"] = (
         {"id": actor.id, "handle": actor.handle, "kind": jsonable(actor.kind)} if actor else None
@@ -207,8 +213,13 @@ def fan_out(session: Session, cursor: str | None, *, now: datetime) -> tuple[str
                 targets = [h for h in targets if gates[h.account_id].allows(session, payload)]
             if not targets:
                 continue
-            body = delivery_body(session, ev)
+            bodies: dict[str, str] = {}  # one per owner: each reads through its own filter
             for h in targets:
+                body = bodies.get(h.account_id)
+                if body is None:
+                    body = bodies[h.account_id] = delivery_body(
+                        session, ev, gates[h.account_id].access
+                    )
                 session.add(
                     Delivery(webhook_id=h.id, event_id=ev.id, attempt=1, next_at=now, body=body)
                 )
