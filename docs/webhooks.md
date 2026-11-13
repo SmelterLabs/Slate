@@ -72,7 +72,7 @@ apply_change() commits ──► bus.publish ──(doorbell)──► Dispatche
 
 - **Body** = the flat `core.event_payload()` shape the SSE stream sends (`id, type, item_id,
   subject_id, actor_id, source, field, before, after, session_ref, at`) plus `item` (compact summary
-  at event time: `id, title, list_id, status` name, `priority, due_at, assignees` handles, `tags`;
+  as it is at fan-out, a moment after the event: `id, title, list_id, status` name, `priority, due_at, assignees` handles, `tags`;
   or `null`) and `actor` (`{id, handle, kind}`). One shape everywhere: webhooks have no nested
   shape of their own. Built once per event at fan-out and stored in
   `deliveries.body`, so retries send identical bytes.

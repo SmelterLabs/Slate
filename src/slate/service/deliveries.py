@@ -13,9 +13,9 @@ These rows are bookkeeping (`core.BOOKKEEPING_MODELS`): the table is itself the 
 so writing it records no event. The HTTP side is `slate.notify`.
 
 Body: the flat `core.event_payload()` shape the SSE stream sends, plus `item` (a compact
-summary at event time, or null) and `actor` (`{id, handle, kind}`). Stored as the exact JSON
-text that is signed, so every retry sends identical bytes. It is stored once per (webhook,
-event): a retry hands it to the next attempt's row and keeps `""`.
+summary as the item is at fan-out, or null) and `actor` (`{id, handle, kind}`). Stored as the
+exact JSON text that is signed, so every retry sends identical bytes. It is stored once per
+(webhook, event): a retry hands it to the next attempt's row and keeps `""`.
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def _context(session: Session, ev: Event) -> _Context:
 
 
 def matches(webhook: Webhook, ev: Event, ctx: _Context, owner_handle: str | None) -> bool:
-    """Type and filter match. Item conditions are judged on the item as it is at event time."""
+    """Type and filter match. Item conditions are judged on the item as it is at fan-out."""
     if webhook.disabled_at is not None or not webhooks.wants_type(webhook, ev.type):
         return False
     f = webhook.filter_json or {}
