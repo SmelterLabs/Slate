@@ -33,7 +33,7 @@ it:
   entries by `ON DELETE CASCADE`; the event's `before` keeps the names.
 - **Attachments**: `POST /items/{id}/attachments?filename=` with the raw file as the body (no
   multipart, so no `python-multipart`), or `/attachments/base64` with JSON. Max 25 MB. `GET
-  /attachments/{id}` returns it (bearer auth like every read; `?download=true` forces a download;
+  /attachments/{id}` returns it (bearer auth like every read; `?download=true` forces a download, and HTML, SVG and XML always download;
   `Content-Security-Policy: sandbox` so an uploaded HTML or SVG cannot run as Slate). **Bytes live
   in `attachment_blobs` inside the SQLite file**, not on disk: the nightly online backup then
   covers them with nothing extra in `deploy/server/`. `attachments.path` is `db:<id>`.
