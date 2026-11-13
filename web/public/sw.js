@@ -3,7 +3,11 @@
 // data always comes from the server, and the board shows "Reconnecting" when it can't.
 const CACHE = 'slate-shell-v1';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/apple-touch-icon.png'];
-const PASS = ['/api/', '/mcp', '/healthz'];
+const PASS = ['/api/', '/mcp', '/healthz', '/health', '/docs', '/redoc', '/openapi.json'];
+// The board is one page (its routes are after the #); any other page the server answers is not
+// the shell and is never stored as it.
+const BOARD_PAGES = new Set(['/', '/index.html']);
+const isShell = (html) => html.includes('/assets/index-');
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -36,8 +40,11 @@ async function page(req) {
   try {
     const res = await fetch(req);
     if (res.ok) {
-      await cache.put('/', res.clone());
-      void res.clone().text().then(prune);
+      const html = await res.clone().text();
+      if (isShell(html)) {
+        await cache.put('/', res.clone());
+        void prune(html);
+      }
     } else if (res.status >= 500) {
       const shell = await cache.match('/');
       if (shell) return shell;
@@ -76,7 +83,9 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (PASS.some((p) => url.pathname.startsWith(p))) return;
-  if (req.mode === 'navigate') e.respondWith(page(req));
+  if (req.mode === 'navigate') {
+    if (BOARD_PAGES.has(url.pathname)) e.respondWith(page(req));
+  }
   else if (url.pathname.startsWith('/assets/')) e.respondWith(asset(req));
   else e.respondWith(revalidate(req));
 });
@@ -103,10 +112,18 @@ self.addEventListener('push', (e) => {
   );
 });
 
-// A tap opens the task: focus an open Slate window and route it, else open a new one.
+// A tap opens the task: focus an open Slate window and route it, else open a new one. Only a
+// URL on this origin is opened; anything else falls back to the inbox.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const url = new URL(e.notification.data?.url || '/#/inbox', self.location.origin).href;
+  let target;
+  try {
+    target = new URL(e.notification.data?.url || '/#/inbox', self.location.origin);
+  } catch {
+    target = null;
+  }
+  if (!target || target.origin !== self.location.origin) target = new URL('/#/inbox', self.location.origin);
+  const url = target.href;
   e.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

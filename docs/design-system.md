@@ -81,10 +81,13 @@ already maps `.webmanifest` to `application/manifest+json`).
   from the SVGs with Chromium and are committed, so no build step needs an image tool; re-render
   them if you change either SVG).
 - `web/public/sw.js`, registered from `main.ts` in production builds only. It caches the shell,
-  never data: navigations are network-first with the cached `/` as the offline fallback (so a deploy
-  shows on the next open), `/assets/*` are cache-first (hashed names) and pruned to what the latest
-  `index.html` references, icons and the manifest are stale-while-revalidate. `/api/`, `/mcp` and
-  `/healthz` are never intercepted, so the live stream and every write go straight to the server.
+  never data: a navigation to the board (`/`) is network-first with the cached `/` as the offline
+  fallback (so a deploy shows on the next open), and only a page that loads the board's entry bundle
+  is stored as the shell; `/assets/*` are cache-first (hashed names) and pruned to what the latest
+  `index.html` references, icons and the manifest are stale-while-revalidate. `/api/`, `/mcp`,
+  `/healthz`, `/health`, `/docs`, `/redoc`, `/openapi.json` and any other page are never
+  intercepted, so the live stream, every write and the server's own pages go straight to it. A
+  notification tap opens only a URL on the board's own origin (anything else opens the inbox).
   Bump `CACHE` in `sw.js` only if the caching strategy itself changes.
 - FastAPI serves the board through `BoardFiles` (`app.py`): every file except `/assets/*` is sent
   with `Cache-Control: no-cache`, so the browser HTTP cache (which the service worker's
