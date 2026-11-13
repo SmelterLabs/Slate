@@ -42,4 +42,9 @@ describe('routes', () => {
     expect(pageOf('#/everything')).toBeNull();
     expect(pageOf('')).toBeNull();
   });
+
+  it('an old automations link lands on Everything', () => {
+    expect(pageOf('#/automations?list=L1')).toBeNull();
+    expect(parseRoute('#/automations')).toEqual({ scope: { kind: 'everything' }, viewId: null });
+  });
 });

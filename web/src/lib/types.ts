@@ -186,7 +186,7 @@ export interface Item {
   purge_at?: string | null;
 }
 
-/** GET /capacities: how much one person or agent can take on (the Box view). Null = no limit. */
+/** GET /capacities: how much one person or agent can take on (the Agents page). Null = no limit. */
 export interface Capacity {
   account_id: string;
   /** False: the defaults for the account's kind apply. */
@@ -368,19 +368,6 @@ export interface Recurrence {
 }
 
 export type RecurTrigger = 'schedule' | 'on_done';
-
-/** GET /recurrences/upcoming: a date a rule will fill that is not an item yet. */
-export interface UpcomingRepeat {
-  recurrence_id: string;
-  list_id: string;
-  title: string;
-  occurrence_at: string;
-  due_at: string;
-  local_date: string;
-  priority: Priority | null;
-  tags: string[];
-  assignee_ids: string[];
-}
 
 /** GET /recurrences/preview: a rule tried without saving it. */
 export interface RulePreview {

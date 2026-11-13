@@ -10,7 +10,7 @@ export const AGENDA_VIEW_ID = 'vwagenda0001';
 export interface Route {
   scope: Scope;
   viewId: string | null;
-  page?: 'agents' | 'automations';
+  page?: 'agents';
   /** `#/list/<id>/chat`, `#/section/<id>/chat`: the scope's Channel tab instead of a view. */
   chat?: boolean;
 }
@@ -18,7 +18,6 @@ export interface Route {
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '').split('?')[0];
   if (/^\/agents\/?$/.test(path)) return { scope: { kind: 'everything' }, viewId: null, page: 'agents' };
-  if (/^\/automations\/?$/.test(path)) return { scope: { kind: 'everything' }, viewId: null, page: 'automations' };
   if (/^\/today\/?$/.test(path)) return { scope: { kind: 'everything' }, viewId: AGENDA_VIEW_ID };
   const m = /^\/(list|section)\/([^/]+)(?:\/v\/([^/]+))?/.exec(path);
   if (m) {
@@ -32,7 +31,6 @@ export function parseRoute(hash: string): Route {
 
 /** The board's own pages outside any scope: `#/home` (My Work), `#/inbox`, `#/agents`,
  * `#/archive` (`?tab=archived|lists|trash`),
- * `#/automations` (`?list=<id>` narrows it to one list's rules),
  * `#/docs[/<id>]` (the page tree, or one page; `docOf` reads the id) and
  * `#/chat[/<channel>]` (chat; `chatChannelOf` in lib/chat.ts reads the channel), `#/members`
  * (roles and sharing, owners and admins), `#/audit` (the audit log) and `#/health` (pollers,
@@ -41,7 +39,6 @@ export type Page =
   | 'home'
   | 'inbox'
   | 'agents'
-  | 'automations'
   | 'archive'
   | 'docs'
   | 'chat'
@@ -54,7 +51,6 @@ export function pageOf(hash: string): Page | null {
   if (/^\/home\/?$/.test(path)) return 'home';
   if (/^\/inbox\/?$/.test(path)) return 'inbox';
   if (/^\/agents\/?$/.test(path)) return 'agents';
-  if (/^\/automations\/?$/.test(path)) return 'automations';
   if (/^\/archive\/?$/.test(path)) return 'archive';
   if (/^\/docs(\/[^/]+)?\/?$/.test(path)) return 'docs';
   if (/^\/chat(\/[^/]+)?\/?$/.test(path)) return 'chat';

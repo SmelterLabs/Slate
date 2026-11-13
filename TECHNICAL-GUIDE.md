@@ -80,7 +80,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
-| `service/workload.py`, `health.py` | Capacities and the Box view's numbers; the health report. |
+| `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
 | `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models; counted raw upload bodies; the long-poll helpers. |
 | `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search; plus `events` and `recurrences`. |
 
@@ -603,6 +603,12 @@ Design choices and the reason for each, with the alternatives that were rejected
 
 ### The board and notifications
 
+- **Three layouts; heavy pages on demand.** A view is Board, List or Table. Timeline, Calendar and
+  Box are gone: a stored view that names one reads as List and a write that names one is refused,
+  with no migration (`docs/views.md` "Layouts"). The board has no automations page; rules are made
+  through the API (`docs/automations.md`). Agents, Docs, Archive, Members, Audit, Health, Chat and
+  three dialogs are dynamic imports (`lib/lazy.svelte.ts`), fetched in the background once the
+  board is up, so the first load is the board and the task window only (`docs/board.md`).
 - **Comment dots on cards.** A card shows one dot, bottom right, when a comment is new to you
   since you last opened it: gray for agents only, blue for a person (guests count), pulsing blue
   when you are @mentioned or asked. Opening the card clears it; reading the Inbox does not. Stored
@@ -718,7 +724,7 @@ section titles code comments cite as `TECHNICAL-GUIDE "..."`.
 | MCP server: the tool table, the two bindings, auth over HTTP, stdio, how to add an action ("MCP server") | `docs/mcp-server.md` |
 | Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list | `docs/recurrence.md` |
 | Fast lane, batch and performance at scale: ETags, projections, `views: "final"`, `SerialCursor`, the item cache ("Item cache"; "Querying items" is above, in this file) | `docs/fast-lane.md` |
-| The board's views and layouts: structure editors, the views engine, Board/List/Table/Calendar/Timeline/Box, favorites, dependencies and estimates | `docs/views.md` |
+| The board's views and layouts: structure editors, the views engine, Board/List/Table, favorites, dependencies and estimates | `docs/views.md` |
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |
 | Design system, polish, phone and installed app: tokens, motion, icons, the build revision, PWA, touch drag, share target ("Scoped class names"; "The date rule" is above, in this file) | `docs/design-system.md` |
 | Automations | `docs/automations.md` |

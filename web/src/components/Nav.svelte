@@ -394,9 +394,6 @@
   <a class="nav-item" href="#/agents" onclick={onpick} class:active={page === 'agents'}>
     <span class="nav-label"><Icon name="robot" size={15} /><span>Agents</span></span>
   </a>
-  <a class="nav-item" href="#/automations" onclick={onpick} class:active={page === 'automations'}>
-    <span class="nav-label"><Icon name="sparkle" size={15} /><span>Automations</span></span>
-  </a>
   <a class="nav-item" href="#/archive" onclick={onpick} class:active={page === 'archive'}>
     <span class="nav-label"><Icon name="archive" size={15} /><span>Archive</span></span>
   </a>

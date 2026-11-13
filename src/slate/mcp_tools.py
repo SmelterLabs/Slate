@@ -2357,8 +2357,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_view",
             "Slate saved views",
-            "A view is a saved lens: layout (board, list, table, calendar, timeline or box; "
-            "calendar_span month|week, timeline_zoom day|week|month), group_by (due, status, "
+            "A view is a saved lens: layout (board, list or table), group_by (due, status, "
             "priority, assignee, tag, list, section, status_kind), sort, and a filter of "
             "{op, rules} where each rule is {field, cmp, value} or a nested group. Use it to "
             "build or adjust the lenses people look at. Example config: "

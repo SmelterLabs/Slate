@@ -8,7 +8,6 @@
   import { chatChannelOf, chatHref, threadOf } from './lib/chat';
   import { chatPanel } from './lib/chatpanel.svelte';
   import { chatPanelOf, FLASH_MS, flashTitle, windowBadge } from './lib/chatpanel';
-  import ChatPage from './components/chat/ChatPage.svelte';
   import ChatPanel from './components/chat/ChatPanel.svelte';
   import { board, scopeKey } from './lib/store.svelte';
   import { checkForNewBuild } from './lib/freshness';
@@ -22,20 +21,10 @@
   import FavoritesBar from './components/FavoritesBar.svelte';
   import AgentChatButton from './components/AgentChatButton.svelte';
   import ScopePage from './components/ScopePage.svelte';
-  import AgentsPage from './components/AgentsPage.svelte';
-  import ArchivePage from './components/ArchivePage.svelte';
-  import AutomationsPage from './components/automations/AutomationsPage.svelte';
-  import DocsPage from './components/docs/DocsPage.svelte';
-  import MembersPage from './components/members/MembersPage.svelte';
-  import AuditPage from './components/audit/AuditPage.svelte';
-  import HealthPage from './components/health/HealthPage.svelte';
   import ShareDialog from './components/ShareDialog.svelte';
   import TaskModal from './components/task/TaskModal.svelte';
   import MediaViewer from './components/task/MediaViewer.svelte';
   import { task } from './lib/task.svelte';
-  import ShortcutSheet from './components/ShortcutSheet.svelte';
-  import TagManager from './components/TagManager.svelte';
-  import NotificationSettings from './components/NotificationSettings.svelte';
   import { notifySettings } from './lib/notify.svelte';
   import { syncPush } from './lib/push';
   import HomePage from './components/work/HomePage.svelte';
@@ -45,6 +34,8 @@
   import Skeleton from './components/Skeleton.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import Icon from './components/Icon.svelte';
+  import PageLoad from './components/PageLoad.svelte';
+  import { pages, prefetchPages } from './lib/lazy.svelte';
 
   let navOpen = $state(false);
   let sheet = $state(false);
@@ -52,7 +43,6 @@
   /** My Work or Inbox, when the hash names one; otherwise the scope page. */
   let page = $state<Page | null>(pageOf(location.hash));
   const kiosk = isKiosk(location.search, location.hash);
-  let automationsList = $state<string | null>(null);
   let docId = $state<string | null>(docOf(location.hash));
   let chatChannel = $state<string | null>(chatChannelOf(location.hash));
   let chatThread = $state<string | null>(threadOf(location.hash));
@@ -72,7 +62,6 @@
     const r = parseRoute(location.hash);
     page = pageOf(location.hash);
     navOpen = false;
-    automationsList = new URLSearchParams(location.hash.split('?')[1] ?? '').get('list');
     docId = docOf(location.hash);
     chatChannel = chatChannelOf(location.hash);
     chatThread = threadOf(location.hash);
@@ -95,7 +84,6 @@
     }
     if (
       page === 'agents' ||
-      page === 'automations' ||
       page === 'archive' ||
       page === 'members' ||
       page === 'audit' ||
@@ -172,6 +160,10 @@
 
   // Phone/desktop notifications: keep this browser's subscription current with the server, and
   // let a tapped notification route an already open window (public/sw.js posts the link).
+  // The on-demand pages, fetched in the background once the board is up (lib/lazy.svelte.ts).
+  $effect(() => {
+    if (board.ready && !kiosk) prefetchPages();
+  });
   $effect(() => {
     if (board.ready) void syncPush().catch(() => {});
   });
@@ -378,7 +370,7 @@
       <header class="topbar">
         <button class="icon menu" aria-label="Menu" onclick={() => (navOpen = !navOpen)}><Icon name="menu" size={18} /></button>
         <span class="brand">Slate</span>
-        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'automations' ? 'Automations' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : where}</span>
+        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : where}</span>
         <button class="icon top-search" aria-label="Search" onclick={() => (palette = true)}><Icon name="search" size={18} /></button>
         <NeedsBadge mode="top" />
         <AgentChatButton cls="top-agent" />
@@ -407,25 +399,32 @@
       {#if !board.ready}
         <Skeleton />
       {:else if page === 'agents'}
-        <AgentsPage />
-      {:else if page === 'automations'}
-        <AutomationsPage listId={automationsList} />
+        {@const AgentsPage = pages.agents.component}
+        {#if AgentsPage}<AgentsPage />{:else}<PageLoad page={pages.agents} />{/if}
       {:else if page === 'docs' && !kiosk}
-        <DocsPage id={docId} />
+        {@const DocsPage = pages.docs.component}
+        {#if DocsPage}<DocsPage id={docId} />{:else}<PageLoad page={pages.docs} />{/if}
       {:else if page === 'archive' && !kiosk}
-        <ArchivePage />
+        {@const ArchivePage = pages.archive.component}
+        {#if ArchivePage}<ArchivePage />{:else}<PageLoad page={pages.archive} />{/if}
       {:else if page === 'members' && !kiosk}
-        {#if board.canManage}
+        {@const MembersPage = pages.members.component}
+        {#if !board.canManage}
+          <EmptyState icon="lock" title="Owners and admins only" hint="Ask an owner or admin to change roles or sharing." />
+        {:else if MembersPage}
           <MembersPage />
         {:else}
-          <EmptyState icon="lock" title="Owners and admins only" hint="Ask an owner or admin to change roles or sharing." />
+          <PageLoad page={pages.members} />
         {/if}
       {:else if page === 'audit' && !kiosk}
-        <AuditPage />
+        {@const AuditPage = pages.audit.component}
+        {#if AuditPage}<AuditPage />{:else}<PageLoad page={pages.audit} />{/if}
       {:else if page === 'health' && !kiosk}
-        <HealthPage />
+        {@const HealthPage = pages.health.component}
+        {#if HealthPage}<HealthPage />{:else}<PageLoad page={pages.health} />{/if}
       {:else if page === 'chat' && !kiosk}
-        <ChatPage channelKey={chatChannel} threadId={chatThread} />
+        {@const ChatPage = pages.chat.component}
+        {#if ChatPage}<ChatPage channelKey={chatChannel} threadId={chatThread} />{:else}<PageLoad page={pages.chat} />{/if}
       {:else if missing}
         <EmptyState
           icon="archive"
@@ -457,16 +456,19 @@
       />
     {/if}
     {#if sheet}
-      <ShortcutSheet onclose={() => (sheet = false)} />
+      {@const ShortcutSheet = pages.shortcuts.component}
+      {#if ShortcutSheet}<ShortcutSheet onclose={() => (sheet = false)} />{:else}<PageLoad page={pages.shortcuts} dialog />{/if}
     {/if}
     {#if board.tagManagerOpen}
-      <TagManager />
+      {@const TagManager = pages.tags.component}
+      {#if TagManager}<TagManager />{:else}<PageLoad page={pages.tags} dialog />{/if}
     {/if}
     {#if board.shareTarget}
       <ShareDialog kind={board.shareTarget.kind} id={board.shareTarget.id} />
     {/if}
     {#if notifySettings.open}
-      <NotificationSettings />
+      {@const NotificationSettings = pages.notifications.component}
+      {#if NotificationSettings}<NotificationSettings />{:else}<PageLoad page={pages.notifications} dialog />{/if}
     {/if}
     {#if board.toast}
       <div class="toast" class:soft={!!board.toastAction} role="alert">
