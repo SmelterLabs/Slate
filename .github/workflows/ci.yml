@@ -23,7 +23,13 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -q
+      # Slate's own tests never need the optional adapters (AGENTS.md rule 5): they run with
+      # integrations/ moved away, then it comes back for the adapters' own step below.
+      - name: pytest (without integrations/)
+        run: |
+          mv integrations "$RUNNER_TEMP/integrations"
+          uv run pytest -q
+          mv "$RUNNER_TEMP/integrations" integrations
       # The maintainers' denylist is a repository secret, never a file in the repo (AGENTS.md
       # rule 9). Pull requests from forks get no secrets, so there is nothing to check there.
       - name: private-terms check
@@ -38,6 +44,8 @@ jobs:
           SLATE_PRIVATE_TERMS_FILE="$RUNNER_TEMP/private_terms.sha256" uv run python scripts/check_private_terms.py
       # Optional adapters (AGENTS.md rule 5): tested on their own; Slate's tests never need them.
       - run: if [ -d integrations ]; then uv run pytest -q integrations; fi
+      # The slate-runner wheel and sdist: self-contained, and they install and run.
+      - run: uv run pytest -q clients/python/tests
 
   # Slate under load (scripts/load_test.py --ci): a 5,000-item board, five agents checking in
   # and writing in batches, two boards on the live stream. Fails when a number in

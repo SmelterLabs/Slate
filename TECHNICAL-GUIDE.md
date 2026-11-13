@@ -619,6 +619,15 @@ Design choices and the reason for each, with the alternatives that were rejected
   compatibility). Token examples in tests use visibly synthetic repeated characters, never
   captured credentials.
 
+- **Rule 5 is checked, not just stated.** `tests/test_rule5.py` fails when a file under `src/`
+  names an agent runtime or a test under `tests/` reaches into `integrations/`, and CI runs the
+  suite with `integrations/` moved away. The `slate-runner` package (`clients/python`) bundles
+  the reference adapters from `integrations/` as assets when they are there and builds without
+  them when they are not (`hatch_build.py`); `slate-connect` then refuses an adapter it does not
+  carry. `clients/` is where a runtime may be named: `slate_connect.py` knows the bundled
+  adapters it sets up (their names and environment), because it is the installer for them.
+  `clients/python/tests` (the wheel and sdist) runs in CI.
+
 ### Removed features
 
 Custom fields, dashboards, goals, sprints, time tracking, forms, Slack and Discord notification
