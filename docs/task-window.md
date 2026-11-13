@@ -329,9 +329,10 @@ message's channel as `chat.place` names it, `#Todo`), `at`, plus `list_id` on ta
   through the session's read criteria (`access.read_criteria`), so a guest only finds what its
   shares reach;
   `tests/test_search.py` checks it.
-- **`%` and `_` are literal** in the chat pattern (`search.like_pattern`, `.like(...,
-  escape="\\")`). The task and doc filters use an unescaped `LIKE` (wildcarding there is
-  harmless); if exactness ever matters, route them through `like_pattern` too.
+- **Every group matches the same way** (`db.contains`): `ulower(column) LIKE pattern` with a backslash escape.
+  `ulower` is Python's `str.lower` registered on each connection (`db._configure_sqlite`), because
+  SQLite's `lower()` changes only A-Z; `%` and `_` typed by the caller are literal
+  (`db.like_pattern`).
 - **Order and cap.** Tasks first, then docs, then messages (newest first). `limit` (default 30, max
   200) is shared: each group gets `limit // 3`, and what a short group leaves goes to the next
   groups in order (`search._share`), so the answer never exceeds `limit` and a flood of chat hits

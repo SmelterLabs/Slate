@@ -18,7 +18,7 @@ import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import ColumnElement, Engine, create_engine, event, func
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -100,7 +100,13 @@ class SerialConnection(sqlite3.Connection):
         return super().cursor(factory)
 
 
+def _ulower(value: str | None) -> str | None:
+    return value.lower() if isinstance(value, str) else value
+
+
 def _configure_sqlite(dbapi_connection, _record) -> None:  # noqa: ANN001
+    # SQLite's own lower() changes only A-Z; text search compares with Python's lower().
+    dbapi_connection.create_function("ulower", 1, _ulower, deterministic=True)
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -129,6 +135,18 @@ def make_engine(url: str | None = None) -> Engine:
     engine = create_engine(url, **kwargs)
     event.listen(engine, "connect", _configure_sqlite)
     return engine
+
+
+def like_pattern(q: str) -> str:
+    """`%q%`, lower-cased, with the caller's `%`, `_` and `\\` escaped (use with `escape="\\"`)."""
+    body = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{body}%"
+
+
+def contains(column: ColumnElement, q: str) -> ColumnElement[bool]:
+    """`column` contains `q`, any case (Unicode, not only A-Z), `%` and `_` taken literally.
+    Every text search (tasks, docs, chat) matches through this."""
+    return func.ulower(column).like(like_pattern(q), escape="\\")
 
 
 @event.listens_for(Session, "before_flush")

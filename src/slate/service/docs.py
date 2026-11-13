@@ -40,9 +40,10 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, load_only
 
+from slate.db import contains
 from slate.ids import new_id
 from slate.models import Doc, DocFile, DocTag, DocVersion, Item, List, Section, Tag, utcnow
 from slate.service import access, guests
@@ -253,24 +254,16 @@ def list_docs(
     if q or embeds:
         stmt = select(Doc.id)
         if q:
-            like = f"%{q.lower()}%"
             named = (
                 select(DocFile.doc_id)
                 .where(
                     DocFile.revision_no.is_not(None),
-                    or_(
-                        func.lower(DocFile.filename).like(like),
-                        func.lower(DocFile.text).like(like),
-                    ),
+                    or_(contains(DocFile.filename, q), contains(DocFile.text, q)),
                 )
                 .scalar_subquery()
             )
             stmt = stmt.where(
-                or_(
-                    func.lower(Doc.title).like(like),
-                    func.lower(Doc.body_md).like(like),
-                    Doc.id.in_(named),
-                )
+                or_(contains(Doc.title, q), contains(Doc.body_md, q), Doc.id.in_(named))
             )
         if embeds:
             stmt = stmt.where(

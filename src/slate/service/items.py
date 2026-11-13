@@ -18,6 +18,7 @@ from sqlalchemy import and_, func, or_, select, type_coerce
 from sqlalchemy.orm import Session, aliased
 
 from slate.dates import is_date_only_input, parse_when
+from slate.db import contains
 from slate.ids import new_id
 from slate.models import (
     Account,
@@ -571,10 +572,7 @@ def query_items(
     if due_after is not None:
         stmt = stmt.where(Item.due_at > parse_when(due_after))
     if q:
-        pattern = f"%{q.strip().lower()}%"
-        stmt = stmt.where(
-            or_(func.lower(Item.title).like(pattern), func.lower(Item.body_md).like(pattern))
-        )
+        stmt = stmt.where(or_(contains(Item.title, q.strip()), contains(Item.body_md, q.strip())))
     if kind is not None:
         stmt = stmt.where(Item.kind == _kind(kind))
     if blocked is not None:
