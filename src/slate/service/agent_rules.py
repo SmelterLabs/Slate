@@ -187,7 +187,9 @@ def check(
 def check_read(session: Session, key: str) -> None:
     """For a covered read (`export`): refuse it when the session's caller is an agent and the
     key is denied. A session with no caller (scheduler, CLI) is Slate's own."""
-    caller = session.info.get("slate_connection_event_access")
+    from slate.service import access
+
+    caller = access.caller(session)
     if caller is None or not _is_agent(session, caller.account_id):
         return
     if key in denied(session):

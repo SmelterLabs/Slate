@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_id
 from slate.models import Account, Comment, CommentReaction, Event, Role, utcnow
-from slate.service import guests
+from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -322,18 +322,13 @@ def _resolve(cx: Any, comment: Comment, by: str, reason: str) -> None:
     )
 
 
-def _is_admin(session: Session, account_id: str) -> bool:
-    role = session.scalar(select(Account.role).where(Account.id == account_id))
-    return role in (Role.owner, Role.admin)
-
-
 def assign_comment(
     session: Session, actor: Actor, comment_id: str, assignee: str | None
 ) -> Comment:
     """Address a comment to an account (a handle or id), or take it off with None. For the
     comment's author or an admin. Assigning reopens a resolved comment."""
     comment = get_comment(session, comment_id)
-    if comment.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+    if comment.author_id != actor.account_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the comment's author or an admin can assign it")
     target = resolve_account(session, assignee) if assignee else None
     guests.refuse(session, actor.account_id, target)
@@ -351,9 +346,8 @@ def resolve_comment(session: Session, actor: Actor, comment_id: str) -> Comment:
         raise Invalid("this comment is not addressed to anyone")
     if comment.resolved_at is not None:
         return comment
-    if actor.account_id not in (comment.assignee_id, comment.author_id) and not _is_admin(
-        session, actor.account_id
-    ):
+    mine = actor.account_id in (comment.assignee_id, comment.author_id)
+    if not mine and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the assignee, the author or an admin can resolve it")
     with apply_change(session, actor) as cx:
         _resolve(cx, comment, actor.account_id, "resolved")
@@ -413,7 +407,7 @@ def delete_comment(session: Session, actor: Actor, comment_id: str) -> None:
     event keeps what it said (`before` = the comment and its reactions), so the history and the
     audit log still hold it; inboxes and check-in news drop every entry about it."""
     comment = get_comment(session, comment_id)
-    if comment.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+    if comment.author_id != actor.account_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only a comment's author or an admin can delete it")
     reactions = list(
         session.scalars(select(CommentReaction).where(CommentReaction.comment_id == comment.id))

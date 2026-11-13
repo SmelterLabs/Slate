@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from slate.connection_models import AgentConnection
 from slate.ids import new_id
-from slate.models import Account, AccountKind, Event, List, Role, Section, Source, Token, utcnow
+from slate.models import Account, AccountKind, Event, List, Section, Source, Token, utcnow
 from slate.runner_compat import MIN_RUNNER_PROTOCOL
 from slate.service import access, accounts
 from slate.service.accounts import Principal
@@ -49,9 +49,7 @@ def _manager(session: Session, by: Principal) -> bool:
         and not account.disabled_at
         and not token.revoked_at
         and (not token.expires_at or token.expires_at > utcnow())
-        and account.role in (Role.owner, Role.admin)
-        and "admin" in token.scopes.split()
-        and not token.limit_json
+        and access.grants_admin(account.role, token.scopes.split(), token.limit_json)
     )
 
 

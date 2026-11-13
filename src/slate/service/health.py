@@ -48,7 +48,6 @@ from slate.models import (
     Event,
     Item,
     MessageFile,
-    Role,
     Token,
     utcnow,
 )
@@ -94,11 +93,8 @@ RANK = {"off": -1, "ok": 0, "warn": 1, "fail": 2}
 
 
 def require_viewer(session: Session, account: Account) -> None:
-    """Owners and admins, with a token that is not limited to some lists."""
-    found = access.current(session)
-    if Role(account.role or Role.member) not in (Role.owner, Role.admin) or (
-        found is not None and found.limited
-    ):
+    """Owners and admins, through an unlimited admin token (`access.is_admin`)."""
+    if not access.is_admin(session, account.id):
         raise Forbidden("only an owner or admin can see Slate's health")
 
 

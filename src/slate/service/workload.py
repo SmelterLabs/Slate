@@ -23,10 +23,10 @@ from slate.models import (
     AccountKind,
     Capacity,
     ItemAssignee,
-    Role,
     Status,
     StatusKind,
 )
+from slate.service import access
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Forbidden, Invalid, NotFound
 
@@ -139,7 +139,7 @@ def _may_set(session: Session, actor: Actor, account: Account) -> None:
     if actor.account_id == account.id:
         return
     by = session.get(Account, actor.account_id)
-    if by is None or by.role not in (Role.owner, Role.admin):
+    if by is None or not access.is_admin(session, by.id):
         raise Forbidden("only an owner or admin can set someone else's capacity")
 
 

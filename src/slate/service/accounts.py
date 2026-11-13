@@ -75,6 +75,13 @@ class Principal:
     def has(self, scope: str) -> bool:
         return has_scope(self.scopes, scope)
 
+    @property
+    def is_admin(self) -> bool:
+        """`access.grants_admin`: `_lookup` already drops `admin` from a limited token."""
+        from slate.service.access import grants_admin
+
+        return grants_admin(self.account.role, self.scopes)
+
 
 def has_scope(held: frozenset[str] | set[str], required: str) -> bool:
     return max((SCOPE_RANK[s] for s in held), default=0) >= SCOPE_RANK[required]
@@ -131,7 +138,7 @@ def list_tokens(session: Session, account_id: str, *, include_revoked: bool = Fa
 
 
 def require_self_or_admin(by: Principal, account_id: str) -> None:
-    if not by.has("admin") and by.account.id != account_id:
+    if not by.is_admin and by.account.id != account_id:
         raise Forbidden("only an admin or the account itself can see this")
 
 
@@ -374,7 +381,7 @@ def revoke_token(session: Session, actor: Actor, *, token_id: str, by: Principal
     token = session.get(Token, token_id)
     if token is None:
         raise NotFound(f"token {token_id} not found")
-    if not by.has("admin") and token.account_id != by.account.id:
+    if not by.is_admin and token.account_id != by.account.id:
         raise Forbidden("only an admin or the token's own account can revoke it")
     caller = session.get(Token, by.token_id)
     if caller is not None and caller.limit_json and token.id != caller.id:
@@ -400,7 +407,7 @@ def update_account(
     account's tokens stop working at once and it drops off the roster; its history and
     assignments stay. You cannot disable your own account (that is how an admin locks
     themselves out)."""
-    if not by.has("admin"):
+    if not by.is_admin:
         raise Forbidden("only an admin can change an account")
     account = get_account(session, account_id)
     from slate.service.due import SYSTEM_HANDLE

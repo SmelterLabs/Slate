@@ -31,7 +31,7 @@ def _role(account: Account) -> Role:
 
 
 def _require_manager(by: Principal) -> None:
-    if _role(by.account) not in (Role.owner, Role.admin) or not by.has("admin"):
+    if not by.is_admin:
         raise Forbidden("only an owner or admin can manage members and sharing")
 
 

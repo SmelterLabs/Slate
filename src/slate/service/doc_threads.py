@@ -37,9 +37,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
-from slate.models import Account, Doc, DocComment, DocFile, Event, Role, utcnow
+from slate.models import Doc, DocComment, DocFile, Event, utcnow
+from slate.service import access, guests
 from slate.service import docs as docs_svc
-from slate.service import guests
 from slate.service.comments import authors_of, mentions_in
 from slate.service.core import Actor, Change, apply_change, event_payload, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -236,11 +236,6 @@ def _anchor(spec: Mapping[str, Any] | None, doc: Doc) -> dict[str, Any]:
     if ("anchor_quote" in out or "anchor_start" in out) and doc.kind == "file":
         raise Invalid("a file has no text to quote; anchor a page or a spot instead")
     return out
-
-
-def _is_admin(session: Session, account_id: str) -> bool:
-    role = session.scalar(select(Account.role).where(Account.id == account_id))
-    return role in (Role.owner, Role.admin)
 
 
 def _record_mentions(
@@ -473,7 +468,7 @@ def assign_comment(
     """Address a comment to an account (an Ask), or take it off with None: for the author or
     an admin. Assigning reopens a resolved thread."""
     c = get_comment(session, comment_id)
-    if c.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+    if c.author_id != actor.account_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the comment's author or an admin can assign it")
     target = resolve_account(session, assignee) if assignee else None
     guests.refuse(session, actor.account_id, target)
