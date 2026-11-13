@@ -24,8 +24,7 @@ test('the bell counts mentions and messages live and opens the card', async ({ p
   await bell.click();
   const menu = page.locator('.wb-menu');
   await expect(menu.getByText('Pick the paint')).toBeVisible();
-  await page.waitForTimeout(400); // the pop-in animation
-  await page.screenshot({ path: 'test-results/waiting-bell.png' });
+  await page.screenshot({ path: 'test-results/waiting-bell.png', animations: 'disabled' }); // the pop-in finished
   await menu.getByText('Pick the paint').click();
   await expect(page.locator('.tw')).toBeVisible();
   await page.keyboard.press('Escape');

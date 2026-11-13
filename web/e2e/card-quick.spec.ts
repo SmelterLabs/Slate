@@ -114,7 +114,6 @@ test('the copy-ID chip copies the ID and says so, without opening the card', asy
 
   await chip.click();
   await expect(c.locator('.card-copy-tip')).toHaveText('Copied');
-  await page.waitForTimeout(300);
   await shot(page, 'card-copy-id', await around(c, c.locator('.card-copy-tip')));
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ids['Copy my id']);
   await expect(page.locator('.tw')).toHaveCount(0);
@@ -161,7 +160,6 @@ test('the column ⋯ menu and the card ⋯ menu sit on top of the cards', async 
   const colMenu = page.locator('.dd-panel', { hasText: 'Collapse column' });
   await expect(colMenu).toBeVisible();
   expect(await onTop(colMenu)).toBe(true);
-  await page.waitForTimeout(300);
   await shot(page, 'column-menu-on-top', await around(col, colMenu));
   await page.keyboard.press('Escape');
 

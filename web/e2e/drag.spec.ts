@@ -145,20 +145,20 @@ async function centerOf(page: Page, loc: ReturnType<Page['locator']>): Promise<P
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-/** A finger through Chromium's DevTools protocol: down, hold, slide to `to`, up. `during` runs
- * while the finger is held still, before it moves. */
+/** A finger through Chromium's DevTools protocol: down, held until the card lifts, slide to
+ * `to`, up once a column takes the drop. `during` runs while the finger is held still, before
+ * it moves. */
 async function fingerDrag(page: Page, from: Pt, to: Pt, during?: () => Promise<void>) {
   const cdp = await page.context().newCDPSession(page);
   const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', p?: Pt) =>
     cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p.x, y: p.y }] : [] });
   await touch('touchStart', from);
-  await page.waitForTimeout(500);
+  await expect(page.locator('.touch-lifted')).toHaveCount(1); // the long press took
   await during?.();
   for (let i = 1; i <= 12; i++) {
     await touch('touchMove', { x: from.x + ((to.x - from.x) * i) / 12, y: from.y + ((to.y - from.y) * i) / 12 });
-    await page.waitForTimeout(16);
   }
-  await page.waitForTimeout(150);
+  await expect(page.locator('.column.over')).toHaveCount(1); // the column under the finger takes it
   await touch('touchEnd');
   await cdp.detach();
 }

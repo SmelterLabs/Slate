@@ -2,7 +2,7 @@
 // desktop: real touch events through Chromium's DevTools protocol, so the browser scrolls,
 // fires its own long-press menu and synthesizes clicks exactly as it would under a finger.
 import { expect, test, type Page } from '@playwright/test';
-import { api, screenshots, seed, shotsDir, signedIn } from './support';
+import { api, countRequests, screenshots, seed, shotsDir, signedIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shot = screenshots();
@@ -43,43 +43,36 @@ async function center(page: Page, selector: string): Promise<Pt> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-/** A finger: down, hold, then slide through `path` (each point in `steps` moves), and up. */
-type Step = Pt | (() => Promise<Pt>) | number | { until: () => Promise<boolean> } | { run: () => Promise<void> };
+/** The page has drawn its next frame: a finger's moves come one per frame, as a real one's do,
+ * so the browser reads a slide (and its speed) rather than a jump. */
+const frame = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
 
-async function finger(page: Page, from: Pt, path: Step[], hold = 500) {
+/** A finger: down, held until the card lifts (`lift`; otherwise it slides at once), then
+ * through `path` (each point in eight moves, one per frame), and up. Each move resolves once the
+ * page has handled it, so the drag has already seen where the finger is. */
+type Step = Pt | (() => Promise<Pt>) | { until: () => Promise<boolean> } | { run: () => Promise<void> };
+
+async function finger(page: Page, from: Pt, path: Step[], lift = true) {
   const cdp = await page.context().newCDPSession(page);
   const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', p?: Pt) =>
     cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p.x, y: p.y }] : [] });
   await touch('touchStart', from);
-  await page.waitForTimeout(hold);
+  if (lift) await expect(page.locator('.touch-lifted')).toHaveCount(1); // the long press took
   let at = from;
   for (const step of path) {
-    if (typeof step === 'number') {
-      // Rest in place: auto-scroll keeps going while the finger is still.
-      const end = Date.now() + step;
-      while (Date.now() < end) {
-        await touch('touchMove', at);
-        await page.waitForTimeout(50);
-      }
-      continue;
-    }
     if ('run' in step) {
       await step.run(); // mid-gesture: a screenshot, a check
       continue;
     }
     if ('until' in step) {
-      // Rest in place until the page has scrolled far enough (auto-scroll at an edge).
-      const end = Date.now() + 5000;
-      while (!(await step.until()) && Date.now() < end) {
-        await touch('touchMove', at);
-        await page.waitForTimeout(16);
-      }
+      // Rest in place until it holds (auto-scroll at an edge keeps going while the finger is still).
+      await expect.poll(step.until, { timeout: 5000 }).toBe(true);
       continue;
     }
     const to = typeof step === 'function' ? await step() : step;
     for (let i = 1; i <= 8; i++) {
       await touch('touchMove', { x: at.x + ((to.x - at.x) * i) / 8, y: at.y + ((to.y - at.y) * i) / 8 });
-      await page.waitForTimeout(16);
+      await frame(page);
     }
     at = to;
   }
@@ -108,7 +101,7 @@ const atDay = (n: number) => new Date(Date.now() + n * DAY).toISOString();
 /** A sideways swipe: no hold, a quick slide. */
 async function swipeRow(page: Page, selector: string, dx: number) {
   const c = await center(page, selector);
-  await finger(page, c, [{ x: c.x + dx, y: c.y }], 0);
+  await finger(page, c, [{ x: c.x + dx, y: c.y }], false);
 }
 
 test.describe('iPhone', () => {
@@ -129,8 +122,12 @@ test.describe('iPhone', () => {
           return !!box && box.x < 150;
         },
       },
-      { x: 195, y: start.y }, // back to the middle of the screen, over Doing
-      300,
+      async () => {
+        // Back over Doing, now that it has scrolled in, and wait until the board takes it there.
+        const box = (await page.locator('.column[data-status="Doing"]').boundingBox())!;
+        return { x: Math.min(box.x + box.width / 2, 195), y: start.y };
+      },
+      { until: () => page.locator('.column[data-status="Doing"]').evaluate((el) => el.classList.contains('over')) },
       { run: () => shot(page, 'touch-drag-phone') },
     ]);
     await expect.poll(() => statusOf(ids['Lift me'])).toBe('Doing');
@@ -144,12 +141,19 @@ test.describe('iPhone', () => {
     const { listId, ids } = await makeList('Touch swipe', ['Swipe past me']);
     await signedIn(page, `/#/list/${listId}`);
     const start = await center(page, '.card:has-text("Swipe past me")');
-    await finger(page, start, [{ x: start.x - 200, y: start.y }], 0);
-    await page.waitForTimeout(300);
+    const kanban = page.locator('.kanban');
+    const scrolled = () => kanban.evaluate((el) => el.scrollLeft);
+    // The swipe scrolls the board and never lifts the card: no ghost, no card left pressed.
+    await finger(page, start, [{ x: start.x - 200, y: start.y }], false);
+    await expect.poll(scrolled).toBeGreaterThan(0);
+    await expect(page.locator('.touch-pressed')).toHaveCount(0);
     await expect(page.locator('.touch-ghost')).toHaveCount(0);
     expect(await statusOf(ids['Swipe past me'])).toBe('To do');
 
-    await page.locator('.kanban').evaluate((el) => (el.scrollLeft = 0));
+    // Back to the start, and tap once the board is at rest there (a tap on a moving board only
+    // stops it).
+    await kanban.evaluate((el) => (el.scrollLeft = 0));
+    await expect.poll(scrolled).toBe(0);
     await page.locator('.card', { hasText: 'Swipe past me' }).tap();
     await expect(page.locator('.tw')).toBeVisible();
   });
@@ -158,7 +162,7 @@ test.describe('iPhone', () => {
     const { listId } = await makeList('Touch menu', ['Hold me']);
     await signedIn(page, `/#/list/${listId}`);
     const start = await center(page, '.card:has-text("Hold me")');
-    await finger(page, start, [], 600);
+    await finger(page, start, []);
     await expect(page.locator('.card-menu, .menu-pop, .dd-panel').first()).toBeVisible();
     await expect(page.locator('.tw')).toHaveCount(0);
     await shot(page, 'touch-hold-menu');
@@ -174,7 +178,7 @@ test.describe('iPhone', () => {
     await expect(page.locator('.work-row', { hasText: 'Swipe done' })).toBeVisible();
     if (shotsDir()) {
       const c = await center(page, '.work-row:has-text("Swipe done")');
-      await finger(page, c, [{ x: c.x + 120, y: c.y }, { run: () => shot(page, 'touch-swipe') }, { x: c.x, y: c.y }], 0);
+      await finger(page, c, [{ x: c.x + 120, y: c.y }, { run: () => shot(page, 'touch-swipe') }, { x: c.x, y: c.y }], false);
     }
     await swipeRow(page, '.work-row:has-text("Swipe done")', 160);
     await expect.poll(() => statusOf(ids['Swipe done'])).toBe('Done');
@@ -189,10 +193,11 @@ test.describe('iPhone', () => {
       .toBeGreaterThanOrEqual(0);
     // A short swipe springs back and changes nothing.
     const before = await api<{ due_at: string }>('GET', `/items/${ids['Swipe later']}`);
+    const changes = countRequests(page, 'PATCH', `/items/${ids['Swipe later']}`);
     await swipeRow(page, '.work-row:has-text("Swipe later")', -40);
-    await page.waitForTimeout(400);
+    await expect(page.locator('.swipe-under')).toHaveCount(0); // sprung back: the swipe is over
+    expect(changes(), 'a short swipe sends no change').toBe(0);
     expect((await api<{ due_at: string }>('GET', `/items/${ids['Swipe later']}`)).due_at).toBe(before.due_at);
-    await expect(page.locator('.swipe-under')).toHaveCount(0);
   });
 
   test('pull down at the top to refresh', async ({ page }) => {
@@ -208,7 +213,7 @@ test.describe('iPhone', () => {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }] });
     for (let i = 1; i <= 12; i++) {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: c.x, y: c.y + i * 18 }] });
-      await page.waitForTimeout(16);
+      await frame(page);
     }
     await expect(page.locator('.ptr.armed')).toBeVisible();
     await shot(page, 'touch-pull-refresh');
@@ -224,7 +229,7 @@ test.describe('iPhone', () => {
     const card = page.locator('.card', { hasText: 'No signal' });
     await expect(card).toBeVisible();
     // Hold for the card menu first: a fresh DevTools session resets the offline emulation.
-    await finger(page, await center(page, '.card:has-text("No signal")'), [], 600);
+    await finger(page, await center(page, '.card:has-text("No signal")'), []);
     await context.setOffline(true);
     await expect(page.locator('.banner.offline')).toBeVisible();
     await page.locator('.card-menu').getByRole('menuitem', { name: 'Complete' }).tap();
@@ -244,7 +249,7 @@ test.describe('iPad', () => {
     await expect(page.locator('.column[data-status="To do"] .card')).toHaveCount(3);
     const third = await center(page, '.card:has-text("Third")');
     const first = await page.locator('.card:has-text("First")').boundingBox();
-    await finger(page, third, [{ x: third.x, y: first!.y + 4 }, 200, { run: () => shot(page, 'touch-reorder-ipad') }]);
+    await finger(page, third, [{ x: third.x, y: first!.y + 4 }, { run: () => shot(page, 'touch-reorder-ipad') }]);
     await expect.poll(() => order(listId, 'To do')).toEqual(['Third', 'First', 'Second']);
     await expect(page.locator('.column[data-status="To do"] .card .title, .column[data-status="To do"] .card')).not.toHaveCount(0);
   });
@@ -258,7 +263,7 @@ test.describe('iPad', () => {
     await three.scrollIntoViewIfNeeded();
     const from = await center(page, '.checklist li:has-text("Three") .grip');
     const one = await page.locator('.checklist li', { hasText: 'One' }).boundingBox();
-    await finger(page, from, [{ x: from.x, y: one!.y + 3 }, 200]);
+    await finger(page, from, [{ x: from.x, y: one!.y + 3 }]);
     await expect
       .poll(async () => {
         const [cl] = await api<{ items: { title: string; position: number }[] }[]>(
