@@ -442,10 +442,22 @@ def _root(c: DocComment) -> DocComment:
     return c
 
 
+def _may_settle(session: Session, actor: Actor, c: DocComment, what: str) -> None:
+    """Resolve and reopen: the thread's author, its assignee, an admin, or edit on the doc."""
+    if actor.account_id in (c.author_id, c.assignee_id) or access.is_admin(
+        session, actor.account_id
+    ):
+        return
+    found = access.caller(session)
+    if found is not None and found.doc_level(access.doc_place(session, c.doc_id)) < access.EDIT:
+        raise Forbidden(f"only its author, its assignee, an admin or an editor can {what} it")
+
+
 def resolve_comment(session: Session, actor: Actor, comment_id: str) -> DocComment:
     """Close a review thread or an Ask (its author, its assignee, an admin, or anyone who can
     edit the doc). Already resolved: no change."""
     c = _root(get_comment(session, comment_id))
+    _may_settle(session, actor, c, "resolve")
     if c.resolved_at is not None:
         return c
     with apply_change(session, actor) as cx:
@@ -454,7 +466,9 @@ def resolve_comment(session: Session, actor: Actor, comment_id: str) -> DocComme
 
 
 def reopen_comment(session: Session, actor: Actor, comment_id: str) -> DocComment:
+    """Reopen a resolved thread: the same people who may resolve it."""
     c = _root(get_comment(session, comment_id))
+    _may_settle(session, actor, c, "reopen")
     if c.resolved_at is None:
         return c
     with apply_change(session, actor) as cx:
