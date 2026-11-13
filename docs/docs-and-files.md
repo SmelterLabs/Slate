@@ -19,8 +19,10 @@ list. The same tree also holds **file docs**.
   `revisions_of`, `get_revision`, `current_revisions` (one query for the index),
   `promote_attachment` (a task attachment becomes a file doc's revision 1, the attachment is
   removed, the task gets a comment `[[doc:ID]]`; three changes in sequence, each its own event). A
-  revision is never removed (`remove_file` refuses one); archive the doc. `duplicate_doc` copies the
-  current revision as the copy's revision 1. `GET /docs?q=` also matches a current revision's
+  revision is never removed (`remove_file` refuses one); archive the doc. `add_revision` reads
+  the file before the write lock and picks the number under it, so two uploads at once get
+  consecutive numbers. `duplicate_doc` reads only the docs it copies and copies each current
+  revision (bytes, text and tables, never re-extracted) as the copy's revision 1. `GET /docs?q=` also matches a current revision's
   filename. Summaries carry `kind` and `file` (the current revision); `GET /docs/{id}` adds
   `revisions`, newest first. REST: `POST /docs {kind: "file"}`, `GET|POST /docs/{id}/revisions` (raw
   body with `?filename=&note=`), `POST /docs/{id}/revisions/base64`, `POST

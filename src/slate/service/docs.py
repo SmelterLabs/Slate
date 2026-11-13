@@ -41,7 +41,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy.orm import Session, load_only, undefer
 
 from slate.ids import new_id
 from slate.models import Doc, DocFile, DocTag, DocVersion, Item, List, Section, Tag, utcnow
@@ -1341,18 +1341,37 @@ def duplicate_doc(
     subpages: bool = True,
 ) -> Doc:
     """Copy a page right after the original, with its subpages unless `subpages` is false.
-    Each copy starts its own history at version 1."""
+    Each copy starts its own history at version 1. Only the copied docs are read, and a copied
+    file keeps its revision's extracted text and tables (the bytes are the same), so nothing is
+    parsed while the write lock is held."""
     src = get_doc(session, doc_id)
     docs = _all(session)
-    full = {d.id: session.get(Doc, d.id) for d in docs}
-    for d in full.values():
-        d.body_md  # noqa: B018 - load bodies before the change (no queries inside it)
     siblings = _siblings(docs, src.parent_id, src.section_id, src.list_id)
     at = next(n for n, d in enumerate(siblings) if d.id == src.id) + 1
 
-    current = current_revisions(session, [src, *docs])
-    for f in current.values():
-        f.data  # noqa: B018 - load the bytes before the change (no queries inside it)
+    # The docs to copy: the source and, with `subpages`, its live subtree (each doc once).
+    kids_of: dict[str, list[Doc]] = {}
+    for d in docs:
+        if d.parent_id and d.archived_at is None:
+            kids_of.setdefault(d.parent_id, []).append(d)
+    copied: dict[str, Doc] = {src.id: src}
+    stack = [src.id] if subpages else []
+    while stack:
+        for child in kids_of.get(stack.pop(), []):
+            if child.id not in copied:
+                copied[child.id] = child
+                stack.append(child.id)
+    full = {d_id: session.get(Doc, d_id) for d_id in copied}
+    for d in full.values():
+        d.body_md  # noqa: B018 - load bodies before the change (no queries inside it)
+
+    current = current_revisions(session, list(copied.values()))
+    if current:  # bytes, text and tables of the copied revisions, in one query, before the change
+        session.scalars(
+            select(DocFile)
+            .options(undefer(DocFile.data), undefer(DocFile.text), undefer(DocFile.tables_json))
+            .where(DocFile.id.in_([f.id for f in current.values()]))
+        ).all()
 
     def clone(s: Doc, parent_id: str | None, name: str, position: int) -> tuple[Doc, DocVersion]:
         return _new_doc(
@@ -1374,7 +1393,14 @@ def duplicate_doc(
         if f is None:
             return []
         rev = _revision_row(
-            cx.actor, to.id, f.filename, f.data, f.content_type, 1, f"Copied from {src.title}"[:200]
+            cx.actor,
+            to.id,
+            f.filename,
+            f.data,
+            f.content_type,
+            1,
+            f"Copied from {src.title}"[:200],
+            extracted=(f.text, f.tables_json),
         )
         session.add(rev)
         return [rev]
@@ -1390,8 +1416,8 @@ def duplicate_doc(
             stack = [(src.id, copy.id)]
             while stack:
                 from_id, to_id = stack.pop()
-                kids = _tree_order([d for d in docs if d.parent_id == from_id])
-                for n, child in enumerate(k for k in kids if k.archived_at is None):
+                kids = _tree_order(kids_of.get(from_id, []))
+                for n, child in enumerate(kids):
                     dup, dv = clone(full[child.id], to_id, child.title, n)
                     _insert(session, cx, dup, dv, [])
                     for rev in copy_revision(cx, child.id, dup):
@@ -1482,11 +1508,14 @@ def _revision_row(
     revision_no: int,
     note: str,
     restored_from: int | None = None,
+    extracted: tuple[str | None, Any] | None = None,
 ) -> DocFile:
+    """A new revision row. `extracted` is the (text, tables) already stored for these same
+    bytes; without it the file is read here, so call this before `apply_change`."""
     from slate.service.doc_compare import extract
 
     name, ctype = _clean_file(filename, data, content_type, MAX_REVISION_BYTES)
-    text, tables = extract(name, ctype, data)
+    text, tables = extracted if extracted is not None else extract(name, ctype, data)
     return DocFile(
         id=new_id(),
         doc_id=doc_id,
@@ -1692,23 +1721,25 @@ def add_revision(
     content_type: str | None = None,
     restored_from: int | None = None,
 ) -> DocFile:
-    """The next revision of a file doc. The previous one is stamped superseded and kept."""
+    """The next revision of a file doc. The previous one is stamped superseded and kept.
+
+    The file is read before the write lock is taken; its number is chosen under the lock,
+    from the history as it stands then, so two uploads at once get consecutive numbers."""
     doc = _file_doc(session, doc_id)
     text = _note(note)
-    previous = revisions_of(session, doc_id)
-    latest = previous[0] if previous else None
-    rev = _revision_row(
-        actor,
-        doc.id,
-        filename,
-        data,
-        content_type,
-        (latest.revision_no or 0) + 1 if latest else 1,
-        text,
-        restored_from,
-    )
+    rev = _revision_row(actor, doc.id, filename, data, content_type, 0, text, restored_from)
     now = rev.created_at
     with apply_change(session, actor) as cx:
+        # Nothing is dirty yet, so this read flushes nothing.
+        latest = session.scalar(
+            select(DocFile)
+            .options(load_only(*_FILE_COLUMNS))
+            .where(DocFile.doc_id == doc.id, DocFile.revision_no.is_not(None))
+            .order_by(DocFile.revision_no.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        rev.revision_no = (latest.revision_no or 0) + 1 if latest else 1
         covers: list[Any] = [rev, doc]
         if latest is not None:
             latest.superseded_at = now
