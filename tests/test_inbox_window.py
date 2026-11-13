@@ -101,3 +101,27 @@ def test_rejected_candidates_do_not_hide_older_entries(
         client.patch(f"{API}/items/{item['id']}", json={"position": 1000 + i}, headers=agent)
     ids = [e["event"]["subject_id"] for e in client.get(f"{API}/inbox", headers=alex).json()]
     assert mention["id"] in ids
+
+
+def test_mark_refuses_an_oversized_id_list(client, alex):
+    for path in ("read", "clear"):
+        ids = [f"x{i:011d}" for i in range(40000)]
+        r = client.post(f"{API}/inbox/{path}", json={"event_ids": ids}, headers=alex)
+        assert r.status_code == 422, r.text
+        r = client.post(
+            f"{API}/inbox/{path}",
+            json={"event_ids": ids[: inbox_svc.MAX_ENTRIES + 1]},
+            headers=alex,
+        )
+        assert r.status_code == 422, r.text
+
+
+def test_mark_service_refuses_an_oversized_id_list(db, client, alex):
+    from slate.models import Account
+    from slate.service.core import Actor, Source
+    from slate.service.errors import Invalid
+
+    me = db.query(Account).filter(Account.handle == "alex").one()
+    ids = [f"x{i:011d}" for i in range(inbox_svc.MAX_ENTRIES + 1)]
+    with pytest.raises(Invalid, match="at most"):
+        inbox_svc.mark(db, Actor(account_id=me.id, source=Source.api), cleared=False, event_ids=ids)

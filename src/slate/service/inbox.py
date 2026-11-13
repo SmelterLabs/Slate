@@ -444,6 +444,8 @@ def mark(
     assert account is not None
     if not (event_ids or item_id or everything):
         raise Invalid("name event_ids, an item_id, or all")
+    if len(event_ids) > MAX_ENTRIES:
+        raise Invalid(f"name at most {MAX_ENTRIES} event_ids at once")
     kind = "inbox.cleared" if cleared else "inbox.read"
     with apply_change(session, actor) as cx:
         if everything:
