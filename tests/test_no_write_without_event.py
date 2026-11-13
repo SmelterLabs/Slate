@@ -30,7 +30,6 @@ from slate.service import (
     chat_files,
     checklists,
     comments,
-    doc_compare,
     doc_threads,
     docs,
     favorites,
@@ -100,10 +99,8 @@ READS = {
     # Builds item views it is missing with items.views(); writes only its in-memory cache.
     "slate.service.item_cache": {"render", "warm", "trim"},
     "slate.service.items": {
-        "ancestors_of",
         "depth_of",
         "descendants_of",
-        "height_of",
         "resolve_account",
         "get_item",
         "views",
@@ -127,7 +124,6 @@ READS = {
         "reply_target",
     },
     "slate.service.chat": {
-        "channel_key",
         "members_only_post",
         "place",
         "parse_channel",
@@ -249,9 +245,7 @@ READS = {
     },
     "slate.service.doc_compare": {
         "text_kind",
-        "tables_of",
         "extract",
-        "extract_text",
         "compare",
     },
     "slate.service.doc_hub": {"section_documents"},
@@ -395,7 +389,6 @@ INFRASTRUCTURE = {
         "guest_payloads",
         "attach",
         "bind",
-        "can_see_list",
         "participant_ids",
         "check_object",
         "check_record",
@@ -504,21 +497,6 @@ def _doc_file(db, actor):
 
 def _doc_comment(db, actor, **kw):
     return doc_threads.add_comment(db, actor, _doc(db, actor).id, body_md="hi", **kw)
-
-
-def _backfill(db, actor):
-    from sqlalchemy import text as sql
-
-    from slate.models import DocFile
-
-    doc = _doc(db, actor, kind="file", title="Old")
-    rev = docs.add_revision(db, actor, doc.id, filename="a.txt", data=b"hello", note="first")
-    # As a revision stored without its text: raw SQL, since the ORM guard refuses a bare write.
-    db.execute(sql("UPDATE doc_files SET text = NULL WHERE id = :id"), {"id": rev.id})
-    db.commit()
-    db.expire_all()
-    assert db.get(DocFile, rev.id).text is None
-    return doc_compare.backfill_text(db)
 
 
 def _suggestion(db, actor):
@@ -695,21 +673,12 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.favorites": {
         "add_favorite": lambda db, a, p: _pin(db, a),
         "remove_favorite": lambda db, a, p: favorites.remove_favorite(db, a, _pin(db, a).id),
-        "remove_target": lambda db, a, p: favorites.remove_target(
-            db, a, kind="list", target_id=_pin(db, a).target_id
-        ),
         "reorder_favorites": lambda db, a, p: _reorder(db, a),
     },
     "slate.service.webhooks": {
         "create_webhook": lambda db, a, p: _webhook(db, a),
         "update_webhook": lambda db, a, p: webhooks.update_webhook(
             db, a, _webhook(db, a).id, {"events": ["item.due"]}, by=p
-        ),
-        "disable_webhook": lambda db, a, p: webhooks.disable_webhook(
-            db, a, _webhook(db, a).id, by=p
-        ),
-        "enable_webhook": lambda db, a, p: webhooks.enable_webhook(
-            db, a, webhooks.disable_webhook(db, a, _webhook(db, a).id, by=p).id, by=p
         ),
         "create_test_delivery": lambda db, a, p: webhooks.create_test_delivery(
             db, a, _webhook(db, a).id, by=p
@@ -766,11 +735,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "to_drawer": lambda db, a, p: docs.to_drawer(
             db, a, _doc(db, a, section_id=_section(db, a).id).id
         ),
-    },
-    "slate.service.doc_compare": {
-        # Runs as the `slate` system agent (a CLI backfill, no caller); covered by
-        # test_backfill_runs_as_the_system_actor below.
-        "backfill_text": None,
     },
     "slate.service.doc_threads": {
         "add_comment": lambda db, a, p: _doc_comment(db, a),
@@ -864,18 +828,10 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "update_section": lambda db, a, p: sections.update_section(
             db, a, _section(db, a).id, name="Home"
         ),
-        "archive_section": lambda db, a, p: sections.archive_section(db, a, _section(db, a).id),
-        "unarchive_section": lambda db, a, p: sections.unarchive_section(
-            db, a, sections.archive_section(db, a, _section(db, a).id).id
-        ),
     },
     "slate.service.lists": {
         "create_list": lambda db, a, p: _list(db, a),
         "update_list": lambda db, a, p: lists.update_list(db, a, _list(db, a).id, name="Later"),
-        "archive_list": lambda db, a, p: lists.archive_list(db, a, _list(db, a).id),
-        "unarchive_list": lambda db, a, p: lists.unarchive_list(
-            db, a, lists.archive_list(db, a, _list(db, a).id).id
-        ),
         "set_statuses": lambda db, a, p: lists.set_statuses(
             db, a, _list(db, a).id, [{"name": "todo"}, {"name": "done", "kind": "done"}]
         ),
@@ -890,10 +846,13 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db, a, tags.create_tag(db, a, name="h3").id, name="h4"
         ),
         "merge_tag": lambda db, a, p: tags.merge_tag(
-            db, a, items.set_tags(db, a, _item(db, a).id, ["h3", "ai"]) and "h3", into="ai"
+            db,
+            a,
+            items.update_item(db, a, _item(db, a).id, {"tags": ["h3", "ai"]}) and "h3",
+            into="ai",
         ),
         "delete_tag": lambda db, a, p: tags.delete_tag(
-            db, a, items.set_tags(db, a, _item(db, a).id, ["h3"]) and "h3"
+            db, a, items.update_item(db, a, _item(db, a).id, {"tags": ["h3"]}) and "h3"
         ),
     },
     "slate.service.items": {
@@ -902,8 +861,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "update_item": lambda db, a, p: items.update_item(
             db, a, _item(db, a).id, {"body_md": "x", "status": "done", "due_at": "2026-11-01"}
         ),
-        "set_assignees": lambda db, a, p: items.set_assignees(db, a, _item(db, a).id, ["alex"]),
-        "set_tags": lambda db, a, p: items.set_tags(db, a, _item(db, a).id, ["h3"]),
         "archive_item": lambda db, a, p: items.archive_item(db, a, _item(db, a).id),
         "unarchive_item": lambda db, a, p: items.unarchive_item(
             db, a, items.archive_item(db, a, _item(db, a).id).id
@@ -1116,13 +1073,3 @@ def test_materialize_writes_events_as_the_rule_creator_via_system(db):
     assert {(e.actor_id, e.source, e.session_ref) for e in new} == {
         (actor.account_id, Source.system, f"recurrence:{rule.id}")
     }
-
-
-def test_backfill_runs_as_the_system_actor(db):
-    actor, _ = _setup(db)
-    before = db.scalar(select(func.count()).select_from(Event))
-    assert _backfill(db, actor) == 1
-    new = list(db.scalars(select(Event).order_by(Event.id).offset(before)))
-    system = [e for e in new if e.type == "doc.text_extracted"]
-    assert len(system) == 1 and system[0].source == Source.system
-    assert system[0].actor_id != actor.account_id

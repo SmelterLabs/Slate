@@ -12,9 +12,8 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
 - **No channels table.** A channel is a key: `general`, `list:<id>`, `section:<id>`. It lives,
   renames and archives with its list or section; posting to an archived one is a 422.
   `messages.channel` holds the key.
-- **Message ids are time-ordered** (`new_event_id`). Migration `c4e8a2b6d901` adds
-  `channel_reads.exposed_ids` (JSON, default `[]`), exact exposures beyond the intentional
-  `read_through` cursor. `POST /channels/{key}/read {message_ids: [...]}` unions IDs under the
+- **Message ids are time-ordered** (`new_event_id`). `channel_reads.exposed_ids` (JSON, default `[]`)
+  holds exact exposures beyond the intentional `read_through` cursor. `POST /channels/{key}/read {message_ids: [...]}` unions IDs under the
   change lock; empty lists are no-ops, cross-channel IDs and mixing `through` with IDs are rejected.
   Cursor/read-all calls are intentional prefix reads. `chat.unread_messages()` is the
   shared read predicate: callers such as push re-nudges must honor exact exposures, not just the

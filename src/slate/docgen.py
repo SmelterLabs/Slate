@@ -270,8 +270,6 @@ EVENT_DOCS: dict[str, str] = {
     "doc.pinned_to_top": "A document was pinned to the top of its drawer or folder listing "
     "(`after`: at, by). Shared by everyone who sees the drawer.",
     "doc.unpinned_from_top": "A document came off the top of its listing (`before`: at, by).",
-    "doc.text_extracted": "Text was extracted for an older revision by `slate backfill-doc-text` "
-    "(`revision_no`, `chars`); search and compare can see inside it now.",
     "doc.revision_added": "A file doc got its next revision (`after`: revision_no, filename, "
     "size, note, restored_from; never bytes); the previous one is superseded.",
     "push.subscribed": "A device subscribed to Web Push notifications.",
@@ -641,24 +639,3 @@ def main(check: bool = False) -> int:
         return 1
     print(("wrote " + ", ".join(rel)) if rel else "docs/agents/reference is up to date")
     return 0
-
-
-# --- checking hand-written docs ---------------------------------------------------------------
-
-ROUTE_MENTION = re.compile(r"`(GET|POST|PATCH|PUT|DELETE) (/[^`\s]*)")
-
-
-def unknown_route_mentions(text: str) -> list[str]:
-    """Every "`METHOD /path`" in `text` that names no real route (ids may be `{x}` or `<x>`)."""
-    ops = rest_ops()
-    bad = []
-    for method, raw in ROUTE_MENTION.findall(text):
-        path = raw.split("?")[0].rstrip(".,;:)")
-        path = re.sub(r"\{[^}]*\}|<[^>]*>", SAMPLE_ID, path)
-        if not path.startswith(API):
-            path = API + path
-        if path == API + "/mcp" or path.startswith(API + "/mcp"):
-            continue
-        if match_route(method, path, ops) is None:
-            bad.append(f"{method} {raw}")
-    return bad

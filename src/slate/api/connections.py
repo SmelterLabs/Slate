@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from slate.api.auth import AdminAuth, DbSession, ReadAuth, WriteAuth
 from slate.api.collaboration import Attempts
 from slate.service import connections
+from slate.service.core import Actor
 
 router = APIRouter(prefix="/agent-connections", tags=["agent connections"])
 issue_attempts = Attempts()
@@ -43,8 +44,6 @@ def issue(body: PairingIn, auth: AdminAuth, session: DbSession, response: Respon
     """Create explicit list-scoped consent; return the expiring single-use code once."""
     issue_attempts.take(auth.principal.token_id)
     # No user-supplied session reference on secret-bearing operations.
-    from slate.service.core import Actor
-
     actor = Actor(auth.account.id, auth.actor.source)
     connection, code = connections.issue(session, actor, by=auth.principal, **body.model_dump())
     response.headers["Cache-Control"] = "no-store"
@@ -83,8 +82,6 @@ def listing(account_id: str, auth: ReadAuth, session: DbSession, response: Respo
 @router.post("/{connection_id}/heartbeat")
 def heartbeat(connection_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSession) -> dict:
     """Exact connection credential reports a canned health check, not arbitrary diagnostics."""
-    from slate.service.core import Actor
-
     return connections.heartbeat(
         session,
         Actor(auth.account.id, auth.actor.source),
@@ -97,8 +94,6 @@ def heartbeat(connection_id: str, body: HeartbeatIn, auth: WriteAuth, session: D
 @router.delete("/{connection_id}", status_code=204)
 def revoke(connection_id: str, auth: ReadAuth, session: DbSession) -> Response:
     """Disconnect one credential without claiming a remote process has stopped."""
-    from slate.service.core import Actor
-
     connections.revoke(
         session,
         Actor(auth.account.id, auth.actor.source),

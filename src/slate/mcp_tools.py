@@ -2716,8 +2716,9 @@ def _merged_prop(shapes: list[dict[str, Any]], defs: dict[str, Any]) -> dict[str
         for o in [_resolve(o, defs) for o in r.get("anyOf", [r])]:
             if o.get("type") == "null":
                 continue
-            if isinstance(o.get("enum"), list) and all(isinstance(e, str) for e in o["enum"]):
-                enums.extend(e for e in o["enum"] if e not in enums)
+            values = [o["const"]] if "const" in o else o.get("enum")  # Literal["x"] is a const
+            if isinstance(values, list) and all(isinstance(e, str) for e in values):
+                enums.extend(e for e in values if e not in enums)
             else:
                 all_enums = False
     if all_enums and enums:

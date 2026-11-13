@@ -22,7 +22,7 @@ export function workingItems(items: Item[], now: Date): WorkingItems {
 
 /** Explicit requests, or a due task with no report yet (also works on a fresh page). */
 export function pickupSince(item: Item, requested: number | undefined, now: Date): number | undefined {
-  if (isClosed(item) || item.archived_at || item.kind !== 'task' || item.agent?.state === 'working') return;
+  if (isClosed(item) || item.archived_at || item.agent?.state === 'working') return;
   if (requested != null && Number.isFinite(requested) && (!item.agent || requested > Date.parse(item.agent.at))) return requested;
   if (item.agent || item.blocked || item.waiting_on_account_id || !item.due_at) return;
   if (item.start_at && Date.parse(item.start_at) > now.getTime()) return;
