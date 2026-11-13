@@ -28,9 +28,17 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -q
+      # Slate's own tests never need the optional adapters (AGENTS.md rule 5): they run with
+      # integrations/ moved away, then it comes back for the adapters' own step below.
+      - name: pytest (without integrations/)
+        run: |
+          mv integrations "$RUNNER_TEMP/integrations"
+          uv run pytest -q
+          mv "$RUNNER_TEMP/integrations" integrations
       # Optional adapters (AGENTS.md rule 5): tested on their own; Slate's tests never need them.
       - run: if [ -d integrations ]; then uv run pytest -q integrations; fi
+      # The slate-runner wheel and sdist: self-contained, and they install and run.
+      - run: uv run pytest -q clients/python/tests
 
   # The maintainers' denylist is a repository secret, never a file in the repo (AGENTS.md rule 9).
   # It is only ever handed to the base branch's copy of the checker, run with the system Python

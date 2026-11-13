@@ -1320,6 +1320,15 @@ WORK_ACTIONS = {
         rest=lambda p: Rest("POST", "/work/chat/reconcile", body=_fields(p)),
         local=via(work_api.chat_reconcile),
     ),
+    "chat_clear": Action(
+        "a person's Clear of an agent's expired chat turn (its runner lost the run proof): "
+        "the turn ends as released and reconciled by you, and a mention that waited in it is "
+        "the agent's next turn",
+        "write",
+        strict(work_api.ChatClearIn),
+        rest=lambda p: Rest("POST", "/work/chat/clear", body=_fields(p)),
+        local=via(work_api.chat_clear),
+    ),
     "doc_heartbeat": Action(
         "renew a doc turn (a page mention from next) with its run_id proof",
         "write",
@@ -1342,6 +1351,13 @@ WORK_ACTIONS = {
         strict(work_api.DocReconcileIn),
         rest=lambda p: Rest("POST", "/work/doc/reconcile", body=_fields(p)),
         local=via(work_api.doc_reconcile),
+    ),
+    "doc_clear": Action(
+        "a person's Clear of an agent's expired doc turn, as chat_clear",
+        "write",
+        strict(work_api.DocClearIn),
+        rest=lambda p: Rest("POST", "/work/doc/clear", body=_fields(p)),
+        local=via(work_api.doc_clear),
     ),
     "next": Action(
         "take your next task: the best open one assigned to you or waiting on you (pool: also "

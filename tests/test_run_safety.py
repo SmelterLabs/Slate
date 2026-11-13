@@ -219,14 +219,14 @@ def test_expired_task_cannot_restart_until_confirmed_stopped(client, alex, todo,
     assert _next(client, h)["lease"]["run_id"] != first["lease"]["run_id"]
 
 
-def test_expired_chat_cannot_restart_on_another_mention(client, alex, make_account, db):
+def test_expired_chat_waits_for_reconcile_until_someone_asks_again(client, alex, make_account, db):
     from slate.service import chatwake
 
     _, h = make_account("worker")
     client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker one"})
     first = _next(client, h)
     chatwake.expire(db, utcnow() + timedelta(hours=1))
-    client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker two"})
+    # Quarantined: nothing to take until the run is settled.
     assert _next(client, h)["chat"] is None
     r = client.post(
         f"{API}/work/chat/reconcile",
@@ -239,7 +239,35 @@ def test_expired_chat_cannot_restart_on_another_mention(client, alex, make_accou
         },
     )
     assert r.status_code == 200, r.text
-    assert _next(client, h)["chat"] is not None
+    assert _next(client, h)["chat"] is None  # nothing waited in the turn
+
+
+def test_a_mention_after_expiry_starts_a_new_fenced_run(client, alex, make_account, db):
+    """A person's new mention settles the expired run (it is never swallowed by it), and the
+    old run's proof stays fenced out of the new turn."""
+    from slate.service import chatwake
+
+    _, h = make_account("worker")
+    client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker one"})
+    first = _next(client, h)
+    old = first["chat"]["lease"]["run_id"]
+    chatwake.expire(db, utcnow() + timedelta(hours=1))
+    client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker two"})
+    second = _next(client, h)
+    assert second["chat"] is not None and second["chat"]["lease"]["run_id"] != old
+    for path, extra in (("heartbeat", {}), ("finish", {"outcome": "done", "reply": "late"})):
+        r = client.post(
+            f"{API}/work/chat/{path}",
+            headers=h,
+            json={"channel": "general", "run_id": old, **extra},
+        )
+        assert r.status_code == 409, r.text
+    r = client.post(
+        f"{API}/work/chat/reconcile",
+        headers=h,
+        json={"channel": "general", "run_id": old, "state": "stopped", "evidence": "late"},
+    )
+    assert r.status_code == 409, r.text
 
 
 def test_plain_chat_post_does_not_settle_fenced_turn(client, alex, make_account):
