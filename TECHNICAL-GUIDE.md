@@ -378,7 +378,9 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **Svelte 5** for the board (small bundle, simple reactivity for a live board).
 - **The board hand-rolls its interactions:** HTML5 drag and drop and a small escape-first markdown
   renderer, not a DnD or markdown library (the only runtime packages are `exceljs` and `mammoth`,
-  which read Office files for previews in `lib/office.ts`); the whole item set is held in memory
+  which read Office files for previews in `lib/office.ts`; the board loads exceljs's own prebuilt
+  browser bundle, so `package.json`'s one override, `uuid` raised to a patched major under exceljs,
+  changes only the Node-side install that unit tests and `npm audit` see); the whole item set is held in memory
   rather than fetched per list; Vitest for unit tests (shares the Vite config). Rejected: SvelteKit
   (no routing or SSR need), a UI kit.
 - **Rule 3 is enforced by a guard plus a walk test**, not by review
