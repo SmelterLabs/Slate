@@ -33,19 +33,19 @@ Embeds are plain text so agents read and write them without a special API:
 from __future__ import annotations
 
 import difflib
-import mimetypes
 import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import Session, load_only, undefer
 
 from slate.ids import new_id
 from slate.models import Doc, DocFile, DocTag, DocVersion, Item, List, Section, Tag, utcnow
 from slate.service import access, guests
+from slate.service import attachments as attachments_svc
 from slate.service import items as items_svc
 from slate.service import tags as tags_svc
 from slate.service.comments import mentions_in
@@ -55,8 +55,6 @@ from slate.service.lists import get_list
 from slate.service.sections import get_section
 from slate.settings import settings
 
-_CTYPE = re.compile(r"^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$")
-
 MAX_DEPTH = 8  # a top page is depth 1
 MAX_BODY = 500_000
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -65,7 +63,6 @@ KINDS = ("page", "file", "folder")
 FOLD_MINUTES = 10
 EMBED_RE = re.compile(r"\[\[(task|doc):([0-9A-Za-z]{12})\]\]")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_UNSAFE_NAME = re.compile(r'[\x00-\x1f/\\"]+')
 
 # Starting points offered by "New doc" on the board and `template` on create.
 TEMPLATES: dict[str, dict[str, str]] = {
@@ -119,17 +116,38 @@ def get_doc(session: Session, doc_id: str) -> Doc:
     return doc
 
 
-def _all(session: Session) -> list[Doc]:
-    """Every doc without bodies: enough to walk the tree."""
+def fresh_doc(session: Session, doc_id: str) -> Doc:
+    """The doc as the database has it now, body included, overwriting this session's copy.
+    Read it first thing inside `apply_change` (nothing is dirty yet, so nothing flushes) when a
+    check or an edit depends on the current text: the copy loaded before the write lock may
+    be stale by the time the lock is held."""
+    doc = session.scalar(
+        select(Doc)
+        .options(undefer(Doc.body_md))
+        .where(Doc.id == doc_id)
+        .execution_options(populate_existing=True)
+    )
+    if doc is None:
+        raise NotFound(f"doc {doc_id} not found")
+    return doc
+
+
+def _all(session: Session, *, fresh: bool = False) -> list[Doc]:
+    """Every doc without bodies: enough to walk the tree. `fresh` overwrites rows this session
+    already holds with what the database has now (for a check made under the write lock)."""
+    stmt = select(Doc)
+    if fresh:
+        stmt = stmt.execution_options(populate_existing=True)
     return list(
         session.scalars(
-            select(Doc)
-            .options(
+            stmt.options(
                 load_only(
                     Doc.id,
                     Doc.kind,
                     Doc.pinned_revision_no,
                     Doc.pinned_note,
+                    Doc.top_pinned_at,
+                    Doc.top_pinned_by,
                     Doc.title,
                     Doc.icon,
                     Doc.parent_id,
@@ -144,8 +162,7 @@ def _all(session: Session) -> list[Doc]:
                     Doc.updated_at,
                     Doc.archived_at,
                 )
-            )
-            .order_by(Doc.position, Doc.created_at)
+            ).order_by(Doc.position, Doc.created_at)
         )
     )
 
@@ -177,9 +194,13 @@ def _descendants(docs: Sequence[Doc], doc_id: str) -> list[Doc]:
         if d.parent_id:
             children.setdefault(d.parent_id, []).append(d)
     out: list[Doc] = []
+    seen = {doc_id}
     stack = list(children.get(doc_id, []))
     while stack:
         d = stack.pop()
+        if d.id in seen:  # a broken tree (a parent cycle) must not walk forever
+            continue
+        seen.add(d.id)
         out.append(d)
         stack.extend(children.get(d.id, []))
     return out
@@ -189,6 +210,21 @@ def _hidden_places(session: Session) -> tuple[set[str], set[str]]:
     lists = set(session.scalars(select(List.id).where(List.archived_at.is_not(None))))
     sections = set(session.scalars(select(Section.id).where(Section.archived_at.is_not(None))))
     return lists, sections
+
+
+def _live(session: Session, docs: Sequence[Doc], by_id: Mapping[str, Doc]) -> list[Doc]:
+    """The docs a listing shows: not archived, under no archived page, and not in an archived
+    list or section."""
+    dead_lists, dead_sections = _hidden_places(session)
+
+    def visible(d: Doc) -> bool:
+        chain = _ancestors(by_id, d)
+        if d.archived_at is not None or any(a.archived_at is not None for a in chain):
+            return False
+        t = chain[-1] if chain else d
+        return t.list_id not in dead_lists and t.section_id not in dead_sections
+
+    return [d for d in docs if visible(d)]
 
 
 def list_docs(
@@ -216,24 +252,15 @@ def list_docs(
     """
     docs = _all(session)
     by_id = {d.id: d for d in docs}
-    dead_lists, dead_sections = _hidden_places(session)
 
     def top(d: Doc) -> Doc:
         chain = _ancestors(by_id, d)
         return chain[-1] if chain else d
 
-    def visible(d: Doc) -> bool:
-        if d.archived_at is not None:
-            return False
-        if any(a.archived_at is not None for a in _ancestors(by_id, d)):
-            return False
-        t = top(d)
-        return t.list_id not in dead_lists and t.section_id not in dead_sections
-
     if archived:
         pool = [d for d in docs if d.archived_at is not None]
     else:
-        pool = [d for d in docs if visible(d)]
+        pool = _live(session, docs, by_id)
     if list_id is not None:
         pool = [d for d in pool if top(d).list_id == list_id]
     if section_id is not None:
@@ -253,22 +280,34 @@ def list_docs(
     if q or embeds:
         stmt = select(Doc.id)
         if q:
-            like = f"%{q.lower()}%"
+            from slate.service.search import like_pattern  # search imports this module
+
+            like = like_pattern(q)  # the caller's % and _ are plain characters
+            # A file matches on its current revision's name and text, the ones a hit quotes.
+            newest = (
+                select(DocFile.doc_id, func.max(DocFile.revision_no).label("no"))
+                .where(DocFile.revision_no.is_not(None))
+                .group_by(DocFile.doc_id)
+                .subquery()
+            )
             named = (
                 select(DocFile.doc_id)
+                .join(
+                    newest,
+                    and_(DocFile.doc_id == newest.c.doc_id, DocFile.revision_no == newest.c.no),
+                )
                 .where(
-                    DocFile.revision_no.is_not(None),
                     or_(
-                        func.lower(DocFile.filename).like(like),
-                        func.lower(DocFile.text).like(like),
+                        func.lower(DocFile.filename).like(like, escape="\\"),
+                        func.lower(DocFile.text).like(like, escape="\\"),
                     ),
                 )
                 .scalar_subquery()
             )
             stmt = stmt.where(
                 or_(
-                    func.lower(Doc.title).like(like),
-                    func.lower(Doc.body_md).like(like),
+                    func.lower(Doc.title).like(like, escape="\\"),
+                    func.lower(Doc.body_md).like(like, escape="\\"),
                     Doc.id.in_(named),
                 )
             )
@@ -390,13 +429,11 @@ def current_revisions(session: Session, docs: Sequence[Doc]) -> dict[str, DocFil
     if not ids:
         return {}
     pins = {d.id: d.pinned_revision_no for d in docs if d.pinned_revision_no is not None}
-    rows = list(
-        session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id.in_(ids), DocFile.revision_no.is_not(None))
-            .order_by(DocFile.revision_no)
-        )
+    rows = _file_rows(
+        session,
+        DocFile.doc_id.in_(ids),
+        DocFile.revision_no.is_not(None),
+        order_by=DocFile.revision_no,
     )
     pinned_ids = {
         (f.doc_id, f.revision_no): f.id for f in rows if pins.get(f.doc_id) == f.revision_no
@@ -472,10 +509,17 @@ def summaries(session: Session, docs: Sequence[Doc], q: str | None = None) -> li
         )
         for row in out:
             row["snippet"] = snippet(bodies.get(row["id"], ""), q)
-            rev = current.get(row["id"])
-            if row["snippet"] is None and rev is not None and rev.text:
-                # A file: the hit is in its current revision's extracted text.
-                row["snippet"] = snippet(rev.text, q)
+        # A file: the hit is in its current revision's extracted text, read for those alone.
+        need = {
+            current[row["id"]].id: row
+            for row in out
+            if row["snippet"] is None and getattr(current.get(row["id"]), "has_text", False)
+        }
+        if need:
+            for file_id, text in session.execute(
+                select(DocFile.id, DocFile.text).where(DocFile.id.in_(list(need)))
+            ):
+                need[file_id]["snippet"] = snippet(text or "", q)
     return out
 
 
@@ -546,15 +590,17 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
     order = {ref: n for n, ref in enumerate(refs["tasks"])}
     tasks.sort(key=lambda i: order[i.id])
     linked = [by_id[ref] for ref in refs["docs"] if ref in by_id]
-    backlinks = list_docs(session, embeds=doc.id)
-    rows = list(
+    # Pages that link here, from the tree already in hand: one query over bodies, for the
+    # link form a doc id can take.
+    linking = set(
         session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id == doc.id)
-            .order_by(DocFile.created_at)
+            select(Doc.id).where(Doc.body_md.contains(f"[[doc:{doc.id}]]"), Doc.id != doc.id)
         )
     )
+    backlinks = (
+        _tree_order([d for d in _live(session, docs, by_id) if d.id in linking]) if linking else []
+    )
+    rows = _file_rows(session, DocFile.doc_id == doc.id, order_by=DocFile.created_at)
     files = [f for f in rows if f.revision_no is None]
     revisions = sorted((f for f in rows if f.revision_no is not None), key=lambda f: -f.revision_no)
     kids = [
@@ -578,9 +624,7 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
         tasks=items_svc.views(session, tasks),
         missing_tasks=[ref for ref in refs["tasks"] if ref not in {t.id for t in tasks}],
         docs=[_ref(d) for d in linked],
-        backlinks=[
-            {"id": d.id, "title": d.title, "icon": d.icon} for d in backlinks if d.id != doc.id
-        ],
+        backlinks=[{"id": d.id, "title": d.title, "icon": d.icon} for d in backlinks],
         files=[file_out(f) for f in files],
         revisions=[revision_out(f) for f in revisions],
         words=len(doc.body_md.split()),
@@ -638,17 +682,7 @@ def diff(
     else:
         new = get_version(session, doc_id, to_version)
         new_title, new_body, to_no = new.title, new.body_md, new.version_no
-    lines = list(
-        difflib.unified_diff(
-            old.body_md.splitlines(),
-            new_body.splitlines(),
-            fromfile=f"v{old.version_no}",
-            tofile=f"v{to_no}",
-            lineterm="",
-        )
-    )
-    added = sum(1 for ln in lines if ln.startswith("+") and not ln.startswith("+++"))
-    removed = sum(1 for ln in lines if ln.startswith("-") and not ln.startswith("---"))
+    text, added, removed = unified(old.body_md, new_body, f"v{old.version_no}", f"v{to_no}")
     return {
         "doc_id": doc_id,
         "from_version": old.version_no,
@@ -657,8 +691,25 @@ def diff(
         "title_after": new_title,
         "added": added,
         "removed": removed,
-        "diff": "\n".join(lines),
+        "diff": text,
     }
+
+
+def unified(before: str, after: str, from_label: str, to_label: str) -> tuple[str, int, int]:
+    """A line-by-line unified diff and its added and removed line counts. Page versions and
+    file revisions (`doc_compare`) are compared by the same rule."""
+    lines = list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile=from_label,
+            tofile=to_label,
+            lineterm="",
+        )
+    )
+    added = sum(1 for ln in lines if ln.startswith("+") and not ln.startswith("+++"))
+    removed = sum(1 for ln in lines if ln.startswith("-") and not ln.startswith("---"))
+    return "\n".join(lines), added, removed
 
 
 _FILE_COLUMNS = (
@@ -673,8 +724,22 @@ _FILE_COLUMNS = (
     DocFile.note,
     DocFile.superseded_at,
     DocFile.restored_from,
-    DocFile.text,
 )
+
+
+def _file_rows(session: Session, *criteria: Any, order_by: Any) -> list[DocFile]:
+    """`doc_files` rows without bytes or extracted text. Each carries `has_text` (whether its
+    text was extracted), read as a NULL test so a listing never loads the text itself (up to
+    MAX_TEXT characters per revision); `revision_out` reports it."""
+    rows = session.execute(
+        select(DocFile, DocFile.text.is_not(None))
+        .options(load_only(*_FILE_COLUMNS))
+        .where(*criteria)
+        .order_by(order_by)
+    ).all()
+    for f, has_text in rows:
+        f.has_text = bool(has_text)  # type: ignore[attr-defined]
+    return [f for f, _ in rows]
 
 
 def revision_out(f: DocFile) -> dict[str, Any]:
@@ -691,7 +756,8 @@ def revision_out(f: DocFile) -> dict[str, Any]:
         "created_at": f.created_at,
         "superseded_at": f.superseded_at,
         "restored_from": f.restored_from,
-        "has_text": f.text is not None,
+        # Rows from `_file_rows` know it without the text; a row built here has it in hand.
+        "has_text": f.has_text if hasattr(f, "has_text") else f.text is not None,
         "url": f"/api/v1/doc-files/{f.id}",
     }
 
@@ -699,13 +765,11 @@ def revision_out(f: DocFile) -> dict[str, Any]:
 def revisions_of(session: Session, doc_id: str) -> list[DocFile]:
     """A file doc's revisions, newest first, without bytes."""
     get_doc(session, doc_id)
-    return list(
-        session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id == doc_id, DocFile.revision_no.is_not(None))
-            .order_by(DocFile.revision_no.desc())
-        )
+    return _file_rows(
+        session,
+        DocFile.doc_id == doc_id,
+        DocFile.revision_no.is_not(None),
+        order_by=DocFile.revision_no.desc(),
     )
 
 
@@ -826,6 +890,14 @@ def _siblings(
     group = [d for d in group if d.id != exclude]
     group.sort(key=lambda d: (d.position, d.created_at, d.id))
     return group
+
+
+def body_ref(body: str, version_no: int) -> dict[str, int]:
+    """What a page-save event records for a body: the page-history version that holds the text
+    and its length, never the text itself (a page is up to MAX_BODY characters and is saved
+    every few seconds while someone types; `GET /docs/{id}/versions/{n}` has the text). Saves
+    by one author within FOLD_MINUTES fold into one version, which keeps the newest text."""
+    return {"version_no": version_no, "chars": len(body)}
 
 
 def _version(session: Session, doc: Doc) -> DocVersion | None:
@@ -1144,46 +1216,50 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
     unknown = set(changes) - UPDATABLE
     if unknown:
         raise Invalid(f"cannot update {sorted(unknown)}")
-    doc = get_doc(session, doc_id)
-    base = changes.get("base_revision")
-    if base is not None and base != doc.revision:
-        raise Conflict(
-            f"doc changed since revision {base} (now {doc.revision}); reload it and reapply "
-            "your edit"
-        )
-    wanted: dict[str, Any] = {}
-    if changes.get("title") is not None:
-        wanted["title"] = _title(changes["title"])
-    if "icon" in changes:
-        wanted["icon"] = _icon(changes["icon"])
-    body = doc.body_md
-    touched = False
-    if changes.get("body_md") is not None:
-        body, touched = _body(changes["body_md"]), True
-    if changes.get("replace_section"):
-        spec = changes["replace_section"]
-        heading = str(spec.get("heading") or "").strip()
-        if not heading:
-            raise Invalid("replace_section needs a heading")
-        body, touched = replace_section(body, heading, str(spec.get("body_md") or "")), True
-    if changes.get("append_md"):
-        body, touched = _append(body, str(changes["append_md"])), True
-    if touched:
-        wanted["body_md"] = _body(body)
+    get_doc(session, doc_id)
+    spec = changes.get("replace_section")
+    heading = str(spec.get("heading") or "").strip() if spec else ""
+    if spec and not heading:
+        raise Invalid("replace_section needs a heading")
     note = str(changes.get("note") or "").strip()[:200] or None
     seal = bool(changes.get("new_version")) or note is not None
-    diffs = {k: v for k, v in wanted.items() if getattr(doc, k) != v}
     tag_names = changes.get("tags")
-    if not diffs and not seal:
-        if tag_names is not None:
-            with apply_change(session, actor) as cx:
-                _set_tags(cx, doc, list(tag_names))
-        return doc
-    latest = _version(session, doc)
     with apply_change(session, actor) as cx:
+        # The check and the new body are worked out from the doc as it stands under the write
+        # lock, so a save that committed since this request began is never overwritten unseen:
+        # a stale `base_revision` is a 409 and two `append_md` calls both land.
+        doc = fresh_doc(session, doc_id)
+        latest = _version(session, doc)
+        base = changes.get("base_revision")
+        if base is not None and base != doc.revision:
+            raise Conflict(
+                f"doc changed since revision {base} (now {doc.revision}); reload it and reapply "
+                "your edit"
+            )
+        wanted: dict[str, Any] = {}
+        if changes.get("title") is not None:
+            wanted["title"] = _title(changes["title"])
+        if "icon" in changes:
+            wanted["icon"] = _icon(changes["icon"])
+        body = doc.body_md
+        touched = False
+        if changes.get("body_md") is not None:
+            body, touched = _body(changes["body_md"]), True
+        if spec:
+            body, touched = replace_section(body, heading, str(spec.get("body_md") or "")), True
+        if changes.get("append_md"):
+            body, touched = _append(body, str(changes["append_md"])), True
+        if touched:
+            wanted["body_md"] = _body(body)
+        diffs = {k: v for k, v in wanted.items() if getattr(doc, k) != v}
+        if not diffs and not seal:
+            if tag_names is not None:
+                _set_tags(cx, doc, list(tag_names))
+            return doc
         if tag_names is not None:
             _set_tags(cx, doc, list(tag_names))
         befores = {k: getattr(doc, k) for k in diffs}
+        before_version = doc.version_no
         for k, v in diffs.items():
             setattr(doc, k, v)
         covers: list[Any] = [doc]
@@ -1198,12 +1274,13 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
         doc.updated_by = actor.account_id
         doc.updated_at = utcnow()
         for k in diffs:
+            body = k == "body_md"
             cx.record(
                 "doc.updated",
                 subject_id=doc.id,
                 field=k,
-                before=befores[k],
-                after=diffs[k],
+                before=body_ref(befores[k], before_version) if body else befores[k],
+                after=body_ref(diffs[k], doc.version_no) if body else diffs[k],
                 covers=covers,
             )
         if "body_md" in diffs:
@@ -1236,28 +1313,32 @@ def move_doc(session: Session, actor: Actor, doc_id: str, to: Mapping[str, Any])
     if unknown:
         raise Invalid(f"move does not take {sorted(unknown)}")
     access.check_object(session, get_doc(session, doc_id))  # edit where it is now, too
-    docs = _all(session)
-    by_id = {d.id: d for d in docs}
-    doc = by_id[doc_id]
     parent_id = to.get("parent_id")
     if parent_id is not None:
-        parent = by_id.get(parent_id)
-        if parent is None:
-            raise Invalid(f"parent doc {parent_id} does not exist")
-        if parent_id == doc.id or parent_id in {d.id for d in _descendants(docs, doc.id)}:
-            raise Invalid("a page cannot move under itself or one of its subpages")
         if to.get("list_id") is not None or to.get("section_id") is not None:
             raise Invalid("a subpage lives where its top page lives; give parent_id or a place")
-        if _depth(by_id, parent) + _height(docs, doc.id) > MAX_DEPTH:
-            raise Invalid(f"pages nest {MAX_DEPTH} deep at most")
         sec, lst = None, None
     else:
         sec, lst = _place(session, to.get("list_id"), to.get("section_id"))
-    before = _place_of(doc)
-    siblings = _siblings(docs, parent_id, sec, lst, exclude=doc.id)
-    before_id = to.get("before_id")
-    at = next((n for n, d in enumerate(siblings) if d.id == before_id), len(siblings))
     with apply_change(session, actor) as cx:
+        # The tree is read and checked under the write lock (nothing is dirty yet, so the read
+        # flushes nothing): a move that committed since this request began is seen, so two
+        # moves at once cannot make a page its own ancestor or nest past MAX_DEPTH.
+        docs = _all(session, fresh=True)
+        by_id = {d.id: d for d in docs}
+        doc = by_id[doc_id]
+        if parent_id is not None:
+            parent = by_id.get(parent_id)
+            if parent is None:
+                raise Invalid(f"parent doc {parent_id} does not exist")
+            if parent_id == doc.id or doc in _ancestors(by_id, parent):
+                raise Invalid("a page cannot move under itself or one of its subpages")
+            if _depth(by_id, parent) + _height(docs, doc.id) > MAX_DEPTH:
+                raise Invalid(f"pages nest {MAX_DEPTH} deep at most")
+        before = _place_of(doc)
+        siblings = _siblings(docs, parent_id, sec, lst, exclude=doc.id)
+        before_id = to.get("before_id")
+        at = next((n for n, d in enumerate(siblings) if d.id == before_id), len(siblings))
         doc.parent_id, doc.section_id, doc.list_id = parent_id, sec, lst
         changed = _renumber([*siblings[:at], doc, *siblings[at:]])
         if _place_of(doc) != before or changed:
@@ -1310,7 +1391,7 @@ def restore_version(session: Session, actor: Actor, doc_id: str, version_no: int
     doc = get_doc(session, doc_id)
     old = get_version(session, doc_id, version_no)
     latest = _version(session, doc)
-    before = {"title": doc.title, "body_md": doc.body_md, "version_no": doc.version_no}
+    before = {"title": doc.title, **body_ref(doc.body_md, doc.version_no)}
     with apply_change(session, actor) as cx:
         doc.title, doc.body_md = old.title, old.body_md
         doc.revision += 1
@@ -1323,8 +1404,7 @@ def restore_version(session: Session, actor: Actor, doc_id: str, version_no: int
             before=before,
             after={
                 "title": doc.title,
-                "body_md": doc.body_md,
-                "version_no": doc.version_no,
+                **body_ref(doc.body_md, doc.version_no),
                 "restored_from": version_no,
             },
             covers=[doc, v],
@@ -1341,18 +1421,37 @@ def duplicate_doc(
     subpages: bool = True,
 ) -> Doc:
     """Copy a page right after the original, with its subpages unless `subpages` is false.
-    Each copy starts its own history at version 1."""
+    Each copy starts its own history at version 1. Only the copied docs are read, and a copied
+    file keeps its revision's extracted text and tables (the bytes are the same), so nothing is
+    parsed while the write lock is held."""
     src = get_doc(session, doc_id)
     docs = _all(session)
-    full = {d.id: session.get(Doc, d.id) for d in docs}
-    for d in full.values():
-        d.body_md  # noqa: B018 - load bodies before the change (no queries inside it)
     siblings = _siblings(docs, src.parent_id, src.section_id, src.list_id)
     at = next(n for n, d in enumerate(siblings) if d.id == src.id) + 1
 
-    current = current_revisions(session, [src, *docs])
-    for f in current.values():
-        f.data  # noqa: B018 - load the bytes before the change (no queries inside it)
+    # The docs to copy: the source and, with `subpages`, its live subtree (each doc once).
+    kids_of: dict[str, list[Doc]] = {}
+    for d in docs:
+        if d.parent_id and d.archived_at is None:
+            kids_of.setdefault(d.parent_id, []).append(d)
+    copied: dict[str, Doc] = {src.id: src}
+    stack = [src.id] if subpages else []
+    while stack:
+        for child in kids_of.get(stack.pop(), []):
+            if child.id not in copied:
+                copied[child.id] = child
+                stack.append(child.id)
+    full = {d_id: session.get(Doc, d_id) for d_id in copied}
+    for d in full.values():
+        d.body_md  # noqa: B018 - load bodies before the change (no queries inside it)
+
+    current = current_revisions(session, list(copied.values()))
+    if current:  # bytes, text and tables of the copied revisions, in one query, before the change
+        session.scalars(
+            select(DocFile)
+            .options(undefer(DocFile.data), undefer(DocFile.text), undefer(DocFile.tables_json))
+            .where(DocFile.id.in_([f.id for f in current.values()]))
+        ).all()
 
     def clone(s: Doc, parent_id: str | None, name: str, position: int) -> tuple[Doc, DocVersion]:
         return _new_doc(
@@ -1374,7 +1473,14 @@ def duplicate_doc(
         if f is None:
             return []
         rev = _revision_row(
-            cx.actor, to.id, f.filename, f.data, f.content_type, 1, f"Copied from {src.title}"[:200]
+            cx.actor,
+            to.id,
+            f.filename,
+            f.data,
+            f.content_type,
+            1,
+            f"Copied from {src.title}"[:200],
+            extracted=(f.text, f.tables_json),
         )
         session.add(rev)
         return [rev]
@@ -1390,8 +1496,8 @@ def duplicate_doc(
             stack = [(src.id, copy.id)]
             while stack:
                 from_id, to_id = stack.pop()
-                kids = _tree_order([d for d in docs if d.parent_id == from_id])
-                for n, child in enumerate(k for k in kids if k.archived_at is None):
+                kids = _tree_order(kids_of.get(from_id, []))
+                for n, child in enumerate(kids):
                     dup, dv = clone(full[child.id], to_id, child.title, n)
                     _insert(session, cx, dup, dv, [])
                     for rev in copy_revision(cx, child.id, dup):
@@ -1417,17 +1523,7 @@ def add_file(
     """Upload an image or file into a doc; its `markdown` is ready to paste into the body."""
     if get_doc(session, doc_id).kind == "folder":
         raise Invalid("a folder holds documents, not files; put the file in a doc inside it")
-    name = _UNSAFE_NAME.sub("_", (filename or "").strip()).strip(". ")[:255]
-    if not name:
-        raise Invalid("filename is empty")
-    if not data:
-        raise Invalid("file is empty")
-    if len(data) > MAX_FILE_BYTES:
-        raise Invalid(f"file is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
-    ctype = (content_type or "").split(";")[0].strip().lower()
-    if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
-        # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    name, ctype = _clean_file(filename, data, content_type, MAX_FILE_BYTES)
     f = DocFile(
         id=new_id(),
         doc_id=doc_id,
@@ -1459,18 +1555,8 @@ def remove_file(session: Session, actor: Actor, file_id: str) -> None:
 def _clean_file(
     filename: str, data: bytes, content_type: str | None, limit: int
 ) -> tuple[str, str]:
-    name = _UNSAFE_NAME.sub("_", (filename or "").strip()).strip(". ")[:255]
-    if not name:
-        raise Invalid("filename is empty")
-    if not data:
-        raise Invalid("file is empty")
-    if len(data) > limit:
-        raise Invalid(f"file is larger than {limit // (1024 * 1024)} MB")
-    ctype = (content_type or "").split(";")[0].strip().lower()
-    if not _CTYPE.match(ctype) or ctype == "application/octet-stream":
-        # Anything but a `type/subtype` token (a CR/LF, say) is replaced, never served.
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    return name, ctype[:127]
+    """A doc file's stored name and type, by the rules every upload follows."""
+    return attachments_svc.clean(filename, data, content_type, limit=limit, noun="file")
 
 
 def _revision_row(
@@ -1482,11 +1568,14 @@ def _revision_row(
     revision_no: int,
     note: str,
     restored_from: int | None = None,
+    extracted: tuple[str | None, Any] | None = None,
 ) -> DocFile:
+    """A new revision row. `extracted` is the (text, tables) already stored for these same
+    bytes; without it the file is read here, so call this before `apply_change`."""
     from slate.service.doc_compare import extract
 
     name, ctype = _clean_file(filename, data, content_type, MAX_REVISION_BYTES)
-    text, tables = extract(name, ctype, data)
+    text, tables = extracted if extracted is not None else extract(name, ctype, data)
     return DocFile(
         id=new_id(),
         doc_id=doc_id,
@@ -1672,12 +1761,13 @@ def to_drawer(session: Session, actor: Actor, doc_id: str) -> List:
         raise Invalid("a workspace page has no section to hold a drawer; move it first")
     docs = _all(session)
     children = _tree_order([d for d in docs if d.parent_id == doc.id and d.archived_at is None])
-    drawer = lists_svc.create_list(
-        session, actor, section_id=section_id, name=doc.title, kind="drawer"
-    )
-    move_doc(session, actor, doc.id, {"list_id": drawer.id})
-    for child in children:
-        move_doc(session, actor, child.id, {"list_id": drawer.id})
+    with apply_change(session, actor):  # one change: a refused move leaves no empty drawer
+        drawer = lists_svc.create_list(
+            session, actor, section_id=section_id, name=doc.title, kind="drawer"
+        )
+        move_doc(session, actor, doc.id, {"list_id": drawer.id})
+        for child in children:
+            move_doc(session, actor, child.id, {"list_id": drawer.id})
     return drawer
 
 
@@ -1692,23 +1782,31 @@ def add_revision(
     content_type: str | None = None,
     restored_from: int | None = None,
 ) -> DocFile:
-    """The next revision of a file doc. The previous one is stamped superseded and kept."""
+    """The next revision of a file doc. The previous one is stamped superseded and kept.
+
+    The file is read before the write lock is taken; its number is chosen under the lock,
+    from the history as it stands then, so two uploads at once get consecutive numbers."""
     doc = _file_doc(session, doc_id)
     text = _note(note)
-    previous = revisions_of(session, doc_id)
-    latest = previous[0] if previous else None
-    rev = _revision_row(
-        actor,
-        doc.id,
-        filename,
-        data,
-        content_type,
-        (latest.revision_no or 0) + 1 if latest else 1,
-        text,
-        restored_from,
-    )
+    rev = _revision_row(actor, doc.id, filename, data, content_type, 0, text, restored_from)
+    _store_revision(session, actor, doc, rev)
+    return rev
+
+
+def _store_revision(session: Session, actor: Actor, doc: Doc, rev: DocFile) -> None:
+    """Add `rev` (built by `_revision_row`, outside the lock) as the doc's next revision."""
     now = rev.created_at
     with apply_change(session, actor) as cx:
+        # Any row already dirty here is covered by an event, so this read may flush safely.
+        latest = session.scalar(
+            select(DocFile)
+            .options(load_only(*_FILE_COLUMNS))
+            .where(DocFile.doc_id == doc.id, DocFile.revision_no.is_not(None))
+            .order_by(DocFile.revision_no.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        rev.revision_no = (latest.revision_no or 0) + 1 if latest else 1
         covers: list[Any] = [rev, doc]
         if latest is not None:
             latest.superseded_at = now
@@ -1717,7 +1815,6 @@ def add_revision(
         doc.updated_at = now
         session.add(rev)
         cx.record("doc.revision_added", subject_id=doc.id, after=revision_out(rev), covers=covers)
-    return rev
 
 
 def restore_revision(session: Session, actor: Actor, doc_id: str, revision_no: int) -> DocFile:
@@ -1757,24 +1854,26 @@ def create_task(
     Exactly one item is created (AGENTS.md rule 1).
     """
     doc = get_doc(session, doc_id)
-    if base_revision is not None and base_revision != doc.revision:
-        raise Conflict(
-            f"doc changed since revision {base_revision} (now {doc.revision}); reload it first"
-        )
     target = list_id or root_of(session, doc).list_id
     if target is None:
         raise Invalid("list_id is required: this doc is not in a list")
-    body = doc.body_md
-    at = -1
-    if replace:
-        for _ in range(occurrence + 1):
-            at = body.find(replace, at + 1)
-            if at < 0:
-                raise Invalid("the selected text is not in the doc (it may have changed)")
     link = f"From doc [[doc:{doc.id}]]"
     desc = str(fields.pop("body_md", "") or "").strip()
-    latest = _version(session, doc)
     with apply_change(session, actor) as cx:
+        # Checked against the doc as it stands under the write lock (see `update_doc`).
+        doc = fresh_doc(session, doc_id)
+        latest = _version(session, doc)
+        if base_revision is not None and base_revision != doc.revision:
+            raise Conflict(
+                f"doc changed since revision {base_revision} (now {doc.revision}); reload it first"
+            )
+        body = doc.body_md
+        at = -1
+        if replace:
+            for _ in range(occurrence + 1):
+                at = body.find(replace, at + 1)
+                if at < 0:
+                    raise Invalid("the selected text is not in the doc (it may have changed)")
         item = items_svc.create_item(
             session,
             actor,
@@ -1787,6 +1886,7 @@ def create_task(
         new_body = (
             body[:at] + embed + body[at + len(replace) :] if replace else _append(body, embed)
         )
+        before_version = doc.version_no
         doc.body_md = _body(new_body)
         doc.revision += 1
         doc.updated_by = actor.account_id
@@ -1796,8 +1896,8 @@ def create_task(
             "doc.updated",
             subject_id=doc.id,
             field="body_md",
-            before=body,
-            after=doc.body_md,
+            before=body_ref(body, before_version),
+            after=body_ref(doc.body_md, doc.version_no),
             covers=[doc, v],
         )
     return item, doc
@@ -1816,35 +1916,33 @@ def promote_attachment(
 ) -> Doc:
     """Move a task's attachment into the library: a new file doc with the bytes as revision 1,
     the attachment removed from the task, and a comment on the task saying where it went."""
-    from slate.service import attachments as attachments_svc
     from slate.service.comments import add_comment
 
     att, data = attachments_svc.read_bytes(session, attachment_id)
     item = session.get(Item, att.item_id)
-    doc = create_doc(
-        session,
-        actor,
-        kind="file",
-        title=title or att.filename,
-        parent_id=parent_id,
-        list_id=list_id,
-        section_id=section_id if parent_id is None and list_id is None else None,
-    )
-    add_revision(
-        session,
-        actor,
-        doc.id,
-        filename=att.filename,
-        data=data,
-        note=note or (f"From task {item.title}" if item else "From a task"),
-        content_type=att.content_type,
-    )
-    attachments_svc.remove_attachment(session, actor, att.id)
-    add_comment(
-        session,
-        actor,
-        att.item_id,
-        body_md=f"Moved **{att.filename}** to Docs & Files: [[doc:{doc.id}]]",
-        keep_open=True,
-    )
+    text = _note(note or (f"From task {item.title}" if item else "From a task"))
+    # The file is read before the write lock; the four steps are then one change, so a step
+    # the caller may not take (removing the attachment needs edit on the task's list) leaves
+    # nothing behind.
+    rev = _revision_row(actor, "", att.filename, data, att.content_type, 1, text)
+    with apply_change(session, actor):
+        doc = create_doc(
+            session,
+            actor,
+            kind="file",
+            title=title or att.filename,
+            parent_id=parent_id,
+            list_id=list_id,
+            section_id=section_id if parent_id is None and list_id is None else None,
+        )
+        rev.doc_id = doc.id
+        _store_revision(session, actor, doc, rev)
+        attachments_svc.remove_attachment(session, actor, att.id)
+        add_comment(
+            session,
+            actor,
+            att.item_id,
+            body_md=f"Moved **{att.filename}** to Docs & Files: [[doc:{doc.id}]]",
+            keep_open=True,
+        )
     return get_doc(session, doc.id)

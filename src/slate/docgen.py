@@ -239,8 +239,10 @@ EVENT_DOCS: dict[str, str] = {
     "inbox.read": "Inbox entries were marked read.",
     "inbox.cleared": "Inbox entries were cleared.",
     "doc.created": "A doc page was created (or duplicated); `after` is the page.",
-    "doc.updated": "A doc's `title`, `icon` or `body_md` changed (field, before, after); "
-    "field `version_no` when a page-history version was closed without an edit.",
+    "doc.updated": "A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, "
+    "after); for `body_md`, before/after are `{version_no, chars}`: the page-history version "
+    "holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field "
+    "`version_no` when a page-history version was closed without an edit.",
     "doc.mentioned": "A doc save added `@mentions` (`after.mentions`, `doc_id`, `title`, "
     "`excerpt`). Check-in news `mentioned`; inbox reason `mention`.",
     "doc.moved": "A doc moved or was reordered: before/after `{parent_id, section_id, list_id, "
@@ -248,7 +250,8 @@ EVENT_DOCS: dict[str, str] = {
     "doc.archived": "A doc (and the subpages under it) was archived.",
     "doc.unarchived": "An archived doc was restored.",
     "doc.deleted": "An archived doc was deleted for good; `before` is its last state.",
-    "doc.version_restored": "An older version's title and body were put back (`restored_from`).",
+    "doc.version_restored": "An older version's title and body were put back "
+    "(`restored_from`); before/after carry `title`, `version_no` and `chars`.",
     "doc.file_added": "An image or file was uploaded into a doc (metadata only).",
     "doc.file_removed": "A doc's file was removed.",
     "doc.commented": "A comment on a doc (page or file): `after` is the comment (`comment_id`, "

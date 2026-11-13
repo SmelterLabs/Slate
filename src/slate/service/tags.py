@@ -134,7 +134,56 @@ def _rename_in_rules(cx: Change, old: str, new: str | None) -> None:
 
 
 def _retag(cx: Change, source: Tag, into: Tag | None) -> None:
-    """Move every item from `source` to `into` (or just drop `source`), one event per item."""
+    """Move every item and doc from `source` to `into` (or just drop `source`), one event per
+    item (`item.updated`) and per doc (`doc.updated`), field `tags`."""
+    _retag_items(cx, source, into)
+    _retag_docs(cx, source, into)
+
+
+def _retag_docs(cx: Change, source: Tag, into: Tag | None) -> None:
+    session = cx.session
+    rows = list(session.scalars(select(DocTag).where(DocTag.tag_id == source.id)))
+    if not rows:
+        return
+    doc_ids = [r.doc_id for r in rows]
+    names: dict[str, list[str]] = {d: [] for d in doc_ids}
+    for doc_id, name in session.execute(
+        select(DocTag.doc_id, Tag.name)
+        .join(Tag, Tag.id == DocTag.tag_id)
+        .where(DocTag.doc_id.in_(doc_ids))
+    ):
+        names[doc_id].append(name)
+    have_into = (
+        set(
+            session.scalars(
+                select(DocTag.doc_id).where(DocTag.tag_id == into.id, DocTag.doc_id.in_(doc_ids))
+            )
+        )
+        if into
+        else set()
+    )
+    for row in rows:
+        before = sorted(names[row.doc_id])
+        after = {n for n in before if n != source.name}
+        covers: list = [row]
+        session.delete(row)
+        if into is not None:
+            after.add(into.name)
+            if row.doc_id not in have_into:
+                added = DocTag(doc_id=row.doc_id, tag_id=into.id)
+                session.add(added)
+                covers.append(added)
+        cx.record(
+            "doc.updated",
+            subject_id=row.doc_id,
+            field="tags",
+            before=before,
+            after=sorted(after),
+            covers=covers,
+        )
+
+
+def _retag_items(cx: Change, source: Tag, into: Tag | None) -> None:
     session = cx.session
     rows = list(session.scalars(select(ItemTag).where(ItemTag.tag_id == source.id)))
     if not rows:
@@ -180,7 +229,7 @@ def _retag(cx: Change, source: Tag, into: Tag | None) -> None:
 
 
 def merge_tag(session: Session, actor: Actor, ref: str, *, into: str) -> Tag:
-    """Fold tag `ref` into tag `into`: every item and rule carrying `ref` carries `into`
+    """Fold tag `ref` into tag `into`: every item, doc and rule carrying `ref` carries `into`
     instead, then `ref` is deleted. Returns the surviving tag. Owners and admins."""
     access.require_admin(session, "merge tags")
     source = get_tag(session, ref)
@@ -196,7 +245,7 @@ def merge_tag(session: Session, actor: Actor, ref: str, *, into: str) -> Tag:
 
 
 def delete_tag(session: Session, actor: Actor, ref: str) -> None:
-    """Remove a tag from every item and rule (one event each), then delete it. Owners and
+    """Remove a tag from every item, doc and rule (one event each), then delete it. Owners and
     admins."""
     access.require_admin(session, "delete a tag")
     tag = get_tag(session, ref)
