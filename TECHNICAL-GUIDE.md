@@ -73,14 +73,14 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py` | Agent badges, the work loop and leases, the roster and plan, chat-mention wakes (`docs/agents-work-loop.md`). |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the work loop and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events and the run stage; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py`, `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers; discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
-| `service/workload.py`, `health.py` | Capacities and the Box view's numbers; the health report. |
+| `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
 | `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`) and counted raw upload bodies; the long-poll helpers. |
 | `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search; plus `events` and `recurrences`. |
 
@@ -601,12 +601,19 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **A doc @mention is a turn.** A doc @mention of a push agent (page body, review or discussion
   thread, or a doc Ask) is a turn like a chat mention: `doc.mentioned_agent`, a `DocWake` lease,
   `doc` from `/work/next`, `POST /work/doc/finish` posts the reply as a comment; no task or item
-  run starts (rule 7). The chat machinery is mirrored, not generalised into one
-  table, so a runner author learns one shape (`docs/agents-work-loop.md` "Doc mentions wake an
-  agent").
+  run starts (rule 7). Two tables with the same shape, so a runner author learns one contract;
+  the lease code (take, heartbeat, finish, expire, reconcile, clear) is one module,
+  `service/turns.py`, parameterised by the table, so a fix to turns lands once
+  (`docs/agents-work-loop.md` "Doc mentions wake an agent").
 
 ### The board and notifications
 
+- **Three layouts; heavy pages on demand.** A view is Board, List or Table. Timeline, Calendar and
+  Box are gone: a stored view that names one reads as List and a write that names one is refused,
+  with no migration (`docs/views.md` "Layouts"). The board has no automations page; rules are made
+  through the API (`docs/automations.md`). Agents, Docs, Archive, Members, Audit, Health, Chat and
+  three dialogs are dynamic imports (`lib/lazy.svelte.ts`), fetched in the background once the
+  board is up, so the first load is the board and the task window only (`docs/board.md`).
 - **Comment dots on cards.** A card shows one dot, bottom right, when a comment is new to you
   since you last opened it: gray for agents only, blue for a person (guests count), pulsing blue
   when you are @mentioned or asked. Opening the card clears it; reading the Inbox does not. Stored
@@ -660,6 +667,15 @@ Design choices and the reason for each, with the alternatives that were rejected
   documents/drawer Playwright tests (a valid Office ZIP alone does not prove preview
   compatibility). Token examples in tests use visibly synthetic repeated characters, never
   captured credentials.
+
+- **Rule 5 is checked, not just stated.** `tests/test_rule5.py` fails when a file under `src/`
+  names an agent runtime or a test under `tests/` reaches into `integrations/`, and CI runs the
+  suite with `integrations/` moved away. The `slate-runner` package (`clients/python`) bundles
+  the reference adapters from `integrations/` as assets when they are there and builds without
+  them when they are not (`hatch_build.py`); `slate-connect` then refuses an adapter it does not
+  carry. `clients/` is where a runtime may be named: `slate_connect.py` knows the bundled
+  adapters it sets up (their names and environment), because it is the installer for them.
+  `clients/python/tests` (the wheel and sdist) runs in CI.
 
 ### Removed features
 
@@ -725,7 +741,7 @@ section titles code comments cite as `TECHNICAL-GUIDE "..."`.
 | MCP server: the tool table, the two bindings, auth over HTTP, stdio, how to add an action ("MCP server") | `docs/mcp-server.md` |
 | Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list | `docs/recurrence.md` |
 | Fast lane, batch and performance at scale: ETags, projections, `views: "final"`, `SerialCursor`, the item cache ("Item cache"; "Querying items" is above, in this file) | `docs/fast-lane.md` |
-| The board's views and layouts: structure editors, the views engine, Board/List/Table/Calendar/Timeline/Box, favorites, dependencies and estimates | `docs/views.md` |
+| The board's views and layouts: structure editors, the views engine, Board/List/Table, favorites, dependencies and estimates | `docs/views.md` |
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |
 | Design system, polish, phone and installed app: tokens, motion, icons, the build revision, PWA, touch drag, share target ("Scoped class names"; "The date rule" is above, in this file) | `docs/design-system.md` |
 | Automations | `docs/automations.md` |

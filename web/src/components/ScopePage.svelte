@@ -5,12 +5,9 @@
   import { runView, type Scope, type ViewConfig } from '../lib/views';
   import BoardView from './BoardView.svelte';
   import BulkBar from './BulkBar.svelte';
-  import CalendarView from './CalendarView.svelte';
   import ListLayout from './ListLayout.svelte';
   import QuickAddBar from './QuickAddBar.svelte';
   import TableView from './TableView.svelte';
-  import TimelineView from './TimelineView.svelte';
-  import BoxView from './BoxView.svelte';
   import Toolbar from './Toolbar.svelte';
   import ViewTabs from './ViewTabs.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -116,9 +113,6 @@
       <button class="icon" aria-label="List settings" title="List settings" onclick={() => openSettings.call(board, id)}
         ><Icon name="gear" size={16} /></button
       >
-      <a class="icon" href="#/automations?list={id}" aria-label="List automations" title="Automations for this list"
-        ><Icon name="sparkle" size={16} /></a
-      >
     {/if}
   </div>
   <!-- A private section is a project with its own membership: it gets the project home. Open
@@ -167,7 +161,7 @@
         >
       {/if}
     </EmptyState>
-  {:else if !shown && !kiosk && config.layout !== 'board' && config.layout !== 'calendar' && config.layout !== 'timeline' && config.layout !== 'box'}
+  {:else if !shown && !kiosk && config.layout !== 'board'}
     <EmptyState
       icon="sparkle"
       title={scope.kind === 'everything' ? 'All clear' : 'Nothing here yet'}
@@ -179,12 +173,6 @@
     <BoardView {groups} {config} {wide} {scope} viewKey={active.key} {kiosk} />
   {:else if config.layout === 'table'}
     <TableView {groups} {config} {scope} />
-  {:else if config.layout === 'calendar'}
-    <CalendarView {groups} {config} {scope} viewKey={active.key} />
-  {:else if config.layout === 'timeline'}
-    <TimelineView {groups} {config} {scope} />
-  {:else if config.layout === 'box'}
-    <BoxView {groups} {config} {scope} />
   {:else}
     <ListLayout {groups} {config} {wide} />
   {/if}

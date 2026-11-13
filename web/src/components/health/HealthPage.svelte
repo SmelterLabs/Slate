@@ -7,6 +7,7 @@
   // Live without polling (AGENTS.md rule 6): a health.* event (a poller started failing, or
   // works again) reloads at once; any other event reloads at most every THROTTLE_MS, since
   // activity is what moves the numbers. Refresh reloads by hand.
+  import '../../health.css'; // loads with this page (lib/lazy.svelte.ts)
   import { onDestroy } from 'svelte';
   import { get } from '../../lib/api';
   import { ago } from '../../lib/format';
@@ -259,7 +260,7 @@
           {#each report.automations.recent as run (run.id)}
             <li>
               <span class="health-code" class:server={run.status === 'failed'}>{run.status === 'failed' ? 'Failed' : 'Partly'}</span>
-              <a href="#/automations">{run.name}</a>
+              <span>{run.name}</span>
               {#if run.item_id}
                 <button class="link small" onclick={() => run.item_id && void board.open(run.item_id)}>{run.item_title ?? 'a task'}</button>
               {/if}

@@ -1,7 +1,7 @@
 // The board comes back the way you left it: the last view tab per scope and its unsaved toolbar
 // changes (layout, sort, filters...) live in the account prefs (`last_view`, `view_drafts`), so
 // a reload, another list and back, or the phone all show the same thing.
-import type { ViewConfig } from './views';
+import { withKnownLayout, type ViewConfig } from './views';
 
 /** Most remembered scopes and unsaved views; the oldest are forgotten first. */
 export const MAX_LAST_VIEWS = 100;
@@ -16,9 +16,10 @@ export function draftDiff(draft: ViewConfig, base: ViewConfig): Partial<ViewConf
   return out as Partial<ViewConfig>;
 }
 
-/** A stored diff laid over the view's saved settings. */
+/** A stored diff laid over the view's saved settings. A draft kept from before a layout was
+ *  removed shows that view as a list. */
 export function applyDiff(base: ViewConfig, diff: Partial<ViewConfig> | null | undefined): ViewConfig {
-  return { ...base, ...(diff ?? {}) };
+  return withKnownLayout({ ...base, ...(diff ?? {}) });
 }
 
 /** `map` with `key` set (moved to the newest end) or removed, keeping at most `max` entries.

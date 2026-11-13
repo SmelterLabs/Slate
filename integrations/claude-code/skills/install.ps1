@@ -14,9 +14,12 @@
 #     - Hermes Agent: %LOCALAPPDATA%\hermes\skills\productivity\slate and every profile's.
 #   Remote Linux/macOS hosts (over ssh, -RemoteHost, optional, repeatable)
 #     - Hermes ~/.hermes and every profile, ~/.claude, ~/.codex if present. The files are sent
-#       from here, so each host gets the same ref. Runs install-remote.sh there.
+#       from here, so each host gets the same ref, into a private folder made there with
+#       `mktemp -d` (never a fixed /tmp name another user could swap), and install-remote.sh
+#       runs from it; the folder is removed afterwards.
 #
-# Old local copies are moved to %TEMP%\slate-skill-backup-<time>\ first (remote: ~/.slate-skill-backup-<time>).
+# Old local copies are moved to ~\.slate-skill-backup-<time>\ first (remote: ~/.slate-skill-backup-<time>).
+# -WhatIf fetches nothing and changes nothing.
 #
 #   pwsh integrations/claude-code/skills/install.ps1 [-Ref origin/main] [-RemoteHost my-server] [-Exclude word] [-BoardUrl https://slate.example.com] [-WhatIf]
 [CmdletBinding(SupportsShouldProcess)]
@@ -36,9 +39,10 @@ $src = 'integrations/claude-code/skills/slate'
 $begin = '<!-- slate-guide:start (managed by the Slate repo''s skill installer; edit the repo, not this) -->'
 $end = '<!-- slate-guide:end -->'
 
-if ($Ref -like 'origin/*') { git -C $repo fetch -q origin ($Ref -replace '^origin/', '') }
+if ($Ref -like 'origin/*' -and $PSCmdlet.ShouldProcess($repo, "git fetch $Ref")) { git -C $repo fetch -q origin ($Ref -replace '^origin/', '') }
 $stage = Join-Path ([IO.Path]::GetTempPath()) ("slate-skill-" + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($stage) | Out-Null
+try {
 $tar = Join-Path $stage 'skill.tar'
 git -C $repo archive --format=tar -o $tar $Ref $src
 if ($LASTEXITCODE -ne 0) { throw "git archive $Ref $src failed" }
@@ -77,7 +81,8 @@ if (Test-Path $hermes) {
     }
 }
 
-$backup = Join-Path ([IO.Path]::GetTempPath()) ("slate-skill-backup-" + (Get-Date -Format yyyyMMdd-HHmmss))
+# Kept in the home folder, not %TEMP%, which cleanup tools empty.
+$backup = Join-Path $HOME (".slate-skill-backup-" + (Get-Date -Format yyyyMMdd-HHmmss))
 $i = 0
 foreach ($t in $targets) {
     if ($PSCmdlet.ShouldProcess($t, "install slate skill $sha")) {
@@ -127,13 +132,21 @@ if ($RemoteHost.Count) {
     $script = Join-Path $PSScriptRoot 'install-remote.sh'
     foreach ($h in $RemoteHost) {
         if ($PSCmdlet.ShouldProcess($h, "install slate skill $sha over ssh")) {
-            scp -q $remoteTar "${h}:/tmp/slate-skill.tar"
-            if ($LASTEXITCODE -ne 0) { throw "scp to $h failed" }
-            scp -q $script "${h}:/tmp/slate-install-remote.sh"
-            if ($LASTEXITCODE -ne 0) { throw "scp to $h failed" }
-            ssh $h bash /tmp/slate-install-remote.sh /tmp/slate-skill.tar $sha
-            if ($LASTEXITCODE -ne 0) { throw "install-remote.sh on $h failed" }
+            # A folder only this user can write (mktemp -d is mode 0700), so nobody else on the
+            # host can put their own script where ours is run.
+            $dir = "$(ssh $h 'mktemp -d')".Trim()
+            if ($LASTEXITCODE -ne 0 -or $dir -notmatch '^/[\w./-]+$') { throw "mktemp on $h failed" }
+            try {
+                scp -q $remoteTar $script "${h}:$dir/"
+                if ($LASTEXITCODE -ne 0) { throw "scp to $h failed" }
+                ssh $h bash "$dir/install-remote.sh" "$dir/slate-skill.tar" $sha
+                if ($LASTEXITCODE -ne 0) { throw "install-remote.sh on $h failed" }
+            } finally {
+                ssh $h rm -rf "$dir"
+            }
         }
     }
 }
-[IO.Directory]::Delete($stage, $true)
+} finally {
+    [IO.Directory]::Delete($stage, $true)
+}

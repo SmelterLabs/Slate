@@ -449,8 +449,9 @@ def unread(
 def agent_turns(session: Session) -> dict[str, list[dict[str, Any]]]:
     """{channel: [open agent turns]} for the board's "is working" line (service/chatwake.py).
     A row not yet taken is `waiting` (mentioned, the runner has not picked it up); a taken row
-    with a live lease is `working`. A lease that ran out is neither: `expire` ended that turn
-    (the row stays only as a quarantine until the runner reconciles)."""
+    with a live lease is `working`; a taken row whose lease ran out is `expired` (the run is
+    gone and the turn waits for its runner to reconcile, or for a person's Clear,
+    `POST /work/chat/clear`)."""
     now = utcnow()
     out: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in session.scalars(
@@ -461,7 +462,7 @@ def agent_turns(session: Session) -> dict[str, list[dict[str, Any]]]:
         elif row.until is not None and row.until >= now:
             state, since = "working", row.claimed_at
         else:
-            continue
+            state, since = "expired", row.claimed_at
         out[row.channel].append(
             {
                 "agent_id": row.account_id,

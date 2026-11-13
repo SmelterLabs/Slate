@@ -7,8 +7,6 @@ import './work.css';
 import './docs.css';
 import './chat.css';
 import './members.css';
-import './box.css';
-import './health.css';
 import App from './App.svelte';
 import { applyTheme } from './lib/theme';
 import { installTouchDrag } from './lib/touchdrag';

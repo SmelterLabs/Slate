@@ -1,0 +1,45 @@
+/* The capacity editor the Agents page opens (components/CapacityEditor.svelte). */
+.capacity-editor {
+  display: grid;
+  gap: 10px;
+}
+.cap-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cap-fields label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.cap-fields input {
+  width: 110px;
+}
+.cap-days {
+  display: flex;
+  gap: 4px;
+}
+.cap-day {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-weight: 600;
+}
+.cap-day.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--inverse-text, #fff);
+}
+.cap-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cap-reset {
+  margin-left: auto;
+}

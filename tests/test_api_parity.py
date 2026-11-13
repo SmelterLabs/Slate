@@ -144,10 +144,9 @@ def test_tag_rename_follows_into_rules(client, alex, todo):
 # --- views over the new data ----------------------------------------------------------------
 
 
-def test_views_accept_table_calendar_estimate_and_blocked(client, alex, todo):
+def test_views_accept_table_estimate_and_blocked(client, alex, todo):
     config = {
-        "layout": "calendar",
-        "calendar_span": "week",
+        "layout": "table",
         "sort": [{"field": "estimate", "dir": "desc"}],
         "filter": {
             "op": "and",
@@ -160,11 +159,12 @@ def test_views_accept_table_calendar_estimate_and_blocked(client, alex, todo):
     }
     r = client.post(
         f"{API}/views",
-        json={"name": "Cal", "scope_kind": "list", "scope_id": todo["id"], "config": config},
+        json={"name": "Table", "scope_kind": "list", "scope_id": todo["id"], "config": config},
         headers=alex,
     )
     assert r.status_code == 201, r.text
-    assert r.json()["config"]["calendar_span"] == "week"
+    assert r.json()["config"]["layout"] == "table"
+    assert r.json()["config"]["sort"] == [{"field": "estimate", "dir": "desc"}]
     bad = {**config, "layout": "gantt"}
     r = client.post(
         f"{API}/views",
@@ -172,33 +172,3 @@ def test_views_accept_table_calendar_estimate_and_blocked(client, alex, todo):
         headers=alex,
     )
     assert r.status_code == 422
-
-
-def test_timeline_layout_and_zoom(client, alex, todo):
-    r = client.post(
-        f"{API}/views",
-        json={
-            "name": "Plan",
-            "scope_kind": "list",
-            "scope_id": todo["id"],
-            "config": {"layout": "timeline", "timeline_zoom": "month"},
-        },
-        headers=alex,
-    )
-    assert r.status_code == 201, r.text
-    assert r.json()["config"] == {
-        **r.json()["config"],
-        "layout": "timeline",
-        "timeline_zoom": "month",
-    }
-    bad = client.post(
-        f"{API}/views",
-        json={
-            "name": "Bad",
-            "scope_kind": "list",
-            "scope_id": todo["id"],
-            "config": {"layout": "timeline", "timeline_zoom": "year"},
-        },
-        headers=alex,
-    )
-    assert bad.status_code == 422 and "timeline_zoom" in bad.text

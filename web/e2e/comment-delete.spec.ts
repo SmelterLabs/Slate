@@ -56,6 +56,8 @@ test('a member deletes only their own comment; the owner deletes anyone’s', as
   const atw = asAlex.locator('.tw');
   const theirs = atw.locator('article.comment', { hasText: 'Member first note' });
   await expect(theirs).toBeVisible();
+  // The names load just after the task: until then the author reads "Someone".
+  await expect(theirs.locator('.who strong')).toHaveText('Member');
   asAlex.once('dialog', (d) => void d.dismiss());
   await theirs.hover();
   await theirs.getByRole('button', { name: 'Delete', exact: true }).click();

@@ -233,7 +233,7 @@
             <MessageItem m={r.message} head={r.head} onthread={setThread} ontask={(m) => (making = m)} />
           {/if}
         {/each}
-        <AgentWorking turns={working} />
+        <AgentWorking turns={working} channel={channelKey} />
       {/if}
     </div>
 
@@ -264,7 +264,7 @@
               <MessageItem m={r.message} head={r.head} inThread ontask={(m) => (making = m)} />
             {/if}
           {/each}
-          <AgentWorking turns={threadWorking} />
+          <AgentWorking turns={threadWorking} channel={channelKey} />
         {/if}
       </div>
       {#if rootId}

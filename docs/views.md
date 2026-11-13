@@ -1,7 +1,7 @@
 # The board's views and layouts
 
-The board as a whole, structure editing, the views engine, the six layouts (Board, List, Table,
-Calendar, Timeline, Box), the favorites bar, and the ClickUp
+The board as a whole, structure editing, the views engine, the three layouts (Board, List, Table),
+the favorites bar, and the ClickUp
 parity pieces (dependencies, estimates, tags). The board's module map and test recipe are in
 `docs/board.md`; the task window is `docs/task-window.md`; look and phone rules are
 `docs/design-system.md`.
@@ -112,7 +112,7 @@ tool's input schema has no `$ref`.
 
 ## View polish
 
-Details across the six layouts; all board-side, nothing on the server.
+Details across the layouts; all board-side, nothing on the server.
 
 - **Board**: `.card.cu` has a 3px left edge coloured by priority (`.card.cu.prio-stripe-*` in
   `board.css`, after the shorthand `border`, which would otherwise reset the app.css stripe
@@ -121,17 +121,6 @@ Details across the six layouts; all board-side, nothing on the server.
 - **List**: the Due column is 150px (110 clips "Tomorrow 11:00 AM"). Grouped by status the Status
   column goes (`ListLayout` `noStatus` → `ItemRow` prop and `.row.no-status` grids, incl. `.wide`);
   group headers show the group's summed `estimate_minutes` (`groupMinutes`, `formatEstimate`).
-- **Calendar**: `placeItems` places a spanned task on every day, and the chips read as one
-  bar: `first` (the start day, or the only day) / `last` (`!cont`) give `.span-start|mid|end`
-  (square joined ends, a tinted background from `--opt`, no dot after the first day) and the title
-  is `visibility: hidden` on every day but the first and each Sunday. `.cal-day.weekend` is shaded.
-- **Timeline**: a bar narrower than `LABEL_MIN` (96px) and every milestone get a `.tl-label` to
-  their right instead of a three-letter ellipsis; `.tl-weekend` bands per Saturday/Sunday from
-  `days`; `ticks()` (week zoom) clips a first week that starts before the axis to `at: 0` with a
-  shorter span, so its label shows instead of hanging off the left and leaving an empty first
-  column (`timeline.test.ts`).
-- **Box**: the per-row Assign-to icon is hover/focus-only (`.box-task .box-assign`), always visible
-  on touch. Overdue rows are red (`isOverdue`).
 
 ## ClickUp-style board
 
@@ -172,60 +161,16 @@ view code is in `web/`; the server's part is `comment_count` on `ItemOut` (batch
 - **Theme**: `:root[data-theme=light|dark]` overrides the system preference; Customize → Theme sets
   it per browser.
 
-## Timeline (Gantt) view
+## Layouts
 
-A fifth view layout, `timeline`, beside board/list/table/calendar (`service/views.py` `LAYOUTS`;
-config adds `timeline_zoom` = day|week|month, validated). Entirely client-side over the item payload
-already carrying `start_at`, `due_at` and the dependency id lists
-(`blocked_by`/`blocking`/`related`), so it has no endpoint of its own.
-
-- `web/src/lib/timeline.ts` (pure, Vitest `timeline.test.ts`): `barSpan` (start→due, a lone due date
-  is a milestone, a backwards span collapses to the due day), `axisRange`/`axisDays`/`dayIndex` (the
-  day window, always including today), `ticks` (day/week/month header cells with offset, width and
-  major flag), `rows` (flattens the view's groups to rows, keeps only dated items — undated ones
-  live in the tray — with a header per group that has one), `arrows` (blocked_by links between two
-  on-chart items → blocker→waiter), `dragDays`/`dayToIso` (snap a pixel delta to whole days; a day
-  to noon keeping an existing time).
-- `web/src/components/TimelineView.svelte`: a scrolling chart with a sticky name gutter and date
-  header, a background day grid and a today line, SVG dependency arrows, and bars. Pointer drag
-  moves a bar (both dates) or one edge (start or due) via `board.setDates` (optimistic, like
-  reschedule); a drag suppresses the click-to-open that follows. The tray holds undated tasks;
-  dropping one on a day sets its due date (`board.reschedule`). `board.setDates(id, {start_at?,
-  due_at?})` is the store method. Zoom is a `board.setConfig({timeline_zoom})` draft like the
-  calendar span.
-- Wired in `ScopePage` (the `timeline` branch, and its empty state comes from the tray like the
-  calendar) and `Toolbar` (the layout segment). `e2e/timeline.spec.ts` covers bars, an arrow,
-  drag-to-reschedule and the tray.
-
-## Box view
-
-ClickUp's Box view, as a sixth view layout (`box`, in `service/views.LAYOUTS` and
-`lib/views.Layout`): a box per person and agent, plus Unassigned, in any list, section or
-Everything, with the view's filters applied.
-
-- **Board**: `components/BoxView.svelte`, numbers in `lib/box.ts` (Vitest). Each box counts open and
-  in-progress tasks from what the view shows, overdue (due before now, as cards show) and done in
-  the last 7 days from the whole scope (views usually hide finished work), with a done bar and the
-  open minutes against this week's capacity (`lib/workload.ts`: defaults, `capacityOf`,
-  `dayCapacity`, `fmtLoad`; Vitest), red when over. Tasks are listed in progress first, then by due
-  date. Dragging a task onto another box replaces the dragged-from assignee (Unassigned removes it);
-  **Assign to** on each task does the same on every screen. "Hide empty groups" hides boxes with
-  nothing in them. The gear on a box opens `components/CapacityEditor.svelte` (also on each agent
-  card on the Agents page) for the viewer's own account, or anyone's for an owner or admin. Styles
-  in `box.css`.
-- **Capacity**: table `capacities` (one row per account, unique
-  `account_id`; `hours_per_day`, `tasks_per_day`, each null = no limit; `work_days` as
-  `"0,1,2,3,4"`, 0 = Monday). No row = the defaults in `service/workload.DEFAULTS`: people 8 h a day
-  Monday to Friday, agents 8 h a day every day. `service/workload.set_capacity` records
-  `capacity.set` (creating the row from the defaults on first set) and `reset_capacity` records
-  `capacity.reset` (deletes the row). Only the account itself or an owner/admin may change it
-  (`_may_set` in the service, because `check_object` returns early for unrestricted tokens); the
-  `slate` system account has none. REST `GET /capacities`, `GET|PATCH|DELETE
-  /accounts/{id}/capacity`; the store keeps `capacities` (reloaded on `capacity.*`). Event prefix
-  `capacity.` is in `_WORKSPACE_TYPES` and `item_cache.NO_EFFECT`.
-- **Agents**: `GET /workload/boxes` (`kinds`, `section_id`, `list_id`, `done_days`) and MCP
-  `slate_workload` (`boxes`, `capacities`, `capacity`, `set_capacity`, `reset_capacity`) answer the
-  same per-account numbers (`service/workload.boxes`), with `account: null` for unassigned work.
+A view's `layout` is `board`, `list` or `table` (`service/views.LAYOUTS`, `lib/views.LAYOUTS`).
+The Timeline, Calendar and Box layouts are no longer part of Slate. A saved view (or an unsaved
+draft in prefs `view_drafts`) that still names one reads as `list`, without the `calendar_span` and
+`timeline_zoom` settings only they used: the server does it in `views.view_out`, the board in
+`lib/views.withKnownLayout` (through `normalizeConfig` and `lastview.applyDiff`). Writing one of
+those layouts is refused (422); the two old settings are accepted on write and dropped, so a board
+page opened before an upgrade can still save. No migration rewrites stored configs. Capacity
+(`GET /capacities`, `GET /workload/boxes`) stays for agents and the Agents page's capacity editor.
 
 ## Favorites bar
 
@@ -253,7 +198,7 @@ bar, and `s` for the open task or the card under the pointer. The task window ca
 `board.toggleFavorite('item', id)` for a star of its own. CSS: the `/* --- favorites bar ... */`
 block after the shell in `app.css`; phone rows are 40 px tall and the bar hides when empty.
 
-## ClickUp parity: dependencies, estimates, tags, Table and Calendar
+## ClickUp parity: dependencies, estimates, tags, Table
 
 **Schema**: `items.estimate_minutes`; `item_links` (from blocks to, or relates; unique, not self).
 Custom fields and status templates are not part of Slate.
@@ -291,11 +236,9 @@ repeats an `item.linked`. E2E `e2e/blocked.spec.ts` (desktop and phone).
 **Tags.** `POST /tags/{tag}/merge {into}` retags every item and doc (an `item.updated` or `doc.updated`, field `tags`, for each) and deletes the
 source; `DELETE /tags/{tag}` untags items and docs the same way, then deletes (`tag.deleted`).
 
-**Views.** `layout` includes `table` and `calendar`; `calendar_span` is `month|week`. Sort key
-`estimate`; filters `blocked`, `estimate`.
+**Views.** `layout` includes `table`. Sort key `estimate`; filters `blocked`, `estimate`.
 
-**Board.** `TableView`/`TableRow` (editors mount on hover, totals per group), `CalendarView`
-(`lib/calendar.ts` places items; weeks start Sunday; drag calls `board.reschedule`), `EstimatePanel`
+**Board.** `TableView`/`TableRow` (editors mount on hover, totals per group), `EstimatePanel`
 + `DependenciesPanel` (they take only `item`; the task window mounts them), `TagManager` (nav foot
 "Tags"). `formatEstimate`/`parseEstimate` live in `lib/format.ts`. Store methods are in the
 "ClickUp parity" block; CSS is the "ClickUp parity" block in `app.css`. The reducer sets

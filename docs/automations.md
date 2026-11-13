@@ -1,8 +1,8 @@
 # Automations
 
-ClickUp-style rules, the engine that runs them over the event log, the run log and the
-builder. The feature is frozen: the engine keeps running rules and the builder UI stays, but
-neither gains features.
+ClickUp-style rules, the engine that runs them over the event log, and the run log. Rules are
+set up through the REST API and the MCP tool; the board has no builder page. The feature is
+frozen: the engine keeps running rules but gains no features.
 
 ## Automations
 
@@ -49,11 +49,10 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   trigger and conditions.
 - **Triggers on items in archived lists or sections, and archived items, do nothing.** `moved_in`
   fires only when the item comes from a list outside the rule's scope.
-- **Board**: `#/automations` (`?list=<id>` narrows to rules that apply to that list; the ⚡ next to a
-  list's ⚙ links there), `components/automations/` (`AutomationsPage`, `RuleBuilder`, `ParamInput`),
-  state and pure helpers in `lib/automations.svelte.ts` (`summarize` for the builder's live
-  sentence, `toPayload`, `PRESETS` for the template gallery). Live: `automation.*` events reload
-  rules; any event with an `automation:` session_ref reloads the run log and counters.
+- **Board**: no automations page (`#/automations` opens Everything). The task window's activity
+  names the rule behind a change ("by automation “…”") from the event's `automation:<id>`
+  `session_ref`; `lib/automationref.svelte.ts` reads the rule names once (`GET /automations`) when
+  an activity first needs one. The Health page lists failed runs by rule name.
 - **MCP**: `slate_automation` (catalog, list, get, create, update, delete, run, runs).
 - **Adding a trigger or action**: add it to `TRIGGERS` (event type, label, params) or `ACTIONS` and
   handle it in `trigger_fires()` or `_do()`; the catalog, validation, MCP schema and the board's

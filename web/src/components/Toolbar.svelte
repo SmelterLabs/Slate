@@ -92,19 +92,6 @@
     <button class:on={config.layout === 'table'} onclick={() => board.setConfig({ layout: 'table' })} title="Table"
       >Table</button
     >
-    <button
-      class:on={config.layout === 'calendar'}
-      onclick={() => board.setConfig({ layout: 'calendar' })}
-      title="Calendar">Calendar</button
-    >
-    <button
-      class:on={config.layout === 'timeline'}
-      onclick={() => board.setConfig({ layout: 'timeline' })}
-      title="Timeline">Timeline</button
-    >
-    <button class:on={config.layout === 'box'} onclick={() => board.setConfig({ layout: 'box' })} title="Box: by assignee"
-      >Box</button
-    >
   </div>
 
   <Dropdown title="Group by" cls="chip-btn {config.group_by !== 'none' ? 'active' : ''}" bind:open={groupOpen}>

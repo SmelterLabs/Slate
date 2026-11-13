@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_VIEW_DRAFTS, applyDiff, draftDiff, withEntry } from './lastview';
-import { defaultConfig, type Scope } from './views';
+import { defaultConfig, type Scope, type ViewConfig } from './views';
 
 const scope: Scope = { kind: 'list', id: 'l1' };
 
@@ -19,6 +19,14 @@ describe('remembered views', () => {
     const diff = draftDiff({ ...base, layout: 'table' }, base);
     const savedLater = { ...base, density: 'compact' as const };
     expect(applyDiff(savedLater, diff)).toMatchObject({ layout: 'table', density: 'compact' });
+  });
+
+  it('an unsaved switch to a removed layout shows the list, and drops its old settings', () => {
+    const base = defaultConfig(scope);
+    const stored = { layout: 'calendar', calendar_span: 'week' } as unknown as Partial<ViewConfig>;
+    const shown = applyDiff(base, stored);
+    expect(shown.layout).toBe('list');
+    expect('calendar_span' in shown).toBe(false);
   });
 
   it('keeps the newest entries, moves a touched one to the end, and drops an empty map', () => {

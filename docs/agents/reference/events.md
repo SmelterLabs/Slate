@@ -81,7 +81,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
-| `doc.agent_turn` | An agent's doc turn (`after.agent`, subject = the doc): `state` started (taken with /work/next), done (`reply_id` = its comment, or none), released (given up, nothing posted) or expired (the lease ran out; actor `slate`, `reconciliation_required`); `pending` true when a mention arrived during the turn and waits for the next take. |
+| `doc.agent_turn` | An agent's doc turn (`after.agent`, subject = the doc): `state` started (taken with /work/next), done (`reply_id` = its comment, or none), released (given up, nothing posted; `reconciled` as for chat, with `/work/doc/clear`), expired (the lease ran out; actor `slate`, `reconciliation_required`) or dropped (the agent can no longer answer there: `reason`); `pending` true when a mention arrived during the turn and waits for the next take. |
 | `doc.archived` | A doc (and the subpages under it) was archived. |
 | `doc.comment_assigned` | A doc comment was addressed to an account (an Ask); also on `doc.mentioned` with `asked`. |
 | `doc.comment_edited` | A doc comment's body changed (before, after). |
@@ -186,7 +186,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
-| `message.agent_turn` | An agent's chat turn (`after.agent`): `state` started (taken with /work/next), done (`reply_id` = its message, or none), released (given up, nothing posted) or expired (the lease ran out; actor `slate`); `pending` true when a mention arrived during the turn and waits for the next take. |
+| `message.agent_turn` | An agent's chat turn (`after.agent`): `state` started (taken with /work/next), done (`reply_id` = its message, or none), released (given up, nothing posted; `reconciled` when an expired turn was settled by its run proof, a person's `/work/chat/clear` or a person's new mention, the person as actor), expired (the lease ran out; actor `slate`) or dropped (never taken, or expired, and the agent can no longer answer there: `reason` no_access or gone); `pending` true when a mention arrived during the turn and waits for the next take. |
 | `message.deleted` | A chat message was deleted by its author or an owner or admin (the text goes, the thread stays; `before` keeps it). |
 | `message.edited` | A chat message's text changed (`after.mentions` = handles the edit added). |
 | `message.file_discarded` | An upload that was never sent was taken back or swept. |
