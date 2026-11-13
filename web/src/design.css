@@ -1,7 +1,7 @@
 /* Polish that spans components: focus, selection, scrollbars, hover and press feedback,
    entrances for menus and windows, drag feedback, toasts, skeletons and empty states.
-   Loaded last (main.ts), after app.css and board.css. Values come from the tokens at the top
-   of app.css. Motion keeps to opacity and scale (never transform or translate, which the
+   Loaded first (main.ts), before app.css and board.css, so a feature sheet can restyle one of
+   these pieces for itself. The tokens are at the top of this file. Motion keeps to opacity and scale (never transform or translate, which the
    task window and the sheet use for centring), and stops entirely for reduced motion. */
 
 :root {
