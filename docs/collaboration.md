@@ -61,7 +61,11 @@ are work, not conversation, and follow the rule below.
 Guests see no trace of a workspace agent. `service/guests.py` holds the
 rule and its write-side refusals (Ask, reassign, assign, Run now: `Forbidden`; a guest's
 mentions of a workspace agent are dropped before they notify or wake, in card comments, doc
-threads, page bodies and chat; a guest's reply is never its turn). Read side, guests only:
+threads, page bodies and chat; a guest's reply is never its turn). On a card assigned to a
+workspace agent a guest changes neither what it asks nor when it runs: the write check
+(`access.check_object` → `_refuse_steering`) refuses a guest's change to the title, body,
+acceptance, due or start date, a checklist, or a reopen, with a message that names nobody, so
+text a guest wrote never becomes the agent's instructions and a guest never opens its due gate. Read side, guests only:
 `access._guest_criteria` hides Comment and DocComment rows by or addressed to a workspace agent,
 its ItemAssignee rows, its events (plus the events of comments addressed to it), and an
 `item.assigned` whose only change is a workspace agent; `items.views` drops its agent badge,

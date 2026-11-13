@@ -43,6 +43,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, exists, false, func, literal, or_, select, true, union_all
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
 from slate.connection_models import AgentConnection
@@ -55,6 +56,8 @@ from slate.models import (
     Capacity,
     ChannelRead,
     ChatWake,
+    Checklist,
+    ChecklistItem,
     Comment,
     Doc,
     DocComment,
@@ -936,6 +939,8 @@ def check_object(
             raise _deny(need, "change items in this list")
         if field_name == "list_id" and access.list_level(value) < EDIT:
             raise _deny(EDIT, "move items into that list")
+        if access.role == Role.guest and _steers(obj, field_name, value):
+            _refuse_steering(session, obj.id)
         return
     if isinstance(obj, InboxState | InboxMark):
         return
@@ -980,6 +985,8 @@ def check_object(
     if item_id is not None:
         if access.list_level(_item_list(session, item_id)) < need:
             raise _deny(need, "change this task")
+        if access.role == Role.guest and isinstance(obj, Checklist | ChecklistItem):
+            _refuse_steering(session, item_id)
         return
     list_id = getattr(obj, "list_id", None)
     if list_id is not None:
@@ -1008,6 +1015,37 @@ def check_object(
         return
     if access.role == Role.guest and type(obj).__name__ not in _GUEST_GLOBAL:
         raise Forbidden("guests can only work inside the lists shared with them")
+
+
+# What a workspace agent's task asks and when it runs (service/guests.py): a guest changes none
+# of it. `completed_at` going back to null is a reopen, which would put the task back in the
+# agent's queue.
+_STEERING = ("title", "body_md", "acceptance_md", "due_at", "due_date_only", "start_at")
+
+
+def _steers(item: Item, field_name: str | None, value: Any) -> bool:
+    if field_name is not None:
+        return field_name in _STEERING or (field_name == "completed_at" and value is None)
+    # A body save assigns first and records after (`covers`): read the pending change.
+    state = sa_inspect(item)
+    return any(state.attrs[f].history.has_changes() for f in _STEERING)
+
+
+def _refuse_steering(session: Session, item_id: str) -> None:
+    # No autoflush: the change being checked is still pending (a body version not yet covered).
+    with unrestricted(session), session.no_autoflush:
+        assigned = session.scalar(
+            select(ItemAssignee.item_id).where(
+                ItemAssignee.item_id == item_id,
+                ItemAssignee.account_id.in_(_workspace_agents()),
+            )
+        )
+    if assigned is not None:
+        # Worded without naming anyone: a guest does not see who works the task.
+        raise Forbidden(
+            "the workspace's members set what this task asks and when it runs; "
+            "comment to suggest a change"
+        )
 
 
 def check_record(session: Session, type_: str, item_id: str | None) -> None:
