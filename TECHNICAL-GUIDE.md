@@ -44,7 +44,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 |---|---|
 | `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
 | `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is in `env.example`). |
-| `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`). |
+| `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`), `SharedConnection` (the tests' one in-memory connection, used by one thread at a time: `docs/PERFORMANCE.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
 | `ids.py` | `new_id()` 12-char base62 keys; `new_event_id()` time-ordered ids for events and messages. |
 | `dates.py` | `parse_when()` (the date rule), `local_day_bounds()`, `run_at()`, `is_date_only_input()`. |
