@@ -382,6 +382,7 @@ INFRASTRUCTURE = {
     # The permission hooks (read filter, write check) and their helpers.
     "slate.service.access": {
         "hidden_agents",
+        "reading_as",
         "scrub",
         "attach",
         "bind",

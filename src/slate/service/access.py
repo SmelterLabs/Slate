@@ -36,6 +36,8 @@ What an *agent* may do at all, whatever its token, is the workspace deny-list in
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -342,6 +344,25 @@ def unrestricted(session: Session) -> _Detach:
     """`with access.unrestricted(session):` reads without the caller's filter, for bookkeeping
     that must see the whole table (slug uniqueness, computing someone else's access)."""
     return _Detach(session)
+
+
+_BOUND_KEYS = (ACCESS_KEY, "slate_connection_event_access", "slate_connection_event_manager")
+
+
+@contextmanager
+def reading_as(session: Session, account: Account) -> Iterator[Access]:
+    """`with access.reading_as(session, account):` reads as `account` would (its read filter),
+    for background work done on its behalf (a push it is sent), then restores the session."""
+    saved = {k: session.info[k] for k in _BOUND_KEYS if k in session.info}
+    with unrestricted(session):
+        found = compute(session, account)
+    attach(session, found)
+    try:
+        yield found
+    finally:
+        for k in _BOUND_KEYS:
+            session.info.pop(k, None)
+        session.info.update(saved)
 
 
 # --- Read filter -----------------------------------------------------------------------------
