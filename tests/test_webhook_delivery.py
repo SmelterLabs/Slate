@@ -362,7 +362,7 @@ def test_body_is_stored_once_per_event_and_finished_rows_are_pruned(
 ):
     """A retry row hands its signed body to the next attempt instead of copying it, and rows
     that are finished (ok, failed, skipped, retry) older than the retention are pruned from the
-    dispatcher loop, bounded per tick. Queued rows and younger history stay."""
+    dispatcher loop, batch by batch. Queued rows and younger history stay."""
     hook, _ = _hook(db, world["agent"], events=["item.created"])
     receiver.statuses = [503, 200]
     items.create_item(db, world["admin"], list_id=world["todo"].id, title="a")
@@ -378,8 +378,7 @@ def test_body_is_stored_once_per_event_and_finished_rows_are_pruned(
     items.create_item(db, world["admin"], list_id=world["todo"].id, title="b")
     dispatcher.fan_out_once()  # queued, never sent: must survive any prune
     clock.advance(days=11)
-    assert dispatcher.prune_once(limit=1) == 1
-    assert dispatcher.prune_once() == 1
+    assert dispatcher.prune_once(limit=1) == 2  # batch after batch until none are left
     assert [(r.state, json.loads(r.body)["item"]["title"]) for r in _rows(db, hook.id)] == [
         ("pending", "b")
     ]

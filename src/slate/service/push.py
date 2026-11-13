@@ -30,6 +30,7 @@ writes no event.
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import logging
 import math
@@ -41,13 +42,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from slate import webpush
 from slate.ids import new_id
 from slate.models import (
     Account,
-    EngineCursor,
     Event,
     Item,
     PushDelivery,
@@ -55,7 +56,7 @@ from slate.models import (
     Source,
     utcnow,
 )
-from slate.service import access, chat, inbox
+from slate.service import access, chat, cursors, inbox, webhooks
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Forbidden, Invalid, NotFound
 from slate.settings import settings
@@ -157,6 +158,11 @@ def subscribe(
             f"{parts.hostname} is not a known push service; an admin can add it with "
             "SLATE_PUSH_ENDPOINT_HOSTS"
         )
+    # The allowlist names hosts; the address must still be public (unless private targets
+    # are on), so a wildcard allowlist cannot aim Slate at this network. A name that does
+    # not resolve now is judged again at send time, which fails closed.
+    with contextlib.suppress(webhooks.LookupFailed):
+        webhooks.check_target(endpoint)
     _check_keys(p256dh, auth)
     label = (label or "").strip()[:100] or None
     existing = session.scalar(select(PushSubscription).where(PushSubscription.endpoint == endpoint))
@@ -462,17 +468,6 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
 # --- The engine step -----------------------------------------------------------------------
 
 
-def _cursor(session: Session) -> EngineCursor:
-    row = session.get(EngineCursor, CURSOR)
-    if row is None:
-        row = EngineCursor(
-            name=CURSOR, event_id=session.scalar(select(func.max(Event.id))), updated_at=utcnow()
-        )
-        session.add(row)
-        session.commit()
-    return row
-
-
 def reasons_for(account: Account) -> frozenset[str]:
     chosen = (account.prefs_json or {}).get("push_reasons")
     return frozenset(chosen if isinstance(chosen, list) else DEFAULT_REASONS)
@@ -480,8 +475,6 @@ def reasons_for(account: Account) -> frozenset[str]:
 
 # Inbox reasons about a followed item that `watching` also pushes when the account watches it.
 FOLLOW_REASONS = inbox.FOLLOW_REASONS - {"watching"}
-# Description autosaves: one push per author and item until they pause this long.
-EDIT_QUIET = timedelta(minutes=10)
 
 
 def started_work(ev: Event) -> bool:
@@ -507,25 +500,6 @@ def wanted(chosen: frozenset[str], reason: str | None, ev: Event, f: inbox.Follo
     return "watching" in chosen and reason in FOLLOW_REASONS and ev.item_id in f.watched
 
 
-def _repeat_edit(session: Session, ev: Event) -> bool:
-    """A description save shortly after the same author's last one on the same item."""
-    if ev.type != "item.updated" or ev.field != "body_md":
-        return False
-    prev = session.scalar(
-        select(Event.at)
-        .where(
-            Event.item_id == ev.item_id,
-            Event.type == "item.updated",
-            Event.field == "body_md",
-            Event.actor_id == ev.actor_id,
-            Event.id < ev.id,
-        )
-        .order_by(Event.id.desc())
-        .limit(1)
-    )
-    return prev is not None and ev.at - prev < EDIT_QUIET
-
-
 def process(session: Session, send: Sender | None) -> int:
     """Queue recent new events durably, then attempt at most DELIVERY_BATCH due devices.
 
@@ -534,82 +508,77 @@ def process(session: Session, send: Sender | None) -> int:
     deliveries, under fresh access.
     """
     session.expire_all()
-    cursor = _cursor(session)
-    top = session.scalar(select(func.max(Event.id)))
     now = utcnow()
     subs = list(session.scalars(select(PushSubscription))) if send is not None else []
-    if subs and top:
+    accounts: dict[str, Account] = {}
+    gates: dict[str, access.EventGate] = {}
+    follows: dict[str, inbox.Follows] = {}
+    if subs:
         accounts = {a.id: a for a in session.scalars(select(Account))}
         gates = {aid: access.EventGate(aid) for aid in {s.account_id for s in subs}}
         for gate in gates.values():
             gate.load(session)
         follows = {aid: inbox.follows(session, aid) for aid in gates}
-        while True:
-            q = select(Event).where(Event.id <= top, Event.at >= now - DELIVERY_WINDOW)
-            if cursor.event_id:
-                q = q.where(Event.id > cursor.event_id)
-            page = list(session.scalars(q.order_by(Event.id).limit(PAGE)))
-            if not page:
-                break
-            for ev in page:
-                eligible = []
-                if ev.type == "item.watched" and ev.after_json in follows:
-                    # A new watcher hears about what follows in this same batch.
-                    follows[ev.after_json] = inbox.follows(session, ev.after_json)
-                repeat = _repeat_edit(session, ev)
-                for sub in subs:
-                    account = accounts.get(sub.account_id)
-                    if account is None or account.disabled_at or sub.created_at > ev.at:
-                        continue
-                    gate = gates[sub.account_id]
-                    if gate.project(session, event_payload(ev)) is None:
-                        continue
-                    reason = inbox.reason_for(ev, account, follows[account.id]) or chat_reason(
-                        ev, account
-                    )
-                    if (
-                        not repeat
-                        and wants(account, reason, ev, follows[account.id])
-                        and not (
-                            reason in inbox.FOLLOW_REASONS
-                            and inbox.waiting_covers(
-                                ev, reason, inbox.waits(session, account.id, [ev.item_id or ""])
-                            )
-                        )
-                    ):
-                        eligible.append(sub)
-                for sub in eligible:
-                    _enqueue(session, ev, sub, now=now)
-            # Receipts and the cursor are bookkeeping: one commit per page, before any send.
-            cursor.event_id, cursor.updated_at = page[-1].id, now
-            session.commit()
-            if len(page) < PAGE:
-                break
-    if top and cursor.event_id != top:
-        cursor.event_id, cursor.updated_at = top, now
-        session.commit()
+
+    def handle(ev: Event) -> list[PushDelivery]:
+        rows = []
+        for sub in subs:
+            account = accounts.get(sub.account_id)
+            if account is None or account.disabled_at or sub.created_at > ev.at:
+                continue
+            if gates[sub.account_id].project(session, event_payload(ev)) is None:
+                continue
+            reason = inbox.reason_for(ev, account, follows[account.id]) or chat_reason(ev, account)
+            if wants(account, reason, ev, follows[account.id]) and not (
+                reason in inbox.FOLLOW_REASONS
+                and inbox.waiting_covers(
+                    ev, reason, inbox.waits(session, account.id, [ev.item_id or ""])
+                )
+            ):
+                row = _receipt(session, ev, sub, now=now)
+                if row is not None:
+                    rows.append(row)
+        return rows
+
+    cursors.follow(
+        session,
+        CURSOR,
+        now=now,
+        window=DELIVERY_WINDOW,
+        handle=handle,
+        follows=follows,
+        refresh=lambda aid: inbox.follows(session, aid),
+        active=bool(subs),
+    )
     return _drain(session, send, now) if send is not None else 0
 
 
 def _enqueue(
     session: Session, ev: Event, sub: PushSubscription, *, now: datetime, kind: str = "notification"
 ) -> None:
-    """Add one receipt (bookkeeping; the caller commits). No payload, endpoint or key is
+    """Add one receipt (bookkeeping; the caller commits)."""
+    row = _receipt(session, ev, sub, now=now, kind=kind)
+    if row is not None:
+        session.add(row)
+
+
+def _receipt(
+    session: Session, ev: Event, sub: PushSubscription, *, now: datetime, kind: str = "notification"
+) -> PushDelivery | None:
+    """A new receipt, or None when there is one already. No payload, endpoint or key is
     stored: a receipt is the event id, the device, the account and the retry state."""
     key = (sub.id, ev.id, kind)
     if session.get(PushDelivery, key) is not None:
-        return
-    session.add(
-        PushDelivery(
-            subscription_id=sub.id,
-            event_id=ev.id,
-            kind=kind,
-            account_id=sub.account_id,
-            attempts=0,
-            state="pending",
-            next_attempt_at=now,
-            expires_at=min(now, ev.at) + DELIVERY_WINDOW,
-        )
+        return None
+    return PushDelivery(
+        subscription_id=sub.id,
+        event_id=ev.id,
+        kind=kind,
+        account_id=sub.account_id,
+        attempts=0,
+        state="pending",
+        next_attempt_at=now,
+        expires_at=min(now, ev.at) + DELIVERY_WINDOW,
     )
 
 
@@ -639,6 +608,54 @@ def _retry_delay(attempts: int, retry_after: str | None, now: datetime) -> timed
     return timedelta(seconds=seconds)
 
 
+def _note_for(
+    session: Session, row: PushDelivery, now: datetime
+) -> tuple[PushSubscription | None, dict[str, Any] | None]:
+    """The device and the notification for one receipt, judged now (None: drop it)."""
+    sub = session.get(PushSubscription, row.subscription_id)
+    ev = session.get(Event, row.event_id)
+    account = session.get(Account, row.account_id)
+    gate = access.EventGate(row.account_id)
+    gate.load(session)
+    f = inbox.follows(session, account.id) if account else None
+    reason = (
+        (inbox.reason_for(ev, account, f) or chat_reason(ev, account))
+        if ev and account and f
+        else None
+    )
+    if row.kind == "renudge":
+        reason = "chat"
+    allowed = bool(
+        sub
+        and sub.account_id == row.account_id
+        and ev
+        and account
+        and not gate.denied
+        and gate.project(session, event_payload(ev)) is not None
+        and f is not None
+        and wants(account, reason, ev, f)
+        and now < row.expires_at
+    )
+    note = None
+    if allowed and row.kind == "renudge":
+        unread = next(
+            (u for u in unread_by_channel(session, account) if u.newest_id == ev.subject_id),
+            None,
+        )
+        if unread is not None and renudge_minutes(account) > 0 and "chat" in reasons_for(account):
+            note = renudge_notification(session, unread)
+    elif allowed:
+        # Apply the recipient's read criteria to all reference rendering, even retries.
+        with access.unrestricted(session):
+            if gate.access is not None:
+                access.attach(session, gate.access)
+            try:
+                note = notification_for(session, ev, reason)
+            finally:
+                session.info.pop(access.ACCESS_KEY, None)
+    return sub, note
+
+
 def _drain(session: Session, send: Sender, now: datetime) -> int:
     rows = list(
         session.scalars(
@@ -651,51 +668,17 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
     sent = 0
     for row in rows:
         session.expire_all()  # permissions/endpoint ownership can change between attempts
-        sub = session.get(PushSubscription, row.subscription_id)
-        ev = session.get(Event, row.event_id)
-        account = session.get(Account, row.account_id)
-        gate = access.EventGate(row.account_id)
-        gate.load(session)
-        f = inbox.follows(session, account.id) if account else None
-        reason = (
-            (inbox.reason_for(ev, account, f) or chat_reason(ev, account))
-            if ev and account and f
-            else None
-        )
-        if row.kind == "renudge":
-            reason = "chat"
-        allowed = bool(
-            sub
-            and sub.account_id == row.account_id
-            and ev
-            and account
-            and not gate.denied
-            and gate.project(session, event_payload(ev)) is not None
-            and f is not None
-            and wants(account, reason, ev, f)
-            and now < row.expires_at
-        )
-        note = None
-        if allowed and row.kind == "renudge":
-            unread = next(
-                (u for u in unread_by_channel(session, account) if u.newest_id == ev.subject_id),
-                None,
-            )
-            if (
-                unread is not None
-                and renudge_minutes(account) > 0
-                and "chat" in reasons_for(account)
-            ):
-                note = renudge_notification(session, unread)
-        elif allowed:
-            # Apply the recipient's read criteria to all reference rendering, even retries.
-            with access.unrestricted(session):
-                if gate.access is not None:
-                    access.attach(session, gate.access)
-                try:
-                    note = notification_for(session, ev, reason)
-                finally:
-                    session.info.pop(access.ACCESS_KEY, None)
+        try:
+            sub, note = _note_for(session, row, now)
+        except SQLAlchemyError:
+            raise  # the database, not this row: the engine retries the step
+        except Exception:
+            # A notification that cannot be built never will be: fail this row, keep going.
+            log.exception("push: delivery of event %s could not be built", row.event_id)
+            session.rollback()
+            row.state, row.next_attempt_at = "failed", None
+            session.commit()
+            continue
         if note is None:
             row.state, row.next_attempt_at = "dropped", None
             session.commit()

@@ -49,6 +49,16 @@ writer.
 **Disconnect.** sse-starlette cancels the generator on client disconnect; the `async with
 bus.subscribe()` exits and unsubscribes.
 
+**Rechecks and limits.** Before each live message `_gate_check` rereads the token and the
+account, so a revoked or expired token or a disabled account is cut off at the next event. The
+caller's whole reach (`access.compute`) is recomputed only when something that may change it has
+been published since the last computation (any event outside `events.CONTENT_FAMILIES`, such as a
+share, account, token, section or list event, on any stream or none; the bus keeps the newest id
+per family in `bus.last_id_by_family`), or `GATE_TTL_SECONDS` (10) after it, not for every message
+on every stream. A token holds at most
+`MAX_STREAMS_PER_TOKEN` (10) open streams (`/events/stream` and `/checkin/stream` together) in
+the process; one more is a 429 before the stream starts.
+
 **Token in the query string.** `?token=` exists only because browsers' EventSource cannot set
 headers; the polling endpoint does not accept it. It goes through the same
 `accounts.resolve_token()` as the header (header wins if both). Auth runs as a dependency in its own

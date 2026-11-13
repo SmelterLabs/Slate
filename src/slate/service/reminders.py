@@ -56,6 +56,12 @@ MAX_PER_ITEM = 20
 MAX_BEFORE_MINUTES = 60 * 24 * 60  # 60 days
 DEFAULT_DIGEST_HOUR = 7
 DIGEST_ITEMS = 10  # per group, in the event
+# An account whose digest came out empty is not checked again for this long (the same day):
+# building a digest costs an access computation and three queries, every scheduler tick.
+QUIET_RECHECK = timedelta(hours=1)
+# account id -> (local date, when it was last found empty). Process-local; a restart checks
+# everyone once more, which is harmless (an empty digest records nothing).
+_quiet: dict[str, tuple[str, datetime]] = {}
 
 
 # --- Reads ---------------------------------------------------------------------------------
@@ -361,11 +367,16 @@ def send_digests(session: Session, *, now: datetime | None = None) -> int:
         if not on or local.hour < hour:
             continue
         date = local.date().isoformat()
+        quiet = _quiet.get(account.id)
+        if quiet and quiet[0] == date and now - quiet[1] < QUIET_RECHECK:
+            continue
         if _sent_on(session, account.id, date):
             continue
         body = digest_for(session, account, now=now)
         if not any(body["counts"].values()) and not body.get("agents"):
+            _quiet[account.id] = (date, now)
             continue
+        _quiet.pop(account.id, None)
         with apply_change(session, system_actor(session)) as cx:
             cx.record("account.digest", subject_id=account.id, after=body)
         sent += 1

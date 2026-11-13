@@ -49,7 +49,8 @@ class Settings(BaseSettings):
     # receiver runs on the same host or network.
     webhook_private_targets: bool = False
     # Hosts a browser's Web Push endpoint may be on (glob patterns). "*" allows any https
-    # host; the default is the push services of the common browsers.
+    # host whose addresses are public (private ones need webhook_private_targets); the
+    # default is the push services of the common browsers.
     push_endpoint_hosts: list[str] = [
         "fcm.googleapis.com",
         "*.push.apple.com",

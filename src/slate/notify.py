@@ -10,17 +10,16 @@ The dispatcher is one asyncio task started in the app lifespan. Its loop:
 4. sleep until the doorbell rings or `poll_seconds` passes (retries come due on the poll).
 
 Each attempt POSTs the stored body with `X-Slate-Event`, `X-Slate-Delivery` (the attempt's row
-id), `X-Slate-Signature: sha256=<hex HMAC-SHA256 of the raw body, keyed by the secret>` and
-`User-Agent: Slate/<version>`, times out after `webhook_timeout_seconds`, does not follow
-redirects, and records the outcome (`record_attempt`) which schedules any retry.
+id), the signature headers (`outbound.signed_headers`: `X-Slate-Timestamp`,
+`X-Slate-Signature-V2` over `<timestamp>.<body>`, and the body-only `X-Slate-Signature`) and
+`User-Agent: Slate/<version>` through `outbound.post` (one wall-clock deadline of
+`webhook_timeout_seconds`, no redirects, connected to the address that was checked), and
+records the outcome (`record_attempt`) which schedules any retry.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import hashlib
-import hmac
 import logging
 import time
 from collections.abc import Callable
@@ -29,11 +28,10 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
 
-from slate import __version__, crypto
+from slate import __version__, crypto, engine, outbound
 from slate import db as slate_db
 from slate.models import Delivery, utcnow
-from slate.service import deliveries, due, reminders, webhooks
-from slate.service.bus import bus
+from slate.service import deliveries, due, reminders
 from slate.service.errors import Invalid
 from slate.settings import settings
 
@@ -44,37 +42,11 @@ Clock = Callable[[], datetime]
 # Tests swap in an `httpx.MockTransport`; None means real network.
 transport: httpx.BaseTransport | None = None
 
-# How often the loop prunes finished delivery rows (the first tick after a start prunes too).
+# How often the loop prunes finished delivery rows (the first tick after a start prunes too),
+# and for how long at most each time: batch after batch, so the prune keeps up with any
+# delivery rate instead of a fixed number of rows an hour.
 PRUNE_EVERY = timedelta(hours=1)
-
-
-def sign(secret: str, body: bytes) -> str:
-    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-
-
-# A subscriber's answer is read for its status and a short error text, never kept: a
-# response that never ends (or is huge) must not hold memory or a dispatcher slot.
-RESPONSE_CAP_BYTES = 64 * 1024
-
-
-def post_capped(url: str, body: bytes, headers: dict[str, str], *, timeout: float) -> int:
-    """POST once, no redirects; returns the status. The body is drained up to
-    `RESPONSE_CAP_BYTES` and abandoned after `timeout` seconds of wall-clock time (httpx's
-    timeout is per operation, so a dripping body would otherwise never end), and never kept:
-    echoing a receiver's answer into the delivery log would let a subscriber read the first
-    bytes of whatever its URL points at."""
-    webhooks.check_target(url)
-    deadline = time.monotonic() + timeout
-    with (
-        httpx.Client(transport=transport, timeout=timeout, follow_redirects=False) as client,
-        client.stream("POST", url, content=body, headers=headers) as response,
-    ):
-        got = 0
-        for chunk in response.iter_bytes():
-            got += len(chunk)
-            if got >= RESPONSE_CAP_BYTES or time.monotonic() > deadline:
-                break
-        return response.status_code
+PRUNE_BUDGET_SECONDS = 2.0
 
 
 def attempt(delivery_id: str, *, clock: Clock = utcnow, retry: bool = True) -> Delivery | None:
@@ -89,14 +61,16 @@ def attempt(delivery_id: str, *, clock: Clock = utcnow, retry: bool = True) -> D
         "User-Agent": f"Slate/{__version__}",
         "X-Slate-Event": job.event_type,
         "X-Slate-Delivery": job.delivery_id,
-        "X-Slate-Signature": sign(job.secret, raw),
+        **outbound.signed_headers(job.secret, raw),
     }
     status_code: int | None = None
     error: str | None = None
     started = time.perf_counter()
     final = False
     try:
-        status_code = post_capped(job.url, raw, headers, timeout=settings.webhook_timeout_seconds)
+        status_code = outbound.post(
+            job.url, raw, headers, timeout=settings.webhook_timeout_seconds, transport=transport
+        ).status
         if not 200 <= status_code < 300:
             error = f"HTTP {status_code}"
     except Invalid as exc:  # the target is refused (private address): no retry will help
@@ -154,11 +128,18 @@ class Dispatcher:
         return len(ids)
 
     def prune_once(self, limit: int = deliveries.BATCH) -> int:
-        """Delete one batch of finished rows past the retention. Returns how many."""
+        """Delete the finished rows past the retention, `limit` at a time, until none are left
+        or `PRUNE_BUDGET_SECONDS` have passed (the rest go next time). Returns how many."""
         now = self.clock()
         self._pruned_at = now
+        stop = time.monotonic() + PRUNE_BUDGET_SECONDS
+        pruned = 0
         with slate_db.SessionLocal() as session:
-            pruned = deliveries.prune(session, now=now, limit=limit)
+            while True:
+                n = deliveries.prune(session, now=now, limit=limit)
+                pruned += n
+                if n < limit or time.monotonic() > stop:
+                    break
         if pruned:
             log.info("pruned %d finished webhook deliveries", pruned)
         return pruned
@@ -168,37 +149,22 @@ class Dispatcher:
 
     # The loop.
 
+    async def step(self) -> None:
+        """Fan out, start attempts up to the free concurrency, prune when due."""
+        await asyncio.to_thread(self.fan_out_once)
+        free = settings.webhook_concurrency - len(self._inflight)
+        if free > 0:
+            for delivery_id in await asyncio.to_thread(self.claim, free):
+                task = asyncio.create_task(
+                    asyncio.to_thread(attempt, delivery_id, clock=self.clock)
+                )
+                self._inflight.add(task)
+                task.add_done_callback(self._done)
+        if self._prune_due():
+            await asyncio.to_thread(self.prune_once)
+
     async def run(self) -> None:
-        wake = asyncio.Event()
-        async with bus.subscribe() as sub:
-            await asyncio.to_thread(self.start)
-
-            async def doorbell() -> None:
-                async for _ in sub:
-                    wake.set()
-
-            bell = asyncio.create_task(doorbell())
-            try:
-                while True:
-                    try:
-                        await asyncio.to_thread(self.fan_out_once)
-                        free = settings.webhook_concurrency - len(self._inflight)
-                        if free > 0:
-                            for delivery_id in await asyncio.to_thread(self.claim, free):
-                                task = asyncio.create_task(
-                                    asyncio.to_thread(attempt, delivery_id, clock=self.clock)
-                                )
-                                self._inflight.add(task)
-                                task.add_done_callback(self._done)
-                        if self._prune_due():
-                            await asyncio.to_thread(self.prune_once)
-                    except Exception:
-                        log.exception("webhook dispatcher step failed; retrying next tick")
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(wake.wait(), self.poll_seconds)
-                    wake.clear()
-            finally:
-                bell.cancel()
+        await engine.run("webhooks", self.step, poll_seconds=self.poll_seconds, start=self.start)
 
     def _done(self, task: asyncio.Task) -> None:
         self._inflight.discard(task)
