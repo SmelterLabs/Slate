@@ -4,22 +4,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn } from './support';
 
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
   : null;
 if (shots) mkdirSync(shots, { recursive: true });
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
 
 interface Item {
   id: string;
@@ -29,12 +19,6 @@ interface Item {
   tags: string[];
   list_id: string;
   archived_at: string | null;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /Everything/ })).toBeVisible();
 }
 
 async function scratch(name: string) {
@@ -48,7 +32,7 @@ const palette = (page: Page) => page.getByRole('dialog', { name: 'Search and com
 test('Ctrl+K finds a task by fuzzy title and opens it', async ({ page }) => {
   const listId = await scratch('Palette');
   await api('POST', '/items', { list_id: listId, title: 'Renew the insurance card' });
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   await page.keyboard.press('Control+k');
   await expect(palette(page)).toBeVisible();
   await page.keyboard.type('insurance crd');
@@ -64,7 +48,7 @@ test('Ctrl+K also searches task descriptions and chat on the server, grouped und
   const listId = await scratch('Deep search');
   await api('POST', '/items', { list_id: listId, title: 'Replace the bulb', body_md: 'The lighthouse keeper has spares' });
   await api('POST', `/channels/list:${listId}/messages`, { body_md: 'Ask the lighthouse keeper first' });
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   await page.keyboard.press('Control+k');
   await page.keyboard.type('lighthouse keeper');
   const dialog = palette(page);
@@ -77,7 +61,7 @@ test('Ctrl+K also searches task descriptions and chat on the server, grouped und
 });
 
 test('palette commands: > narrows to commands and g-chords navigate', async ({ page }) => {
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   await page.keyboard.press('Control+k');
   await page.keyboard.type('>inbox');
   await expect(palette(page).getByRole('option').first()).toContainText('Go to Inbox');
@@ -93,7 +77,7 @@ test('palette commands: > narrows to commands and g-chords navigate', async ({ p
 
 test('quick add reads a natural date, time, priority and tag', async ({ page }) => {
   const listId = await scratch('Natural');
-  await signedIn(page, `/#/list/${listId}`);
+  await signedIn(page, `/#/list/${listId}`, { ready: true });
   const input = page.getByLabel('Quick add');
   await input.fill('Call the bank tomorrow 4pm #personal !high');
   await expect(page.locator('.qa-preview')).toContainText('due');
@@ -116,7 +100,7 @@ test('quick add reads a natural date, time, priority and tag', async ({ page }) 
 
 test('quick add "every monday" makes a recurring rule', async ({ page }) => {
   const listId = await scratch('Repeats');
-  await signedIn(page, `/#/list/${listId}`);
+  await signedIn(page, `/#/list/${listId}`, { ready: true });
   await page.getByLabel('Quick add').fill('Take out recycling every monday 7am');
   await expect(page.locator('.qa-preview')).toContainText('every week on Monday');
   await page.getByLabel('Quick add').press('Enter');
@@ -130,7 +114,7 @@ test('quick add "every monday" makes a recurring rule', async ({ page }) => {
 test('an agent mention lands in the inbox live; opening it marks it read', async ({ page }) => {
   const listId = await scratch('Inbox');
   const item = await api<Item>('POST', '/items', { list_id: listId, title: 'Check the gutter quote' });
-  await signedIn(page, '/#/inbox');
+  await signedIn(page, '/#/inbox', { ready: true });
   await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
   await api('POST', `/items/${item.id}/comments`, { body_md: 'Quote is in, @alex' }, seed().agent);
   const row = page.locator(`.inbox-row[data-item="${item.id}"]`);
@@ -152,7 +136,7 @@ test('My Work shows my tasks by due date', async ({ page }) => {
   await api('POST', '/items', { list_id: listId, title: 'Mine today', assignees: ['alex'], due_at: new Date(Date.now() + 3600_000).toISOString() });
   await api('POST', '/items', { list_id: listId, title: 'Mine late', assignees: ['alex'], due_at: '2026-01-02' });
   await api('POST', '/items', { list_id: listId, title: 'Not mine', assignees: ['agent'] });
-  await signedIn(page, '/#/home');
+  await signedIn(page, '/#/home', { ready: true });
   const region = page.getByRole('region', { name: 'My Work' });
   await expect(region.locator('[data-bucket="overdue"]')).toContainText('Mine late');
   await expect(region.locator('.work-main')).not.toContainText('Not mine');
@@ -177,7 +161,7 @@ test('My Work shows my tasks by due date', async ({ page }) => {
 test('put away from the task window can be undone from the toast', async ({ page }) => {
   const listId = await scratch('Undo');
   const item = await api<Item>('POST', '/items', { list_id: listId, title: 'Keep me' });
-  await signedIn(page, `/#/list/${listId}?task=${item.id}`);
+  await signedIn(page, `/#/list/${listId}?task=${item.id}`, { ready: true });
   const modal = page.getByRole('dialog', { name: /Keep me/ });
   await expect(modal).toBeVisible();
   await modal.getByRole('button', { name: 'Task actions' }).click();
@@ -190,7 +174,7 @@ test('put away from the task window can be undone from the toast', async ({ page
 
 test('phone: My Work, the inbox bell and search are in the top bar', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await signedIn(page, '/#/home');
+  await signedIn(page, '/#/home', { ready: true });
   await expect(page.getByRole('region', { name: 'My Work' })).toBeVisible();
   await expect(page.locator('.topbar .where')).toHaveText('My Work');
   if (shots) await page.screenshot({ path: join(shots, 'mobile-my-work.png') });

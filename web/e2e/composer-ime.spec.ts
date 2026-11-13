@@ -1,17 +1,7 @@
 // The comment boxes share one @mention picker and one send key: Enter sends, but not the Enter
 // that confirms an input-method composition (Japanese, Chinese, Korean…).
 import { expect, test, type Locator } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(r.ok, `${method} ${path} -> ${r.status}`).toBe(true);
-  return (await r.json()) as T;
-}
+import { api, signIn } from './support';
 
 /** Press Enter as an input method does while it is still composing. */
 async function composingEnter(box: Locator) {
@@ -23,7 +13,7 @@ async function composingEnter(box: Locator) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
 });
 
 test('the task comment box: Enter while composing does not send, the picker inserts a handle', async ({ page }) => {

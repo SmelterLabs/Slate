@@ -2,23 +2,7 @@
 // names. Chat files: paste a screenshot into the message box (it waits as a thumbnail, then goes with
 // the message and opens in the viewer), send a picked file with no text, and take one back.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /^Everything/ }).first()).toBeVisible();
-}
+import { api, BASE_URL, seed, signedIn } from './support';
 
 async function scratch(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} space`, audience: 'work' });
@@ -52,7 +36,7 @@ interface Msg {
 
 test('paste a screenshot into chat: it sends with the message and opens in the viewer', async ({ page }) => {
   const listId = await scratch('Screens');
-  await signedIn(page, `/#/list/${listId}/chat`);
+  await signedIn(page, `/#/list/${listId}/chat`, { ready: true });
   const view = page.getByRole('region', { name: '#Screens chat' });
   const box = view.getByRole('textbox', { name: 'Message #Screens' });
   await box.click();
@@ -93,7 +77,7 @@ test('paste a screenshot into chat: it sends with the message and opens in the v
 
 test('a picked file goes with no text; a removed one is not sent', async ({ page }) => {
   const listId = await scratch('Papers');
-  await signedIn(page, `/#/list/${listId}/chat`);
+  await signedIn(page, `/#/list/${listId}/chat`, { ready: true });
   const view = page.getByRole('region', { name: '#Papers chat' });
   const composer = view.locator('.chat-main .chat-composer');
   const send = composer.getByRole('button', { name: 'Send' });
@@ -122,7 +106,7 @@ test('a picked file goes with no text; a removed one is not sent', async ({ page
 test('paste a screenshot into a card comment: it is attached and the comment names it', async ({ page }) => {
   const listId = await scratch('Cards');
   const item = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Fix the error' });
-  await signedIn(page, `/#/list/${listId}?task=${item.id}`);
+  await signedIn(page, `/#/list/${listId}?task=${item.id}`, { ready: true });
   const tw = page.locator('.tw');
   const box = tw.getByLabel('Add comment');
   await box.click();

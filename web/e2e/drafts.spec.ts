@@ -1,29 +1,13 @@
 // Drafts: text typed and left (card closed, page reloaded, another view) comes back where it was
 // typed, the card says it holds a draft, and sending clears it. Cancel throws a draft away.
-import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /^Everything/ }).first()).toBeVisible();
-}
+import { expect, test } from '@playwright/test';
+import { api, signedIn } from './support';
 
 test('a comment typed in a card survives closing it and a reload, then sends and clears', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Drafts' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Call the plumber' });
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
 
   const card = page.locator('.card', { hasText: 'Call the plumber' });
   await card.getByText('Call the plumber').click();
@@ -60,7 +44,7 @@ test('a comment typed in a card survives closing it and a reload, then sends and
 test('a new task typed in a column, the quick add bar and a channel message all come back', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space 2', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Tasks' });
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
 
   await page.getByLabel('Quick add').fill('Buy furnace filter');
   await page.locator('.col-add-btn').first().click();
@@ -94,7 +78,7 @@ test('a subtask, a hand-off and a title typed in a card are kept when it closes'
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space 3', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Garden' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Plant bulbs' });
-  await signedIn(page, `/#/list/${list.id}?task=${item.id}`);
+  await signedIn(page, `/#/list/${list.id}?task=${item.id}`, { ready: true });
   const tw = page.locator('.tw');
 
   await tw.getByRole('button', { name: 'Subtask', exact: true }).click();
@@ -124,7 +108,7 @@ test('a subtask, a hand-off and a title typed in a card are kept when it closes'
 test('a message still sending when the page reloads does not come back as a draft', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space 4', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Chores' });
-  await signedIn(page, `/#/list/${list.id}/chat`);
+  await signedIn(page, `/#/list/${list.id}/chat`, { ready: true });
   // Hold the send long enough that the reload lands while it is still in flight.
   await page.route('**/api/v1/channels/*/messages', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
