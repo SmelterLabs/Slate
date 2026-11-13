@@ -36,6 +36,19 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
   // The list's row in the sidebar carries the same count, red (something waits on Alex).
   const mark = page.locator(`.nav-list:has(a[href="#/list/${listId}"]) .needs-mark`);
   await expect(mark).toHaveClass(/need-waiting/);
+  // Hovering the row brings up its star and ⋯; the badge moves clear of them and stays clickable.
+  const navRow = page.locator(`.nav-list:has(a[href="#/list/${listId}"])`);
+  await navRow.hover();
+  const actions = navRow.locator('.nav-actions');
+  await expect(actions).toHaveCSS('opacity', '1');
+  const [m, a] = [await mark.boundingBox(), await actions.boundingBox()];
+  expect(m && a && m.x + m.width <= a.x).toBe(true);
+  expect(
+    await mark.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    }),
+  ).toBe(true);
 
   await pill.click();
   const pop = page.locator('.nb-pop');
