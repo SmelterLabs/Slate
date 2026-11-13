@@ -52,7 +52,9 @@ list. The same tree also holds **file docs**.
   are COMMENT-level writes for access (`_COMMENT_MODELS`, `_COMMENT_TYPES`), and `DocComment` rows
   follow the doc's visibility (`with_loader_criteria`). `GET /docs/{id}/activity` returns the
   comments plus the doc's `ACTIVITY_TYPES` events (created, updated, moved, revision_added,
-  version_restored, comment_resolved, suggestion_accepted) for the panel to fold in. Summaries carry
+  version_restored, comment_resolved, suggestion_accepted) for the panel to fold in, without page
+  bodies (`_activity_event`; a body save's event holds `docs.body_ref`, `{version_no, chars}`,
+  never the text, and the copy of the page in `doc.created` is left out). Summaries carry
   `comment_count` and `open_threads`. REST: `GET|POST /docs/{id}/comments`, `PATCH
   /doc-comments/{id}`, `POST /doc-comments/{id}/resolve|reopen|assign|accept`, `GET
   /docs/{id}/activity`; MCP `slate_doc`

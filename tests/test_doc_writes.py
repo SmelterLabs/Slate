@@ -259,6 +259,59 @@ def test_create_task_from_a_doc_checks_the_doc_as_it_stands(client, alex, todo, 
     assert client.get(f"{API}/items", params={"list_id": todo["id"]}, headers=alex).json() == []
 
 
+# --- what a page save records -----------------------------------------------------------------
+
+
+def test_a_page_save_event_points_at_page_history_instead_of_copying_the_body(
+    client, alex, todo, db
+):
+    long = "word " * 20_000
+    d = _doc(client, alex, title="Notes", list_id=todo["id"], body_md=long)
+    r = client.patch(
+        f"{API}/docs/{d['id']}", json={"append_md": "one more line", "note": "draft"}, headers=alex
+    )
+    assert r.status_code == 200, r.text
+    r = client.patch(f"{API}/docs/{d['id']}", json={"body_md": "short"}, headers=alex)
+    assert r.status_code == 200, r.text
+
+    saves = [e for e in _doc_events(db, d["id"]) if e[0] == "body_md"]
+    assert len(saves) == 2
+    for _field, before, after in saves:
+        assert set(before) == {"version_no", "chars"} and set(after) == {"version_no", "chars"}
+    assert saves[0][1]["chars"] == len(d["body_md"]) and saves[1][2]["chars"] == len("short")
+    assert (saves[1][1]["version_no"], saves[1][2]["version_no"]) == (1, 2)
+
+    act = client.get(f"{API}/docs/{d['id']}/activity", headers=alex)
+    assert act.status_code == 200 and len(act.content) < 10_000
+    assert [e["field"] for e in act.json()["events"] if e["type"] == "doc.updated"].count(
+        "body_md"
+    ) == 2
+    # The text itself is in page history, and restoring it still works.
+    versions = client.get(f"{API}/docs/{d['id']}/versions", headers=alex).json()
+    first = min(v["version_no"] for v in versions)
+    r = client.post(f"{API}/docs/{d['id']}/versions/{first}/restore", headers=alex)
+    assert r.status_code == 200, r.text
+    assert r.json()["body_md"].startswith("word word")
+    restored = _doc_events(db, d["id"], "doc.version_restored")[-1]
+    assert "body_md" not in restored[1] and "body_md" not in restored[2]
+    assert restored[2]["restored_from"] == first
+
+
+def test_activity_leaves_out_bodies_recorded_before_saves_pointed_at_history(
+    client, alex, todo, db
+):
+    from slate.service import doc_threads
+
+    d = _doc(client, alex, title="Old", list_id=todo["id"], body_md="x")
+    out = doc_threads._activity_event(
+        {"type": "doc.updated", "field": "body_md", "before": "x" * 500, "after": "y" * 500}
+    )
+    assert out["before"] is None and out["after"] is None
+    kept = {"type": "doc.updated", "field": "title", "before": "a", "after": "b"}
+    assert doc_threads._activity_event(dict(kept)) == kept
+    assert client.get(f"{API}/docs/{d['id']}/activity", headers=alex).status_code == 200
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

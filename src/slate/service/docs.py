@@ -850,6 +850,14 @@ def _siblings(
     return group
 
 
+def body_ref(body: str, version_no: int) -> dict[str, int]:
+    """What a page-save event records for a body: the page-history version that holds the text
+    and its length, never the text itself (a page is up to MAX_BODY characters and is saved
+    every few seconds while someone types; `GET /docs/{id}/versions/{n}` has the text). Saves
+    by one author within FOLD_MINUTES fold into one version, which keeps the newest text."""
+    return {"version_no": version_no, "chars": len(body)}
+
+
 def _version(session: Session, doc: Doc) -> DocVersion | None:
     return session.scalar(
         select(DocVersion).where(
@@ -1209,6 +1217,7 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
         if tag_names is not None:
             _set_tags(cx, doc, list(tag_names))
         befores = {k: getattr(doc, k) for k in diffs}
+        before_version = doc.version_no
         for k, v in diffs.items():
             setattr(doc, k, v)
         covers: list[Any] = [doc]
@@ -1223,12 +1232,13 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
         doc.updated_by = actor.account_id
         doc.updated_at = utcnow()
         for k in diffs:
+            body = k == "body_md"
             cx.record(
                 "doc.updated",
                 subject_id=doc.id,
                 field=k,
-                before=befores[k],
-                after=diffs[k],
+                before=body_ref(befores[k], before_version) if body else befores[k],
+                after=body_ref(diffs[k], doc.version_no) if body else diffs[k],
                 covers=covers,
             )
         if "body_md" in diffs:
@@ -1339,7 +1349,7 @@ def restore_version(session: Session, actor: Actor, doc_id: str, version_no: int
     doc = get_doc(session, doc_id)
     old = get_version(session, doc_id, version_no)
     latest = _version(session, doc)
-    before = {"title": doc.title, "body_md": doc.body_md, "version_no": doc.version_no}
+    before = {"title": doc.title, **body_ref(doc.body_md, doc.version_no)}
     with apply_change(session, actor) as cx:
         doc.title, doc.body_md = old.title, old.body_md
         doc.revision += 1
@@ -1352,8 +1362,7 @@ def restore_version(session: Session, actor: Actor, doc_id: str, version_no: int
             before=before,
             after={
                 "title": doc.title,
-                "body_md": doc.body_md,
-                "version_no": doc.version_no,
+                **body_ref(doc.body_md, doc.version_no),
                 "restored_from": version_no,
             },
             covers=[doc, v],
@@ -1849,6 +1858,7 @@ def create_task(
         new_body = (
             body[:at] + embed + body[at + len(replace) :] if replace else _append(body, embed)
         )
+        before_version = doc.version_no
         doc.body_md = _body(new_body)
         doc.revision += 1
         doc.updated_by = actor.account_id
@@ -1858,8 +1868,8 @@ def create_task(
             "doc.updated",
             subject_id=doc.id,
             field="body_md",
-            before=body,
-            after=doc.body_md,
+            before=body_ref(body, before_version),
+            after=body_ref(doc.body_md, doc.version_no),
             covers=[doc, v],
         )
     return item, doc

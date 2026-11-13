@@ -176,7 +176,23 @@ def activity(session: Session, doc_id: str, *, limit: int = 200) -> dict[str, An
         )
     )
     events.reverse()
-    return {"comments": views(session, doc, rows), "events": [event_payload(e) for e in events]}
+    return {
+        "comments": views(session, doc, rows),
+        "events": [_activity_event(event_payload(e)) for e in events],
+    }
+
+
+def _activity_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """An event as the panel needs it, without page bodies (the panel never shows one). A page
+    save records a reference to page history (`docs.body_ref`), but `doc.created` carries the
+    new page and an older save may still hold whole bodies."""
+    for k in ("before", "after"):
+        value = payload.get(k)
+        if payload.get("field") == "body_md" and isinstance(value, str):
+            payload[k] = None
+        elif isinstance(value, dict) and isinstance(value.get("body_md"), str):
+            payload[k] = {f: v for f, v in value.items() if f != "body_md"}
+    return payload
 
 
 # --- writes ----------------------------------------------------------------------------------

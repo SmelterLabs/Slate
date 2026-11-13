@@ -270,6 +270,7 @@ READS = {
         "created_from_name",
         "get_doc",
         "fresh_doc",
+        "body_ref",
         "root_of",
         "list_docs",
         "snippet",
