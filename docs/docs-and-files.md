@@ -199,7 +199,9 @@ list. The same tree also holds **file docs**.
   replaces the selected text (`replace`, `occurrence`) with the embed or appends it. `GET
   /docs?embeds=<item id>` lists pages that mention a task (the task window's "In docs"); `GET
   /docs/{id}` returns the embedded tasks as item views plus backlinks, outline, path, children and
-  files.
+  files. `doc_out` (the response of every page read and write) reads the tree once and finds
+  backlinks with one `LIKE` over page bodies for `[[doc:<id>]]`; that scan grows with the doc
+  library (a `doc_links` table would make it an index lookup, at the cost of a migration).
 - **Archive and delete**: archiving a page hides its subtree; pages in archived lists or sections
   are hidden too. Delete only works on an archived page and takes its subpages. Export
   (`service/export.py`) includes docs in scope.

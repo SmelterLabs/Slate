@@ -340,6 +340,33 @@ def test_listings_report_has_text_without_loading_the_text(client, alex, todo):
     assert [(h["id"], "bolt" in (h["snippet"] or "")) for h in hits] == [(sheet["id"], True)]
 
 
+def test_reading_or_saving_a_page_walks_the_tree_once(client, alex, todo):
+    page = _doc(client, alex, title="Spec", list_id=todo["id"])
+    for n in range(4):
+        _doc(client, alex, title=f"Part {n}", parent_id=page["id"])
+    link = f"[[doc:{page['id']}]]"
+    linker = _doc(client, alex, title="Index", list_id=todo["id"], body_md=f"See {link}")
+    hidden = _doc(client, alex, title="Old", list_id=todo["id"], body_md=link)
+    client.post(f"{API}/docs/{hidden['id']}/archive", headers=alex)
+
+    def tree_reads(sql):  # the whole-table read of docs, and any lazy load of one column
+        return [
+            s for s in sql if s.startswith("SELECT docs.") and "WHERE" not in s.split("FROM")[1]
+        ], [s for s in sql if s.startswith("SELECT docs.top_pinned")]
+
+    for call in (
+        lambda: client.get(f"{API}/docs/{page['id']}", headers=alex),
+        lambda: client.patch(f"{API}/docs/{page['id']}", json={"body_md": "v2"}, headers=alex),
+    ):
+        with _Statements() as st:
+            r = call()
+        assert r.status_code == 200, r.text
+        whole, lazy = tree_reads(st.sql)
+        assert len(whole) == 1 and lazy == []
+        assert [b["id"] for b in r.json()["backlinks"]] == [linker["id"]]
+        assert len(r.json()["children"]) == 4
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

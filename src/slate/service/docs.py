@@ -149,6 +149,8 @@ def _all(session: Session, *, fresh: bool = False) -> list[Doc]:
                     Doc.kind,
                     Doc.pinned_revision_no,
                     Doc.pinned_note,
+                    Doc.top_pinned_at,
+                    Doc.top_pinned_by,
                     Doc.title,
                     Doc.icon,
                     Doc.parent_id,
@@ -213,6 +215,21 @@ def _hidden_places(session: Session) -> tuple[set[str], set[str]]:
     return lists, sections
 
 
+def _live(session: Session, docs: Sequence[Doc], by_id: Mapping[str, Doc]) -> list[Doc]:
+    """The docs a listing shows: not archived, under no archived page, and not in an archived
+    list or section."""
+    dead_lists, dead_sections = _hidden_places(session)
+
+    def visible(d: Doc) -> bool:
+        chain = _ancestors(by_id, d)
+        if d.archived_at is not None or any(a.archived_at is not None for a in chain):
+            return False
+        t = chain[-1] if chain else d
+        return t.list_id not in dead_lists and t.section_id not in dead_sections
+
+    return [d for d in docs if visible(d)]
+
+
 def list_docs(
     session: Session,
     *,
@@ -238,24 +255,15 @@ def list_docs(
     """
     docs = _all(session)
     by_id = {d.id: d for d in docs}
-    dead_lists, dead_sections = _hidden_places(session)
 
     def top(d: Doc) -> Doc:
         chain = _ancestors(by_id, d)
         return chain[-1] if chain else d
 
-    def visible(d: Doc) -> bool:
-        if d.archived_at is not None:
-            return False
-        if any(a.archived_at is not None for a in _ancestors(by_id, d)):
-            return False
-        t = top(d)
-        return t.list_id not in dead_lists and t.section_id not in dead_sections
-
     if archived:
         pool = [d for d in docs if d.archived_at is not None]
     else:
-        pool = [d for d in docs if visible(d)]
+        pool = _live(session, docs, by_id)
     if list_id is not None:
         pool = [d for d in pool if top(d).list_id == list_id]
     if section_id is not None:
@@ -573,7 +581,16 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
     order = {ref: n for n, ref in enumerate(refs["tasks"])}
     tasks.sort(key=lambda i: order[i.id])
     linked = [by_id[ref] for ref in refs["docs"] if ref in by_id]
-    backlinks = list_docs(session, embeds=doc.id)
+    # Pages that link here, from the tree already in hand: one query over bodies, for the
+    # link form a doc id can take.
+    linking = set(
+        session.scalars(
+            select(Doc.id).where(Doc.body_md.contains(f"[[doc:{doc.id}]]"), Doc.id != doc.id)
+        )
+    )
+    backlinks = (
+        _tree_order([d for d in _live(session, docs, by_id) if d.id in linking]) if linking else []
+    )
     rows = _file_rows(session, DocFile.doc_id == doc.id, order_by=DocFile.created_at)
     files = [f for f in rows if f.revision_no is None]
     revisions = sorted((f for f in rows if f.revision_no is not None), key=lambda f: -f.revision_no)
@@ -598,9 +615,7 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
         tasks=items_svc.views(session, tasks),
         missing_tasks=[ref for ref in refs["tasks"] if ref not in {t.id for t in tasks}],
         docs=[_ref(d) for d in linked],
-        backlinks=[
-            {"id": d.id, "title": d.title, "icon": d.icon} for d in backlinks if d.id != doc.id
-        ],
+        backlinks=[{"id": d.id, "title": d.title, "icon": d.icon} for d in backlinks],
         files=[file_out(f) for f in files],
         revisions=[revision_out(f) for f in revisions],
         words=len(doc.body_md.split()),
