@@ -358,6 +358,15 @@ def test_default_agent_rules_stop_an_agent_deleting_an_attachment_for_good(clien
     r = client.delete(f"{API}/attachments/{att}", headers=bot)
     assert r.status_code == 403, r.text
     assert client.delete(f"{API}/attachments/{att}", headers=alex).status_code == 204
+    # Its own upload it may take back.
+    r = client.post(
+        f"{API}/items/{item}/attachments",
+        params={"filename": "draft.txt"},
+        content=b"mine",
+        headers={**bot, "Content-Type": "text/plain"},
+    )
+    assert r.status_code == 201, r.text
+    assert client.delete(f"{API}/attachments/{r.json()['id']}", headers=bot).status_code == 204
 
 
 def test_an_automation_cannot_move_tasks_into_a_list_its_author_cannot_edit(client, alex, world):
@@ -407,3 +416,71 @@ def test_comment_level_caller_cannot_resolve_or_reopen_someone_elses_thread(clie
     share(client, alex, guest["id"], "list", world["todo"]["id"], "comment")
     asked = _ask_on_page(client, alex, world, assignee="guest")
     assert client.post(f"{API}/doc-comments/{asked['id']}/resolve", headers=gh).status_code == 200
+
+
+# --- Saved views ------------------------------------------------------------------------------
+
+SEED = "vwthisweek01"
+
+
+def _view(client, h, scope="everything", **extra) -> dict:
+    kind, _, ref = scope.partition(":")
+    body = {"name": "Mine", "scope_kind": kind, "config": {}, **extra}
+    if ref:
+        body["scope_id"] = ref
+    r = client.post(f"{API}/views", json=body, headers=h)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_only_an_admin_changes_the_built_in_landing_views(client, alex, world):
+    guest, gh = world["account"]("guest", "guest")
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "edit")
+    _, mh = world["account"]("member2", "member")
+    for h in (gh, mh):
+        assert client.get(f"{API}/views/{SEED}", headers=h).status_code == 200
+        r = client.patch(f"{API}/views/{SEED}", json={"name": "renamed"}, headers=h)
+        assert r.status_code == 403, r.text
+        assert client.post(f"{API}/views/{SEED}/archive", headers=h).status_code == 403
+    assert (
+        client.patch(f"{API}/views/{SEED}", json={"name": "Week"}, headers=alex).status_code == 200
+    )
+
+
+def test_a_saved_view_is_changed_only_by_its_owner_or_an_admin(client, alex, world):
+    member, mh = world["account"]("member2", "member")
+    _, oh = world["account"]("member3", "member")
+    guest, gh = world["account"]("guest", "guest")
+    share(client, alex, guest["id"], "list", world["todo"]["id"], "edit")
+    alexs = _view(client, alex, f"list:{world['todo']['id']}")
+    theirs = _view(client, mh)
+    for h, view in ((mh, alexs), (gh, alexs), (oh, theirs)):
+        r = client.patch(f"{API}/views/{view['id']}", json={"name": "taken"}, headers=h)
+        assert r.status_code == 403, r.text
+        assert client.post(f"{API}/views/{view['id']}/archive", headers=h).status_code == 403
+    assert (
+        client.patch(
+            f"{API}/views/{theirs['id']}", json={"name": "still mine"}, headers=mh
+        ).status_code
+        == 200
+    )
+    # An admin tidies anyone's.
+    assert client.post(f"{API}/views/{theirs['id']}/archive", headers=alex).status_code == 200
+    assert client.post(f"{API}/views/{theirs['id']}/unarchive", headers=mh).status_code == 200
+
+
+def test_a_view_that_is_not_shared_is_its_owners_alone(client, alex, world):
+    member, mh = world["account"]("member2", "member")
+    private = _view(client, mh, name="Just me", shared=False)
+    public = _view(client, mh, name="Everyone")
+    for h in (alex, world["account"]("member3", "member")[1]):
+        ids = [v["id"] for v in client.get(f"{API}/views", headers=h).json()]
+        assert public["id"] in ids and private["id"] not in ids
+        assert client.get(f"{API}/views/{private['id']}", headers=h).status_code == 404
+        events = client.get(f"{API}/events", params={"limit": 500}, headers=h).json()["events"]
+        assert not any(e["subject_id"] == private["id"] for e in events)
+    ids = [v["id"] for v in client.get(f"{API}/views", headers=mh).json()]
+    assert private["id"] in ids
+    r = client.patch(f"{API}/views/{private['id']}", json={"shared": True}, headers=mh)
+    assert r.status_code == 200, r.text
+    assert client.get(f"{API}/views/{private['id']}", headers=alex).status_code == 200

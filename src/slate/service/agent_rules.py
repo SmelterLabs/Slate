@@ -117,7 +117,12 @@ DEFAULT: tuple[str, ...] = ("delete", "archive_structure", "share", "tokens")
 _COVERED: dict[str, str] = {c: key for key, rule in ACTIONS.items() for c in rule.covers}
 _TYPES = frozenset(c.partition(":")[0] for c in _COVERED)
 # Covered types an agent may still do to its own credential (obj.account_id is the actor).
-_OWN_OK = frozenset({"token.revoked", "agent.connection_revoked"})
+# Undoing your own: giving up your own token or connection, or removing a file you attached.
+_OWN_OK = {
+    "token.revoked": "account_id",
+    "agent.connection_revoked": "account_id",
+    "item.attachment_removed": "uploaded_by",
+}
 
 
 def _ordered(keys: Any) -> list[str]:
@@ -176,8 +181,8 @@ def check(
     key = covering(type_, field)
     if key is None or actor.source == Source.system:
         return
-    if type_ in _OWN_OK and getattr(obj, "account_id", None) == actor.account_id:
-        return  # giving up your own token or connection is always allowed
+    if type_ in _OWN_OK and getattr(obj, _OWN_OK[type_], None) == actor.account_id:
+        return
     if not _is_agent(session, actor.account_id):
         return
     if key in denied(session):
