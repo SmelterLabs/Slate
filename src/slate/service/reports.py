@@ -67,7 +67,7 @@ from slate.service import comments
 from slate.service.core import Actor, apply_change, in_change
 from slate.service.errors import Conflict, Invalid
 from slate.service.items import get_item, resolve_account, update_item
-from slate.settings import settings
+from slate.settings import safe_link_schemes, settings
 
 STATES = ("working", "blocked", "review", "done", "idle")
 LABELS = {
@@ -144,7 +144,7 @@ def check_url(url: str | None) -> str | None:
         raise Invalid(f"url is at most {URL_MAX} characters")
     from urllib.parse import urlsplit
 
-    schemes = [s.lower() for s in settings.link_schemes]
+    schemes = safe_link_schemes(settings.link_schemes)
     parts = urlsplit(url)
     if parts.scheme.lower() not in schemes or not parts.netloc:
         raise Invalid("url must be " + " or ".join(f"{s}://" for s in schemes) + " link")
