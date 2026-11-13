@@ -41,6 +41,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import and_, exists, false, func, literal, or_, select, true, union_all
 from sqlalchemy import inspect as sa_inspect
@@ -1297,17 +1298,74 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
     return {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
 
 
+# --- Webhook addresses in automation rules --------------------------------------------------
+
+
+def webhook_host(url: str) -> str:
+    """`scheme://host[:port]` of a webhook address: what a reader who may not see it gets."""
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}"
+
+
+def masked_hook_urls(value: Any) -> Any:
+    """`value` with every `webhook` action's `url` cut to its host (`webhook_host`)."""
+    if isinstance(value, list):
+        return [masked_hook_urls(v) for v in value]
+    if isinstance(value, dict):
+        if value.get("type") == "webhook" and isinstance(value.get("url"), str):
+            return {**value, "url": webhook_host(value["url"])}
+        return {k: masked_hook_urls(v) for k, v in value.items()}
+    return value
+
+
+def reads_hook_urls(session: Session, author_id: str | None) -> bool:
+    """Whether this session's caller reads an automation rule's webhook addresses in full. An
+    address often carries a secret, so it is the rule's author's and the admins' (Slate's own
+    session, with no caller, reads everything)."""
+    found = caller(session)
+    return found is None or found.is_admin or found.account_id == author_id
+
+
+def hook_urls_for(
+    session: Session, reader_id: str | None, rule_id: str | None, before: Any, after: Any
+) -> tuple[Any, Any]:
+    """An `automation.*` event's `before` and `after` as `reader_id` may read them (None: an
+    admin or Slate's own session, which read everything)."""
+    if reader_id is None:
+        return before, after
+    masked = masked_hook_urls(before), masked_hook_urls(after)
+    if masked == (before, after):
+        return before, after
+    author = next(
+        (s["created_by"] for s in (after, before) if isinstance(s, dict) and s.get("created_by")),
+        None,
+    )
+    if author is None and rule_id:
+        with unrestricted(session):
+            author = session.scalar(select(Automation.created_by).where(Automation.id == rule_id))
+    return (before, after) if author == reader_id else masked
+
+
 def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
     """An event's `before` and `after` as this session's caller may read them: every reader of
     stored events goes through here (`core.event_payload`, the audit log)."""
     if session is None:
         return ev.before_json, ev.after_json
+    if ev.type.startswith("automation."):
+        found = caller(session)
+        return hook_urls_for(
+            session,
+            None if found is None or found.is_admin else found.account_id,
+            ev.subject_id,
+            scrub(session, ev.before_json),
+            scrub(session, ev.after_json),
+        )
     if ev.type != "account.digest":
         return scrub(session, ev.before_json), scrub(session, ev.after_json)
-    caller = current(session)
+    reader = current(session)
     return (
-        digest_snapshot(session, ev.before_json, caller) if ev.before_json is not None else None,
-        digest_snapshot(session, ev.after_json, caller),
+        digest_snapshot(session, ev.before_json, reader) if ev.before_json is not None else None,
+        digest_snapshot(session, ev.after_json, reader),
     )
 
 
@@ -1428,6 +1486,15 @@ class EventGate:
             payload = self._for_guest(session, payload)
             if payload is None:
                 return None
+        if str(payload.get("type", "")).startswith("automation."):
+            before, after = hook_urls_for(
+                session,
+                None if getattr(self, "_admin", False) else self.account_id,
+                payload.get("subject_id"),
+                payload.get("before"),
+                payload.get("after"),
+            )
+            return {**payload, "before": before, "after": after}
         if payload.get("type") != "account.digest":
             return payload
         after = digest_snapshot(session, payload.get("after"), self.access)
