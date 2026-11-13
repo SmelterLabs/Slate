@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import event as sa_event
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from slate.models import Account, Message
 from slate.service import chat
@@ -103,3 +103,19 @@ def test_the_channel_list_never_loads_unread_messages(
     assert rows[key]["unread"] == 60 and rows[key]["mentions"] == 60
     assert one["unread"] == 60 and one["position"] == rows[key]["position"]
     assert loaded_messages == []
+
+
+def test_one_batched_exposure_read_is_one_event(client, alex, todo, make_account, db):
+    """The board sends what scrolled into view together, once a second: one read call with
+    many ids is one `channel.read` event, not one per message."""
+    from slate.models import Event
+
+    _, agent = make_account("my-agent")
+    key = f"list:{todo['id']}"
+    ids = [post(client, agent, key, f"line {i}")["id"] for i in range(150)]
+    before = db.scalar(select(func.count()).where(Event.type == "channel.read"))
+    r = client.post(f"{API}/channels/{key}/read", json={"message_ids": ids}, headers=alex)
+    assert r.status_code == 200 and r.json()["changed"] is True
+    after = db.scalar(select(func.count()).where(Event.type == "channel.read"))
+    assert after - before == 1
+    assert client.get(f"{API}/channels/{key}", headers=alex).json()["unread"] == 0

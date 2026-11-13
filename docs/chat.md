@@ -27,7 +27,9 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   the full list gives it.
 - **Exposure is not mounting.** `exposure.ts` requires 99% intersection, an uncovered message,
   visible document and focused window continuously for 500ms. The chat store rechecks lifecycle
-  before an exact write; opening a channel never clears its Inbox wholesale. Oversized messages
+  before an exact write and gathers exposures for `EXPOSE_BATCH_MS` (1 s), then sends one read
+  call per channel with all of them (`exposureBatches`, at most 200 ids a call), so scrolling
+  through a busy channel writes a handful of `channel.read` events, not one per message; opening a channel never clears its Inbox wholesale. Oversized messages
   conservatively stay unread. First unread pages back or opens the thread. There is no recipient
   seen-receipt UI. Project home reuses loaded, access-filtered items and `myWork` scoped to its
   non-drawer lists; DocsHub is the source for document Needs you. The mention picker warns
