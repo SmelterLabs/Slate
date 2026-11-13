@@ -87,9 +87,7 @@ list. The same tree also holds **file docs**.
   and MCP `slate_doc hub` (the shape under Drawers above): `needs_you` is the open roots (Asks
   addressed to `me`; review threads by someone else on a doc `me` created, edited or commented
   on), each with the board URL `/#/docs/<id>?comment=<cid>`. Guests see it only where they see the
-  section. `slate backfill-doc-text` (`doc_compare.backfill_text`, as the `slate` system agent,
-  one `doc.text_extracted` event per revision) indexes revisions that have no stored text or
-  tables, for example after the extraction cap is raised. Board:
+  section. Board:
   `components/docs/DocsHub.svelte` is the documents block on `ProjectHome` (reloads on `doc.*`
   events; `?upload=1&in=s:<id>` on `#/docs` opens the upload sheet for the section); `lib/docs.ts`
   `fileGroup`, `filterDocs` (keeps ancestors so the tree still reads), `sortTree`, `tagCounts`;
@@ -286,8 +284,8 @@ list. The same tree also holds **file docs**.
   tables are stored as JSON in `doc_files.tables_json` (migration `7c2d9e4b1f60`, `[[sheet, rows], ...]`,
   64 sheets max); **`compare` reads only `text` and `tables_json` and never opens a file** (opening
   two 2 MB workbooks measured 7 s per GET): a revision with either NULL answers `kind: none` with a
-  `message` naming the unindexed revision. `slate backfill-doc-text` fills both columns for rows
-  that lack them. Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
+  `message` naming the unindexed revision; uploading the file again as a new revision indexes it.
+  Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
   the body through `api/uploads.read_body`, which refuses a declared length over the cap, counts
   `request.stream()` as it arrives and stops at the cap with the same 422; `Content-Length` is not
   trusted (a chunked request has none). Board: `notIndexed` in `lib/docs.ts`, "not

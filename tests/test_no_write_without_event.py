@@ -30,7 +30,6 @@ from slate.service import (
     chat_files,
     checklists,
     comments,
-    doc_compare,
     doc_threads,
     docs,
     favorites,
@@ -492,21 +491,6 @@ def _doc_comment(db, actor, **kw):
     return doc_threads.add_comment(db, actor, _doc(db, actor).id, body_md="hi", **kw)
 
 
-def _backfill(db, actor):
-    from sqlalchemy import text as sql
-
-    from slate.models import DocFile
-
-    doc = _doc(db, actor, kind="file", title="Old")
-    rev = docs.add_revision(db, actor, doc.id, filename="a.txt", data=b"hello", note="first")
-    # As a revision stored without its text: raw SQL, since the ORM guard refuses a bare write.
-    db.execute(sql("UPDATE doc_files SET text = NULL WHERE id = :id"), {"id": rev.id})
-    db.commit()
-    db.expire_all()
-    assert db.get(DocFile, rev.id).text is None
-    return doc_compare.backfill_text(db)
-
-
 def _suggestion(db, actor):
     doc = _doc(db, actor, body_md="Price 12")
     return doc_threads.add_comment(
@@ -752,11 +736,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "to_drawer": lambda db, a, p: docs.to_drawer(
             db, a, _doc(db, a, section_id=_section(db, a).id).id
         ),
-    },
-    "slate.service.doc_compare": {
-        # Runs as the `slate` system agent (a CLI backfill, no caller); covered by
-        # test_backfill_runs_as_the_system_actor below.
-        "backfill_text": None,
     },
     "slate.service.doc_threads": {
         "add_comment": lambda db, a, p: _doc_comment(db, a),
@@ -1099,13 +1078,3 @@ def test_materialize_writes_events_as_the_rule_creator_via_system(db):
     assert {(e.actor_id, e.source, e.session_ref) for e in new} == {
         (actor.account_id, Source.system, f"recurrence:{rule.id}")
     }
-
-
-def test_backfill_runs_as_the_system_actor(db):
-    actor, _ = _setup(db)
-    before = db.scalar(select(func.count()).select_from(Event))
-    assert _backfill(db, actor) == 1
-    new = list(db.scalars(select(Event).order_by(Event.id).offset(before)))
-    system = [e for e in new if e.type == "doc.text_extracted"]
-    assert len(system) == 1 and system[0].source == Source.system
-    assert system[0].actor_id != actor.account_id

@@ -80,7 +80,7 @@ MAX_ESTIMATE = 60 * 24 * 365
 
 def _due_date_only(fields: Mapping[str, Any]) -> bool:
     """`due_date_only` for a write that sets `due_at`: a bare YYYY-MM-DD means date-only; an
-    internal caller (recurrences, importers) passes `due_date_only` itself."""
+    internal caller (recurrences) passes `due_date_only` itself."""
     if fields.get("due_at") is None:
         return False
     if fields.get("due_date_only") is not None:

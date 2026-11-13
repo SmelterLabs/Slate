@@ -265,8 +265,6 @@ EVENT_DOCS: dict[str, str] = {
     "doc.pinned_to_top": "A document was pinned to the top of its drawer or folder listing "
     "(`after`: at, by). Shared by everyone who sees the drawer.",
     "doc.unpinned_from_top": "A document came off the top of its listing (`before`: at, by).",
-    "doc.text_extracted": "Text was extracted for an older revision by `slate backfill-doc-text` "
-    "(`revision_no`, `chars`); search and compare can see inside it now.",
     "doc.revision_added": "A file doc got its next revision (`after`: revision_no, filename, "
     "size, note, restored_from; never bytes); the previous one is superseded.",
     "push.subscribed": "A device subscribed to Web Push notifications.",

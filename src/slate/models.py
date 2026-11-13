@@ -910,8 +910,7 @@ class DocFile(Base):
     text: Mapped[str | None] = mapped_column(Text, deferred=True)
     # A CSV/TSV/XLSX's tables as `[[sheet name, rows], ...]`, read once on upload beside the
     # text, so comparing two revisions never parses the files again. None for other types,
-    # for an upload over `SLATE_DOC_EXTRACT_MAX_BYTES`, and for revisions uploaded before the
-    # column existed (`slate backfill-doc-text` fills those).
+    # and for an upload over `SLATE_DOC_EXTRACT_MAX_BYTES`.
     tables_json: Mapped[Any | None] = mapped_column(JSON, deferred=True)
 
 

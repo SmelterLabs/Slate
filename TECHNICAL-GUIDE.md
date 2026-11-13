@@ -60,9 +60,8 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `mcp_tools.py`, `mcp_server.py` | The MCP tool table and the server (`docs/mcp-server.md`). |
 | `docgen.py` | Generates `docs/agents/reference/` (`uv run slate docs`); `EVENT_DOCS`. |
 | `build.py` | The build revision (`rev`, `commit`) on `/healthz`. |
-| `cli.py` | `slate serve|migrate|import clickup|docs|check-targets|backfill-doc-text`. |
+| `cli.py` | `slate serve|migrate|docs|check-targets`. |
 | `connection_models.py`, `runner_compat.py` | Agent connection rows; the runner protocol floor (426 for old runners). |
-| `importers/` | The one-time ClickUp importer (`docs/importer.md`). |
 | `service/core.py` | `apply_change()`, `Actor`, the write guard, `BOOKKEEPING`, `event_payload()`. |
 | `service/bus.py` | In-process pub/sub the stream, dispatcher and engines wake on. |
 | `service/errors.py` | `NotFound`/`Conflict`/`Invalid`/`Forbidden`/`Gone`/`Unavailable` → 404/409/422/403/410/503. |
@@ -211,7 +210,7 @@ summer and 23:00Z in winter). A naive ISO datetime is read as workspace time, no
 aware UTC.
 **`items.due_date_only`** records that a due date was given without a time (a bare `YYYY-MM-DD`;
 `dates.is_date_only_input`). `service/items.py` sets it with every `due_at` write (`_due_date_only`;
-internal callers such as recurrences and the ClickUp importer pass `due_date_only` themselves), and
+internal callers such as recurrences pass `due_date_only` themselves), and
 a change of the flag alone is its own `item.updated` event (field `due_date_only`). The board hides
 the time and sends bare dates for date-only due dates; an explicit 17:00 stays a time.
 `start_at` has no flag (17:00 reads as "no time" there).
@@ -544,9 +543,7 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **Doc tags reuse the `tags` table** rather than a second taxonomy: tags cut across everything,
   and a word like `spec` should mean the same on a task and on the drawing it is about. The hub's
   "Needs you" is deliberately narrow (asks to me; others' open review threads on docs I touched)
-  so it reads as a to-do, not a feed; the feed is the folded Recent activity under it. The CLI
-  backfill (`slate backfill-doc-text`) runs as the system agent and records an event per revision,
-  so "every change is an event" holds for a maintenance job too.
+  so it reads as a to-do, not a feed; the feed is the folded Recent activity under it.
 - **Drawers, not an overlay.** A hub that gathers every document of a section (every meeting
   transcript included) is the mistake; documents go where someone puts them. A drawer is a list
   kind rather than a new table because documents already carry `list_id`, lists already have a
@@ -694,7 +691,6 @@ section titles code comments cite as `TECHNICAL-GUIDE "..."`.
 | Health and observability | `docs/health.md` |
 | The board's module map, store, reducer and test recipe | `docs/board.md` |
 | Measured performance story | `docs/PERFORMANCE.md` |
-| ClickUp importer | `docs/importer.md` |
 | Release notes | `docs/RELEASE-NOTES.md` |
 | Connect your own agent (user flow) | `docs/connect-your-agent.md` |
 | Agent-facing docs (hand-written pages and the generated reference) | `docs/agents/` |

@@ -45,8 +45,7 @@ it:
   `*_nested_subtasks.py`, not the initial schema). Service: `depth_of`, `ancestors_of`,
   `descendants_of`, `height_of`; `create_item` and `split` check depth; a bulk move carries
   `descendants_of` (every level); `trash._children` cascades through levels. `item_detail.subtasks`
-  stays one level (each with `subtask_count`): the board drills down by opening a subtask. The
-  ClickUp importer keeps nesting to four and flattens only below. Board: `TaskModal` shows the crumb
+  stays one level (each with `subtask_count`): the board drills down by opening a subtask. Board: `TaskModal` shows the crumb
   trail of every ancestor, the Subtask adder and block while `ancestors.length < 4`;
   `Subtasks.svelte` rows show a nested count. Test:
   `test_api_items.py::test_subtasks_nest_four_deep` (service refusal and the trigger through plain
