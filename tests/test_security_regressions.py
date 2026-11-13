@@ -94,12 +94,12 @@ def test_admin_cannot_disable_or_lock_out_the_owner(client, alex, world):
     r = client.delete(f"{API}/tokens/{owner_token}", headers=admin)
     assert r.status_code == 403, r.text
     assert client.get(f"{API}/me", headers=alex).status_code == 200
-    # Renaming the owner is harmless and stays allowed; the owner may still revoke own tokens.
+    # Renaming the owner is the owner's too; the owner may still revoke own tokens.
     assert (
         client.patch(
             f"{API}/accounts/{owner_id}", json={"display_name": "C"}, headers=admin
         ).status_code
-        == 200
+        == 403
     )
 
 
