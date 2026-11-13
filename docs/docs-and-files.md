@@ -105,7 +105,7 @@ list. The same tree also holds **file docs**.
   `slate.docs.filter`); `DocPage` shows a `TagEditor` under the title (`docs.setTags`). Tests:
   `tests/test_doc_hub.py`, `web/e2e/hub.spec.ts`, Vitest for the helpers.
 - **Compare** (migration `b8d4f2a7c3e1`, `service/doc_compare.py`): `doc_files.text` holds
-  text extracted once on upload (`extract_text`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
+  text extracted once on upload (`extract`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
   as they are; XLSX through `openpyxl` read-only, one `## Sheet` block per sheet, cells tab-joined;
   PDF through `pypdf` per page; `MAX_TEXT` 300k chars; never raises, a file that cannot be read
   uploads without text). `GET /docs?q=` matches it and the snippet comes from the current revision's
@@ -300,7 +300,8 @@ list. The same tree also holds **file docs**.
   `_check_archive` measures an XLSX's zip
   members (declared sizes, total, a 200x inflation ratio over 4 MiB, then a chunked inflate under
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even
-  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX uses the same cap. Cells read out of a
+  read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX has its own check (`_docx_text` inflates only `word/document.xml`, in chunks, under the same
+  cap) rather than `_check_archive`. Cells read out of a
   table are cut to `MAX_CELL` (1,000) characters and all of a revision's tables share one
   `MAX_TABLE_CHARS` (4 M) budget, because every cell of a workbook may point at one long shared
   string; the searchable text is written up to `MAX_TEXT` and no further. `_pdf_text` reads at

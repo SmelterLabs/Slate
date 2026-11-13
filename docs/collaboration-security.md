@@ -92,7 +92,7 @@ there is no full-output join followed by truncation. Parsing continues after the
 so a malformed tail cannot bypass rejection. Nested paragraphs/text elements and nesting
 over 128 elements are rejected; DTD/entity declarations are rejected. Normal paragraph
 order, table paragraphs and split runs are retained. Invalid uploads stay unindexed via the
-`extract_text` failure contract, without affecting the uploaded original.
+`extract` failure contract, without affecting the uploaded original.
 
 The nested-paragraph test in `tests/test_collaboration_security_final.py` uses a
 1,000-deep / 10,000-character input and requires rejection with

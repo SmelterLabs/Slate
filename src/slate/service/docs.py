@@ -682,17 +682,7 @@ def diff(
     else:
         new = get_version(session, doc_id, to_version)
         new_title, new_body, to_no = new.title, new.body_md, new.version_no
-    lines = list(
-        difflib.unified_diff(
-            old.body_md.splitlines(),
-            new_body.splitlines(),
-            fromfile=f"v{old.version_no}",
-            tofile=f"v{to_no}",
-            lineterm="",
-        )
-    )
-    added = sum(1 for ln in lines if ln.startswith("+") and not ln.startswith("+++"))
-    removed = sum(1 for ln in lines if ln.startswith("-") and not ln.startswith("---"))
+    text, added, removed = unified(old.body_md, new_body, f"v{old.version_no}", f"v{to_no}")
     return {
         "doc_id": doc_id,
         "from_version": old.version_no,
@@ -701,8 +691,25 @@ def diff(
         "title_after": new_title,
         "added": added,
         "removed": removed,
-        "diff": "\n".join(lines),
+        "diff": text,
     }
+
+
+def unified(before: str, after: str, from_label: str, to_label: str) -> tuple[str, int, int]:
+    """A line-by-line unified diff and its added and removed line counts. Page versions and
+    file revisions (`doc_compare`) are compared by the same rule."""
+    lines = list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile=from_label,
+            tofile=to_label,
+            lineterm="",
+        )
+    )
+    added = sum(1 for ln in lines if ln.startswith("+") and not ln.startswith("+++"))
+    removed = sum(1 for ln in lines if ln.startswith("-") and not ln.startswith("---"))
+    return "\n".join(lines), added, removed
 
 
 _FILE_COLUMNS = (

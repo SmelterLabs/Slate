@@ -606,6 +606,35 @@ def test_search_treats_percent_and_underscore_as_plain_characters(client, alex, 
     assert plain["id"] in ids("50")
 
 
+# --- one diff rule ----------------------------------------------------------------------------
+
+
+def test_page_versions_and_file_revisions_diff_by_one_rule(client, alex, todo):
+    from slate.service import doc_compare, docs
+
+    assert not hasattr(doc_compare, "tables_of") and not hasattr(doc_compare, "extract_text")
+    text, added, removed = docs.unified("a\nb\n", "a\nc\nd\n", "v1", "v2")
+    assert (added, removed) == (2, 1) and text.startswith("--- v1\n+++ v2")
+
+    page = _doc(client, alex, title="Notes", list_id=todo["id"], body_md="a\nb\n")
+    seal = {"new_version": True}  # version 1 is closed with the first text
+    client.patch(f"{API}/docs/{page['id']}", json=seal, headers=alex)
+    client.patch(f"{API}/docs/{page['id']}", json={"body_md": "a\nc\nd\n"}, headers=alex)
+    page_diff = client.get(f"{API}/docs/{page['id']}/diff", params={"from": 1}, headers=alex)
+    assert (page_diff.json()["added"], page_diff.json()["removed"]) == (2, 1)
+
+    f = _file_doc(client, alex, "Notes", b"a\nb\n", filename="n.txt", ctype="text/plain")
+    client.post(
+        f"{API}/docs/{f['id']}/revisions",
+        params={"filename": "n.txt", "note": "second"},
+        content=b"a\nc\nd\n",
+        headers={**alex, "Content-Type": "text/plain"},
+    )
+    out = client.get(f"{API}/docs/{f['id']}/revisions/compare", params={"from": 1}, headers=alex)
+    assert (out.json()["added"], out.json()["removed"]) == (2, 1)
+    assert out.json()["diff"].startswith("--- rev1\n+++ rev2")
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

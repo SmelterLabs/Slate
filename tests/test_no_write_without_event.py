@@ -248,9 +248,7 @@ READS = {
     },
     "slate.service.doc_compare": {
         "text_kind",
-        "tables_of",
         "extract",
-        "extract_text",
         "compare",
     },
     "slate.service.doc_hub": {"section_documents"},
@@ -270,6 +268,7 @@ READS = {
         "created_from_name",
         "get_doc",
         "fresh_doc",
+        "unified",
         "body_ref",
         "root_of",
         "list_docs",
