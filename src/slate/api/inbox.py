@@ -65,7 +65,11 @@ class InboxCount(BaseModel):
 class InboxMarkIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    event_ids: list[str] = Field(default_factory=list, description="Entries by event id")
+    event_ids: list[str] = Field(
+        default_factory=list,
+        max_length=inbox.MAX_ENTRIES,
+        description="Entries by event id (at most as many as one inbox page)",
+    )
     item_id: str | None = Field(default=None, description="Every entry about this item")
     all: bool = Field(default=False, description="Everything in the inbox up to now")
 

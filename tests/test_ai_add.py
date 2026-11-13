@@ -194,8 +194,106 @@ def test_a_tag_column_keeps_its_tag_and_the_model_adds_its_own(client, alex, tod
         "body_md": "About phase 2.",
         "tags": ["example"],
     }
-    item = _add(client, alex, todo["id"], text="call the supplier about phase 2", tags=["work"])
+    item = _add(
+        client, alex, todo["id"], text="call the supplier about phase 2, example", tags=["work"]
+    )
     assert item["tags"] == ["work"]
     got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
     # The column's tag stays and the model's is added.
     assert got["title"] == "Call the supplier" and sorted(got["tags"]) == ["example", "work"]
+
+
+def _ask(n: int) -> aiadd.Ask:
+    return aiadd.Ask(item_id=f"item{n:08d}", text="words", me="alex", people={}, statuses=[])
+
+
+def test_fills_wait_for_one_worker_and_never_hold_request_threads(monkeypatch):
+    """A slow model delays only other fills: they run one at a time outside the request thread
+    pool, and beyond the queue cap a card stays as typed."""
+    import threading
+
+    import anyio
+    import anyio.to_thread
+
+    started: list[str] = []
+    release = threading.Event()
+
+    def slow(system, text):
+        started.append(text)
+        release.wait(10)
+        return {}
+
+    monkeypatch.setattr(aiadd, "call_model", slow)
+    monkeypatch.setattr(aiadd, "MAX_QUEUED", 3)
+    seen: dict = {}
+
+    async def main():
+        async with anyio.create_task_group() as tg:
+            for n in range(5):
+                tg.start_soon(aiadd.fill_later, _ask(n))
+            with anyio.fail_after(5):
+                while not started:
+                    await anyio.sleep(0.01)
+            await anyio.sleep(0.1)
+            seen["running"] = len(started)
+            seen["queued"] = aiadd.queued()
+            seen["pool"] = anyio.to_thread.current_default_thread_limiter().borrowed_tokens
+            release.set()
+        seen["done"] = len(started)
+
+    anyio.run(main)
+    assert seen["running"] == 1  # one at a time
+    assert seen["pool"] == 0  # no request-serving thread is held while the model thinks
+    assert seen["queued"] == 3  # two over the cap were dropped
+    assert seen["done"] == 3
+    assert aiadd.queued() == 0
+
+
+def test_the_route_schedules_the_bounded_fill(client, alex, todo, model, monkeypatch):
+    scheduled = []
+
+    async def spy(a):
+        scheduled.append(a.item_id)
+
+    monkeypatch.setattr(aiadd, "fill_later", spy)
+    item = _add(client, alex, todo["id"])
+    assert scheduled == [item["id"]]
+    assert model["calls"] == []  # the real fill never ran in the request's thread pool
+
+
+def test_an_oversized_model_answer_is_refused(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(settings, "ai_url", "http://model.test")
+    huge = b'{"message": {"content": "' + b"x" * (aiadd.MAX_ANSWER_BYTES + 10) + b'"}}'
+    monkeypatch.setattr(
+        aiadd, "transport", httpx.MockTransport(lambda r: httpx.Response(200, content=huge))
+    )
+    with pytest.raises(ValueError, match="too long"):
+        aiadd.call_model("system", "words")
+    ok = b'{"message": {"content": "{\\"title\\": \\"Water the plants\\"}"}}'
+    monkeypatch.setattr(
+        aiadd, "transport", httpx.MockTransport(lambda r: httpx.Response(200, content=ok))
+    )
+    assert aiadd.call_model("system", "words") == {"title": "Water the plants"}
+
+
+def test_one_bad_tag_does_not_drop_the_good_ones(client, alex, todo, model):
+    client.post(f"{API}/tags", json={"name": "errands"}, headers=alex)
+    model["answer"] = {
+        "title": "Buy stamps",
+        "body_md": "At the post office.",
+        "tags": ["Errands", "x" * 300, "  ", "#postal"],
+    }
+    item = _add(client, alex, todo["id"], text="buy stamps at the post office, tag it postal")
+    got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert got["title"] == "Buy stamps"
+    assert sorted(got["tags"]) == ["errands", "postal"]
+
+
+def test_the_model_does_not_invent_tags_the_words_never_named(client, alex, todo, model):
+    model["answer"] = {"title": "Buy stamps", "body_md": "x", "tags": ["shopping", "misc"]}
+    item = _add(client, alex, todo["id"], text="buy stamps, file it under shopping")
+    got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert got["tags"] == ["shopping"]  # named in the words; `misc` exists nowhere
+    assert [t["name"] for t in client.get(f"{API}/tags", headers=alex).json()] == ["shopping"]

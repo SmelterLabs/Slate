@@ -55,7 +55,15 @@ from slate.service.core import Actor
 READS = {
     "slate.service.item_reads": {"comment_dots"},
     # AI add: context, prompt and the model call read only; `fill` is in INFRASTRUCTURE.
-    "slate.service.aiadd": {"ask", "call_model", "clean", "enabled", "first_sentence", "prompt"},
+    "slate.service.aiadd": {
+        "ask",
+        "call_model",
+        "clean",
+        "enabled",
+        "first_sentence",
+        "prompt",
+        "queued",
+    },
     "slate.service.connections": {"view", "list_connections"},
     "slate.service.collaboration": {"whiteboard_url", "project"},
     "slate.service.guests": {
@@ -115,6 +123,7 @@ READS = {
     },
     "slate.service.comments": {
         "get_comment",
+        "clean_emoji",
         "mentions_in",
         "not_about_deleted_comment",
         "reactions_of",
@@ -338,7 +347,7 @@ READS = {
 INFRASTRUCTURE = {
     # Writes through items.update_item as Slate's own account (source system, session_ref
     # ai-add) after the request; tests/test_ai_add.py checks those events.
-    "slate.service.aiadd": {"fill"},
+    "slate.service.aiadd": {"fill", "fill_later"},
     "slate.service.chatwake": {
         # Called inside chat.post / chat.edit's change (they take the `cx`).
         "on_posted",
@@ -889,6 +898,8 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.chat_files": {
         "upload": lambda db, a, p: _chat_file(db, a),
         "discard": lambda db, a, p: chat_files.discard(db, a, _chat_file(db, a).id),
+        # Scheduler hook, as the `slate` system agent: covered in tests/test_chat_files.py.
+        "sweep_unsent": None,
     },
     "slate.service.chatwake": {
         # Only an agent mentioned by a person holds a turn; the walk's actor is a person.

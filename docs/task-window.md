@@ -225,8 +225,12 @@ selection").
   `reason_for()` picks mention / assigned / waiting / due (assigned items only) / comment / status /
   update / archived / moved, for items the account is assigned to or watches, plus `watching` (see
   Watchers above); own changes never count. Creating an item follows it only through auto-watch.
-  30-day window. Read state is `inbox_state` (read-through and cleared-through cursors, time-ordered
-  event ids) plus `inbox_marks` (one event read or cleared). Marking writes `inbox.read` /
+  30-day window. The query (`_candidates`) keeps only events that name the account (its handle
+  in `mentions` or `after`, its id in `reply_to`, `thread_followers`, `notify`, `assignee_id`,
+  `waiting_on`, or an item it follows), so other people's traffic never crowds an entry out; it
+  pages (`PAGE`) until it has the entries asked for, and the window is also a primary-key range
+  (`ids.event_id_floor`), so the scan stops at the window's start. Read state is `inbox_state`
+  (read-through and cleared-through cursors, time-ordered event ids) plus `inbox_marks` (one event read or cleared). Marking writes `inbox.read` /
   `inbox.cleared` with `subject_id` = the account, so other devices refetch. `completed_at` updates
   are not news (they always ride with `item.status_changed`).
 - **Board pages**: `#/home` (My Work, `components/work/HomePage.svelte`, grouping in
