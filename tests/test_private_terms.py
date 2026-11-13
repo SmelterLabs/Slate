@@ -134,6 +134,35 @@ def test_add_writes_to_the_local_list(tmp_path, monkeypatch):
     assert len(path.read_text(encoding="utf-8").split()) == 2
 
 
+@pytest.mark.parametrize(
+    "term", ["my-host", "box.example.net", "Two Words", "alex@example.com", "ключ", ""]
+)
+def test_add_refuses_a_term_the_scanner_can_never_match(tmp_path, monkeypatch, capsys, term):
+    """The scanner matches single words of letters and digits; anything else would be stored
+    and then never found, so `--add` refuses it and names the parts to add instead."""
+    mod = _load()
+    path = tmp_path / "new.sha256"
+    monkeypatch.setenv(mod.ENV_FILE, str(path))
+    assert mod.main(["--add", "privatetestword", term]) == 2
+    assert not path.exists()  # nothing is added when any term is refused
+    err = capsys.readouterr().err
+    assert "one word" in err
+    if term == "my-host":
+        assert "my host" in err
+
+
+def test_accented_words_are_found_with_or_without_their_accents(tmp_path, monkeypatch):
+    mod = _load()
+    path = tmp_path / "new.sha256"
+    monkeypatch.setenv(mod.ENV_FILE, str(path))
+    assert mod.main(["--add", "Renée"]) == 0
+    hashes = mod.load_hashes()
+    assert mod.scan_text("written by renée", hashes) == [(1, "renee")]
+    assert mod.scan_text("written by RENEE", hashes) == [(1, "renee")]
+    assert mod.scan_text("written by René", hashes) == []
+    assert mod.scan_text("prénom: renée-x", hashes) == [(1, "renee")]
+
+
 def test_ci_logs_name_the_place_not_the_word(tmp_path, monkeypatch, capsys):
     mod, _ = _denylist(tmp_path, monkeypatch, "privatetestword")
     monkeypatch.setattr(mod, "ROOT", tmp_path)
