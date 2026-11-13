@@ -1,5 +1,5 @@
 # Stage 1: board (Node is only ever present here, never on the host)
-FROM node:22-alpine AS web
+FROM node:25-alpine AS web
 WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
