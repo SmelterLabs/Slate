@@ -27,4 +27,7 @@ def test_removed_commands_are_refused(argv, capsys):
 
 
 def test_the_server_package_has_no_importers():
-    assert importlib.util.find_spec("slate.importers") is None
+    # A checkout that once held the package can keep its empty `__pycache__` folder, which
+    # Python still finds as a namespace package with no file behind it.
+    spec = importlib.util.find_spec("slate.importers")
+    assert spec is None or spec.origin is None

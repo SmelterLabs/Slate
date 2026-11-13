@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from slate.api.attachments import Base64In
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
@@ -147,7 +148,7 @@ class ReadIn(BaseModel):
     through: str | None = Field(default=None, description="Message id; default the newest")
     message_ids: list[str] | None = Field(
         default=None,
-        max_length=200,
+        max_length=chat.MAX_PAGE,
         description="Exact exposed messages only; empty means no change. Exclusive with through.",
     )
 
@@ -254,19 +255,21 @@ async def upload_file(
     session: DbSession,
 ) -> dict:
     """Upload a file to send with a message (raw body, up to 25 MB). Until you post a message
-    with its `id` in `file_ids`, only you can read it."""
+    with its `id` in `file_ids`, only you can read it. You hold at most 20 unsent uploads
+    (100 MB); one unsent for 24 hours is deleted."""
     limit = attachments.MAX_BYTES
     data = await read_body(request, limit)
-    return chat_files.view(
-        chat_files.upload(
-            session,
-            auth.actor,
-            key,
-            filename=filename,
-            data=data,
-            content_type=request.headers.get("content-type"),
-        )
+    # The write takes the write lock: off the event loop, so live streams keep flowing.
+    f = await run_in_threadpool(
+        chat_files.upload,
+        session,
+        auth.actor,
+        key,
+        filename=filename,
+        data=data,
+        content_type=request.headers.get("content-type"),
     )
+    return chat_files.view(f)
 
 
 @router.post(

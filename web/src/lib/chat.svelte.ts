@@ -9,6 +9,8 @@ import { toggleReaction } from './activity';
 import {
   TURN_EVENTS,
   applyTurnEvent,
+  EXPOSE_BATCH_MS,
+  exposureBatches,
   mentionsIn,
   upsert,
   type AgentTurn,
@@ -41,6 +43,9 @@ class Chat {
   #countTimer: ReturnType<typeof setTimeout> | undefined;
   /** Exact exposures this session, also used for matching Inbox entries. */
   exposed = new Set<string>();
+  /** Exposures not yet sent, by channel: sent together, once a second (`EXPOSE_BATCH_MS`). */
+  #pending = new Map<string, Set<string>>();
+  #exposeTimer: ReturnType<typeof setTimeout> | undefined;
 
   get me(): string {
     return board.me?.account.id ?? '';
@@ -56,6 +61,9 @@ class Chat {
     this.#off?.();
     this.#off = null;
     clearTimeout(this.#countTimer);
+    clearTimeout(this.#exposeTimer);
+    this.#exposeTimer = undefined;
+    this.#pending.clear();
     this.exposed.clear();
   }
 
@@ -185,10 +193,26 @@ class Chat {
     if (m.author_id === this.me || m.id.startsWith('~') || this.exposed.has(m.id)) return;
     if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
     this.exposed.add(m.id);
-    try {
-      await post(`/channels/${encodeURIComponent(m.channel)}/read`, { message_ids: [m.id] });
-      this.#counts(30);
-    } catch { this.exposed.delete(m.id); }
+    const ids = this.#pending.get(m.channel) ?? new Set<string>();
+    ids.add(m.id);
+    this.#pending.set(m.channel, ids);
+    this.#exposeTimer ??= setTimeout(() => void this.#sendExposed(), EXPOSE_BATCH_MS);
+  }
+
+  /** One read call per channel for everything exposed since the last one: a busy channel
+   * scrolled through is a handful of `channel.read` events, not one per message. */
+  async #sendExposed() {
+    this.#exposeTimer = undefined;
+    const batches = exposureBatches(this.#pending);
+    this.#pending = new Map();
+    for (const [channel, ids] of batches) {
+      try {
+        await post(`/channels/${encodeURIComponent(channel)}/read`, { message_ids: ids });
+      } catch {
+        for (const id of ids) this.exposed.delete(id);
+      }
+    }
+    if (batches.length) this.#counts(30);
   }
 
   async markMessageRead(m: ChatMessage): Promise<void> {

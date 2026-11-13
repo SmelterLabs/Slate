@@ -25,9 +25,8 @@ from slate.api.schemas import (
     WatchIn,
     When,
 )
-from slate.models import BodyVersion, Role
+from slate.models import BodyVersion
 from slate.service import (
-    access,
     activity,
     aiadd,
     item_cache,
@@ -209,7 +208,7 @@ def create_item_ai(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
     item = aiadd.file(session, auth.actor, body.list_id, body.text, extra)
-    tasks.add_task(aiadd.fill, aiadd.ask(session, auth.actor, item, body.text))
+    tasks.add_task(aiadd.fill_later, aiadd.ask(session, auth.actor, item, body.text))
     return items.views(session, [item])[0]
 
 
@@ -303,12 +302,8 @@ def split_item(item_id: str, body: SplitIn, auth: WriteAuth, session: DbSession)
 @router.get("/items/{item_id}/events", response_model=list[EventOut])
 def item_events(item_id: str, _: ReadAuth, session: DbSession) -> list[Any]:
     """The item's full history, oldest first."""
-    rows = items.item_events(session, item_id)
-    caller = access.current(session)
-    if caller is None or caller.role != Role.guest:
-        return rows
-    # A project's guest: what a workspace agent did is scrubbed (service/guests.py).
-    return access.guest_payloads(session, [event_payload(e) for e in rows])
+    # A guest's copy is scrubbed of workspace agents in event_payload (service/guests.py).
+    return [event_payload(e) for e in items.item_events(session, item_id)]
 
 
 @router.get("/items/{item_id}/versions", response_model=list[VersionOut])
@@ -384,7 +379,7 @@ def run(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
     Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream
     as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`) and
     webhooks. 422 when no agent is assigned or the item is done, cancelled or archived."""
-    return work.request_run(session, auth.actor, item_id)
+    return event_payload(work.request_run(session, auth.actor, item_id))
 
 
 class BriefOut(BaseModel):

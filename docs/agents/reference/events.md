@@ -101,8 +101,8 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `doc.suggestion_accepted` | A review comment's `suggestion_md` was applied to the page (`quote`, `suggestion`); the page save is its own `doc.updated`. |
 | `doc.unarchived` | An archived doc was restored. |
 | `doc.unpinned_from_top` | A document came off the top of its listing (`before`: at, by). |
-| `doc.updated` | A doc's `title`, `icon` or `body_md` changed (field, before, after); field `version_no` when a page-history version was closed without an edit. |
-| `doc.version_restored` | An older version's title and body were put back (`restored_from`). |
+| `doc.updated` | A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, after); for `body_md`, before/after are `{version_no, chars}`: the page-history version holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field `version_no` when a page-history version was closed without an edit. |
+| `doc.version_restored` | An older version's title and body were put back (`restored_from`); before/after carry `title`, `version_no` and `chars`. |
 
 ## favorite
 
@@ -132,14 +132,14 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 |---|---|
 | `invitation.accepted` | Single-use invitation consumed; session linked. Actor is the guest. |
 | `invitation.created` | A seven-day private-section guest/edit invitation. No secret or hash. |
-| `invitation.revoked` | An admin cancelled an invitation and its associated browser session. |
+| `invitation.revoked` | An invitation was cancelled: by an admin, with its browser session, or because the guest's section share was removed or a sibling link was cancelled. |
 
 ## item
 
 | Type | Meaning |
 |---|---|
 | `item.archived` | An item was archived. |
-| `item.assigned` | Assignees changed (`before`/`after` = account ids). Check-in news `assigned`/`unassigned`. |
+| `item.assigned` | Assignees changed (`before`/`after` = sorted handles). Check-in news `assigned`/`unassigned`. |
 | `item.attachment_added` | A file was attached. |
 | `item.attachment_removed` | An attachment was removed. |
 | `item.blocked` | An item now waits on an open item (a dependency was added, or a task it waits on was reopened); `after.blocked_by` = the open blockers. Derived, never set by hand. |
@@ -149,7 +149,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.due` | Scheduler: the item's due time has arrived. A `work` hint for its agents. |
 | `item.due_soon` | Scheduler: the item is due within the lead time (`after.lead_hours`). |
 | `item.linked` | Two items were linked (blocks, waits on, relates to, duplicate of). |
-| `item.mentioned` | A comment `@mentioned` an account (`after.account_id`). Check-in news `mentioned`. |
+| `item.mentioned` | An edit to a comment added `@mentions` (`after` = `{comment_id, mentions}`, only the newly added handles; a new comment's mentions ride on `item.commented`). Check-in news `mentioned`. |
 | `item.moved` | An item moved to another list (`field` = `list_id`). |
 | `item.overdue` | Scheduler: the item is an hour past due and not done. |
 | `item.purged` | A trashed item was deleted for good, by hand or after the trash days (`before` = its last state). Its events stay. |
@@ -187,7 +187,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `message.agent_turn` | An agent's chat turn (`after.agent`): `state` started (taken with /work/next), done (`reply_id` = its message, or none), released (given up, nothing posted; `reconciled` when an expired turn was settled by its run proof, a person's `/work/chat/clear` or a person's new mention, the person as actor), expired (the lease ran out; actor `slate`) or dropped (never taken, or expired, and the agent can no longer answer there: `reason` no_access or gone); `pending` true when a mention arrived during the turn and waits for the next take. |
-| `message.deleted` | A chat message was deleted by its author (the text goes, the thread stays). |
+| `message.deleted` | A chat message was deleted by its author or an owner or admin (the text goes, the thread stays; `before` keeps it). |
 | `message.edited` | A chat message's text changed (`after.mentions` = handles the edit added). |
 | `message.file_discarded` | An upload that was never sent was taken back or swept. |
 | `message.file_uploaded` | A file was uploaded to send with a chat message (`after` = its metadata, no channel: until it is sent only its uploader hears of it; a sent message carries its files in `message.posted` `after.files`). |

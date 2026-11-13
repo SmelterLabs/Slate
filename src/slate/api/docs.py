@@ -10,18 +10,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from slate.api.attachments import CSP
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.lists import list_out
 from slate.api.schemas import ChildIn, ItemOut, ListOut
-from slate.api.uploads import read_body
+from slate.api.uploads import file_response, read_body
+from slate.service import access, docs
 from slate.service import attachments as attachments_svc
-from slate.service import docs
 
 router = APIRouter(tags=["docs"])
 
@@ -119,7 +118,9 @@ class DocRevisionOut(BaseModel):
     content_type: str
     size: int
     note: str = Field(description="What changed in this revision")
-    uploaded_by: str
+    uploaded_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
     superseded_at: datetime | None = Field(description="When a later revision replaced it")
     restored_from: int | None = Field(description="The revision a restore copied")
@@ -163,9 +164,13 @@ class DocSummaryOut(BaseModel):
     position: int
     revision: int = Field(description="Goes up on every title or body change")
     version_no: int = Field(description="The newest page-history version")
-    created_by: str
+    created_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
-    updated_by: str
+    updated_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     updated_at: datetime
     archived_at: datetime | None
     comment_count: int = Field(default=0, description="Comments on the doc (both surfaces)")
@@ -222,7 +227,9 @@ class VersionOut(BaseModel):
     doc_id: str
     version_no: int
     title: str
-    author_id: str
+    author_id: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
     updated_at: datetime = Field(description="Its last save (autosaves fold into one version)")
     note: str | None
@@ -481,12 +488,13 @@ def duplicate_doc(doc_id: str, body: DocDuplicateIn, auth: WriteAuth, session: D
 @router.get("/docs/{doc_id}/versions", response_model=list[VersionOut])
 def versions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """Page history, newest first, without bodies (one version per sitting of edits)."""
-    return [docs.version_out(v, body=False) for v in docs.versions_of(session, doc_id)]
+    rows = [docs.version_out(v, body=False) for v in docs.versions_of(session, doc_id)]
+    return access.scrub(session, rows)
 
 
 @router.get("/docs/{doc_id}/versions/{version_no}", response_model=VersionOut)
 def version(doc_id: str, version_no: int, _: ReadAuth, session: DbSession) -> dict:
-    return docs.version_out(docs.get_version(session, doc_id, version_no))
+    return access.scrub(session, docs.version_out(docs.get_version(session, doc_id, version_no)))
 
 
 @router.post("/docs/{doc_id}/versions/{version_no}/restore", response_model=DocOut)
@@ -535,7 +543,10 @@ async def add_file(
 ) -> dict:
     """Upload an image or file into the page (raw body, up to 10 MB); paste its `markdown`."""
     data = await read_body(request, docs.MAX_FILE_BYTES)
-    f = docs.add_file(
+    # The body is read on the event loop; the write (which waits for the write lock) runs in
+    # the threadpool like any sync route, so a held lock never stalls other requests.
+    f = await run_in_threadpool(
+        docs.add_file,
         session,
         auth.actor,
         doc_id,
@@ -628,7 +639,7 @@ def unpin_from_top(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
 @router.get("/docs/{doc_id}/revisions", response_model=list[DocRevisionOut])
 def revisions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """A file doc's revisions, newest first (metadata; the bytes are at each `url`)."""
-    return [docs.revision_out(f) for f in docs.revisions_of(session, doc_id)]
+    return access.scrub(session, [docs.revision_out(f) for f in docs.revisions_of(session, doc_id)])
 
 
 @router.get(
@@ -668,7 +679,9 @@ async def add_revision(
     """Upload the next revision of a file doc (raw body, up to 25 MB). The previous revision
     stays, marked superseded. `note` says what changed; it is required."""
     data = await read_body(request, docs.MAX_REVISION_BYTES)
-    f = docs.add_revision(
+    # Reading the file's text and the write both run in the threadpool (see `add_file`).
+    f = await run_in_threadpool(
+        docs.add_revision,
         session,
         auth.actor,
         doc_id,
@@ -728,20 +741,10 @@ def promote_attachment(
 def download_file(
     file_id: str, _: ReadAuth, session: DbSession, download: bool = False
 ) -> Response:
-    """The file's bytes; images show inline unless `?download=true`."""
+    """The file's bytes; images, PDFs and plain text show inline unless `?download=true`
+    (HTML, SVG and XML always download)."""
     f = docs.get_file(session, file_id)
-    inline = not download and f.content_type.startswith(("image/", "application/pdf", "text/"))
-    return Response(
-        content=f.data,
-        media_type=f.content_type,
-        headers={
-            "Content-Disposition": f"{'inline' if inline else 'attachment'}; "
-            f"filename*=UTF-8''{quote(f.filename)}",
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-store",
-            "Content-Security-Policy": CSP,
-        },
-    )
+    return file_response(f.filename, f.content_type, f.data, download=download)
 
 
 @router.delete("/doc-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -133,6 +133,24 @@ export interface ChatMessage {
 
 export const GENERAL = 'general';
 
+/** How long the board gathers exposed messages before one read call, and the most ids one
+ * call names (the server's limit). */
+export const EXPOSE_BATCH_MS = 1000;
+export const EXPOSE_MAX_IDS = 200;
+
+/** Gathered exposures as read calls: one per channel, `max` ids at most each, oldest first. */
+export function exposureBatches(
+  pending: Map<string, Set<string>>,
+  max = EXPOSE_MAX_IDS,
+): [string, string[]][] {
+  const out: [string, string[]][] = [];
+  for (const [channel, ids] of pending) {
+    const sorted = [...ids].sort();
+    for (let i = 0; i < sorted.length; i += max) out.push([channel, sorted.slice(i, i + max)]);
+  }
+  return out;
+}
+
 /** The channel of a list or section (`list:<id>`), or General. */
 export function channelKey(kind: 'general' | 'list' | 'section', id?: string | null): string {
   return kind === 'general' || !id ? GENERAL : `${kind}:${id}`;

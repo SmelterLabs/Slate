@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+from datetime import datetime
 
 ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 ID_LENGTH = 12
@@ -44,6 +45,11 @@ def new_event_id() -> str:
         ms = max(int(time.time() * 1000), _last_ms + 1)
         _last_ms = ms
     return _base62(ms, 7) + "".join(secrets.choice(ALPHABET) for _ in range(5))
+
+
+def event_id_floor(at: datetime) -> str:
+    """The smallest event id minted at or after `at`: a primary-key bound for a time range."""
+    return _base62(max(int(at.timestamp() * 1000), 0), 7) + ALPHABET[0] * 5
 
 
 def slugify(name: str) -> str:

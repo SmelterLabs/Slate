@@ -7,7 +7,8 @@ Description=Slate task board (docker compose)
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=SLATE_HOME=/opt/slate
+# compose.yml runs the container as this user (%U/%G: the uid and gid of the user manager).
+Environment=SLATE_HOME=/opt/slate SLATE_UID=%U SLATE_GID=%G
 WorkingDirectory=/opt/slate/repo/deploy/server
 # A user manager cannot order itself after the system docker.service, so wait for the daemon
 # (up to 2 min). `$$` is a literal `$` in unit files.

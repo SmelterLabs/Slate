@@ -18,10 +18,17 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   Cursor/read-all calls are intentional prefix reads. `chat.unread_messages()` is the
   shared read predicate: callers such as push re-nudges must honor exact exposures, not just the
   cursor. Channels return `first_unread_id`, `first_unread_thread_id` and persistent
-  `unread_threads` counts. Own/deleted messages are never unread.
+  `unread_threads` counts. Own/deleted messages are never unread. `chat.unread()` gives the
+  same answer as counting `unread_messages()`, but in SQL: one `GROUP BY channel, parent_id`
+  past the cursor (mentions through `json_each`), then one small query per channel with exposed
+  ids to take those back out, so `GET /channels` loads no message rows. `GET /channels/{key}`
+  (`channel_view`) counts only its own channel (`list_channels(only=key)`), keeping the position
+  the full list gives it.
 - **Exposure is not mounting.** `exposure.ts` requires 99% intersection, an uncovered message,
   visible document and focused window continuously for 500ms. The chat store rechecks lifecycle
-  before an exact write; opening a channel never clears its Inbox wholesale. Oversized messages
+  before an exact write and gathers exposures for `EXPOSE_BATCH_MS` (1 s), then sends one read
+  call per channel with all of them (`exposureBatches`, at most 200 ids a call), so scrolling
+  through a busy channel writes a handful of `channel.read` events, not one per message; opening a channel never clears its Inbox wholesale. Oversized messages
   conservatively stay unread. First unread pages back or opens the thread. There is no recipient
   seen-receipt UI. Project home reuses loaded, access-filtered items and `myWork` scoped to its
   non-drawer lists; DocsHub is the source for document Needs you. The mention picker warns
@@ -51,6 +58,13 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
 - **Threads** are one level: a reply's `parent_id` is the root, and replying to a reply lands on the
   root. `message.posted` for a reply carries `thread_followers` (account ids of earlier authors in
   the thread).
+- **Edit and delete.** Only the author edits a message; the author or an owner or admin deletes
+  one (`chat.delete`, the same rule as card comments; the board's message menu offers it to an
+  admin as "Delete <name>'s message"). `message.deleted` keeps the text in `before`.
+- **Mentions name only accounts the writer can see.** `comments.mentions_in` (chat, card
+  comments, doc threads and page bodies) keeps an `@handle` only when it is one of the caller's
+  `access.participant_ids` when the caller is restricted, so a guest's `@someone` never confirms
+  that a hidden account exists.
 - **Routing reuses the inbox.** `message.posted`/`message.edited` are in the inbox's and check-in's
   `MENTION_TYPES` (they read `after.mentions`), and a reply reaches thread followers as inbox reason
   `reply` / check-in `why: reply`. Push (`notification_for`) links to `/#/chat/<key>?thread=<root>`;
@@ -211,11 +225,15 @@ picked file (`service/chat_files.py`, `message_files`, migration `b4f8d2e6a1c9`)
   the file's message through the caller's read filter, so channel access, a project agent's
   share date and members-only apply to the file exactly as to the message; anyone else gets the
   404 of a file that does not exist. Served by `api/uploads.file_response`: `nosniff`,
-  `no-store`, the sandbox CSP, inline only for images, PDFs and text.
+  `no-store`, the sandbox CSP, inline only for images, PDFs and text (never HTML, SVG or XML).
 - **Unsent is private.** Until it is sent only its uploader reads or discards a file
   (`DELETE /message-files/{id}`). `message.file_uploaded` / `message.file_discarded` have the
-  uploader as subject and no channel, so `access` shows them to nobody else. An upload never
-  sent is swept on its uploader's next upload once it is `UNSENT_KEEP` (24 h) old.
+  uploader as subject and no channel, so `access` shows them to nobody else. One account holds
+  at most `MAX_UNSENT_FILES` (20) unsent uploads and `MAX_UNSENT_BYTES` (100 MB); past that an
+  upload is refused (422) until one is sent or discarded. An upload never sent is swept once it
+  is `UNSENT_KEEP` (24 h) old, on its uploader's next upload and by the scheduler hook
+  `chat_files.sweep_unsent` (as the `slate` account). The raw upload route reads the body on the
+  event loop and writes in the thread pool, so the write lock never stalls live streams.
 - **Deleting the message deletes its files** (rows and bytes, in the same change;
   `message.deleted` `before.files` keeps the metadata). **Make a task** copies the files onto
   the task as attachments; the message keeps its own.
@@ -256,19 +274,30 @@ Slate without a card.
   drives the role-specific guidance (the scoped roster intentionally omits roles). The board
   uses the already-loaded scoped roster for identities so a new, empty project still has its
   agent in the mention picker and waiting/working line; no additional access is granted.
-- **Who can read it** (`Access.channel_level` for `agent:<id>`): the agent itself (even a guest-role
-  agent); owners, admins and members, all of them (whoever sees General); and a **guest or
-  list-limited token, for each agent shared into a section or list it can see**, at the caller's
-  best level there (`Access.agents`, filled by `access._project_agents` from the agents' `shares`
-  rows against the caller's final `lists`/`sections`). So a project's guests read and talk in its
-  agent's chat and see no other agent's: what the project agent says, the project's guests can
-  see. Only a share counts as "in the project", not being assigned a card there. A view-level
-  guest reads but cannot post (403). It is one channel per agent, not a private DM: what a member
-  says to the project's agent there, the project's guests read too. The read filter matches member
-  access with `LIKE 'agent:%'` (a never-matching pattern when General is not visible) and guests
-  through `visible_channels()` (their project agents plus their own); `list_channels` lists
-  exactly the agent chats `channel_level` allows. The live gate (`EventGate`) closes a stream when
-  an agent's chat drops out of reach (an unshare), like any narrowing.
+- **Who can read it** (`Access.channel_level` for `agent:<id>`). The agent itself, always (even a
+  guest-role agent). A **workspace agent's** chat (non-guest role) is a workspace conversation, like
+  General: owners, admins and members read it, guests and list-limited tokens do not. A **project
+  agent's** chat (a guest-role agent) belongs to its project: whoever sees the project reads it, at
+  their level there (owners and admins; members shared into a private project, or any member when
+  the project is not private; the project's guests and list-limited tokens), and a member outside
+  a private project does not. A project agent works in **one project**: `permissions.share`
+  refuses to share it into a second section, or into a list of another section (422), because
+  its one channel would carry one project's talk to the other's guests. An agent left in two
+  projects by older data has a chat no restricted caller reads (`access._project_agents` skips
+  it) until an admin removes one share. Only a share counts as "in the project", not being
+  assigned a card there. A view-level guest reads but cannot post (403). It is not a private DM:
+  what a member says to the project's agent there, the project's guests read too.
+- **How the read filter applies it** (`access._chat_visible`, used for messages and for the
+  events about them). Members match workspace agents' chats with `LIKE 'agent:%'` minus every
+  project agent's chat (`Access.project_agent_ids`), and get the chats of the project agents of
+  projects they see as plain channels, history included. Guests and list-limited tokens get a
+  project agent's chat only from the moment a share put it into a place they see: messages from
+  before the share stay hidden (a share revoked and granted again moves the line), in the read
+  filter (an `EXISTS` on `shares` dated against the message) and in the live gate
+  (`Access.agent_chat_since`). `visible_channels()` still lists project agents' chats, undated,
+  but only `ChatWake` rows use it. `list_channels` lists exactly the agent chats
+  `channel_level` allows. The live gate (`EventGate`) closes a stream when an agent's chat drops
+  out of reach (an unshare), like any narrowing.
 - **Board:** `components/AgentChatButton.svelte` (a `Dropdown` with the agent avatar's gradient;
   badge = unread across agent chats; `lib/chat.ts` `agentChats`, `channelIcon`, `isAgentChat`).
   Mounted at the right end of the favorites bar (`.favbar-end`, sticky, hidden on a phone) and in

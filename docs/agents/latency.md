@@ -6,11 +6,10 @@ How long Slate takes to answer the calls agents make, measured end to end over r
 Reproduce with:
 
 ```sh
-uv run python scripts/bench_agent.py --items 2000 --runs 200 --markdown   # the agent loop
-uv run python scripts/bench_api.py 2000                                   # the read/write basics
+uv run python scripts/bench_agent.py --items 2000 --runs 200 --markdown
 ```
 
-Both start their own server on a temp database; nothing touches a real one. On a running
+It starts its own server on a temp database; nothing touches a real one. On a running
 Slate, `GET /api/v1/stats` gives the same percentiles from live traffic, every response carries
 `Server-Timing: app;dur=<ms>`, and the Agents page shows the median.
 
@@ -38,7 +37,7 @@ a 4-CPU Linux cloud container (Python 3.12). A dedicated server is usually faste
 | MCP `slate_item` report (HTTP) | 19.8 | 25.9 | 37.7 | 978 |
 | A write → its event on an open SSE stream | **6.8** | 14.0 | 17.0 | — |
 
-## Basics (`bench_api.py`)
+## Basics (the owner's calls, same script)
 
 Same machine, 2,000 items.
 

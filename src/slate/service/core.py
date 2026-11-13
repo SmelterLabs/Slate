@@ -132,18 +132,22 @@ def snapshot(obj: Any) -> dict[str, Any]:
 
 def event_payload(ev: Event) -> dict[str, Any]:
     """The shape published on the bus (and on SSE and webhooks)."""
-    before, after = access.event_snapshots(object_session(ev), ev)
+    session = object_session(ev)
+    before, after = access.event_snapshots(session, ev)
+    # For a guest reader, a workspace agent's own events never load (access._guest_criteria);
+    # this keeps one that is already in hand from naming it.
+    hidden = session is not None and ev.actor_id in access.hidden_agents(session)[0]
     return {
         "id": ev.id,
         "type": ev.type,
         "item_id": ev.item_id,
         "subject_id": ev.subject_id,
-        "actor_id": ev.actor_id,
+        "actor_id": None if hidden else ev.actor_id,
         "source": jsonable(ev.source),
         "field": ev.field,
         "before": before,
         "after": after,
-        "session_ref": ev.session_ref,
+        "session_ref": None if hidden else ev.session_ref,
         "at": jsonable(ev.at),
     }
 
@@ -342,8 +346,10 @@ def apply_change(session: Session, actor: Actor) -> Iterator[Change]:
             # Before publishing: a board told about a change must never read the old view.
             item_views.invalidate(session, change.events)
 
-        for ev in change.events:
-            bus.publish(event_payload(ev))
+        # The bus carries the whole event; each listener's gate decides what its reader sees.
+        with access.unrestricted(session):
+            for ev in change.events:
+                bus.publish(event_payload(ev))
         _lock_times.append((got - asked, time.perf_counter() - got))
 
 

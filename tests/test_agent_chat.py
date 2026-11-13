@@ -8,6 +8,7 @@ no other agent's."""
 from __future__ import annotations
 
 from conftest import API
+from conftest import workspace_events as _events
 
 
 def _agent(client, alex, handle="agent", wake="push", role="member"):
@@ -48,12 +49,6 @@ def _post(client, h, key, body, **extra):
     r = client.post(f"{API}/channels/{key}/messages", json={"body_md": body, **extra}, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
-
-
-def _events(client, h, type_):
-    r = client.get(f"{API}/events", params={"type": type_, "limit": 50}, headers=h)
-    assert r.status_code == 200, r.text
-    return r.json()["events"]
 
 
 def test_each_agent_has_a_chat_after_general(client, alex, todo):

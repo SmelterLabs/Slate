@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from conftest import API
+from conftest import item_events as _events
 
 
 def _item(client, h, list_id, title="Thing", **fields):
     r = client.post(f"{API}/items", json={"list_id": list_id, "title": title, **fields}, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
-
-
-def _events(client, h, item_id):
-    return client.get(f"{API}/items/{item_id}/events", headers=h).json()
 
 
 def _other_list(client, h, todo, name="Later"):

@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_id
 from slate.models import Account, Comment, CommentReaction, Event, Role, utcnow
-from slate.service import guests
+from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -69,11 +69,17 @@ def _body(value: str) -> str:
 
 
 def mentions_in(session: Session, body_md: str) -> list[str]:
-    """Handles of real accounts `@mentioned` in `body_md`, in first-mention order."""
+    """Handles of real accounts `@mentioned` in `body_md`, in first-mention order. For a
+    restricted caller, only accounts it can see (`access.participant_ids`): a mention must not
+    tell it which other handles exist."""
     wanted = list(dict.fromkeys(m.lower() for m in MENTION_RE.findall(body_md or "")))
     if not wanted:
         return []
-    known = set(session.scalars(select(Account.handle).where(Account.handle.in_(wanted))))
+    q = select(Account.handle).where(Account.handle.in_(wanted))
+    visible = access.participant_ids(session)
+    if visible is not None:
+        q = q.where(Account.id.in_(visible))
+    known = set(session.scalars(q))
     return [h for h in wanted if h in known]
 
 
@@ -442,7 +448,8 @@ def not_about_deleted_comment() -> Any:
     return or_(Event.subject_id.is_(None), Event.subject_id.not_in(gone))
 
 
-def _emoji(value: str) -> str:
+def clean_emoji(value: str) -> str:
+    """A reaction emoji, trimmed: 1 to `MAX_EMOJI` characters, no spaces (comments and chat)."""
     emoji = (value or "").strip()
     if not emoji or len(emoji) > MAX_EMOJI or any(c.isspace() for c in emoji):
         raise Invalid(f"emoji must be 1-{MAX_EMOJI} characters with no spaces")
@@ -453,7 +460,7 @@ def react(session: Session, actor: Actor, comment_id: str, *, emoji: str) -> Com
     """Add the caller's `emoji` to a comment. Reacting twice with the same emoji changes nothing
     and records nothing."""
     comment = get_comment(session, comment_id)
-    emoji = _emoji(emoji)
+    emoji = clean_emoji(emoji)
     key = (comment.id, actor.account_id, emoji)
     if session.get(CommentReaction, key) is not None:
         return comment
@@ -473,7 +480,7 @@ def react(session: Session, actor: Actor, comment_id: str, *, emoji: str) -> Com
 def unreact(session: Session, actor: Actor, comment_id: str, *, emoji: str) -> Comment:
     """Take back the caller's `emoji`. Absent is fine (nothing recorded)."""
     comment = get_comment(session, comment_id)
-    reaction = session.get(CommentReaction, (comment.id, actor.account_id, _emoji(emoji)))
+    reaction = session.get(CommentReaction, (comment.id, actor.account_id, clean_emoji(emoji)))
     if reaction is None:
         return comment
     with apply_change(session, actor) as cx:

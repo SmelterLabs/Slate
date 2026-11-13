@@ -10,6 +10,7 @@ from datetime import timedelta
 import pytest
 
 from conftest import API
+from conftest import workspace_events as _events
 from run_proofs import remember, run_fields
 from slate.models import ChatWake, utcnow
 from slate.service import chatwake
@@ -33,12 +34,6 @@ def _post(client, h, key, body, **extra):
     r = client.post(f"{API}/channels/{key}/messages", json={"body_md": body, **extra}, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
-
-
-def _events(client, h, type_):
-    r = client.get(f"{API}/events", params={"type": type_, "limit": 50}, headers=h)
-    assert r.status_code == 200, r.text
-    return r.json()["events"]
 
 
 def _next(client, h, **body):
