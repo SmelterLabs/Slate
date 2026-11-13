@@ -14,6 +14,11 @@ const hm = workspaceFormatter('en-GB', {
   hourCycle: 'h23',
 });
 
+/** 0 = Sunday … 6 = Saturday, for a YYYY-MM-DD calendar date. */
+export function weekday(ymd: string): number {
+  return new Date(`${ymd}T12:00:00Z`).getUTCDay();
+}
+
 export function addDays(ymd: string, days: number): string {
   const d = new Date(`${ymd}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -63,7 +68,7 @@ const label = new Intl.DateTimeFormat('en-US', {
 });
 
 /** "Wed, Oct 28" for a YYYY-MM-DD, independent of the viewer's zone. */
-export function dayLabel(ymd: string): string {
+export function longDay(ymd: string): string {
   return label.format(new Date(`${ymd}T12:00:00Z`));
 }
 

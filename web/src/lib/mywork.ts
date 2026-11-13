@@ -2,6 +2,7 @@
 // waiting on someone for and what they finished lately. Pure; the page feeds it plain items.
 
 import { workspaceDay } from './quickadd';
+import { addDays } from './when';
 import { isOpen } from './format';
 import type { Item } from './types';
 
@@ -30,12 +31,6 @@ export interface MyWork {
   /** Open items I created that are assigned only to others (delegated). */
   delegated: Item[];
   openCount: number;
-}
-
-function addDays(ymd: string, n: number): string {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
 }
 
 export function bucketOf(item: Item, now: Date): Bucket {

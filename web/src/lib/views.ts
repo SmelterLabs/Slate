@@ -5,6 +5,7 @@
 // Speed: `runView` makes one pass to filter, one sort, one pass to group. With ~3,000 items that
 // is a few milliseconds; components call it once per scope inside a $derived, never per card.
 
+import { addDays, weekday } from './when';
 import { workspaceDay } from './quickadd';
 import { priorityLong } from './priority';
 import { workspaceFormatter, workspaceTimezone } from './timezone';
@@ -299,17 +300,6 @@ export function dayOf(iso: string): string {
     dayCache.set(key, d);
   }
   return d;
-}
-
-export function addDays(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/** 0 = Sunday … 6 = Saturday, for a YYYY-MM-DD calendar date. */
-export function weekday(ymd: string): number {
-  return new Date(`${ymd}T12:00:00Z`).getUTCDay();
 }
 
 const partsFmt = workspaceFormatter('en-US', {

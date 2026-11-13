@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bars, dayLabel, handleFrom, HANDLE_RE, scopeText, snippets, sourceShare, type Usage } from './agentkit';
+import { bars, shortDay, handleFrom, HANDLE_RE, scopeText, snippets, sourceShare, type Usage } from './agentkit';
 
 describe('handleFrom', () => {
   it('slugs a display name into a valid handle', () => {
@@ -57,7 +57,7 @@ describe('usage helpers', () => {
   });
 
   it('labels a local day without shifting it', () => {
-    expect(dayLabel('2026-10-24')).toBe('Sat 24');
+    expect(shortDay('2026-10-24')).toBe('Sat 24');
   });
 
   it('names the strongest scope', () => {

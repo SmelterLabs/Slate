@@ -4,7 +4,7 @@
 import { workspaceDay } from './quickadd';
 import { workspaceFormatter } from './timezone';
 import type { Tag } from './types';
-import { addDays } from './views';
+import { addDays } from './when';
 
 export type DueTone = 'overdue' | 'today' | 'soon' | 'later' | 'done';
 

@@ -205,7 +205,7 @@ const dayFmt = workspaceFormatter('en-US', {
 const dayKeyFmt = workspaceFormatter('en-CA', {});
 
 /** "Today", "Yesterday", or "Wednesday, October 21" (workspace days). */
-export function dayLabel(iso: string, now: Date = new Date()): string {
+export function chatDay(iso: string, now: Date = new Date()): string {
   const day = dayKeyFmt.format(new Date(iso));
   if (day === dayKeyFmt.format(now)) return 'Today';
   if (day === dayKeyFmt.format(new Date(now.getTime() - 86_400_000))) return 'Yesterday';
@@ -228,7 +228,7 @@ export function rows(messages: ChatMessage[], now: Date = new Date()): ChatRow[]
   for (const m of messages) {
     const day = dayKeyFmt.format(new Date(m.created_at));
     if (day !== lastDay) {
-      out.push({ kind: 'day', key: `day-${day}`, label: dayLabel(m.created_at, now) });
+      out.push({ kind: 'day', key: `day-${day}`, label: chatDay(m.created_at, now) });
       lastDay = day;
       prev = null;
     }

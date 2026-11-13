@@ -4,7 +4,7 @@
   // and the admin actions: new token, revoke, disable. Data: GET /accounts/{id}/usage.
   import { onMount } from 'svelte';
   import { api, get, patch } from '../../lib/api';
-  import { bars, dayLabel, scopeText, limitText, sourceShare, type Usage } from '../../lib/agentkit';
+  import { bars, shortDay, scopeText, limitText, sourceShare, type Usage } from '../../lib/agentkit';
   import { ago } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
   import type { Account } from '../../lib/types';
@@ -74,12 +74,12 @@
       </div>
       <div class="chart" role="img" aria-label="Changes per day over the last 14 days">
         {#each chart as b (b.day)}
-          <span class="bar" title="{dayLabel(b.day)}: {b.events} change{b.events === 1 ? '' : 's'}">
+          <span class="bar" title="{shortDay(b.day)}: {b.events} change{b.events === 1 ? '' : 's'}">
             <span style:height="{Math.max(b.h * 100, b.events ? 6 : 2)}%" class:zero={!b.events}></span>
           </span>
         {/each}
       </div>
-      <div class="axis muted"><span>{dayLabel(usage.days[0].day)}</span><span>today</span></div>
+      <div class="axis muted"><span>{shortDay(usage.days[0].day)}</span><span>today</span></div>
       {#if usage.top_types.length}
         <p class="types muted">
           Mostly: {#each usage.top_types.slice(0, 4) as t, i (t.type)}{i ? ', ' : ''}<code>{t.type}</code>
