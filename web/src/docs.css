@@ -776,6 +776,8 @@ textarea.doc-title {
   background: var(--bg);
   box-shadow: -8px 0 8px var(--bg);
 }
+/* .doc-rendered carries .md too (DocBody), so every .md rule in app.css applies here and the
+   rules below are only the deltas. A change to the .md look changes the doc page with it. */
 .doc-rendered {
   display: block;
   width: 100%;
@@ -820,9 +822,6 @@ textarea.doc-title {
 .doc-rendered :is(ul, ol) {
   margin: 0 0 12px;
   padding-left: 26px;
-}
-.doc-rendered li {
-  margin: 2px 0;
 }
 .doc-rendered ul.checks {
   list-style: none;
@@ -902,9 +901,6 @@ textarea.doc-title {
   background: var(--accent-soft);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
-.doc-rendered blockquote p:last-child {
-  margin-bottom: 0;
-}
 .doc-rendered hr {
   border: 0;
   border-top: 1px solid var(--line);
@@ -949,17 +945,6 @@ textarea.doc-title {
   word-break: normal;
   hyphens: manual;
   min-width: 4.5em;
-}
-.doc-rendered th + th,
-.doc-rendered td + td {
-  border-left: 1px solid var(--line);
-}
-.doc-rendered th {
-  background: var(--panel);
-  font-weight: 600;
-}
-.doc-rendered tbody tr:last-child td {
-  border-bottom: 0;
 }
 .doc-img {
   display: block;
