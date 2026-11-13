@@ -364,11 +364,17 @@ def _db(session: Session) -> dict[str, Any]:
     }
 
 
-def _backups() -> dict[str, Any] | None:
+def backup_status_path() -> str | None:
     path = str(settings.database_path)
     if path == ":memory:":
         return None
-    status = os.path.join(os.path.dirname(os.path.abspath(path)), BACKUP_STATUS)
+    return os.path.join(os.path.dirname(os.path.abspath(path)), BACKUP_STATUS)
+
+
+def _backups() -> dict[str, Any] | None:
+    status = backup_status_path()
+    if status is None:
+        return None
     try:
         with open(status, encoding="utf-8") as fh:
             raw = fh.read()

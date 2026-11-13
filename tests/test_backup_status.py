@@ -9,13 +9,20 @@ import pytest
 
 from slate.models import utcnow
 from slate.service import health
-from slate.settings import settings
 
 
 @pytest.fixture
 def status_file(tmp_path, monkeypatch):
+    path = tmp_path / "backup-status.json"  # next to the database on a real server
+    monkeypatch.setattr(health, "backup_status_path", lambda: str(path))
+    return path
+
+
+def test_the_status_file_sits_next_to_the_database(monkeypatch, tmp_path):
+    from slate.settings import settings
+
     monkeypatch.setattr(settings, "database_path", tmp_path / "slate.db")
-    return tmp_path / "backup-status.json"
+    assert health.backup_status_path() == str(tmp_path / "backup-status.json")
 
 
 def _write(path, *, ok, at, last_ok_at, detail="slate-2026-11-13.db 4096 bytes"):
@@ -72,3 +79,11 @@ def test_backups_that_stopped_fail_the_check(db, status_file):
 def test_an_unreadable_status_file_says_so(db, status_file):
     status_file.write_text("{not json")
     assert _check(db)["status"] == "warn"
+
+
+def test_the_report_carries_the_backups_over_rest(client, alex, status_file):
+    now = utcnow()
+    _write(status_file, ok=True, at=now, last_ok_at=now)
+    body = client.get("/api/v1/health", headers=alex).json()
+    assert body["backups"]["ok"] is True
+    assert {c["key"]: c["status"] for c in body["checks"]}["backups"] == "ok"

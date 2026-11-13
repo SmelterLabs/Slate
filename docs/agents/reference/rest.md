@@ -2459,7 +2459,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### HealthOut
 
-`status`: string, `at`: date-time, `version`: string, `uptime_s`: number, `window_minutes`: integer, `slow_ms`: number, `alert_after`: integer, `checks`: [HealthCheck], `scheduler`: object, `pollers`: [object], `engines`: [HealthCheck], `agents`: object, `latency`: object, `automations`: object, `queues`: object, `db`: object
+`status`: string, `at`: date-time, `version`: string, `uptime_s`: number, `window_minutes`: integer, `slow_ms`: number, `alert_after`: integer, `checks`: [HealthCheck], `scheduler`: object, `pollers`: [object], `engines`: [HealthCheck], `agents`: object, `latency`: object, `automations`: object, `queues`: object, `db`: object, `backups`: object?
 
 ### SearchOut
 
