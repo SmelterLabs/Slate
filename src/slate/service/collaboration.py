@@ -242,9 +242,12 @@ def project(session: Session, section_id: str) -> dict:
     if caller and caller.section_level(section_id) == 0:
         raise NotFound("section project not found")
     participants = []
-    for entry in permissions.who_can_see(session, "section", section_id):
+    entries = permissions.who_can_see(session, "section", section_id)
+    ids = [entry["account_id"] for entry in entries]
+    by_id = {a.id: a for a in session.scalars(select(Account).where(Account.id.in_(ids)))}
+    for entry in entries:
         # No preferences, presence, token metadata, or shares elsewhere.
-        account = session.get(Account, entry["account_id"])
+        account = by_id[entry["account_id"]]
         # A guest is not shown the workspace's own agents: what they say on a project
         # is members-only (service/chat.py `members_only_post`).
         if caller and caller.role == Role.guest and chat.workspace_agent(account):

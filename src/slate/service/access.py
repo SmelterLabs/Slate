@@ -230,14 +230,12 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
 
     sections: dict[str, int] = {}
     for sid, private in section_rows:
-        default = EDIT if full or (role == Role.member and not private) else 0
-        lvl = max(default, sec_share.get(sid, 0))
+        lvl = _section_rule(role, private, sec_share.get(sid, 0))
         if lvl:
             sections[sid] = lvl
     lists: dict[str, int] = {}
     for lid, sid, list_private, _section_private in rows:
-        inherited = 0 if list_private and not full else sections.get(sid, 0)
-        lvl = max(inherited, list_share.get(lid, 0))
+        lvl = _list_rule(role, list_private, sections.get(sid, 0), list_share.get(lid, 0))
         if lvl:
             lists[lid] = lvl
 
@@ -271,6 +269,53 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
         agent_since=agent_since,
         admin_scope=admin_scope,
     )
+
+
+def _section_rule(role: Role, private: bool, share: int) -> int:
+    """An account's level on a section: owners and admins edit every one, members every one
+    that is not private; a share can only add to that."""
+    full = role in (Role.owner, Role.admin)
+    return max(EDIT if full or (role == Role.member and not private) else 0, share)
+
+
+def _list_rule(role: Role, private: bool, section_level: int, share: int) -> int:
+    """An account's level on a list: its section's, unless the list is private (then only an
+    owner or admin keeps it); a share can only add to that."""
+    full = role in (Role.owner, Role.admin)
+    return max(0 if private and not full else section_level, share)
+
+
+def levels_on(session: Session, scope_kind: str, scope_id: str) -> dict[str, int]:
+    """Every enabled account's level on one section or list, as `compute` (with no token
+    limit) would give it, in a fixed number of queries whatever the roster's size."""
+    section_id = scope_id
+    list_private = False
+    if scope_kind == "list":
+        section_id, list_private = session.execute(
+            select(List.section_id, List.private).where(List.id == scope_id)
+        ).one()
+    section_private = bool(session.scalar(select(Section.private).where(Section.id == section_id)))
+    shares: dict[tuple[str, str], int] = {}
+    for account_id, kind, lvl in session.execute(
+        select(Share.account_id, Share.scope_kind, Share.level).where(
+            or_(
+                and_(Share.scope_kind == "section", Share.scope_id == section_id),
+                and_(Share.scope_kind == "list", Share.scope_id == scope_id),
+            )
+        )
+    ):
+        shares[(account_id, kind)] = level_rank(lvl)
+    out: dict[str, int] = {}
+    for account_id, role in session.execute(
+        select(Account.id, Account.role).where(Account.disabled_at.is_(None))
+    ):
+        role = Role(role or Role.member)
+        lvl = _section_rule(role, section_private, shares.get((account_id, "section"), 0))
+        if scope_kind == "list":
+            lvl = _list_rule(role, list_private, lvl, shares.get((account_id, "list"), 0))
+        if lvl:
+            out[account_id] = lvl
+    return out
 
 
 def _project_agents(

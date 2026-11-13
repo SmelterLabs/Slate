@@ -200,23 +200,18 @@ def who_can_see(session: Session, scope_kind: str, scope_id: str) -> list[dict[s
     obj = _scope(session, scope_kind, scope_id)
     out: list[dict[str, Any]] = []
     with access.unrestricted(session):
-        for account in session.scalars(
-            select(Account).where(Account.disabled_at.is_(None)).order_by(Account.handle)
-        ):
-            found = access.compute(session, account)
-            if scope_kind == "list":
-                level = found.list_level(obj.id)
-            else:
-                level = found.section_level(obj.id)
-            if not level:
-                continue
-            row = session.scalar(
-                select(Share).where(
-                    Share.account_id == account.id,
-                    Share.scope_kind == scope_kind,
-                    Share.scope_id == obj.id,
-                )
+        levels = access.levels_on(session, scope_kind, obj.id)
+        shares = {
+            s.account_id: s
+            for s in session.scalars(
+                select(Share).where(Share.scope_kind == scope_kind, Share.scope_id == obj.id)
             )
+        }
+        for account in session.scalars(
+            select(Account).where(Account.id.in_(list(levels))).order_by(Account.handle)
+        ):
+            level = levels[account.id]
+            row = shares.get(account.id)
             if _role(account) in (Role.owner, Role.admin):
                 via = "role"
             elif row is not None and access.level_rank(row.level) == level:

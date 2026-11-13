@@ -559,3 +559,64 @@ def test_a_cookie_only_works_with_a_browser_session_on_every_door(client, alex):
     assert client.get(f"{API}/me").status_code == 401
     with client.stream("GET", f"{API}/events/stream") as r:
         assert r.status_code == 401
+
+
+# --- Who can see a place ----------------------------------------------------------------------
+
+
+def _queries(client, h, path) -> int:
+    from sqlalchemy import event
+
+    from slate.db import engine
+
+    seen = []
+
+    def count(*_args):
+        seen.append(1)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        assert client.get(f"{API}{path}", headers=h).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    return len(seen)
+
+
+def test_the_project_page_costs_the_same_whatever_the_roster(client, alex, world):
+    project = world["work"]["id"]
+    client.patch(f"{API}/sections/{project}", json={"private": True}, headers=alex)
+    path = f"/sections/{project}/project"
+    _queries(client, alex, path)  # warm
+    few = _queries(client, alex, path)
+    for n in range(12):
+        acct, _ = world["account"](f"member{n}", "member" if n % 2 else "guest")
+        if n % 3 == 0:
+            share(client, alex, acct["id"], "section", project, "comment")
+    many = _queries(client, alex, path)
+    assert many == few, (few, many)
+
+
+def test_who_can_see_agrees_with_each_accounts_own_access(client, alex, world, db):
+    from slate.models import Account
+    from slate.service import access
+
+    client.patch(f"{API}/sections/{world['work']['id']}", json={"private": True}, headers=alex)
+    hidden = world["post"](
+        "/lists", {"section_id": world["personal"]["id"], "name": "Hidden", "private": True}
+    )
+    accounts_made = [
+        world["account"](f"p{n}", role)[0]
+        for n, role in enumerate(("member", "guest", "admin", "member", "guest"))
+    ]
+    share(client, alex, accounts_made[1]["id"], "list", hidden["id"], "view")
+    share(client, alex, accounts_made[3]["id"], "section", world["work"]["id"], "comment")
+    share(client, alex, accounts_made[4]["id"], "list", world["clients"]["id"], "edit")
+    db.expire_all()
+    places = [("section", world["personal"]["id"]), ("section", world["work"]["id"])]
+    places += [("list", x["id"]) for x in (world["todo"], world["clients"], hidden)]
+    for kind, ref in places:
+        got = access.levels_on(db, kind, ref)
+        for account in db.query(Account).filter(Account.disabled_at.is_(None)):
+            found = access.compute(db, account)
+            want = found.list_level(ref) if kind == "list" else found.section_level(ref)
+            assert got.get(account.id, 0) == want, (kind, ref, account.handle)
