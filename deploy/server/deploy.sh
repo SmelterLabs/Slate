@@ -36,6 +36,7 @@ main() {
     exit 1
   fi
   chmod 600 "$home/.env"
+  chmod 700 "$home/data" "$home/backups"
 
   if [[ -d "$repo/.git" ]]; then
     step "fetching $(git -C "$repo" remote get-url origin)"
@@ -77,9 +78,17 @@ main() {
 
   # The container runs `slate migrate` at start, so a backup of the live file comes first:
   # a migration that drops tables must have a copy to roll back to.
-  if [[ "$was_active" == yes ]] && docker ps --format '{{.Names}}' | grep -qx slate; then
+  if [[ "$was_active" == yes && "$(docker inspect -f '{{.State.Running}}' slate 2>/dev/null)" == true ]]; then
     step "backing up the live database before the restart (migrations run at container start)"
     SLATE_HOME="$home" bash "$repo/deploy/server/backup.sh" "pre-deploy-$(date +%F-%H%M).db"
+  fi
+
+  # The container runs as this user. An older image ran as root and left root-owned files in
+  # data/; hand them over once (docker access is root on this host anyway), before it starts.
+  if [[ -n "$(find "$home/data" ! -user "$(id -u)" -print -quit)" ]]; then
+    step "giving $home/data to $(id -un) (files an older container wrote as root)"
+    docker run --rm --user 0:0 --network none -v "$home/data:/data" --entrypoint chown \
+      slate:local -R "$(id -u):$(id -g)" /data
   fi
 
   step "enabling and starting slate.service and slate-backup.timer (builds the image)"

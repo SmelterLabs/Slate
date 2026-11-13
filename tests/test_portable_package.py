@@ -236,6 +236,8 @@ def test_portable_compose_and_archive_docker_contract():
     assert service["environment"]["SLATE_TIMEZONE"] == "${SLATE_TIMEZONE:-UTC}"
     assert "SLATE_SECRET_KEY:?" in service["environment"]["SLATE_SECRET_KEY"]
     assert service["environment"]["SLATE_WEBHOOK_PRIVATE_TARGETS"] == "false"
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
     docker = (ROOT / "Dockerfile").read_text()
     assert "COPY .git" not in docker
     assert "scripts/build_metadata.py" in docker

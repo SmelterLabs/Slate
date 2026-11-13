@@ -307,11 +307,13 @@ the server's `.env`, not in the repo.
 
 - **Build on the host.** The server clones the repository (a private fork needs only a read-only
   deploy key) into `/opt/slate/repo` and `docker compose -p slate up -d --build` builds the image
-  there; Node exists only inside the Dockerfile's build stage. CI publishes no image: nothing
+  there; Node exists only inside the Dockerfile's build stage and uv (pinned) only inside its
+  Python stage: the runtime stage copies `/app` and runs as uid 10001. CI publishes no image: nothing
   pulls one, and a publish job would need a token that can write packages.
 - **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
   `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
-  10m×5); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
+  10m×5, run as the service user's uid with every capability dropped and `no-new-privileges`,
+  forwarded headers trusted from loopback and `172.16.0.0/12` only, never `*`); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
   `slate-backup.service/.timer` + `backup.sh` (daily at 03:30; `backup.py`, fed to the container's
   Python on stdin, takes the SQLite online backup, refuses a missing or non-Slate database and
   streams the copy out; `backup.sh` checks its SHA-256 and keeps 30 days in `/opt/slate/backups/`,

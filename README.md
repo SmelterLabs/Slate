@@ -74,6 +74,11 @@ upgrades, stop writes and back up the entire volume plus `.env`, or use a SQLite
 online backup and separately preserve file assets. Never copy only an actively written
 SQLite main file and assume its WAL contents were included.
 
+The container runs as an unprivileged user (uid 10001) with every capability dropped. A
+`slate-data` volume created by an older image belongs to root; give it to that user once
+before starting the new image:
+`docker compose run --rm --no-deps --user 0:0 --entrypoint chown slate -R 10001:10001 /data`.
+
 For remote access, first bootstrap locally, then deliberately configure an authenticated
 HTTPS reverse proxy/private network and the appropriate forwarded-header trust. Do not
 publish the default unauthenticated bootstrap to a network. For a long-running server

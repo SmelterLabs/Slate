@@ -35,7 +35,7 @@ Requirements: Linux with systemd, Docker Engine with the compose plugin (`docker
 sudo useradd --create-home --shell /bin/bash slate
 sudo usermod -aG docker slate
 sudo loginctl enable-linger slate        # user units keep running without a login session
-sudo install -d -o slate -g slate /opt/slate
+sudo install -d -m 0750 -o slate -g slate /opt/slate
 ```
 
 Everything after this runs as `slate` (`sudo -iu slate`).
@@ -96,8 +96,14 @@ slate.example.com {
 }
 ```
 
-The proxy must pass `X-Forwarded-Proto` and `X-Forwarded-For` (Caddy and nginx's usual
-config do); `compose.yml` trusts them. Server-sent events (`/api/v1/events/stream`) must not be
+The proxy must pass `X-Forwarded-Proto` and `X-Forwarded-For`. `compose.yml` trusts them from
+loopback and Docker's `172.16.0.0/12` networks only, and takes the right-most address no
+trusted hop added, so a client cannot choose the address the rate limits see. Caddy sets the
+header itself; with nginx use `proxy_set_header X-Forwarded-For $remote_addr;` (or
+`$proxy_add_x_forwarded_for`, which is also safe with this list). A proxy that reaches the
+container from another network needs its subnet added to `FORWARDED_ALLOW_IPS` in
+`compose.yml` (`docker network inspect slate_default` shows the compose network's subnet; never
+use `*`, which trusts every entry a client sends). Server-sent events (`/api/v1/events/stream`) must not be
 buffered: with nginx, set `proxy_buffering off;` for that location.
 
 ### Optional: expose on your tailnet instead
@@ -266,5 +272,8 @@ Ollama down = AI add leaves cards as typed; nothing else in Slate depends on it.
 - The image is built on the host from the checkout (`slate:local`); nothing is pulled from a
   registry.
 - `$SLATE_HOME/data` must exist before the first `up`, or Docker creates it owned by root;
-  `deploy.sh` creates it.
+  `deploy.sh` creates it (mode 700, as are `backups/` and the `.env`'s 600).
+- The container runs as the service user (`slate.service` passes its uid and gid), with every
+  capability dropped and `no-new-privileges`. Images before this ran as root; the first
+  `deploy.sh` after the change hands the root-owned files in `data/` to the service user, once.
 - Older installs kept backups in `data/backups/`; `deploy.sh` moves them to `backups/` once.

@@ -65,6 +65,75 @@ def test_slate_service_unit():
     assert "$(" not in svc["ExecStartPre"].replace("$$(", "")
 
 
+def test_slate_service_runs_the_container_as_the_service_user():
+    env = _unit("slate.service")["Service"]["Environment"].split()
+    assert {"SLATE_UID=%U", "SLATE_GID=%G"} <= set(env)
+
+
+def _compose() -> dict:
+    import yaml
+
+    return yaml.safe_load((PACK / "compose.yml").read_text(encoding="utf-8"))
+
+
+def test_compose_runs_unprivileged():
+    svc = _compose()["services"]["slate"]
+    assert svc["user"] == "${SLATE_UID:-10001}:${SLATE_GID:-10001}"
+    assert svc["cap_drop"] == ["ALL"]
+    assert svc["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_dockerfile_runs_as_a_user_without_uv():
+    text = (PACK.parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    assert ":latest" not in text
+    assert re.search(r"COPY --from=ghcr\.io/astral-sh/uv:\d+\.\d+\.\d+ /uv /bin/uv", text)
+    runtime = text.rsplit("\nFROM ", 1)[1]  # the last stage is what runs
+    body = re.sub(r"UV_\w+|\.venv|uvicorn", "", runtime.split("\n", 1)[1])
+    assert "uv" not in body  # no uv or uvx in the image that runs
+    users = re.findall(r"^USER (\S+)", runtime, re.M)
+    assert users and users[-1].split(":")[0] not in ("0", "root")
+    assert "-o 10001 -g 10001 -m 0700 /data" in runtime
+
+
+def test_data_and_backups_are_private_to_the_service_user():
+    deploy = (PACK / "deploy.sh").read_text(encoding="utf-8")
+    assert 'chmod 700 "$home/data" "$home/backups"' in deploy
+    # Files an older, root container left in data/ are handed to the service user once.
+    assert '! -user "$(id -u)"' in deploy and "--user 0:0" in deploy
+    runbook = (PACK / "RUNBOOK.md").read_text(encoding="utf-8")
+    assert "install -d -m 0750 -o slate -g slate /opt/slate" in runbook
+
+
+def test_forwarded_for_comes_from_the_proxy_not_the_client():
+    """A client-supplied X-Forwarded-For entry never chooses the address the limiters key on,
+    with a proxy that appends the real client (nginx's $proxy_add_x_forwarded_for)."""
+    import asyncio
+
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    trusted = _compose()["services"]["slate"]["environment"]["FORWARDED_ALLOW_IPS"]
+    assert trusted != "*"
+    seen = []
+
+    async def app(scope, receive, send):
+        seen.append(scope["client"][0])
+
+    async def run():
+        mw = ProxyHeadersMiddleware(app, trusted_hosts=trusted)
+        for peer in ("172.18.0.1", "127.0.0.1"):  # a proxy over the Docker bridge or loopback
+            for forged in ("198.51.100.1", "198.51.100.2", "10.0.0.9"):
+                xff = f"{forged}, 203.0.113.7".encode()
+                scope = {
+                    "type": "http",
+                    "client": (peer, 5000),
+                    "headers": [(b"x-forwarded-for", xff), (b"x-forwarded-proto", b"https")],
+                }
+                await mw(scope, None, None)
+
+    asyncio.run(run())
+    assert seen == ["203.0.113.7"] * 6
+
+
 def test_backup_units():
     svc = _unit("slate-backup.service")["Service"]
     assert svc["Type"] == "oneshot"
