@@ -22,8 +22,14 @@ main() {
 
   step() { echo; echo "==> $*"; }
 
-  step "creating $home/{repo,data/backups}"
-  mkdir -p "$home/repo" "$home/data/backups"
+  step "creating $home/{repo,data,backups}"
+  mkdir -p "$home/repo" "$home/data" "$home/backups"
+  # Backups live beside data/, not in it: the container mounts data/ and never sees them.
+  if [[ -d "$home/data/backups" ]]; then
+    step "moving old backups from $home/data/backups to $home/backups"
+    find "$home/data/backups" -maxdepth 1 -type f -name '*.db' -exec mv -n {} "$home/backups/" \;
+    rmdir "$home/data/backups" 2>/dev/null || echo "    kept $home/data/backups: it holds other files"
+  fi
 
   if [[ ! -f "$home/.env" ]]; then
     echo "missing $home/.env (copy deploy/server/env.example, fill SLATE_SECRET_KEY, chmod 600)" >&2

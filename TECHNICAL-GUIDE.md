@@ -312,8 +312,11 @@ the server's `.env`, not in the repo.
 - **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
   `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
   10m×5); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
-  `slate-backup.service/.timer` + `backup.sh` (daily at 03:30, SQLite online backup API inside the
-  container, integrity-checked, 30-day prune in `/opt/slate/data/backups/`); `deploy.sh [ref]`
+  `slate-backup.service/.timer` + `backup.sh` (daily at 03:30; `backup.py`, fed to the container's
+  Python on stdin, takes the SQLite online backup, refuses a missing or non-Slate database and
+  streams the copy out; `backup.sh` checks its SHA-256 and keeps 30 days in `/opt/slate/backups/`,
+  which the container does not mount, and records each run in `data/backup-status.json` for the
+  Health page); `deploy.sh [ref]`
   (idempotent install/update for any `SLATE_HOME`, waits for health, adds Tailscale Serve when
   `SLATE_TAILSCALE_PORT` is set); `rollback.sh <ref>`; `env.example` (every
   setting).
