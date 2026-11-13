@@ -46,6 +46,7 @@ from slate.service import (
     sections,
     tags,
     trash,
+    views,
     watchers,
     webhooks,
     work,
@@ -113,7 +114,6 @@ READS = {
         "subtasks_of",
         "item_detail",
         "query_items",
-        "bulk_update",
         "priority_sort_key",
     },
     "slate.service.comments": {
@@ -205,10 +205,6 @@ READS = {
         "view_out",
         "get_view",
         "list_views",
-        "create_view",
-        "update_view",
-        "set_archived",
-        "seed_default_views",
     },
     "slate.service.webhooks": {
         "view",
@@ -447,6 +443,12 @@ def _list(db, actor):
 
 def _item(db, actor, **fields):
     return items.create_item(db, actor, list_id=_list(db, actor).id, title="Thing", **fields)
+
+
+def _view(db, actor):
+    return views.create_view(
+        db, actor, name="Mine", scope_kind="list", scope_id=_list(db, actor).id, config={}
+    )
 
 
 def _comment(db, actor):
@@ -895,6 +897,17 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db, a, items.archive_item(db, a, _item(db, a).id).id
         ),
         "delete_item": lambda db, a, p: items.delete_item(db, a, _item(db, a).id),
+        "bulk_update": lambda db, a, p: items.bulk_update(
+            db, a, [_item(db, a).id], {"priority": "high"}
+        ),
+    },
+    "slate.service.views": {
+        "create_view": lambda db, a, p: _view(db, a),
+        "update_view": lambda db, a, p: views.update_view(db, a, _view(db, a).id, {"name": "B"}),
+        "set_archived": lambda db, a, p: views.set_archived(db, a, _view(db, a).id, archived=True),
+        # Bootstrap seeds the landing views, so a second call has nothing to make:
+        # test_bootstrap_writes_events_attributed_to_the_new_account checks those events.
+        "seed_default_views": None,
     },
     "slate.service.comments": {
         "add_comment": lambda db, a, p: comments.add_comment(db, a, _item(db, a).id, body_md="hi"),
@@ -1064,6 +1077,19 @@ def test_every_service_function_is_classified():
         )
         assert names <= known, f"unclassified in {module}: {sorted(names - known)}"
         assert known <= names, f"stale classification in {module}: {sorted(known - names)}"
+
+
+def test_no_read_opens_a_change():
+    """A function listed under READS is never run by a scenario, so one that opens a change
+    would escape the actor check below: it belongs under MUTATIONS."""
+    opens = []
+    for module, names in READS.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            source = inspect.getsource(getattr(mod, name))
+            if "apply_change(" in source:
+                opens.append(f"{module}.{name}")
+    assert not opens, f"listed as reads but open a change: {sorted(opens)}"
 
 
 SCENARIOS = [
