@@ -364,6 +364,9 @@ a PATCH.
   through `core.jsonable`, so dates and enums match the stored JSON); otherwise 409 with "<field>
   has changed since: it is now X, not Y" and nothing is written. Reverting a revert is the original
   change again, and reverting the same row twice is a changed-since.
+  The check and the inverse run in one `apply_change()`, so under the write lock: a change that
+  lands meanwhile waits and is never overwritten. That is also why a revert is refused (422)
+  inside an atomic batch, whose change belongs to another actor; `atomic: false` runs it.
 - **Date-only due dates.** A `due_at` change records its `due_date_only` sibling right after it in
   the same change; `_sibling_flag` finds that event (same item and actor, next id, within 5 s) and
   passes its `before` so a date-only date comes back date-only. A lone `due_date_only` revert

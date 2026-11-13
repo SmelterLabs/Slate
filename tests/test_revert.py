@@ -193,3 +193,64 @@ async def test_revert_through_mcp(client, alex, todo, make_account):
         assert out["title"] == "Draft"
         msg = err(await call(mcp, "slate_item", "revert", event_id=ev["id"]))
         assert "changed since" in msg
+
+
+def test_a_change_that_lands_during_a_revert_is_never_overwritten(tmp_path, monkeypatch):
+    """The changed-since check and the inverse run under one write lock: a write that comes
+    in between waits for the revert, so it is never silently undone."""
+    import threading
+
+    from sqlalchemy.orm import sessionmaker
+
+    from slate.db import Base, make_engine
+    from slate.models import Item, Source
+    from slate.service import accounts, items, lists, revert, sections
+    from slate.service.core import Actor
+
+    engine = make_engine(f"sqlite+pysqlite:///{(tmp_path / 'revert.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session() as s:
+        account, _, _ = accounts.bootstrap(s, handle="alex", display_name="Alex")
+        actor = Actor(account.id, Source.api)
+        sec = sections.create_section(s, actor, name="P", audience="personal")
+        lst = lists.create_list(s, actor, section_id=sec.id, name="T")
+        item = items.create_item(s, actor, list_id=lst.id, title="first")
+        items.update_item(s, actor, item.id, {"title": "second"})
+        ev = s.scalars(select(Event).where(Event.item_id == item.id, Event.field == "title")).one()
+
+    def other_writer() -> None:
+        with Session() as s2:
+            items.update_item(s2, actor, item.id, {"title": "third"})
+
+    real = revert._current
+
+    def current_then_race(session, it, e):  # noqa: ANN001
+        value = real(session, it, e)
+        racer = threading.Thread(target=other_writer)
+        racer.start()
+        racer.join(0.5)  # lands now unless the revert holds the write lock
+        threads.append(racer)
+        return value
+
+    threads: list[threading.Thread] = []
+    monkeypatch.setattr(revert, "_current", current_then_race)
+    with Session() as s:
+        revert.revert_event(s, actor, ev.id)
+    for t in threads:
+        t.join(5)
+    with Session() as s:
+        assert s.get(Item, item.id).title == "third"
+    engine.dispose()
+
+
+def test_revert_inside_an_atomic_batch_is_a_plain_refusal(client, alex, todo):
+    item = _item(client, alex, todo["id"], "a")
+    _patch(client, alex, item["id"], title="b")
+    ev = _last(client, alex, item["id"], "item.updated", "title")
+    op = {"tool": "item", "action": "revert", "params": {"event_id": ev["id"]}}
+    r = client.post(f"{API}/batch", json={"ops": [op]}, headers=alex)
+    assert r.status_code == 422 and "atomic" in r.json()["detail"], r.text
+    r = client.post(f"{API}/batch", json={"ops": [op], "atomic": False}, headers=alex)
+    assert r.status_code == 200 and r.json()["results"][0]["ok"], r.text
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["title"] == "a"

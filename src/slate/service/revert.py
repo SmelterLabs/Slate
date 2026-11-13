@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from slate.models import Account, Event, Item, ItemAssignee, ItemTag, Tag
 from slate.service import items as items_svc
-from slate.service.core import Actor, jsonable
+from slate.service.core import Actor, apply_change, in_change, jsonable
 from slate.service.errors import Conflict, Invalid, NotFound
 
 # `item.updated` fields that are a plain `update_item` change (field -> change key).
@@ -50,7 +50,21 @@ SIBLING_WINDOW = timedelta(seconds=5)
 
 
 def revert_event(session: Session, actor: Actor, event_id: str) -> Item:
-    """Issue the inverse of `event_id` (module docstring) and return the item."""
+    """Issue the inverse of `event_id` (module docstring) and return the item.
+
+    The changed-since check and the inverse run in one change, under the write lock, so a
+    change that lands in between can never be overwritten without the `Conflict`."""
+    if in_change(session):
+        # Its event carries its own session_ref (revert:<id>), so it cannot join a change
+        # opened by someone else (an atomic batch).
+        raise Invalid("revert cannot run inside an atomic batch; send it alone or atomic: false")
+    by = replace(actor, session_ref=f"revert:{event_id}")
+    session.rollback()  # end any read: what is checked below is read under the lock
+    with apply_change(session, by):
+        return _revert(session, by, event_id)
+
+
+def _revert(session: Session, by: Actor, event_id: str) -> Item:
     ev = session.scalar(select(Event).where(Event.id == event_id))
     if ev is None:
         raise NotFound(f"event {event_id} not found")
@@ -65,7 +79,6 @@ def revert_event(session: Session, actor: Actor, event_id: str) -> Item:
         raise Conflict(
             f"{_name(ev)} has changed since: it is now {_show(current)}, not {_show(ev.after_json)}"
         )
-    by = replace(actor, session_ref=f"revert:{ev.id}")
     before = ev.before_json
     if ev.type == "item.moved":
         items_svc.bulk_update(session, by, [item.id], {"list_id": before})
