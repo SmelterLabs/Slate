@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -44,24 +45,81 @@ def test_upgrade_on_empty_file_matches_models_then_downgrades(tmp_path):
     assert down.returncode == 0, down.stderr
 
 
-def test_migration_triggers_repeat_the_models_verbatim():
-    # The newest migration that (re)writes the triggers must carry the models' text verbatim.
-    [path] = (ROOT / "alembic" / "versions").glob("*_nested_subtasks.py")
-    spec = importlib.util.spec_from_file_location("nested_subtasks", path)
+BASELINE = "a7e2c9d4f1b3"
+VERSIONS = ROOT / "alembic" / "versions"
+
+
+def _baseline():
+    [path] = VERSIONS.glob("*_baseline.py")
+    spec = importlib.util.spec_from_file_location("baseline", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert [sql for stmts in TRIGGERS.values() for sql in stmts] == module.TRIGGERS
+    return module
+
+
+def test_migration_triggers_repeat_the_models_verbatim():
+    # The baseline creates the triggers; it must carry the models' text verbatim.
+    assert sorted(sql for stmts in TRIGGERS.values() for sql in stmts) == sorted(
+        _baseline().TRIGGERS
+    )
+
+
+def test_history_starts_at_one_baseline():
+    baseline = _baseline()
+    assert baseline.revision == BASELINE and baseline.down_revision is None
+    roots = [
+        p.name
+        for p in VERSIONS.glob("*.py")
+        if "down_revision = None" in p.read_text(encoding="utf-8")
+    ]
+    assert roots == [Path(baseline.__file__).name]
+
+
+def test_migrations_do_not_import_app_code():
+    # A migration that imports `slate` changes meaning when the app changes.
+    for path in VERSIONS.glob("*.py"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            assert not re.match(r"\s*(from|import) slate\b", line), f"{path.name}: {line}"
+
+
+def test_a_database_older_than_the_baseline_is_refused_with_advice(tmp_path):
+    db = tmp_path / "slate.db"
+    assert _alembic(db, "upgrade", "head").returncode == 0
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE alembic_version SET version_num = 'fbf0dc707d9f'")
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode != 0
+    assert "older than this version's first migration" in up.stderr
+    assert "Slate 0.1.0" in up.stderr
+
+
+def test_a_database_at_the_baseline_or_head_needs_nothing(tmp_path):
+    db = tmp_path / "slate.db"
+    assert _alembic(db, "upgrade", "head").returncode == 0
+    # Stamped at the baseline (as a database the step-by-step history brought there is), it
+    # upgrades to head; at head, upgrading again changes nothing.
+    assert _alembic(db, "downgrade", BASELINE).returncode == 0
+    assert _alembic(db, "stamp", BASELINE).returncode == 0
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode == 0, up.stderr
+    with sqlite3.connect(db) as conn:
+        before = conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall()
+    again = _alembic(db, "upgrade", "head")
+    assert again.returncode == 0, again.stderr
+    assert "Running upgrade" not in again.stderr
+    with sqlite3.connect(db) as conn:
+        after = conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall()
+    assert before == after
 
 
 def test_upgrade_keeps_rows_that_other_tables_point_at(tmp_path):
-    """Rebuilding `accounts` must work on a file that already holds accounts and their tokens.
+    """Every revision after the baseline must work on a file that already holds rows.
 
     SQLite swaps a table by dropping it, which fails with foreign keys on once another table
     points at a row, so the upgrade is run on a file that holds rows, not an empty one.
     """
     db = tmp_path / "slate.db"
-    old = "fbf0dc707d9f"  # the last revision before accounts started being rebuilt
-    up = _alembic(db, "upgrade", old)
+    up = _alembic(db, "upgrade", BASELINE)
     assert up.returncode == 0, up.stderr
 
     with sqlite3.connect(db) as conn:
@@ -86,40 +144,6 @@ def test_upgrade_keeps_rows_that_other_tables_point_at(tmp_path):
         assert leftovers.fetchall() == []
 
 
-def test_agent_run_migration_marks_17_00_chicago_due_dates_date_only(tmp_path):
-    """Before `items.due_date_only`, a date-only due date was stored as 17:00 Chicago. The
-    migration that adds the flag marks exactly those (CST and CDT), and nothing else."""
-    db = tmp_path / "slate.db"
-    up = _alembic(db, "upgrade", "5b7d2e9a4c18")
-    assert up.returncode == 0, up.stderr
-    rows = {
-        "it_cst": "2026-11-03T23:00:00.000000Z",  # 17:00 CST
-        "it_cdt": "2026-07-01T22:00:00.000000Z",  # 17:00 CDT
-        "it_noon": "2026-11-03T18:00:00.000000Z",  # 12:00 CST
-        "it_none": None,
-    }
-    with sqlite3.connect(db) as conn:
-        _row(conn, "accounts", id="acc000000001", handle="alex", kind="person", role="owner")
-        _row(conn, "sections", id="sec000000001", audience="personal")
-        _row(conn, "lists", id="lst000000001", section_id="sec000000001")
-        for item_id, due in rows.items():
-            _row(
-                conn,
-                "items",
-                id=item_id,
-                due_at=due,
-                kind="task",
-                list_id="lst000000001",
-                created_by="acc000000001",
-            )
-
-    head = _alembic(db, "upgrade", "head")
-    assert head.returncode == 0, head.stderr
-    with sqlite3.connect(db) as conn:
-        got = dict(conn.execute("SELECT id, due_date_only FROM items"))
-    assert got == {"it_cst": 1, "it_cdt": 1, "it_noon": 0, "it_none": 0}
-
-
 def _row(conn: sqlite3.Connection, table: str, **values: object) -> None:
     """Insert a row, filling every other NOT NULL column without a default with "x"."""
     cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -131,61 +155,3 @@ def _row(conn: sqlite3.Connection, table: str, **values: object) -> None:
     conn.execute(
         f"INSERT INTO {table} ({', '.join(names)}) VALUES ({marks})", list(values.values())
     )
-
-
-def test_unique_external_ref_migration_renames_older_duplicates(tmp_path):
-    """The newest holder of a duplicated reference keeps it; older ones become `#dupN`."""
-    db = tmp_path / "slate.db"
-    up = _alembic(db, "upgrade", "9d4f7b2c6e18")
-    assert up.returncode == 0, up.stderr
-    planted = {
-        "it_new": ("clickup:1", "2026-10-03T00:00:00.000000Z"),
-        "it_mid": ("clickup:1", "2026-10-02T00:00:00.000000Z"),
-        "it_old": ("clickup:1", "2026-10-01T00:00:00.000000Z"),
-        "it_solo": ("clickup:2", "2026-10-01T00:00:00.000000Z"),
-        "it_none": (None, "2026-10-01T00:00:00.000000Z"),
-        "it_none2": (None, "2026-10-01T00:00:00.000000Z"),
-    }
-    with sqlite3.connect(db) as conn:
-        _row(conn, "accounts", id="acc000000001", handle="alex", kind="person", role="owner")
-        _row(conn, "sections", id="sec000000001", audience="personal")
-        _row(conn, "lists", id="lst000000001", section_id="sec000000001")
-        for item_id, (ref, created) in planted.items():
-            _row(
-                conn,
-                "items",
-                id=item_id,
-                external_ref=ref,
-                created_at=created,
-                kind="task",
-                list_id="lst000000001",
-                created_by="acc000000001",
-            )
-
-    head = _alembic(db, "upgrade", "head")
-    assert head.returncode == 0, head.stderr
-    assert "renamed 2 duplicate row(s)" in head.stdout + head.stderr
-    with sqlite3.connect(db) as conn:
-        got = dict(conn.execute("SELECT id, external_ref FROM items"))
-        assert got == {
-            "it_new": "clickup:1",
-            "it_mid": "clickup:1#dup1",
-            "it_old": "clickup:1#dup2",
-            "it_solo": "clickup:2",
-            "it_none": None,
-            "it_none2": None,
-        }
-        try:
-            _row(
-                conn,
-                "items",
-                id="it_x",
-                external_ref="clickup:2",
-                kind="task",
-                list_id="lst000000001",
-                created_by="acc000000001",
-            )
-        except sqlite3.IntegrityError:
-            pass
-        else:
-            raise AssertionError("the unique index did not stop a duplicate")

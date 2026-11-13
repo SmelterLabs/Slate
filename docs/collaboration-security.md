@@ -61,7 +61,7 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
   character cap still applies. Images and nested forms inside forms are not measured (pypdf's
   text extraction does not inflate images).
 - **Compare never parses on read.** Upload stores a CSV/TSV/XLSX's tables as JSON
-  (`doc_files.tables_json`, migration `7c2d9e4b1f60`) beside the text; `compare` reads only the
+  (`doc_files.tables_json`) beside the text; `compare` reads only the
   two stored columns. A revision with `tables_json` or `text` NULL (over the cap or unreadable)
   compares as "not indexed"; uploading the file again as a new revision indexes it.
 - **Attachments inside the share work for guests** (`access.check_object`): the blob row has

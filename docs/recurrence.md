@@ -110,7 +110,7 @@ due instant itself; an undated item takes the next occurrence and its due date),
 cursor past it (`recurrence.advanced`). With `adopt_item_id` and no `dtstart`, the rule anchors on
 the item's due day. This is how the board's "Make recurring" keeps the open item as this occurrence.
 
-**ClickUp-style options.** Four columns on `recurrences` (migration `5e0b7c2a9d41`):
+**ClickUp-style options.** Four columns on `recurrences`:
 `trigger` (`schedule` | `on_done`), `skip_weekends`, `reopen` (only with `on_done`, else 422),
 `copy_checklists` (default true). `skip_weekends` lives inside `occurrences()`: a Sat/Sun wall time
 moves to the Monday after and a day already emitted is dropped, so the uniqueness rules and the

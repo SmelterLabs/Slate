@@ -37,12 +37,11 @@ it:
   `Content-Security-Policy: sandbox` so an uploaded HTML or SVG cannot run as Slate). **Bytes live
   in `attachment_blobs` inside the SQLite file**, not on disk: the nightly online backup then
   covers them with nothing extra in `deploy/server/`. `attachments.path` is `db:<id>`.
-- **Subtasks nest four deep (migration `a4c8e2f6b9d3`):** `items.MAX_DEPTH = 4` (a top task is
+- **Subtasks nest four deep:** `items.MAX_DEPTH = 4` (a top task is
   depth 0). The `items_depth_insert|update` triggers hold the rule with nested scalar subqueries
   (SQLite triggers take no CTE): insert refused when the parent is four down; update refused on a
-  cycle, or when depth + the subtree's height would pass four. `models.TRIGGERS` and the newest
-  trigger-writing migration must match verbatim (`tests/test_migrations.py` reads
-  `*_nested_subtasks.py`, not the initial schema). Service: `depth_of`, `ancestors_of`,
+  cycle, or when depth + the subtree's height would pass four. `models.TRIGGERS` and the baseline
+  migration must match verbatim (`tests/test_migrations.py`). Service: `depth_of`, `ancestors_of`,
   `descendants_of`, `height_of`; `create_item` and `split` check depth; a bulk move carries
   `descendants_of` (every level); `trash._children` cascades through levels. `item_detail.subtasks`
   stays one level (each with `subtask_count`): the board drills down by opening a subtask. Board: `TaskModal` shows the crumb
