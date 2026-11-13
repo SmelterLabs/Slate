@@ -24,10 +24,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
 from typing import Annotated, Any, Literal
+from weakref import WeakKeyDictionary
 
 from fastapi import (
     APIRouter,
@@ -49,7 +52,7 @@ from starlette.concurrency import run_in_threadpool
 from slate import db
 from slate.api.auth import DbSession, ReadAuth, WriteAuth, _unauthorized
 from slate.api.schemas import ItemOut
-from slate.models import Account, AccountKind, Event, Token
+from slate.models import Account, AccountKind, Event, Token, utcnow
 from slate.presence import presence
 from slate.service import access, accounts, items, revert
 from slate.service.bus import bus
@@ -249,13 +252,49 @@ def stream_auth(
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="token lacks 'read' scope")
         gate = access.EventGate(principal.account.id, principal.token_id)
         gate.load(session)
+    _fresh(gate)
+    if _open_streams[principal.token_id] >= MAX_STREAMS_PER_TOKEN:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"this token already has {MAX_STREAMS_PER_TOKEN} live streams open; "
+            "close one first",
+        )
     return gate
+
+
+# A token holds at most this many live streams (`/events/stream` and `/checkin/stream`) in
+# this process: each one is a task, a bus queue and a recheck per event.
+MAX_STREAMS_PER_TOKEN = 10
+_open_streams: Counter[str] = Counter()
+# Live delivery rechecks the token and the account on every event, but recomputes the
+# caller's whole reach only when an event may have changed it (`EventGate.needs_reload`) or
+# after this long, whichever comes first.
+GATE_TTL_SECONDS = 10.0
+_gate_loaded: WeakKeyDictionary[access.EventGate, float] = WeakKeyDictionary()
+
+
+def _fresh(gate: access.EventGate) -> None:
+    _gate_loaded[gate] = time.monotonic()
+
+
+def _lapsed(session: Session, gate: access.EventGate) -> bool:
+    """The account is disabled or gone, or the token is revoked, expired or gone."""
+    account = session.get(Account, gate.account_id)
+    if account is None or account.disabled_at:
+        return True
+    if not gate.token_id:
+        return False
+    token = session.get(Token, gate.token_id)
+    return bool(
+        token is None or token.revoked_at or (token.expires_at and token.expires_at <= utcnow())
+    )
 
 
 def _read_page(since: str, filters: Filters, gate: access.EventGate | None = None) -> list[dict]:
     with db.SessionLocal() as session:
         if gate is not None:
             gate.load(session)
+            _fresh(gate)
             if gate.denied:
                 return []
             if gate.access is not None:
@@ -264,9 +303,21 @@ def _read_page(since: str, filters: Filters, gate: access.EventGate | None = Non
 
 
 def _gate_check(gate: access.EventGate, payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Recheck credentials and current reach before every live delivery, in the threadpool."""
+    """Before every live delivery, in the threadpool: recheck the token and the account (a
+    revoked token is cut off at the next event), and recompute the caller's reach when this
+    event may change it or the last computation is `GATE_TTL_SECONDS` old."""
     with db.SessionLocal() as session:
-        gate.load(session)
+        loaded = _gate_loaded.get(gate)
+        if (
+            loaded is None
+            or gate.needs_reload(payload)
+            or time.monotonic() - loaded > GATE_TTL_SECONDS
+        ):
+            gate.load(session)
+            _fresh(gate)
+        elif _lapsed(session, gate):
+            gate.denied = True
+            return None
         return gate.project(session, payload)
 
 
@@ -303,10 +354,20 @@ async def _stream(
 
 @asynccontextmanager
 async def streaming(gate: access.EventGate | None) -> AsyncIterator[None]:
-    """Count an open stream in the caller's presence (the Agents page's live streams)."""
+    """Count an open stream in the caller's presence (the Agents page's live streams) and
+    against its token's `MAX_STREAMS_PER_TOKEN`."""
     account_id = gate.account_id if gate is not None else None
-    with presence.streaming(account_id) if account_id else nullcontext():
-        yield
+    token_id = gate.token_id if gate is not None else None
+    if token_id:
+        _open_streams[token_id] += 1
+    try:
+        with presence.streaming(account_id) if account_id else nullcontext():
+            yield
+    finally:
+        if token_id:
+            _open_streams[token_id] -= 1
+            if _open_streams[token_id] <= 0:
+                del _open_streams[token_id]
 
 
 READY = None  # what `payloads` yields once the replay is over and delivery goes live
@@ -380,7 +441,8 @@ async def stream_events(
     """Live events as SSE (`id` = event id, `event` = type, `data` = payload JSON).
 
     Catch-up: `Last-Event-ID` (sent by EventSource on reconnect) or `since` replays every
-    event after that id first. A `: ready` comment marks the switch to live delivery.
+    event after that id first. A `: ready` comment marks the switch to live delivery. One
+    token holds at most 10 open streams (429 beyond that).
     """
     actor_id = await run_in_threadpool(_actor_id, actor) if actor else None
     return EventSourceResponse(
