@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from conftest import API
+from conftest import item_events as _events
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clients" / "python"))
 
@@ -185,10 +186,6 @@ def _runner(client, h, tmp_path, command=None, **kw):
         log=lambda msg: None,
         **kw,
     )
-
-
-def _events(client, alex, item_id):
-    return client.get(f"{API}/items/{item_id}/events", headers=alex).json()
 
 
 def test_runner_once_runs_the_example_and_finishes_done(client, alex, todo, make_account, tmp_path):

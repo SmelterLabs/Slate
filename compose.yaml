@@ -9,6 +9,9 @@ services:
         SLATE_COMMIT: ${SLATE_COMMIT:-}
     restart: unless-stopped
     init: true
+    # The image runs as uid 10001; no capabilities, and no way to gain any.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     stop_grace_period: 20s
     ports:
       - "127.0.0.1:${SLATE_PORT:-8000}:8000"

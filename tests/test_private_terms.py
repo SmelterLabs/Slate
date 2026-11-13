@@ -34,14 +34,14 @@ def _denylist(tmp_path, monkeypatch, *words):
     return mod, path
 
 
-def test_denylist_is_never_tracked():
+def test_denylist_is_never_tracked(git_checkout):
     """Hashes of short words are guessable, so a committed list would publish the words."""
     mod = _load()
     tracked = [p.relative_to(ROOT).as_posix() for p in mod.tracked_files()]
     assert not [name for name in tracked if name.endswith(".sha256")]
 
 
-def test_default_denylist_lives_in_the_git_directory(monkeypatch):
+def test_default_denylist_lives_in_the_git_directory(git_checkout, monkeypatch):
     mod = _load()
     monkeypatch.delenv(mod.ENV_FILE, raising=False)
     path = mod.denylist_path()
@@ -72,7 +72,7 @@ def test_scanner_catches_a_denied_word():
     assert mod.scan_text(f"nothing {word} split", hashes) == []  # hyphen splits the token
 
 
-def test_no_private_terms_in_tracked_files():
+def test_no_private_terms_in_tracked_files(git_checkout):
     mod = _load()
     hashes = mod.load_hashes()
     if hashes is None:
@@ -132,6 +132,35 @@ def test_add_writes_to_the_local_list(tmp_path, monkeypatch):
     assert mod.load_hashes() == {mod._hash("privatetestword"), mod._hash("another")}
     assert mod.main(["--add", "another"]) == 0
     assert len(path.read_text(encoding="utf-8").split()) == 2
+
+
+@pytest.mark.parametrize(
+    "term", ["my-host", "box.example.net", "Two Words", "alex@example.com", "ключ", ""]
+)
+def test_add_refuses_a_term_the_scanner_can_never_match(tmp_path, monkeypatch, capsys, term):
+    """The scanner matches single words of letters and digits; anything else would be stored
+    and then never found, so `--add` refuses it and names the parts to add instead."""
+    mod = _load()
+    path = tmp_path / "new.sha256"
+    monkeypatch.setenv(mod.ENV_FILE, str(path))
+    assert mod.main(["--add", "privatetestword", term]) == 2
+    assert not path.exists()  # nothing is added when any term is refused
+    err = capsys.readouterr().err
+    assert "one word" in err
+    if term == "my-host":
+        assert "my host" in err
+
+
+def test_accented_words_are_found_with_or_without_their_accents(tmp_path, monkeypatch):
+    mod = _load()
+    path = tmp_path / "new.sha256"
+    monkeypatch.setenv(mod.ENV_FILE, str(path))
+    assert mod.main(["--add", "Renée"]) == 0
+    hashes = mod.load_hashes()
+    assert mod.scan_text("written by renée", hashes) == [(1, "renee")]
+    assert mod.scan_text("written by RENEE", hashes) == [(1, "renee")]
+    assert mod.scan_text("written by René", hashes) == []
+    assert mod.scan_text("prénom: renée-x", hashes) == [(1, "renee")]
 
 
 def test_ci_logs_name_the_place_not_the_word(tmp_path, monkeypatch, capsys):

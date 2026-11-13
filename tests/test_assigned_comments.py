@@ -5,6 +5,7 @@ loop (why `asked`), the agent stream hint and mail-in `@handle` replies."""
 from __future__ import annotations
 
 from conftest import API
+from conftest import item_events as _events
 
 
 def _item(client, h, list_id, title="Plan the offsite", **kw):
@@ -21,11 +22,6 @@ def _comment(client, h, item_id, body, **kw):
 
 def _me(client, h):
     return client.get(f"{API}/me", headers=h).json()["account"]
-
-
-def _events(client, h, item_id, type_):
-    evs = client.get(f"{API}/items/{item_id}/events", headers=h).json()
-    return [e for e in evs if e["type"] == type_]
 
 
 # --- service and REST -----------------------------------------------------------------------
