@@ -37,17 +37,15 @@ it:
   `Content-Security-Policy: sandbox` so an uploaded HTML or SVG cannot run as Slate). **Bytes live
   in `attachment_blobs` inside the SQLite file**, not on disk: the nightly online backup then
   covers them with nothing extra in `deploy/server/`. `attachments.path` is `db:<id>`.
-- **Subtasks nest four deep (migration `a4c8e2f6b9d3`):** `items.MAX_DEPTH = 4` (a top task is
+- **Subtasks nest four deep:** `items.MAX_DEPTH = 4` (a top task is
   depth 0). The `items_depth_insert|update` triggers hold the rule with nested scalar subqueries
   (SQLite triggers take no CTE): insert refused when the parent is four down; update refused on a
-  cycle, or when depth + the subtree's height would pass four. `models.TRIGGERS` and the newest
-  trigger-writing migration must match verbatim (`tests/test_migrations.py` reads
-  `*_nested_subtasks.py`, not the initial schema). Service: `depth_of`, `ancestors_of`,
-  `descendants_of`, `height_of`; `create_item` and `split` check depth; a bulk move carries
+  cycle, or when depth + the subtree's height would pass four. `models.TRIGGERS` and the baseline
+  migration must match verbatim (`tests/test_migrations.py`). Service: `depth_of`,
+  `descendants_of`; `create_item` and `split` check depth; a bulk move carries
   `descendants_of` (every level); `trash._children` cascades through levels. `item_detail.subtasks`
-  stays one level (each with `subtask_count`): the board drills down by opening a subtask. The
-  ClickUp importer keeps nesting to four and flattens only below. Board: `TaskModal` shows the crumb
-  trail of every ancestor, the Subtask adder and block while `ancestors.length < 4`;
+  stays one level (each with `subtask_count`): the board drills down by opening a subtask.
+  Board: `TaskModal` shows the crumb trail of every ancestor, the Subtask adder and block while `ancestors.length < 4`;
   `Subtasks.svelte` rows show a nested count. Test:
   `test_api_items.py::test_subtasks_nest_four_deep` (service refusal and the trigger through plain
   SQL), `test_move_subtasks.py`, `test_trash.py`.
@@ -227,8 +225,12 @@ selection").
   `reason_for()` picks mention / assigned / waiting / due (assigned items only) / comment / status /
   update / archived / moved, for items the account is assigned to or watches, plus `watching` (see
   Watchers above); own changes never count. Creating an item follows it only through auto-watch.
-  30-day window. Read state is `inbox_state` (read-through and cleared-through cursors, time-ordered
-  event ids) plus `inbox_marks` (one event read or cleared). Marking writes `inbox.read` /
+  30-day window. The query (`_candidates`) keeps only events that name the account (its handle
+  in `mentions` or `after`, its id in `reply_to`, `thread_followers`, `notify`, `assignee_id`,
+  `waiting_on`, or an item it follows), so other people's traffic never crowds an entry out; it
+  pages (`PAGE`) until it has the entries asked for, and the window is also a primary-key range
+  (`ids.event_id_floor`), so the scan stops at the window's start. Read state is `inbox_state`
+  (read-through and cleared-through cursors, time-ordered event ids) plus `inbox_marks` (one event read or cleared). Marking writes `inbox.read` /
   `inbox.cleared` with `subject_id` = the account, so other devices refetch. `completed_at` updates
   are not news (they always ride with `item.status_changed`).
 - **Board pages**: `#/home` (My Work, `components/work/HomePage.svelte`, grouping in

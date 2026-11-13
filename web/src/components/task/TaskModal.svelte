@@ -510,7 +510,6 @@
         <div class="status-row">
           <StatusPicker item={d} />
           {#if d.recurrence_id}<span class="badge" title="Repeats"><Icon name="repeat" size={13} /> Repeats</span>{/if}
-          {#if d.kind === 'doc'}<span class="badge">Doc</span>{/if}
         </div>
         <ThreadLinks threads={agentThreads} flag={agentFlag} />
 

@@ -240,27 +240,15 @@ def test_compare_reads_stored_tables_and_never_parses_on_read(client, alex, monk
 def test_a_revision_without_stored_tables_compares_as_not_indexed(client, alex, db):
     from sqlalchemy import text as sql
 
-    from slate.models import DocFile
-    from slate.service import doc_compare
-
     d = _file_doc(client, alex, title="Quote")
     old = _upload(client, alex, d["id"], b"a,b\n1,2\n", "q.csv", "first", "text/csv")
     _upload(client, alex, d["id"], b"a,b\n1,3\n", "q.csv", "second", "text/csv")
-    # As a revision uploaded before the column existed (raw SQL: the ORM guard refuses it).
+    # As a revision stored without its tables (raw SQL: the ORM guard refuses it).
     db.execute(sql("UPDATE doc_files SET tables_json = NULL WHERE id = :id"), {"id": old["id"]})
     db.commit()
     out = _compare(client, alex, d["id"], 1)
     assert out["kind"] == "none" and out["sheets"] == []
     assert "revision 1 is not indexed" in out["message"]
-    assert "backfill-doc-text" in out["message"]
-    # The backfill fills the tables without touching the text it already had.
-    db.expire_all()
-    assert doc_compare.backfill_text(db) == 1
-    db.expire_all()
-    row = db.get(DocFile, old["id"])
-    assert row.tables_json == [["q.csv", [["a", "b"], ["1", "2"]]]] and row.text == "a,b\n1,2\n"
-    assert doc_compare.backfill_text(db) == 0
-    assert _compare(client, alex, d["id"], 1)["kind"] == "table"
 
 
 def test_an_upload_over_the_extraction_cap_is_stored_viewable_and_unindexed(
