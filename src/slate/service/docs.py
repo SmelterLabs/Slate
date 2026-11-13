@@ -412,13 +412,11 @@ def current_revisions(session: Session, docs: Sequence[Doc]) -> dict[str, DocFil
     if not ids:
         return {}
     pins = {d.id: d.pinned_revision_no for d in docs if d.pinned_revision_no is not None}
-    rows = list(
-        session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id.in_(ids), DocFile.revision_no.is_not(None))
-            .order_by(DocFile.revision_no)
-        )
+    rows = _file_rows(
+        session,
+        DocFile.doc_id.in_(ids),
+        DocFile.revision_no.is_not(None),
+        order_by=DocFile.revision_no,
     )
     pinned_ids = {
         (f.doc_id, f.revision_no): f.id for f in rows if pins.get(f.doc_id) == f.revision_no
@@ -494,10 +492,17 @@ def summaries(session: Session, docs: Sequence[Doc], q: str | None = None) -> li
         )
         for row in out:
             row["snippet"] = snippet(bodies.get(row["id"], ""), q)
-            rev = current.get(row["id"])
-            if row["snippet"] is None and rev is not None and rev.text:
-                # A file: the hit is in its current revision's extracted text.
-                row["snippet"] = snippet(rev.text, q)
+        # A file: the hit is in its current revision's extracted text, read for those alone.
+        need = {
+            current[row["id"]].id: row
+            for row in out
+            if row["snippet"] is None and getattr(current.get(row["id"]), "has_text", False)
+        }
+        if need:
+            for file_id, text in session.execute(
+                select(DocFile.id, DocFile.text).where(DocFile.id.in_(list(need)))
+            ):
+                need[file_id]["snippet"] = snippet(text or "", q)
     return out
 
 
@@ -569,14 +574,7 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
     tasks.sort(key=lambda i: order[i.id])
     linked = [by_id[ref] for ref in refs["docs"] if ref in by_id]
     backlinks = list_docs(session, embeds=doc.id)
-    rows = list(
-        session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id == doc.id)
-            .order_by(DocFile.created_at)
-        )
-    )
+    rows = _file_rows(session, DocFile.doc_id == doc.id, order_by=DocFile.created_at)
     files = [f for f in rows if f.revision_no is None]
     revisions = sorted((f for f in rows if f.revision_no is not None), key=lambda f: -f.revision_no)
     kids = [
@@ -695,8 +693,22 @@ _FILE_COLUMNS = (
     DocFile.note,
     DocFile.superseded_at,
     DocFile.restored_from,
-    DocFile.text,
 )
+
+
+def _file_rows(session: Session, *criteria: Any, order_by: Any) -> list[DocFile]:
+    """`doc_files` rows without bytes or extracted text. Each carries `has_text` (whether its
+    text was extracted), read as a NULL test so a listing never loads the text itself (up to
+    MAX_TEXT characters per revision); `revision_out` reports it."""
+    rows = session.execute(
+        select(DocFile, DocFile.text.is_not(None))
+        .options(load_only(*_FILE_COLUMNS))
+        .where(*criteria)
+        .order_by(order_by)
+    ).all()
+    for f, has_text in rows:
+        f.has_text = bool(has_text)  # type: ignore[attr-defined]
+    return [f for f, _ in rows]
 
 
 def revision_out(f: DocFile) -> dict[str, Any]:
@@ -713,7 +725,8 @@ def revision_out(f: DocFile) -> dict[str, Any]:
         "created_at": f.created_at,
         "superseded_at": f.superseded_at,
         "restored_from": f.restored_from,
-        "has_text": f.text is not None,
+        # Rows from `_file_rows` know it without the text; a row built here has it in hand.
+        "has_text": f.has_text if hasattr(f, "has_text") else f.text is not None,
         "url": f"/api/v1/doc-files/{f.id}",
     }
 
@@ -721,13 +734,11 @@ def revision_out(f: DocFile) -> dict[str, Any]:
 def revisions_of(session: Session, doc_id: str) -> list[DocFile]:
     """A file doc's revisions, newest first, without bytes."""
     get_doc(session, doc_id)
-    return list(
-        session.scalars(
-            select(DocFile)
-            .options(load_only(*_FILE_COLUMNS))
-            .where(DocFile.doc_id == doc_id, DocFile.revision_no.is_not(None))
-            .order_by(DocFile.revision_no.desc())
-        )
+    return _file_rows(
+        session,
+        DocFile.doc_id == doc_id,
+        DocFile.revision_no.is_not(None),
+        order_by=DocFile.revision_no.desc(),
     )
 
 

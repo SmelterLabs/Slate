@@ -312,6 +312,34 @@ def test_activity_leaves_out_bodies_recorded_before_saves_pointed_at_history(
     assert client.get(f"{API}/docs/{d['id']}/activity", headers=alex).status_code == 200
 
 
+# --- listings ---------------------------------------------------------------------------------
+
+
+def _reads_text(sql: list[str]) -> list[str]:
+    """Statements that fetch the extracted text itself (a NULL test on it is fine)."""
+    return [s for s in sql if "doc_files.text" in s.replace("doc_files.text IS NOT NULL", "")]
+
+
+def test_listings_report_has_text_without_loading_the_text(client, alex, todo):
+    folder = _doc(client, alex, title="Quotes", list_id=todo["id"])
+    sheet = _file_doc(client, alex, "Quote", b"item,price\nbolt,0.25\n", parent_id=folder["id"])
+    blob = _file_doc(client, alex, "Zip", b"PK\x03\x04", "a.zip", "application/zip")
+    with _Statements() as st:
+        listing = client.get(f"{API}/docs", headers=alex).json()
+        parent = client.get(f"{API}/docs/{folder['id']}", headers=alex).json()
+        one = client.get(f"{API}/docs/{sheet['id']}", headers=alex).json()
+        revs = client.get(f"{API}/docs/{blob['id']}/revisions", headers=alex).json()
+    assert _reads_text(st.sql) == []
+    files = {d["id"]: d["file"]["has_text"] for d in listing if d["file"]}
+    assert files == {sheet["id"]: True, blob["id"]: False}
+    assert [c["file"]["has_text"] for c in parent["children"]] == [True]
+    assert one["file"]["has_text"] is True and one["revisions"][0]["has_text"] is True
+    assert [r["has_text"] for r in revs] == [False]
+    # A search still finds and quotes the text of the current revision.
+    hits = client.get(f"{API}/docs", params={"q": "bolt"}, headers=alex).json()
+    assert [(h["id"], "bolt" in (h["snippet"] or "")) for h in hits] == [(sheet["id"], True)]
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

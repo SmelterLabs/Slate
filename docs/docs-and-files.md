@@ -111,7 +111,8 @@ list. The same tree also holds **file docs**.
   of the stored text, `approximate: true` when either side is a PDF; images and the rest → `kind:
   none` (the board shows them side by side with a swipe). `GET
   /docs/{id}/revisions/compare?from=&to=`, MCP `slate_doc compare_revisions`. Revisions carry
-  `has_text`. Dependencies: `openpyxl`, `pypdf` (pure Python, in `pyproject.toml`). Board:
+  `has_text`, read as a NULL test (`_file_rows`): listings never load the text, and a search reads it
+  only for the hits it quotes. Dependencies: `openpyxl`, `pypdf` (pure Python, in `pyproject.toml`). Board:
   `lib/docs.ts` `sideBySide` (a unified diff as aligned columns; removed/added pairs read as one
   change) and `cellChanges`; `components/docs/RevisionCompare.svelte` (From/To pickers, text
   side-by-side or inline with an approximate note for PDFs, sheet tabs and a painted table, image
