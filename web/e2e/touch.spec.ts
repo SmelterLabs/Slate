@@ -143,19 +143,33 @@ test.describe('iPhone', () => {
     const start = await center(page, '.card:has-text("Swipe past me")');
     const kanban = page.locator('.kanban');
     const scrolled = () => kanban.evaluate((el) => el.scrollLeft);
+    // At rest: the board has not moved across two drawn frames (a fling moves it every frame).
+    const resting = () =>
+      kanban.evaluate(
+        (el) =>
+          new Promise<boolean>((r) => {
+            const at = el.scrollLeft;
+            requestAnimationFrame(() => requestAnimationFrame(() => r(el.scrollLeft === at)));
+          }),
+      );
     // The swipe scrolls the board and never lifts the card: no ghost, no card left pressed.
     await finger(page, start, [{ x: start.x - 200, y: start.y }], false);
     await expect.poll(scrolled).toBeGreaterThan(0);
+    await expect.poll(resting).toBe(true);
     await expect(page.locator('.touch-pressed')).toHaveCount(0);
     await expect(page.locator('.touch-ghost')).toHaveCount(0);
     expect(await statusOf(ids['Swipe past me'])).toBe('To do');
 
-    // Back to the start, and tap once the board is at rest there (a tap on a moving board only
-    // stops it).
+    // Back to the start, and tap once the board is at rest there. Chromium still swallows a tap
+    // that comes soon after a fling (it reads it as the touch that stops the fling), and nothing
+    // in the page says when that window closes: tap until the task opens.
     await kanban.evaluate((el) => (el.scrollLeft = 0));
     await expect.poll(scrolled).toBe(0);
-    await page.locator('.card', { hasText: 'Swipe past me' }).tap();
-    await expect(page.locator('.tw')).toBeVisible();
+    await expect.poll(resting).toBe(true);
+    await expect(async () => {
+      if (!(await page.locator('.tw').count())) await page.locator('.card', { hasText: 'Swipe past me' }).tap();
+      await expect(page.locator('.tw')).toBeVisible({ timeout: 300 });
+    }).toPass({ intervals: [100, 200, 400] });
   });
 
   test('hold and let go without moving opens the card menu', async ({ page }) => {

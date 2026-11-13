@@ -33,12 +33,13 @@ test('remind me from the task window, then remove it', async ({ page }) => {
   // A reminder set elsewhere (an agent, another device) shows up live.
   await api('POST', `/items/${item.id}/reminders`, { at: '2030-01-08T15:00:00Z' });
   await expect(chip).toHaveCount(2);
-  // The chips load once per change, not in a loop: a later change (a comment, which refreshes
-  // the open task once) reaches the window, and at most that one load happened meanwhile.
+  // The chips load once per change, not in a loop: while a later change (a comment) travels to
+  // the open window, at most its own reload and one still due from the reminder before it go out;
+  // a load that fed itself would keep going.
   const settled = loads();
   await api('POST', `/items/${item.id}/comments`, { body_md: 'Autopay stays off this month' });
   await expect(modal.getByText('Autopay stays off this month')).toBeVisible();
-  expect(loads() - settled, 'the reminder chips load once per change, not in a loop').toBeLessThanOrEqual(1);
+  expect(loads() - settled, 'the reminder chips load once per change, not in a loop').toBeLessThanOrEqual(2);
 
   await modal.getByRole('button', { name: /Remove reminder 1 day before due/ }).click();
   await expect(chip).toHaveCount(1);
