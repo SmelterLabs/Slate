@@ -1,31 +1,10 @@
 // With "Subtasks" on, a subtask card says whose it is and a thin curve joins it to its parent,
 // in the same column (an elbow down the indent) or across columns.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.locator('.kanban').screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark', selector: '.kanban' });
+const selectShot = screenshots('SLATE_SHOTS_DIR', { selector: '.kanban' });
 
 test('subtask cards are labelled and linked to their parent', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Linked', audience: 'personal' });
@@ -35,7 +14,7 @@ test('subtask cards are labelled and linked to their parent', async ({ page }) =
   const moved = await api<{ id: string }>('POST', '/items', { parent_id: parent.id, title: 'Call the plumber' });
   await api('PATCH', `/items/${moved.id}`, { status: 'In progress' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   const ids: Record<string, string> = { 'Redo the kitchen': parent.id, 'Pick tiles': same.id, 'Call the plumber': moved.id };
   const card = (t: string) => page.locator(`.card[data-item="${ids[t]}"]`);
@@ -85,7 +64,7 @@ test('the select box is top left, clear of the title and the subtask line', asyn
   const parent = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Plant the beds' });
   const kid = await api<{ id: string }>('POST', '/items', { parent_id: parent.id, title: 'Buy compost' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Subtasks', exact: true }).click();
 
@@ -127,7 +106,7 @@ test('the select box is top left, clear of the title and the subtask line', asyn
   await expect(first).toHaveClass(/selected/);
   await page.mouse.move(900, 600);
   await expect(first.getByLabel('Select')).toBeVisible();
-  if (process.env.SLATE_SHOTS_DIR) await page.locator('.kanban').screenshot({ path: `${process.env.SLATE_SHOTS_DIR}/select-corner.png` });
+  await selectShot(page, 'select-corner');
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
@@ -148,7 +127,7 @@ test('a subtask with a long parent keeps its column the same width', async ({ pa
   const regular = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'A plain card' });
   await api('PATCH', `/items/${regular.id}`, { status: 'In progress' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Subtasks', exact: true }).click();
   const subCard = page.locator(`.card[data-item="${sub.id}"]`);

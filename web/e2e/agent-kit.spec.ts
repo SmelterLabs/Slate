@@ -3,22 +3,12 @@
 // through the whole loop against the real server, then usage and revoke on the agent's card.
 import { expect, test } from '@playwright/test';
 import { Slate, SlateError, type SlateEvent } from '../../clients/typescript/slate';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, BASE_URL, seed, signIn } from './support';
 
 test('connect an agent: token once, setup snippets, usage and revoke', async ({ page, context }) => {
-  const { alex, listId } = seed();
+  const { listId } = seed();
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/agents');
 
   await page.getByRole('button', { name: 'Add my agent' }).first().click();
@@ -66,8 +56,8 @@ test('connect an agent: token once, setup snippets, usage and revoke', async ({ 
   await expect(manage).toContainText('No live tokens');
   await expect(bot.me()).rejects.toMatchObject({ status: 401 });
   // Guest onboarding shares Home. Don't leave a new available chat in subsequent guest tests.
-  await api('PATCH', `/accounts/${botAccount.id}`, alex, { disabled: true });
-  const accounts = await api<{ id: string; disabled_at: string | null }[]>('GET', '/accounts', alex);
+  await api('PATCH', `/accounts/${botAccount.id}`, { disabled: true });
+  const accounts = await api<{ id: string; disabled_at: string | null }[]>('GET', '/accounts');
   expect(accounts.find((a) => a.id === botAccount.id)?.disabled_at).toBeTruthy();
 });
 
@@ -90,7 +80,7 @@ test('the TypeScript client runs the loop against a real server', async () => {
       if (seen.length) return;
     }
   })().catch(() => {});
-  const item = await api<{ id: string }>('POST', '/items', alex, {
+  const item = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Agent loop from TypeScript',
     assignees: ['agent'],
@@ -132,22 +122,24 @@ test('the TypeScript client runs the work loop: next, heartbeat, finish, agent s
   // Only this test's tasks (a tag of their own), so the seed's tasks for the agent stay as they are.
   const scope = { tag: 'work-loop-e2e' };
 
+  // Follow the stream from a cursor taken now: the tasks filed next reach it whether they land
+  // before the stream is live (replayed) or after (pushed), so nothing races its start.
+  const since = (await api<{ next_since: string }>('GET', '/checkin?limit=1', undefined, agentToken)).next_since;
   const abort = new AbortController();
   const hints: string[] = [];
   const following = (async () => {
-    for await (const m of agent.agentStream(undefined, { signal: abort.signal })) {
+    for await (const m of agent.agentStream(since, { signal: abort.signal })) {
       if (m.event === 'work') hints.push(String(m.data.item_id));
     }
   })().catch(() => {});
-  await new Promise((r) => setTimeout(r, 300)); // let the stream go live
-  const first = await api<{ id: string }>('POST', '/items', alex, {
+  const first = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Work loop one',
     assignees: ['agent'],
     tags: [scope.tag],
     priority: 'urgent',
   });
-  const second = await api<{ id: string }>('POST', '/items', alex, {
+  const second = await api<{ id: string }>('POST', '/items', {
     list_id: listId,
     title: 'Work loop two',
     assignees: ['agent'],

@@ -1,7 +1,7 @@
 // Connection endpoints and SSE are MOCKED to the shared connection contract.
 // Accounts, list shares, token creation and the rest of Slate use the disposable real server.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { BASE_URL, seed } from './support';
 import type { AgentConnection } from '../src/lib/connections';
 
 // These agents share Home while under test. Remove their availability afterward so later

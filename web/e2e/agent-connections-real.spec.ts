@@ -3,12 +3,12 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { BASE_URL, seed, signIn } from './support';
 
 test('real pairing, explicit local test, task execution and disconnect round trip', async ({ page, request }, info) => {
   test.setTimeout(120_000);
   const headers = { Authorization: `Bearer ${seed().alex}` };
-  await page.addInitScript((token) => localStorage.setItem('slate.token', token), seed().alex);
+  await signIn(page);
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'Add my agent', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Add my agent' });

@@ -1,33 +1,11 @@
 // Sections and lists from the nav, list settings, the drawer's editors and the
 // recurrence editor, against a real server. Each test makes its own section or items so the
 // order of files does not matter.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { BASE_URL, seed } from './seed';
+import { api, screenshots, signedIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 interface ListOut {
   id: string;
@@ -37,12 +15,6 @@ interface ListOut {
   default_status_id: string;
   archived_at: string | null;
   statuses: { id: string; name: string; kind: string; color: string | null }[];
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /Everything/ })).toBeVisible();
 }
 
 /** A section with one list made over the API, for tests that need their own. */
@@ -68,8 +40,8 @@ test('add a section and a list from the nav; a second board sees both live', asy
   browser,
 }) => {
   const other = await browser.newPage();
-  await signedIn(other);
-  await signedIn(page);
+  await signedIn(other, '/', { ready: true });
+  await signedIn(page, '/', { ready: true });
 
   await page.getByRole('button', { name: 'New section' }).click();
   await page.getByLabel('New section name').fill('Example Project');
@@ -104,7 +76,7 @@ test('add a section and a list from the nav; a second board sees both live', asy
 test('rename, reorder, archive and restore lists from their menus', async ({ page }) => {
   const { sectionId, list } = await scratch('Alpha');
   await api('POST', '/lists', { section_id: sectionId, name: 'Beta' });
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   const section = page.locator('.nav-section[data-section="Alpha section"]');
   await expect(section.locator('.nav-item')).toHaveText([/Alpha/, /Beta/]);
 
@@ -147,7 +119,7 @@ test('rename, reorder, archive and restore lists from their menus', async ({ pag
 test('move a list to another section by right-click menu and by dragging', async ({ page }) => {
   const { list } = await scratch('Porch');
   const home = await scratch('Garden');
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   const from = page.locator('.nav-section[data-section="Porch section"]');
   const to = page.locator('.nav-section[data-section="Garden section"]');
 
@@ -171,7 +143,7 @@ test('list settings edit statuses and move items off a removed one', async ({ pa
     list_id: list.id,
     title: 'Descale the kettle',
   }); // lands on "To do", the default
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
   await expect(page.locator('.column')).toHaveCount(3);
 
   const section = page.locator('.nav-section[data-section="Kitchen section"]');
@@ -218,7 +190,7 @@ test('drawer editors: due date quick pick and time, tags with autocomplete, assi
     list_id: list.id,
     title: 'Sharpen the mower blade',
   });
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
   await page.locator('.card', { hasText: 'Sharpen the mower blade' }).click();
   const drawer = page.locator('.tw');
   type Got = {
@@ -294,7 +266,7 @@ test('assignee picker: each tick saves at once, rows sit on one line, Escape and
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Pick a helper' });
   const handles = async () =>
     (await api<{ assignees: { handle: string }[] }>('GET', `/items/${item.id}`)).assignees.map((a) => a.handle).sort();
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
   await page.locator('.card', { hasText: 'Pick a helper' }).click();
   const drawer = page.locator('.tw');
   const pop = drawer.locator('.assignee-picker .picker-pop');
@@ -330,11 +302,7 @@ test('assignee picker: each tick saves at once, rows sit on one line, Escape and
   expect(await handles()).toEqual(['agent', 'alex']);
 
   // Off the boards again, so the Everything specs' No due date column keeps its count.
-  const del = await fetch(`${BASE_URL}/api/v1/items/${item.id}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${seed().alex}` },
-  });
-  expect(del.ok).toBe(true);
+  await api('DELETE', `/items/${item.id}`);
 });
 
 test('make an item recurring on the 2nd and 4th Wednesday with a live preview', async ({
@@ -348,7 +316,7 @@ test('make an item recurring on the 2nd and 4th Wednesday with a live preview', 
     due_at: '2030-01-09',
     tags: ['home'],
   });
-  await signedIn(page, `/#/list/${list.id}`);
+  await signedIn(page, `/#/list/${list.id}`, { ready: true });
   await page.locator('.card', { hasText: 'Recycling out' }).click();
   const drawer = page.locator('.tw');
 

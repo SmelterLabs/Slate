@@ -2,17 +2,7 @@
 // formats in place, and what is saved is still the Markdown agents read. Tables size their
 // columns to the words in them. Phone and PC get the same editor.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
+import { api, seed, signIn } from './support';
 
 interface Doc { id: string; body_md: string }
 
@@ -31,7 +21,7 @@ const STAGES = [
 
 async function open(page: Page, body = STAGES) {
   const doc = await api<Doc>('POST', '/docs', { title: 'Editor page', list_id: seed().listId, body_md: body });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
   await expect(page.locator('.doc-rendered table')).toBeVisible();
   return doc;

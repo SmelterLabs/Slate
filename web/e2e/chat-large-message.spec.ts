@@ -1,21 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, countRequests, seed, signIn } from './support';
 
-async function api(path: string, body?: unknown, token = seed().alex) {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  expect(r.ok).toBe(true); return r.json();
-}
 async function prepare(page: Page) {
-  const section = await api('/sections', { name: `Long note review ${Date.now()}`, audience: 'work' });
+  const section = await api('POST', '/sections', { name: `Long note review ${Date.now()}`, audience: 'work' });
   const channel = `section:${section.id}`;
-  const root = await api(`/channels/${channel}/messages`, { body_md: Array.from({ length: 80 }, (_, i) => `Paragraph ${i}: an intentionally lengthy project update.`).join('\n\n') }, seed().agent);
-  await api(`/channels/${channel}/messages`, { body_md: 'Unopened reply must remain unread', parent_id: root.id }, seed().agent);
-  await page.addInitScript(token => localStorage.setItem('slate.token', token), seed().alex);
+  const root = await api('POST', `/channels/${channel}/messages`, { body_md: Array.from({ length: 80 }, (_, i) => `Paragraph ${i}: an intentionally lengthy project update.`).join('\n\n') }, seed().agent);
+  await api('POST', `/channels/${channel}/messages`, { body_md: 'Unopened reply must remain unread', parent_id: root.id }, seed().agent);
+  await signIn(page);
+  // The board's clock is ours to run: past the exposure dwell and the read batch in one step.
+  await page.clock.install();
+  const reads = countRequests(page, 'POST', `/channels/${channel}/read`);
   await page.goto(`/#/section/${section.id}/chat`);
   const article = page.locator(`.chat-main [data-message="${root.id}"]`);
   await expect(article).toBeVisible();
-  await page.waitForTimeout(800); // Longer than exposure dwell: a partial long note is not a read.
-  expect((await api(`/channels/${channel}`)).unread).toBe(2);
+  await page.clock.runFor(2000);
+  expect(reads(), 'a long note only partly in view is not read').toBe(0);
+  expect((await api('GET', `/channels/${channel}`)).unread).toBe(2);
   return { article, channel };
 }
 
@@ -25,9 +25,9 @@ test('explicitly reading a long message does not clear its unopened replies', as
   await article.hover({ position: { x: 100, y: 20 } });
   await article.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('menuitem', { name: 'Mark this message read' }).click();
-  await expect.poll(async () => (await api(`/channels/${channel}`)).unread).toBe(1);
+  await expect.poll(async () => (await api('GET', `/channels/${channel}`)).unread).toBe(1);
   await expect(page.getByText('Message marked read', { exact: true })).toBeVisible();
-  expect(Object.values((await api(`/channels/${channel}`)).unread_threads)).toEqual([1]);
+  expect(Object.values((await api('GET', `/channels/${channel}`)).unread_threads)).toEqual([1]);
 });
 
 test('failed explicit read says it failed and preserves the durable count', async ({ page }) => {
@@ -38,5 +38,5 @@ test('failed explicit read says it failed and preserves the durable count', asyn
   await article.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('menuitem', { name: 'Mark this message read' }).click();
   await expect(page.getByText('Read receipt unavailable', { exact: true })).toBeVisible();
-  expect((await api(`/channels/${channel}`)).unread).toBe(2);
+  expect((await api('GET', `/channels/${channel}`)).unread).toBe(2);
 });

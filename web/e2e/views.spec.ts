@@ -1,43 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, screenshots, seed, signedIn, streamLive } from './support';
+
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 // The views board. Runs after board.spec.ts against the same seeded server.
-
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-}
 
 // A monitor-sized window: the due board is ten columns wide, and a drag does not autoscroll.
 test.use({ viewport: { width: 1920, height: 1080 } });
 // Toolbar changes are remembered on the account until Save or Revert: start each test clean.
-test.beforeEach(() => api('PATCH', '/me/prefs', seed().alex, { last_view: null, view_drafts: null }));
+test.beforeEach(() => api('PATCH', '/me/prefs', { last_view: null, view_drafts: null }));
 
 const today = () => workspaceDay(new Date());
 const column = (page: Page, key: string) => page.locator(`.column[data-group="${key}"]`);
@@ -64,7 +37,7 @@ async function workBoard(page: Page, query = '') {
 }
 
 test('Everything lands on "This week": Overdue, Today, named days, Future, No due date, Done', async ({ page }) => {
-  await signedIn(page, '/');
+  await signedIn(page);
   await expect(page.getByRole('tab', { name: /This week/ })).toHaveAttribute('aria-selected', 'true');
   const heads = page.locator('.column .column-head > span:first-of-type');
   await expect(heads.first()).toBeVisible();
@@ -93,11 +66,11 @@ test('dragging a card from Today to a day column moves its due date, keeping the
   const target = addDays(today(), 2);
   await card(page, 'Today errand').dragTo(column(page, target));
   await expect(column(page, target).locator('.card', { hasText: 'Today errand' })).toBeVisible();
-  const { alex, todayId } = seed();
+  const { todayId } = seed();
   await expect
-    .poll(async () => workspaceDay(new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`, alex)).due_at)))
+    .poll(async () => workspaceDay(new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`)).due_at)))
     .toBe(target);
-  const due = new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`, alex)).due_at);
+  const due = new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`)).due_at);
   const time = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
     hour: 'numeric',
@@ -106,7 +79,7 @@ test('dragging a card from Today to a day column moves its due date, keeping the
   }).format(due);
   expect(time).toBe('23:59');
   // Put it back for the specs after this one.
-  await api('PATCH', `/items/${todayId}`, alex, { due_at: new Date(due.getTime() - 2 * 86_400_000).toISOString() });
+  await api('PATCH', `/items/${todayId}`, { due_at: new Date(due.getTime() - 2 * 86_400_000).toISOString() });
 });
 
 test('a filter on tag and priority narrows the board, and chips summarise it', async ({ page }) => {
@@ -139,14 +112,14 @@ test('grouping by priority makes priority columns, and dropping on one sets it',
   await expect(column(page, 'low')).toContainText('Tomorrow call');
   await card(page, 'Someday maybe').dragTo(column(page, 'urgent'));
   await expect(column(page, 'urgent')).toContainText('Someday maybe');
-  const { alex, tasksId } = seed();
+  const { tasksId } = seed();
   await expect
     .poll(async () => {
-      const found = await api<{ title: string; priority: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`, alex);
+      const found = await api<{ title: string; priority: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`);
       return found[0]?.priority;
     })
     .toBe('urgent');
-  await api('PATCH', `/items/${(await api<{ id: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`, alex))[0].id}`, alex, {
+  await api('PATCH', `/items/${(await api<{ id: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`))[0].id}`, {
     priority: null,
   });
 });
@@ -154,25 +127,25 @@ test('grouping by priority makes priority columns, and dropping on one sets it',
 test('a change made through the API appears live on the Everything board', async ({ page }) => {
   await signedIn(page, '/#/everything');
   await expect(await noneColumn(page)).toContainText('Someday maybe');
-  const { agent, alex, tasksId } = seed();
-  const [item] = await api<{ id: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`, alex);
-  await api('PATCH', `/items/${item.id}`, agent, { due_at: addDays(today(), 1) });
+  const { agent, tasksId } = seed();
+  const [item] = await api<{ id: string }[]>('GET', `/items?list_id=${tasksId}&q=Someday`);
+  await api('PATCH', `/items/${item.id}`, { due_at: addDays(today(), 1) }, agent);
   await expect(column(page, addDays(today(), 1))).toContainText('Someday maybe', { timeout: 2000 });
-  await api('PATCH', `/items/${item.id}`, agent, { due_at: null });
+  await api('PATCH', `/items/${item.id}`, { due_at: null }, agent);
   await expect(column(page, 'none')).toContainText('Someday maybe', { timeout: 2000 });
 });
 
 test('monitor mode hides nav and toolbar, shows a clock, stays live', async ({ page }) => {
   await workBoard(page, '?kiosk=1');
   await expect(page.locator('.kiosk-bar .clock')).toBeVisible();
-  await expect(page.locator('.conn-live')).toBeVisible();
+  await streamLive(page);
   await expect(page.locator('.nav')).toHaveCount(0);
   await expect(page.locator('.toolbar')).toHaveCount(0);
   await expect(page.getByLabel('Quick add')).toHaveCount(0);
   const { agent, todayId } = seed();
-  await api('PATCH', `/items/${todayId}`, agent, { title: 'Today errand (kiosk)' });
+  await api('PATCH', `/items/${todayId}`, { title: 'Today errand (kiosk)' }, agent);
   await expect(card(page, 'Today errand (kiosk)')).toBeVisible({ timeout: 2000 });
-  await api('PATCH', `/items/${todayId}`, agent, { title: 'Today errand' });
+  await api('PATCH', `/items/${todayId}`, { title: 'Today errand' }, agent);
   await shot(page, 'kiosk');
 });
 
@@ -186,11 +159,10 @@ test('a saved view round-trips: Save as new, survives a reload, rename, delete',
   await expect(page).toHaveURL(/#\/section\/[^/]+\/v\/[^/]+$/);
   const viewId = page.url().split('/v/')[1];
 
-  const { alex, workSectionId } = seed();
+  const { workSectionId } = seed();
   const views = await api<{ id: string; name: string; config: { group_by: string } }[]>(
     'GET',
     `/views?scope=section:${workSectionId}`,
-    alex,
   );
   expect(views.find((v) => v.id === viewId)).toMatchObject({ name: 'By priority', config: { group_by: 'priority' } });
 
@@ -223,9 +195,9 @@ test('bulk: select two cards and reschedule them to tomorrow in one go', async (
   await bar.getByRole('button', { name: 'Tomorrow' }).click();
   await expect(column(page, tomorrow)).toContainText('Bulk one');
   await expect(column(page, tomorrow)).toContainText('Bulk two');
-  const { alex, bulkIds } = seed();
+  const { bulkIds } = seed();
   for (const id of bulkIds) {
-    const it = await api<{ due_at: string }>('GET', `/items/${id}`, alex);
+    const it = await api<{ due_at: string }>('GET', `/items/${id}`);
     expect(workspaceDay(new Date(it.due_at))).toBe(tomorrow);
   }
   await page.keyboard.press('Escape');
@@ -233,14 +205,14 @@ test('bulk: select two cards and reschedule them to tomorrow in one go', async (
 });
 
 test('bulk: status kind across two lists is one call and lands each in its own Done', async ({ page }) => {
-  const { alex, workSectionId, tasksId } = seed();
-  const other = await api<{ id: string; statuses: { id: string; kind: string }[] }>('POST', '/lists', alex, {
+  const { workSectionId, tasksId } = seed();
+  const other = await api<{ id: string; statuses: { id: string; kind: string }[] }>('POST', '/lists', {
     section_id: workSectionId,
     name: 'Kind tasks',
   });
   const due = `${today()}T22:00:00Z`;
-  const a = await api<{ id: string }>('POST', '/items', alex, { list_id: tasksId, title: 'Kind one', due_at: due });
-  const b = await api<{ id: string }>('POST', '/items', alex, { list_id: other.id, title: 'Kind two', due_at: due });
+  const a = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Kind one', due_at: due });
+  const b = await api<{ id: string }>('POST', '/items', { list_id: other.id, title: 'Kind two', due_at: due });
   const calls: string[] = [];
   page.on('request', (r) => {
     if (r.url().endsWith('/items/bulk')) calls.push(r.postData() ?? '');
@@ -258,17 +230,17 @@ test('bulk: status kind across two lists is one call and lands each in its own D
   expect(calls).toHaveLength(1);
   expect(JSON.parse(calls[0]).changes).toEqual({ status_kind: 'done' });
   const doneIn = (l: { statuses: { id: string; kind: string }[] }) => l.statuses.find((s) => s.kind === 'done')!.id;
-  const tasks = await api<{ statuses: { id: string; kind: string }[] }>('GET', `/lists/${tasksId}`, alex);
-  expect((await api<{ status: { id: string } }>('GET', `/items/${a.id}`, alex)).status.id).toBe(doneIn(tasks));
-  expect((await api<{ status: { id: string } }>('GET', `/items/${b.id}`, alex)).status.id).toBe(doneIn(other));
+  const tasks = await api<{ statuses: { id: string; kind: string }[] }>('GET', `/lists/${tasksId}`);
+  expect((await api<{ status: { id: string } }>('GET', `/items/${a.id}`)).status.id).toBe(doneIn(tasks));
+  expect((await api<{ status: { id: string } }>('GET', `/items/${b.id}`)).status.id).toBe(doneIn(other));
   await page.keyboard.press('Escape');
 });
 
 test('bulk: delete asks first, moves the cards to the trash, and Undo brings them back', async ({ page }) => {
-  const { alex, tasksId } = seed();
+  const { tasksId } = seed();
   const due = `${today()}T22:00:00Z`;
-  const a = await api<{ id: string }>('POST', '/items', alex, { list_id: tasksId, title: 'Trash one', due_at: due });
-  const b = await api<{ id: string }>('POST', '/items', alex, { list_id: tasksId, title: 'Trash two', due_at: due });
+  const a = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash one', due_at: due });
+  const b = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash two', due_at: due });
   await workBoard(page);
   for (const title of ['Trash one', 'Trash two']) {
     await card(page, title).hover();
@@ -285,14 +257,14 @@ test('bulk: delete asks first, moves the cards to the trash, and Undo brings the
   await expect(card(page, 'Trash one')).toHaveCount(0);
   await expect(card(page, 'Trash two')).toHaveCount(0);
   for (const it of [a, b]) {
-    expect((await api<{ trashed_at: string | null }>('GET', `/items/${it.id}`, alex)).trashed_at).not.toBeNull();
+    expect((await api<{ trashed_at: string | null }>('GET', `/items/${it.id}`)).trashed_at).not.toBeNull();
   }
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(card(page, 'Trash one')).toBeVisible();
   await expect(card(page, 'Trash two')).toBeVisible();
   for (const it of [a, b]) {
     await expect
-      .poll(async () => (await api<{ trashed_at: string | null }>('GET', `/items/${it.id}`, alex)).trashed_at)
+      .poll(async () => (await api<{ trashed_at: string | null }>('GET', `/items/${it.id}`)).trashed_at)
       .toBeNull();
   }
 });
@@ -305,9 +277,9 @@ test('one-click complete moves the card to the Done column, with Undo', async ({
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(column(page, 'done')).not.toContainText('Bulk one');
   await expect(card(page, 'Bulk one')).toBeVisible();
-  const { alex, bulkIds } = seed();
+  const { bulkIds } = seed();
   await expect
-    .poll(async () => (await api<{ status: { kind: string } }>('GET', `/items/${bulkIds[0]}`, alex)).status.kind)
+    .poll(async () => (await api<{ status: { kind: string } }>('GET', `/items/${bulkIds[0]}`)).status.kind)
     .toBe('open');
 });
 
@@ -339,8 +311,8 @@ test('quick add in a wide scope files into the picked list', async ({ page }) =>
   await page.getByLabel('Quick add').fill('Filed from everything due:tomorrow');
   await page.getByLabel('Quick add').press('Enter');
   await expect(column(page, addDays(today(), 1))).toContainText('Filed from everything');
-  const { alex, tasksId } = seed();
-  const found = await api<unknown[]>('GET', `/items?list_id=${tasksId}&q=Filed`, alex);
+  const { tasksId } = seed();
+  const found = await api<unknown[]>('GET', `/items?list_id=${tasksId}&q=Filed`);
   expect(found).toHaveLength(1);
   // The pick is remembered for this view.
   await page.reload();

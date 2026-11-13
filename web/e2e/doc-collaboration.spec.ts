@@ -1,20 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { addRevision, api, seed, signIn } from './support';
 
-async function api(method: string, path: string, body?: unknown, token = seed().alex) {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, { method,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body) });
-  expect(r.ok).toBe(true);
-  return r.json();
-}
 async function drawer() {
   const section = await api('POST', '/sections', { name: `Collab ${Date.now()}`, audience: 'work' });
   return api('POST', '/lists', { name: 'Files', section_id: section.id, kind: 'drawer' });
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(t => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
 });
 
 test('a phone drawer opens the document first, with discussion still reachable', async ({ page }) => {
@@ -84,11 +77,7 @@ test('a failed page save offers an immediate draft download', async ({ page }) =
 
 test('review on an old viewed file revision sends that revision, even after upload' , async ({ page }) => {
   const doc = await api('POST', '/docs', { title: 'Revision source', kind: 'file' });
-  for (const n of [1, 2]) {
-    const r = await fetch(`${BASE_URL}/api/v1/docs/${doc.id}/revisions?filename=a.txt&note=revision${n}`, {
-      method: 'POST', headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'text/plain' }, body: `Revision ${n}` });
-    expect(r.ok).toBe(true);
-  }
+  for (const n of [1, 2]) await addRevision(doc.id, 'a.txt', `Revision ${n}`, { note: `revision${n}` });
   await page.goto(`/#/docs/${doc.id}`);
   await page.getByRole('button', { name: 'Revisions', exact: true }).click();
   await page.locator('.rev-item[data-revision="1"] .rev-pick').click();

@@ -1,24 +1,10 @@
 // Blocked state: a task waiting on an open one shows Blocked on its card, table row, task window
 // and My Work, and clears live (no reload) when an agent finishes what it waits on; the assignee
 // hears "Ready to start". Same on the phone.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signedIn } from './support';
 
-const shots = process.env.SLATE_BLOCKED_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-const shot = (page: Page, name: string) => (shots ? page.screenshot({ path: join(shots, `${name}.png`) }) : null);
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
+const shot = screenshots('SLATE_BLOCKED_SHOTS');
 
 // Sections made here are archived after each test, so their undated tasks never crowd the shared
 // Everything board other specs read (its No due date column shows 25 cards before "Show more").
@@ -35,11 +21,6 @@ async function setup(name: string) {
   const build = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: `${name}: build the deck`, assignees: ['alex'] });
   await api('POST', `/items/${build.id}/links`, { kind: 'blocked_by', item_id: design.id });
   return { listId: list.id, design: design.id, build: build.id };
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 for (const phone of [false, true]) {

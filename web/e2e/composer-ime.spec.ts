@@ -1,17 +1,7 @@
 // The comment boxes share one @mention picker and one send key: Enter sends, but not the Enter
 // that confirms an input-method composition (Japanese, Chinese, Korean…).
 import { expect, test, type Locator } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(r.ok, `${method} ${path} -> ${r.status}`).toBe(true);
-  return (await r.json()) as T;
-}
+import { api, countRequests, signIn } from './support';
 
 /** Press Enter as an input method does while it is still composing. */
 async function composingEnter(box: Locator) {
@@ -23,7 +13,7 @@ async function composingEnter(box: Locator) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
 });
 
 test('the task comment box: Enter while composing does not send, the picker inserts a handle', async ({ page }) => {
@@ -34,9 +24,7 @@ test('the task comment box: Enter while composing does not send, the picker inse
   const box = page.getByLabel('Add comment');
   await box.fill('にほんご');
   await composingEnter(box);
-  await page.waitForTimeout(300);
   await expect(box).toHaveValue('にほんご');
-  await expect(page.locator('.tw article.comment')).toHaveCount(0);
 
   await box.fill('');
   await box.pressSequentially('hi @ale');
@@ -45,6 +33,8 @@ test('the task comment box: Enter while composing does not send, the picker inse
   await expect(box).toHaveValue('hi @alex ');
   await box.press('Enter');
   await expect(page.locator('.tw article.comment', { hasText: 'hi @alex' })).toBeVisible();
+  // That comment is the only one: the composing Enter, sent before it, posted nothing.
+  await expect(page.locator('.tw article.comment')).toHaveCount(1);
 });
 
 test('the doc discussion box: Enter while composing does not send', async ({ page }) => {
@@ -55,11 +45,13 @@ test('the doc discussion box: Enter while composing does not send', async ({ pag
   const discussion = page.getByRole('button', { name: 'Discussion', exact: true });
   if (await discussion.isVisible()) await discussion.click();
   const box = page.getByLabel('Discussion comment');
+  const posts = countRequests(page, 'POST', `/docs/${doc.id}/comments`);
   await box.fill('かんじ');
   await composingEnter(box);
-  await page.waitForTimeout(300);
   await expect(box).toHaveValue('かんじ');
   await box.press('Enter');
   await expect(box).toHaveValue('');
   await expect(page.locator('.dd-feed, [aria-label="Discussion"]').getByText('かんじ').first()).toBeVisible();
+  // One post, from the real Enter: the composing Enter before it sent nothing.
+  expect(posts()).toBe(1);
 });

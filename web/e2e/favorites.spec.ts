@@ -1,25 +1,9 @@
 // The favorites bar: pin from the nav and view menu, one-click open, live from the API, drag to
 // reorder, unpin, and the phone row. Every test removes its favorites so later files see none.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, screenshots, signedIn, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
+const shot = screenshots();
 
 interface Fav {
   id: string;
@@ -29,12 +13,6 @@ interface Fav {
 
 async function clearFavorites() {
   for (const f of await api<Fav[]>('GET', '/favorites')) await api('DELETE', `/favorites/${f.id}`);
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /Everything/ })).toBeVisible();
 }
 
 async function scratch(name: string) {
@@ -53,7 +31,7 @@ const bar = (page: Page) => page.getByRole('toolbar', { name: 'Favorites' });
 
 test('star a list in the nav, open it from the bar in one click, unstar it', async ({ page }) => {
   const { listId } = await scratch('Backlog');
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   await expect(bar(page)).toContainText('Star a list');
 
   const row = page.locator('.nav-list[data-list="Backlog"]');
@@ -82,7 +60,7 @@ test('a view pinned over the API appears live; drag reorders; × unpins', async 
     config: { layout: 'board' },
   });
   await api('POST', '/favorites', { kind: 'list', target_id: listId });
-  await signedIn(page);
+  await signedIn(page, '/', { ready: true });
   await expect(bar(page).getByRole('link', { name: 'To read' })).toBeVisible();
 
   // An agent pins the view: the bar shows it without a reload.
@@ -93,11 +71,7 @@ test('a view pinned over the API appears live; drag reorders; × unpins', async 
   await expect(page).toHaveURL(new RegExp(`#/list/${listId}/v/${view.id}$`));
   await expect(page.locator('.view-tab.on .fav-mark')).toBeVisible();
 
-  if (shots) {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.screenshot({ path: join(shots, 'favorites-bar.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
-    await page.emulateMedia({ colorScheme: null });
-  }
+  await shot(page, 'favorites-bar', { scheme: 'dark', clip: { x: 0, y: 0, width: 1280, height: 200 } });
 
   // Drag the view chip onto the list chip's left half: it lands first.
   const listChip = bar(page).locator('.fav-chip[data-fav="list"]');
@@ -124,7 +98,7 @@ test('the view menu pins the current view', async ({ page }) => {
     scope_id: listId,
     config: { layout: 'board' },
   });
-  await signedIn(page, `/#/list/${listId}/v/${view.id}`);
+  await signedIn(page, `/#/list/${listId}/v/${view.id}`, { ready: true });
   await page.locator('.view-tab.on').getByTitle('View menu').click();
   await page.getByRole('button', { name: 'Add to favorites' }).click();
   await expect(bar(page).getByRole('link', { name: 'Queue board' })).toBeVisible();
@@ -136,7 +110,7 @@ test('on a phone the bar is one scrolling row of 40 px targets under the top bar
   const { listId } = await scratch('Phone pin');
   await api('POST', '/favorites', { kind: 'list', target_id: listId });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/');
   const chip = bar(page).getByRole('link', { name: 'Phone pin' });
   await expect(chip).toBeVisible();
@@ -150,7 +124,7 @@ test('on a phone the bar is one scrolling row of 40 px targets under the top bar
 test('s stars the card under the pointer; its chip opens the task', async ({ page }) => {
   const { listId } = await scratch('Star tasks');
   await api('POST', '/items', { list_id: listId, title: 'Call the plumber' });
-  await signedIn(page, `/#/list/${listId}`);
+  await signedIn(page, `/#/list/${listId}`, { ready: true });
   await page.locator('.card', { hasText: 'Call the plumber' }).hover();
   await page.keyboard.press('s');
   const chip = bar(page).getByRole('link', { name: 'Call the plumber' });

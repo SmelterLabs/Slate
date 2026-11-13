@@ -1,24 +1,17 @@
 // The card's ⋯ menu Due row (Today, Tomorrow, a date picker) and the copy-ID chip in each card's
 // bottom-right corner: it copies the ID, says "Copied", and never opens or drags the card.
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
+const capture = screenshots();
 /** A close-up around the given region (x, y, width, height), padded. */
-async function shot(page: Page, name: string, box: { x: number; y: number; width: number; height: number }) {
-  if (!shots) return;
+function shot(page: Page, name: string, box: { x: number; y: number; width: number; height: number }) {
   const pad = 16;
   const clip = { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + 2 * pad, height: box.height + 2 * pad };
-  await page.screenshot({ path: join(shots, `${name}.png`), clip });
+  return capture(page, name, { clip });
 }
 
 /** The smallest box around several elements. */
@@ -32,16 +25,6 @@ async function around(...locs: ReturnType<Page['locator']>[]) {
     width: Math.max(...bs.map((b) => b.x + b.width)) - x,
     height: Math.max(...bs.map((b) => b.y + b.height)) - y,
   };
-}
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
 const made: string[] = [];
@@ -78,7 +61,7 @@ test.use({ viewport: { width: 1400, height: 900 } });
 
 test('the Due row offers Today, Tomorrow and a date picker, and marks the current one', async ({ page }) => {
   const { listId, ids } = await lab(['Pick my date']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Pick my date');
   await c.hover();
@@ -116,7 +99,7 @@ test('the Due row offers Today, Tomorrow and a date picker, and marks the curren
 test('the copy-ID chip copies the ID and says so, without opening the card', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const { listId, ids } = await lab(['Copy my id']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Copy my id');
   await c.hover();
@@ -131,7 +114,6 @@ test('the copy-ID chip copies the ID and says so, without opening the card', asy
 
   await chip.click();
   await expect(c.locator('.card-copy-tip')).toHaveText('Copied');
-  await page.waitForTimeout(300);
   await shot(page, 'card-copy-id', await around(c, c.locator('.card-copy-tip')));
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ids['Copy my id']);
   await expect(page.locator('.tw')).toHaveCount(0);
@@ -140,7 +122,7 @@ test('the copy-ID chip copies the ID and says so, without opening the card', asy
 
 test('dragging from the copy-ID chip does not move the card', async ({ page }) => {
   const { listId, ids } = await lab(['Stay put']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const c = card(page, 'Stay put');
   await c.hover();
@@ -170,7 +152,7 @@ async function onTop(panel: ReturnType<Page['locator']>) {
 
 test('the column ⋯ menu and the card ⋯ menu sit on top of the cards', async ({ page }) => {
   const { listId } = await lab(['Under the menu one', 'Under the menu two', 'Under the menu three']);
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   const col = page.locator('.column[data-status="To do"]');
   await col.hover();
@@ -178,7 +160,6 @@ test('the column ⋯ menu and the card ⋯ menu sit on top of the cards', async 
   const colMenu = page.locator('.dd-panel', { hasText: 'Collapse column' });
   await expect(colMenu).toBeVisible();
   expect(await onTop(colMenu)).toBe(true);
-  await page.waitForTimeout(300);
   await shot(page, 'column-menu-on-top', await around(col, colMenu));
   await page.keyboard.press('Escape');
 

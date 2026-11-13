@@ -3,41 +3,31 @@
 // the badge reads "Waiting on Alex"; Alex's answer in the thread is addressed to the agent, and once
 // the agent verifies, the first exchange collapses to one line.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 test('a run reads as a conversation on the card', async ({ page }) => {
-  const { alex, agent } = seed();
-  const me = await api<{ account: { handle: string } }>('GET', '/me', alex);
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Talk', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Runs' });
-  const item = await api<{ id: string }>('POST', '/items', alex, {
+  const { agent } = seed();
+  const me = await api<{ account: { handle: string } }>('GET', '/me');
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Talk', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Runs' });
+  const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
     title: 'Re-authenticate the build server login',
     assignees: ['agent'],
   });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   const card = page.locator('.card', { hasText: 'Re-authenticate the build server login' });
   await expect(card).toBeVisible();
 
   // The agent's runner takes it and reports what it is doing.
-  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', agent, { item_id: item.id });
-  await api('POST', `/work/${item.id}/heartbeat`, agent, {
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  await api('POST', `/work/${item.id}/heartbeat`, {
     run_id: taken.lease.run_id,
     note: 'Running the login on the build server',
     thread: { ref: 'sess_1', url: 'https://example.com/chat/1' },
-  });
+  }, agent);
   await expect(card.locator('.agent-badge')).toHaveAttribute('data-agent-state', 'working');
   await expect(card.locator('[data-agent-age]')).toBeVisible();
 
@@ -55,12 +45,12 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   await expect(bubble.locator('[data-live-age]')).toContainText(/updated \d+ s ago/);
 
   // The agent asks: its reply is its comment, the badge says Waiting on Alex, the bubble goes.
-  await api('POST', `/work/${item.id}/finish`, agent, {
+  await api('POST', `/work/${item.id}/finish`, {
     run_id: taken.lease.run_id,
     outcome: 'blocked',
     waiting_on: me.account.handle,
     reply: 'I started the login. Sign in here: https://login.example/abc and tell me when done.',
-  });
+  }, agent);
   await expect(bubble).toHaveCount(0);
   await expect(tw.locator('.agent-badge')).toHaveAttribute('data-agent-label', 'Waiting on Alex');
   await expect(tw.locator('[data-chat="agent"]')).toContainText('Sign in here');
@@ -81,17 +71,17 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   const next = await api<{ lease: { run_id: string }; reply: { body_md: string } | null; thread: { ref: string } | null }>(
     'POST',
     '/work/next',
-    agent,
     { item_id: item.id },
+    agent,
   );
   expect(next.reply?.body_md).toBe('done');
   expect(next.thread?.ref).toBe('sess_1');
   await expect(tw.locator('[data-agent-pending="working"]')).toContainText('Agent is typing');
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: next.lease.run_id, outcome: 'done', reply: 'Verified: signed in.' });
+  await api('POST', `/work/${item.id}/finish`, { run_id: next.lease.run_id, outcome: 'done', reply: 'Verified: signed in.' }, agent);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('Verified: signed in.');
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
-  expect((await api<{ item: unknown }>('POST', '/work/next', agent, { item_id: item.id })).item).toBeNull();
+  expect((await api<{ item: unknown }>('POST', '/work/next', { item_id: item.id }, agent)).item).toBeNull();
   // Reload preserves the separate open-Ask and settled-dispatch states.
   await page.reload();
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
@@ -103,47 +93,47 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   await expect(tw.locator('[data-chat="agent"]')).toHaveCount(2);
   await page.keyboard.press('Escape');
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
 test('a newer Ask during a run remains open and dispatches exactly one later turn', async ({ page }) => {
-  const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'New Ask', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Turns' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Answer in order', assignees: ['agent'] });
-  await api('POST', `/items/${item.id}/comments`, alex, { body_md: 'First question', assignee: 'agent' });
-  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', agent, { item_id: item.id });
-  const newer = await api<{ id: string }>('POST', `/items/${item.id}/comments`, alex, { body_md: 'Newer question', assignee: 'agent' });
+  const { agent } = seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'New Ask', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Turns' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Answer in order', assignees: ['agent'] });
+  await api('POST', `/items/${item.id}/comments`, { body_md: 'First question', assignee: 'agent' });
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  const newer = await api<{ id: string }>('POST', `/items/${item.id}/comments`, { body_md: 'Newer question', assignee: 'agent' });
   // More work arrived during this turn: keep the task open for review, not completed.
   // A take on a completed task is intentionally an asked-only answer (and resolves that Ask).
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: taken.lease.run_id, outcome: 'review', reply: 'First answer' });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', reply: 'First answer' }, agent);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(2);
   await expect(tw.locator('[data-agent-pending="sent"]')).toBeVisible();
-  const turn = await api<{ lease: { run_id: string }; asks: { id: string }[] }>('POST', '/work/next', agent, { item_id: item.id });
+  const turn = await api<{ lease: { run_id: string }; asks: { id: string }[] }>('POST', '/work/next', { item_id: item.id }, agent);
   expect(turn.asks.map((a) => a.id)).toEqual([newer.id]);
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: turn.lease.run_id, outcome: 'done', reply: 'Newer answer' });
+  await api('POST', `/work/${item.id}/finish`, { run_id: turn.lease.run_id, outcome: 'done', reply: 'Newer answer' }, agent);
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(2);
-  expect((await api<{ item: unknown }>('POST', '/work/next', agent, { item_id: item.id })).item).toBeNull();
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  expect((await api<{ item: unknown }>('POST', '/work/next', { item_id: item.id }, agent)).item).toBeNull();
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
 test('Mark reviewed clears an answered card', async ({ page }) => {
-  const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Review', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Answers' });
-  const item = await api<{ id: string }>('POST', '/items', alex, {
+  const { agent } = seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Review', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Answers' });
+  const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
     title: 'When does the library close?',
     assignees: ['agent'],
   });
-  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', agent, { item_id: item.id });
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: taken.lease.run_id, outcome: 'review', reply: 'At six on Friday.' });
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', reply: 'At six on Friday.' }, agent);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await expect(tw.locator('.agent-badge')).toHaveAttribute('data-agent-label', 'Ready for review');
@@ -153,18 +143,18 @@ test('Mark reviewed clears an answered card', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.locator('.card', { hasText: 'When does the library close?' }).locator('.agent-badge')).toHaveCount(0);
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
 test('Clear takes a blocked badge off the card', async ({ page }) => {
-  const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Blocked', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Stuck' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Renew the domain', assignees: ['agent'] });
-  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', agent, { item_id: item.id });
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: taken.lease.run_id, outcome: 'blocked', reply: 'I need the registrar login.' });
+  const { agent } = seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Blocked', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Stuck' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Renew the domain', assignees: ['agent'] });
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'blocked', reply: 'I need the registrar login.' }, agent);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await expect(tw.locator('.agent-badge')).toHaveAttribute('data-agent-state', 'blocked');
@@ -174,5 +164,5 @@ test('Clear takes a blocked badge off the card', async ({ page }) => {
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('I need the registrar login.');
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
