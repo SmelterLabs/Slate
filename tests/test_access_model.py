@@ -260,3 +260,82 @@ def test_restricted_member_replay_matches_the_live_gate_for_tags_and_accounts(
     assert replay == live
     assert any(e["type"] == "tag.created" for e in rows)
     assert sum(e["type"] == "account.created" for e in rows) >= 3
+
+
+# --- Accounts ---------------------------------------------------------------------------------
+
+
+def test_the_system_handle_is_reserved_and_takes_no_token(client, alex, db):
+    from slate.service.due import system_actor
+
+    r = client.post(
+        f"{API}/accounts",
+        json={"handle": "slate", "display_name": "Fake", "kind": "agent"},
+        headers=alex,
+    )
+    assert r.status_code == 422, r.text
+    system = system_actor(db).account_id
+    db.commit()
+    r = client.post(f"{API}/accounts/{system}/tokens", json={"scopes": ["write"]}, headers=alex)
+    assert r.status_code == 422, r.text
+
+
+def test_bootstrap_refuses_the_system_handle(client):
+    r = client.post(f"{API}/bootstrap", json={"handle": "slate", "display_name": "Slate person"})
+    assert r.status_code == 422, r.text
+
+
+def test_bootstrap_still_works_after_slate_recorded_something(client, db):
+    from slate.service.due import system_actor
+
+    system_actor(db)  # a scheduler alarm before anyone has bootstrapped
+    db.commit()
+    r = client.post(f"{API}/bootstrap", json={"handle": "alex", "display_name": "Alex"})
+    assert r.status_code == 201, r.text
+    again = client.post(f"{API}/bootstrap", json={"handle": "alex2", "display_name": "Alex 2"})
+    assert again.status_code == 410
+
+
+def test_an_admin_cannot_act_as_disable_or_rename_another_admin_or_the_owner(client, alex, world):
+    owner = _me(client, alex)
+    admin, ah = world["account"]("admin2", "admin", scopes=("admin",))
+    other, oh = world["account"]("admin3", "admin", scopes=("admin",))
+    member, _ = world["account"]("member2", "member")
+    tok = client.post(
+        f"{API}/accounts/{other['id']}/tokens", json={"scopes": ["read"]}, headers=alex
+    )
+    for path, body in (
+        (f"/accounts/{other['id']}/tokens", {"scopes": ["write"]}),
+        (f"/accounts/{owner}/tokens", {"scopes": ["write"]}),
+    ):
+        assert client.post(f"{API}{path}", json=body, headers=ah).status_code == 403, path
+    for target in (other["id"], owner):
+        for body in ({"disabled": True}, {"display_name": "Renamed"}):
+            r = client.patch(f"{API}/accounts/{target}", json=body, headers=ah)
+            assert r.status_code == 403, (target, body, r.text)
+    assert client.delete(f"{API}/tokens/{tok.json()['id']}", headers=ah).status_code == 403
+    # An admin still manages members, and itself; the owner manages admins.
+    assert (
+        client.patch(
+            f"{API}/accounts/{member['id']}", json={"display_name": "M"}, headers=ah
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{API}/accounts/{member['id']}/tokens", json={"scopes": ["write"]}, headers=ah
+        ).status_code
+        == 201
+    )
+    assert (
+        client.patch(
+            f"{API}/accounts/{admin['id']}", json={"display_name": "Me"}, headers=ah
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"{API}/accounts/{other['id']}", json={"disabled": True}, headers=alex
+        ).status_code
+        == 200
+    )
