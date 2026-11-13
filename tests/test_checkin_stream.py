@@ -15,6 +15,14 @@ from test_agent_stream import _agent, _item, _setup
 from test_api_events import _bearer, _open, live  # noqa: F401 (live is a fixture)
 
 API = "/api/v1"
+# httpx gives up on a read after 5 s by default. With the whole suite running, a request (or a
+# gap between two stream messages) can take longer than that, and a ReadTimeout then fails a
+# test that is waiting correctly. The tests' own waits (`drain`) are what bound them.
+CLIENT_TIMEOUT = httpx.Timeout(60.0)
+
+
+def _client(live) -> httpx.AsyncClient:  # noqa: F811
+    return httpx.AsyncClient(base_url=live.url, timeout=CLIENT_TIMEOUT)
 
 
 class Reader:
@@ -71,7 +79,10 @@ def _hints(msgs) -> list[tuple[str, str]]:
 
 
 async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -100,7 +111,10 @@ async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
 
 
 async def test_due_soon_is_news_and_run_now_hints_the_pressed_task(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -124,7 +138,10 @@ async def test_due_soon_is_news_and_run_now_hints_the_pressed_task(live):  # noq
 
 
 async def test_another_agents_run_wakes_nobody_else(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         await _agent(client, live.admin_token, "agent2")
@@ -147,7 +164,7 @@ async def test_runner_on_the_live_stream_runs_the_pressed_task(live, tmp_path): 
     from slate_runner import Runner
 
     example = Path(__file__).resolve().parent.parent / "clients" / "python" / "run_one_example.py"
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         later = (datetime.now(UTC) + timedelta(days=2)).isoformat()
@@ -230,7 +247,7 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
         "    out.update(outcome='blocked', waiting_on='alex', reply='Test needs a person')\n"
         "print(json.dumps(out))\n"
     )
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         when = datetime.now(UTC) + timedelta(seconds=2)
@@ -309,7 +326,10 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
 
 
 async def test_an_ask_wakes_the_asked_agent(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        _client(live) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         stream = await _reader(client, stack, tok)
@@ -343,7 +363,7 @@ async def test_one_runner_process_serves_every_agent_in_its_config(live, tmp_pat
         "json.load(sys.stdin)\n"
         "print(json.dumps({'outcome': 'done', 'reply': 'ran as ' + os.environ['WHO']}))\n"
     )
-    async with httpx.AsyncClient(base_url=live.url) as client:
+    async with _client(live) as client:
         todo = await _setup(client, live.admin_token)
         _, agent = await _agent(client, live.admin_token, "agent")
         _, agent2 = await _agent(client, live.admin_token, "agent2")
