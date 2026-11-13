@@ -95,8 +95,7 @@ class LocalBackend:
                 raise ToolError(
                     f"this token lacks the '{action.scope}' scope for {spec.name} {name}"
                 )
-            access.bind(session, principal.account, principal.token_id)
-            presence.seen(principal.account.id, "mcp")
+            # Before the access computation, as for REST (api.auth.require).
             verdict = limiter.take(
                 principal.token_id,
                 principal.account.id,
@@ -112,6 +111,8 @@ class LocalBackend:
                     principal.token_id, principal.account.id, route, 0, status=429, door="mcp"
                 )
                 raise ToolError(msg)
+            access.bind(session, principal.account, principal.token_id)
+            presence.seen(principal.account.id, "mcp")
             actor = Actor(
                 account_id=principal.account.id,
                 source=Source.mcp,

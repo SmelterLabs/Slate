@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
+import pytest
+from sqlalchemy import select
+
 from conftest import API
+from slate.models import Event, Source
+from slate.service.core import Actor
 
 
 def _batch(client, headers, ops, **kw):
@@ -215,3 +223,92 @@ def test_bulk_results_are_lists_of_final_views(client, alex, todo):
     assert r.status_code == 200, r.text
     bulk = r.json()["results"][0]["result"]
     assert [(x["id"], x["priority"]) for x in bulk] == [(a["id"], "low"), (b["id"], "urgent")]
+
+
+# --- long-polls never run inside a batch -------------------------------------------------
+
+
+def _since(client, headers) -> str:
+    return client.get(f"{API}/checkin", headers=headers).json()["next_since"]
+
+
+def test_a_wait_inside_a_batch_is_refused_before_anything_runs(client, alex, todo, make_account):
+    _, reader = make_account("my-agent", ("read",))
+    since = _since(client, reader)
+    for atomic in (True, False):
+        for op in (
+            {"tool": "checkin", "params": {"since": since, "wait": 2}},
+            {"tool": "work", "action": "next", "params": {"wait": 2}},
+        ):
+            started = time.monotonic()
+            r = _batch(client, alex, [op], atomic=atomic)
+            assert time.monotonic() - started < 1.5, "the op waited"
+            assert r.status_code == 422 if atomic else r.status_code == 200, r.text
+            detail = r.json()["detail"] if atomic else r.json()["results"][0]["error"]
+            assert "wait" in detail and "batch" in detail
+    # `work finish` with a waiting `next` is the same long-poll.
+    item = client.post(f"{API}/items", json={"list_id": todo["id"], "title": "t"}, headers=alex)
+    op = {
+        "tool": "work",
+        "action": "finish",
+        "params": {"item_id": item.json()["id"], "outcome": "done", "next": {"wait": 2}},
+    }
+    r = _batch(client, alex, [op])
+    assert r.status_code == 422 and "wait" in r.json()["detail"]
+    # Without a wait both answer at once, as before.
+    ok = _batch(client, reader, [{"tool": "checkin", "params": {"since": since, "wait": 0}}])
+    assert ok.status_code == 200, ok.text
+
+
+def test_a_wait_never_drops_the_writes_before_it(client, alex, todo, make_account):
+    _, reader = make_account("my-agent", ("read",))
+    since = _since(client, reader)
+    before = client.get(f"{API}/events", headers=alex).json()["next_since"]
+    r = _batch(
+        client,
+        alex,
+        [
+            {"tool": "item", "action": "create", "params": {"list_id": todo["id"], "title": "a"}},
+            {"tool": "checkin", "params": {"since": since, "wait": 1}},
+            {"tool": "item", "action": "create", "params": {"list_id": todo["id"], "title": "b"}},
+        ],
+    )
+    assert r.status_code == 422 and r.json()["failed_op"] == 1
+    assert client.get(f"{API}/items", headers=alex).json() == []
+    assert client.get(f"{API}/events?since={before}", headers=alex).json()["events"] == []
+
+
+def test_a_long_poll_refuses_to_wait_inside_a_change(db):
+    from slate.api import longpoll
+    from slate.service import accounts
+    from slate.service.core import apply_change
+
+    account, _, _ = accounts.bootstrap(db, handle="alex", display_name="Alex")
+    actor = Actor(account_id=account.id, source=Source.api)
+    with pytest.raises(RuntimeError, match="inside a change"), apply_change(db, actor):
+        longpoll.wait_sync(lambda: None, 1, db)
+    with pytest.raises(RuntimeError, match="inside a change"), apply_change(db, actor):
+        asyncio.run(longpoll.wait_async(lambda: None, 1, db))
+
+
+def test_a_rollback_inside_a_change_fails_the_change(db):
+    """Whatever ends the transaction under an open change, its events are never published
+    and the change never reports success for writes that were thrown away."""
+    from slate.service import accounts
+    from slate.service.bus import bus
+    from slate.service.core import ChangeRolledBack, apply_change
+
+    account, _, _ = accounts.bootstrap(db, handle="alex", display_name="Alex")
+    actor = Actor(account_id=account.id, source=Source.api)
+    published: list[dict] = []
+    real = bus.publish
+    bus.publish = published.append
+    try:
+        with pytest.raises(ChangeRolledBack), apply_change(db, actor) as cx:
+            cx.record("test.pinged", after={"n": 1})
+            db.rollback()
+            cx.record("test.pinged", after={"n": 2})
+    finally:
+        bus.publish = real
+    assert published == []
+    assert db.scalars(select(Event).where(Event.type == "test.pinged")).all() == []

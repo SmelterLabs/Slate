@@ -319,7 +319,9 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   (`conversation.safeAgentUrl`, used by `AgentBadge`) renders an Open link only for a scheme the
   server named (http(s) when it named none), so a desktop app's link is followed only where Slate
   was configured for it; a non-http(s) link opens in the same tab (the OS hands it to the app)
-  instead of `_blank`. Slate still knows nothing about Hermes: the scheme is configuration on the
+  instead of `_blank`. `javascript`, `data`, `vbscript`, `blob` and `file` are never
+  accepted (`settings.UNSAFE_LINK_SCHEMES`): the setting refuses them at start-up, and
+  `check_url` and `/me` drop them even so. Slate still knows nothing about Hermes: the scheme is configuration on the
   server, and the Hermes adapter (`integrations/hermes/run_task.py` `thread_ref`) is what sends
   `hermes://chat/<session id>?profile=<profile>` (profile from `HERMES_PROFILE`, else the
   `/p/<profile>` tail of `HERMES_API_URL`), which Hermes Desktop's `hermes://chat` deep link opens

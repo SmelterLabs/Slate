@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.lists import list_out
-from slate.api.schemas import ChildIn, ItemOut, ListOut
-from slate.api.uploads import file_response, read_body
+from slate.api.schemas import PAGE_BODY_MAX, ChildIn, ItemOut, ListOut
+from slate.api.uploads import BASE64_MAX_CHARS, file_response, read_body
 from slate.service import access, docs
 from slate.service import attachments as attachments_svc
 
@@ -32,7 +32,9 @@ class DocIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, max_length=200, description="Default: the template's")
-    body_md: str | None = Field(default=None, description="Markdown; default: the template's")
+    body_md: str | None = Field(
+        default=None, max_length=PAGE_BODY_MAX, description="Markdown; default: the template's"
+    )
     icon: str | None = Field(default=None, max_length=16, description="One emoji")
     parent_id: str | None = Field(default=None, description="Makes it a subpage of that doc")
     list_id: str | None = Field(default=None, description="A top page in this list")
@@ -53,7 +55,10 @@ class ReplaceSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     heading: str = Field(min_length=1, max_length=200, description="Heading text, any level")
-    body_md: str = Field(description="What goes under it, up to the next heading at its level")
+    body_md: str = Field(
+        max_length=PAGE_BODY_MAX,
+        description="What goes under it, up to the next heading at its level",
+    )
 
 
 class DocPatch(BaseModel):
@@ -61,8 +66,12 @@ class DocPatch(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=200)
     icon: str | None = Field(default=None, max_length=16, description="One emoji; null clears")
-    body_md: str | None = Field(default=None, description="Replaces the whole body")
-    append_md: str | None = Field(default=None, description="Added as a paragraph at the end")
+    body_md: str | None = Field(
+        default=None, max_length=PAGE_BODY_MAX, description="Replaces the whole body"
+    )
+    append_md: str | None = Field(
+        default=None, max_length=PAGE_BODY_MAX, description="Added as a paragraph at the end"
+    )
     replace_section: ReplaceSection | None = Field(
         default=None, description="Rewrite one heading's part (added at the end if missing)"
     )
@@ -366,7 +375,8 @@ class Base64FileIn(BaseModel):
 
     filename: str = Field(min_length=1, max_length=255)
     content_base64: str = Field(
-        description="The file, base64-encoded (up to 10 MB decoded in a page, 25 MB a revision)"
+        max_length=BASE64_MAX_CHARS,
+        description="The file, base64-encoded (up to 10 MB decoded in a page, 25 MB a revision)",
     )
     content_type: str | None = Field(default=None, description="MIME type; guessed if omitted")
 

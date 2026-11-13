@@ -42,6 +42,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, load_only, undefer
 
+from slate.db import contains
 from slate.ids import new_id
 from slate.models import Doc, DocFile, DocTag, DocVersion, Item, List, Section, Tag, utcnow
 from slate.service import access, guests
@@ -280,9 +281,6 @@ def list_docs(
     if q or embeds:
         stmt = select(Doc.id)
         if q:
-            from slate.service.search import like_pattern  # search imports this module
-
-            like = like_pattern(q)  # the caller's % and _ are plain characters
             # A file matches on its current revision's name and text, the ones a hit quotes.
             newest = (
                 select(DocFile.doc_id, func.max(DocFile.revision_no).label("no"))
@@ -297,19 +295,12 @@ def list_docs(
                     and_(DocFile.doc_id == newest.c.doc_id, DocFile.revision_no == newest.c.no),
                 )
                 .where(
-                    or_(
-                        func.lower(DocFile.filename).like(like, escape="\\"),
-                        func.lower(DocFile.text).like(like, escape="\\"),
-                    ),
+                    or_(contains(DocFile.filename, q), contains(DocFile.text, q)),
                 )
                 .scalar_subquery()
             )
             stmt = stmt.where(
-                or_(
-                    func.lower(Doc.title).like(like, escape="\\"),
-                    func.lower(Doc.body_md).like(like, escape="\\"),
-                    Doc.id.in_(named),
-                )
+                or_(contains(Doc.title, q), contains(Doc.body_md, q), Doc.id.in_(named))
             )
         if embeds:
             stmt = stmt.where(

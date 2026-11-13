@@ -32,7 +32,8 @@ def run_batch(body: batch.BatchIn, auth: ReadAuth, session: DbSession) -> dict:
     string param `$ref.field` uses an earlier op's result. `atomic` (default) commits all or
     nothing: on a failure the answer is that op's error status with `failed_op` (its index) and
     nothing is written. `atomic: false` runs each op on its own and reports each slot. Each op
-    needs its own scope (a read token can batch reads)."""
+    needs its own scope (a read token can batch reads). An op that long-polls (`wait` above 0)
+    is refused: a batch never waits."""
     return batch.run_batch(
         session, auth.principal, auth.actor, body.ops, atomic=body.atomic, views=body.views
     )

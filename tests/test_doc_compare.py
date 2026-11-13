@@ -238,14 +238,13 @@ def test_compare_reads_stored_tables_and_never_parses_on_read(client, alex, monk
 
 
 def test_a_revision_without_stored_tables_compares_as_not_indexed(client, alex, db):
-    from sqlalchemy import text as sql
+    from conftest import raw_write
 
     d = _file_doc(client, alex, title="Quote")
     old = _upload(client, alex, d["id"], b"a,b\n1,2\n", "q.csv", "first", "text/csv")
     _upload(client, alex, d["id"], b"a,b\n1,3\n", "q.csv", "second", "text/csv")
     # As a revision stored without its tables (raw SQL: the ORM guard refuses it).
-    db.execute(sql("UPDATE doc_files SET tables_json = NULL WHERE id = :id"), {"id": old["id"]})
-    db.commit()
+    raw_write("UPDATE doc_files SET tables_json = NULL WHERE id = :id", {"id": old["id"]})
     out = _compare(client, alex, d["id"], 1)
     assert out["kind"] == "none" and out["sheets"] == []
     assert "revision 1 is not indexed" in out["message"]

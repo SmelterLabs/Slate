@@ -70,6 +70,18 @@ def no_dns(monkeypatch):
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def raw_write(sql, params: dict | None = None) -> None:  # noqa: ANN001
+    """Write a row behind the service layer, as an older version or another process left it.
+    `sql` is a string or a Core statement.
+
+    It goes through the engine, not a session: every session write is checked by the change
+    guard (slate.service.core), raw SQL included."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text(sql) if isinstance(sql, str) else sql, params or {})
+
+
 @pytest.fixture
 def git_checkout() -> Path:
     """The repository root; skips the test where it is not a Git checkout (a source archive)."""

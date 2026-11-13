@@ -14,7 +14,7 @@ from slate.api.auth import AdminAuth, DbSession, ReadAuth, WriteAuth
 from slate.models import Account, Token
 from slate.ratelimit import limiter
 from slate.service import access, accounts, aiadd
-from slate.settings import settings
+from slate.settings import safe_link_schemes, settings
 
 router = APIRouter(tags=["accounts"])
 
@@ -313,7 +313,7 @@ def me_view(session, principal: accounts.Principal) -> MeOut:
         access=my_access(session, principal.account),
         ai_add=aiadd.enabled(),
         email=mailer.enabled(),
-        link_schemes=list(settings.link_schemes),
+        link_schemes=safe_link_schemes(settings.link_schemes),
         timezone=settings.timezone,
         session_expires_at=token.expires_at if token and token.browser_session else None,
     )

@@ -21,7 +21,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from slate.db import get_session
+from slate.db import get_session, release
 from slate.models import Account, Source
 from slate.presence import presence
 from slate.ratelimit import limiter
@@ -96,8 +96,8 @@ def require(scope: str) -> Callable[..., Auth]:
         request.state.caller = (principal.token_id, principal.account.id)
         if not principal.has(scope):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"token lacks '{scope}' scope")
-        access.bind(session, principal.account, principal.token_id)
-        presence.seen(principal.account.id, "api")
+        # The limiter answers before the access computation below: a runaway loop that is
+        # being refused must stay cheap.
         verdict = limiter.take(
             principal.token_id, principal.account.id, "read" if scope == "read" else "write"
         )
@@ -114,11 +114,16 @@ def require(scope: str) -> Callable[..., Auth]:
                     "X-RateLimit-Remaining": "0",
                 },
             )
+        access.bind(session, principal.account, principal.token_id)
+        presence.seen(principal.account.id, "api")
         actor = Actor(
             account_id=principal.account.id,
             source=request_source(request, x_slate_source),
             session_ref=x_slate_session_ref,
         )
+        # Hand the connection back before the route runs: a route that then waits (for its
+        # upload body, a long-poll, a threadpool slot) must not hold one (slate.db.POOL_SIZE).
+        release(session)
         return Auth(principal=principal, actor=actor)
 
     return dependency

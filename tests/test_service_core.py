@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, text, update
 
-from slate.models import Account, Event, Section, Source, Token
+from slate.models import Account, Event, Section, Source, Tag, Token
 from slate.service import accounts
 from slate.service.bus import bus
 from slate.service.core import (
@@ -70,6 +70,43 @@ def test_bulk_write_inside_scope_without_event_is_refused(db, alex):
     with pytest.raises(WriteWithoutEvent), apply_change(db, alex):
         db.execute(update(Account).values(display_name="x"))
     assert db.get(Account, alex.account_id).display_name == "Alex"
+
+
+RAW_WRITES = {
+    "text()": lambda db: db.execute(
+        text("INSERT INTO tags (id, name) VALUES ('vvvvvvvvvvvv', 'raw')")
+    ),
+    "session.connection()": lambda db: db.connection().execute(
+        insert(Tag).values(id="w" * 12, name="conn")
+    ),
+    "bulk_insert_mappings": lambda db: db.bulk_insert_mappings(
+        Tag, [{"id": "y" * 12, "name": "bulk"}]
+    ),
+    "exec_driver_sql": lambda db: db.connection().exec_driver_sql(
+        "UPDATE accounts SET display_name = 'raw'"
+    ),
+}
+
+
+@pytest.mark.parametrize("how", sorted(RAW_WRITES))
+def test_a_raw_write_outside_apply_change_is_refused(db, alex, how):
+    with pytest.raises(WriteOutsideChange):
+        RAW_WRITES[how](db)
+    db.rollback()
+    assert db.scalars(select(Tag)).all() == []
+    assert db.get(Account, alex.account_id).display_name == "Alex"
+
+
+@pytest.mark.parametrize("how", sorted(RAW_WRITES))
+def test_a_raw_write_inside_apply_change_still_needs_an_event(db, alex, how):
+    with pytest.raises(WriteWithoutEvent), apply_change(db, alex):
+        RAW_WRITES[how](db)
+    assert db.scalars(select(Tag)).all() == []
+
+
+def test_a_raw_read_is_still_allowed(db, alex):
+    assert db.execute(text("SELECT count(*) FROM accounts")).scalar() == 1
+    assert db.connection().exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
 
 
 def test_events_cannot_be_edited_or_deleted_through_the_orm(db, alex):

@@ -37,3 +37,30 @@ def test_none_and_datetimes_pass_through():
 def test_garbage_is_invalid(bad):
     with pytest.raises(Invalid, match="ISO 8601"):
         parse_when(bad)
+
+
+@pytest.mark.parametrize(
+    "value", ["9999-12-31T23:00:00", "9999-12-31", "0001-01-01T00:00:00+05:00", 12345, ["x"]]
+)
+def test_out_of_range_and_non_string_dates_are_invalid_not_a_crash(value):
+    with pytest.raises(Invalid):
+        parse_when(value)
+
+
+def test_an_out_of_range_due_date_is_a_422_on_every_door(client, alex, todo):
+    item = client.post(
+        "/api/v1/items", json={"list_id": todo["id"], "title": "t"}, headers=alex
+    ).json()
+    for due in ("9999-12-31T23:00:00", "0001-01-01T00:00:00+05:00"):
+        made = client.post(
+            "/api/v1/items", json={"list_id": todo["id"], "title": "t", "due_at": due}, headers=alex
+        )
+        assert made.status_code == 422, made.text
+        patched = client.patch(f"/api/v1/items/{item['id']}", json={"due_at": due}, headers=alex)
+        assert patched.status_code == 422, patched.text
+        bulk = client.post(
+            "/api/v1/items/bulk",
+            json={"ids": [item["id"]], "changes": {"due_at": due}},
+            headers=alex,
+        )
+        assert bulk.status_code == 422, bulk.text

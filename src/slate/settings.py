@@ -6,6 +6,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Schemes that run code or read local data when a link is opened: never a badge link, whatever
+# SLATE_LINK_SCHEMES says.
+UNSAFE_LINK_SCHEMES = frozenset({"javascript", "data", "vbscript", "blob", "file"})
+
+
+def safe_link_schemes(schemes: list[str]) -> list[str]:
+    """`schemes` lower-cased, without the unsafe ones (the check behind every use)."""
+    return [s.lower() for s in schemes if s.lower() not in UNSAFE_LINK_SCHEMES]
+
 
 class Settings(BaseSettings):
     """Runtime configuration. Every value can be set as SLATE_<NAME> in the environment."""
@@ -100,6 +109,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "timezone must be a valid IANA timezone (e.g. America/New_York)"
             ) from None
+        return value
+
+    @field_validator("link_schemes")
+    @classmethod
+    def no_unsafe_link_schemes(cls, value: list[str]) -> list[str]:
+        unsafe = sorted({s.lower() for s in value} & UNSAFE_LINK_SCHEMES)
+        if unsafe:
+            raise ValueError(
+                f"link_schemes may not include {', '.join(unsafe)}: such a link runs code or "
+                "reads local files when opened"
+            )
         return value
 
     @property
