@@ -1028,6 +1028,19 @@ def bulk_update(
         target = lists_svc.require_tasks(lists_svc.get_list(session, changes["list_id"]))
     per_item: list[dict[str, Any]] = []
     no_kind: dict[str, str] = {}
+    tags_now: dict[str, set[str]] = {}
+    if "add_tags" in changes or "remove_tags" in changes:
+        for names in ("add_tags", "remove_tags"):
+            if not isinstance(changes.get(names) or [], list):
+                raise Invalid(f"{names} must be a list of tag names")
+        tags_now = {i.id: set() for i in items}
+        rows = session.execute(
+            select(ItemTag.item_id, Tag.name)
+            .join(Tag, Tag.id == ItemTag.tag_id)
+            .where(ItemTag.item_id.in_(list(tags_now)))
+        )
+        for item_id, name in rows:
+            tags_now[item_id].add(name)
     for item in items:
         one = {k: v for k, v in changes.items() if k in UPDATABLE}
         if target is not None and target.id != item.list_id:
@@ -1050,7 +1063,7 @@ def bulk_update(
             else:
                 one["status"] = pick.id
         if "add_tags" in changes or "remove_tags" in changes:
-            have = set(views(session, [item])[0]["tags"])
+            have = set(tags_now[item.id])
             have |= {tags_svc.normalize(n) for n in changes.get("add_tags") or []}
             have -= {tags_svc.normalize(n) for n in changes.get("remove_tags") or []}
             one["tags"] = sorted(have)
@@ -1105,11 +1118,23 @@ def _status_in(session: Session, item: Item, target: Any) -> str | None:
 def _validate_changes(
     session: Session, item: Item, changes: Mapping[str, Any], *, target_list: Any
 ) -> None:
-    """Raise before any write if `changes` would not apply to `item`."""
+    """Raise before any write if `changes` would not apply to `item` (as update_item would)."""
     if "title" in changes:
         _title(changes["title"])
     if "priority" in changes:
         _priority(changes["priority"])
+    if "kind" in changes:
+        _kind(changes["kind"])
+    for key in ("start_at", "due_at"):
+        if key in changes:
+            parse_when(changes[key])
+    if "position" in changes and changes["position"] is None:
+        raise Invalid("position cannot be null")
+    if "status" in changes and changes["status"] is None:
+        raise Invalid("status cannot be null")
+    for key in ("assignees", "tags"):
+        if not isinstance(changes.get(key) or [], list):
+            raise Invalid(f"{key} must be a list")
     if changes.get("status") is not None:
         lists_svc.resolve_status(
             session, target_list.id if target_list else item.list_id, changes["status"]

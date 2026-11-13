@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 Audience = Literal["personal", "ai", "work", "family"]
 StatusKind = Literal["open", "active", "done", "cancelled"]
@@ -191,6 +191,26 @@ class ItemPatch(_ItemFields):
     """Send only the fields to change. `assignees` and `tags` replace the whole set."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class BulkChanges(ItemPatch):
+    """`POST /items/bulk` changes: every PATCH field, typed and checked the same way, plus the
+    bulk-only ones. Unknown fields are refused."""
+
+    due_date_only: StrictBool | None = None
+    add_tags: list[str] | None = None
+    remove_tags: list[str] | None = None
+    archive: StrictBool | None = None
+    trash: StrictBool | None = None
+    list_id: str | None = None
+    status_kind: StatusKind | None = None
+
+    @model_validator(mode="after")
+    def _no_null_switches(self) -> BulkChanges:
+        for name in ("add_tags", "remove_tags", "archive", "trash", "status_kind"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
 
 
 class SplitIn(BaseModel):

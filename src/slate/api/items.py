@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.events import CURSOR_PATTERN
 from slate.api.schemas import (
     ActivityOut,
     AssigneeOut,
+    BulkChanges,
     EventOut,
     ItemDetailOut,
     ItemIn,
@@ -240,6 +241,20 @@ class BulkIn(BaseModel):
             " status_kind (each item's own list's first status of that kind)"
         )
     )
+
+    # A plain object in the schema (a nested model would put a $ref in the MCP tool's input
+    # schema), checked here with the same types as PATCH.
+    @field_validator("changes")
+    @classmethod
+    def _typed(cls, value: dict) -> dict:
+        try:
+            return BulkChanges.model_validate(value).model_dump(exclude_unset=True)
+        except ValidationError as exc:
+            problems = "; ".join(
+                f"{'.'.join(str(x) for x in e['loc']) or 'changes'}: {e['msg']}"
+                for e in exc.errors()
+            )
+            raise ValueError(problems) from None
 
 
 @router.post("/items/bulk", response_model=list[ItemOut])
