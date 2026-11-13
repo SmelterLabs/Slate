@@ -23,7 +23,8 @@ test('the first load names no page chunk; the board works without one', async ({
   await signIn(page);
   await page.goto('/#/everything');
   await expect(page.locator('.column').first()).toBeVisible();
-  await expect.poll(() => refused).toBeGreaterThan(0);
+  // The board starts it when the browser is idle, at most 3 seconds after it is ready.
+  await expect.poll(() => refused, { timeout: 15_000 }).toBeGreaterThan(0);
 
   // Opening it says what went wrong; once the file is there again, Try again opens the page.
   await page.goto('/#/docs');

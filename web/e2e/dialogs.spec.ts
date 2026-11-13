@@ -3,37 +3,20 @@
 // focus goes back to the control that opened it. The docked task window is not modal: Tab moves
 // on to the board beside it. A dialog over another closes alone on Escape.
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn, upload } from './support';
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-}
+/** A few letters that make this run's names its own, so a repeated run finds no clash. */
+const fresh = () => Math.random().toString(36).slice(2, 6);
 
 /** One blank 1x1 PNG, as an attachment on the item. */
-async function attachImage(itemId: string, name: string) {
+function attachImage(itemId: string, name: string) {
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
     'base64',
   );
-  const res = await fetch(`${BASE_URL}/api/v1/items/${itemId}/attachments?filename=${name}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'image/png' },
-    body: png,
-  });
-  expect(res.status).toBe(201);
+  return upload(`/items/${itemId}/attachments?filename=${name}`, png, 'image/png');
 }
 
 const holdsFocus = (dialog: Locator) => dialog.evaluate((d) => d.contains(document.activeElement));
@@ -83,11 +66,12 @@ async function checkDialog(page: Page, dialog: Locator, open: () => Promise<void
 }
 
 test('the task window, the file viewer over it, and the docked window', async ({ page }) => {
-  const item = await api<{ id: string }>('POST', '/items', { list_id: seed().listId, title: 'Trap the focus' });
+  const title = `Trap the focus ${fresh()}`;
+  const item = await api<{ id: string }>('POST', '/items', { list_id: seed().listId, title });
   await attachImage(item.id, 'tiny.png');
   await signedIn(page, `/#/list/${seed().listId}`);
-  const card = page.locator('.card', { hasText: 'Trap the focus' }).first();
-  const win = page.getByRole('dialog', { name: 'Task: Trap the focus' });
+  const card = page.locator('.card', { hasText: title });
+  const win = page.getByRole('dialog', { name: `Task: ${title}` });
 
   await checkDialog(page, win, () => card.click(), card);
 
@@ -115,12 +99,15 @@ test('the task window, the file viewer over it, and the docked window', async ({
 });
 
 test('the board: list settings, tags, shortcuts and the command palette', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Larder section', audience: 'work' });
-  await api('POST', '/lists', { section_id: section.id, name: 'Larder' });
+  const larder = `Larder ${fresh()}`;
+  const section = await api<{ id: string }>('POST', '/sections', { name: `${larder} section`, audience: 'work' });
+  await api('POST', '/lists', { section_id: section.id, name: larder });
   await signedIn(page, `/#/list/${seed().listId}`);
   await expect(page.locator('.card').first()).toBeVisible();
 
-  const options = page.locator('.nav-section[data-section="Larder section"]').getByRole('button', { name: 'Larder options' });
+  const options = page
+    .locator(`.nav-section[data-section="${larder} section"]`)
+    .getByRole('button', { name: `${larder} options` });
   await checkDialog(
     page,
     page.getByRole('dialog', { name: 'List settings' }),
@@ -142,7 +129,8 @@ test('the board: list settings, tags, shortcuts and the command palette', async 
 });
 
 test('notifications, sharing, member access and adding an agent', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Trap project', audience: 'work' });
+  const project = `Trap project ${fresh()}`;
+  const section = await api<{ id: string }>('POST', '/sections', { name: project, audience: 'work' });
   await api('PATCH', `/sections/${section.id}`, { private: true }); // a project that can be shared
   await signedIn(page, '/#/home');
   const bell = page.getByRole('button', { name: 'Notifications' });
@@ -150,7 +138,7 @@ test('notifications, sharing, member access and adding an agent', async ({ page 
 
   await page.goto(`/#/section/${section.id}`);
   const share = page.getByRole('button', { name: 'Share & invite', exact: true });
-  await checkDialog(page, page.getByRole('dialog', { name: 'Share Trap project' }), () => share.click(), share);
+  await checkDialog(page, page.getByRole('dialog', { name: `Share ${project}` }), () => share.click(), share);
 
   await page.goto('/#/members');
   const access = page.getByRole('button', { name: 'Access', exact: true }).first();
@@ -162,8 +150,9 @@ test('notifications, sharing, member access and adding an agent', async ({ page 
 });
 
 test('chat: turning a message into a task', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Hinge section', audience: 'work' });
-  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Hinges' });
+  const hinges = `Hinges ${fresh()}`;
+  const section = await api<{ id: string }>('POST', '/sections', { name: `${hinges} section`, audience: 'work' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: hinges });
   await api('POST', `/channels/list:${list.id}/messages`, { body_md: 'Oil the hinges this week' });
   await signedIn(page, `/#/list/${list.id}/chat`);
   const mine = page.locator('.chat-main .chat-msg', { hasText: 'Oil the hinges' });
@@ -173,7 +162,8 @@ test('chat: turning a message into a task', async ({ page }) => {
 });
 
 test('docs: a new page, an upload and the move picker', async ({ page }) => {
-  await api('POST', '/docs', { title: 'Trap outline', body_md: 'Text' });
+  const outline = `Trap outline ${fresh()}`;
+  await api('POST', '/docs', { title: outline, body_md: 'Text' });
   await signedIn(page, '/#/docs');
   const create = page.getByRole('button', { name: 'New page', exact: true }).first();
   await checkDialog(page, page.getByRole('dialog', { name: 'New page' }), () => create.click(), create);
@@ -182,10 +172,10 @@ test('docs: a new page, an upload and the move picker', async ({ page }) => {
   await checkDialog(page, page.getByRole('dialog', { name: 'Upload a file' }), () => upload.click(), upload);
 
   // Opened from a menu item: focus goes back to the menu's button once the menu is gone.
-  const actions = page.getByRole('button', { name: 'Actions for Trap outline' });
+  const actions = page.getByRole('button', { name: `Actions for ${outline}` });
   await checkDialog(
     page,
-    page.getByRole('dialog', { name: 'Move “Trap outline” to…' }),
+    page.getByRole('dialog', { name: `Move “${outline}” to…` }),
     async () => {
       await actions.click();
       await page.getByRole('menuitem', { name: 'Move…' }).click();
