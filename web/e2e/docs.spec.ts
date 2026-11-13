@@ -2,17 +2,7 @@
 // embeds as a live card; Alex edits the page and it autosaves; the slash menu adds a checklist;
 // page history lists the versions; and a phone gets the same page and tools.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 interface Doc {
   id: string;
@@ -23,14 +13,14 @@ interface Doc {
 
 test('an agent writes a page, the board follows live, and Alex edits it', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const task = await api<{ id: string }>('POST', '/items', agent, { list_id: listId, title: 'Book the venue' });
-  const doc = await api<Doc>('POST', '/docs', agent, {
+  const task = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Book the venue' }, agent);
+  const doc = await api<Doc>('POST', '/docs', {
     title: 'Offsite plan',
     list_id: listId,
     body_md: `## Agenda\n\nMorning: planning.\n\n[[task:${task.id}]]\n`,
-  });
+  }, agent);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/home');
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('link', { name: 'Docs & Files', exact: true }).click();
@@ -42,11 +32,11 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
   await expect(card).toContainText('Book the venue');
 
   // The embedded task is live: a rename elsewhere shows up on the card.
-  await api('PATCH', `/items/${task.id}`, agent, { title: 'Book the venue for June' });
+  await api('PATCH', `/items/${task.id}`, { title: 'Book the venue for June' }, agent);
   await expect(card).toContainText('Book the venue for June');
 
   // An agent appends to the page: it shows without a reload.
-  await api('PATCH', `/docs/${doc.id}`, agent, { append_md: '\nAfternoon: the roadmap.' });
+  await api('PATCH', `/docs/${doc.id}`, { append_md: '\nAfternoon: the roadmap.' }, agent);
   await expect(page.locator('.doc-rendered')).toContainText('Afternoon: the roadmap.');
 
   // Alex types: it autosaves.
@@ -57,7 +47,7 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
   await editor.pressSequentially('\nEvening: dinner.');
   await expect(page.locator('.doc-save')).toContainText('Saved');
   await expect
-    .poll(async () => (await api<Doc>('GET', `/docs/${doc.id}`, alex)).body_md)
+    .poll(async () => (await api<Doc>('GET', `/docs/${doc.id}`)).body_md)
     .toContain('Evening: dinner.');
 
   // The slash menu turns a line into a checklist.
@@ -69,7 +59,7 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
   await page.locator('.doc-title').click();
   await expect(page.locator('.doc-rendered input.md-task')).toHaveCount(1);
   await expect
-    .poll(async () => (await api<Doc>('GET', `/docs/${doc.id}`, alex)).body_md)
+    .poll(async () => (await api<Doc>('GET', `/docs/${doc.id}`)).body_md)
     .toContain('- [ ] Send the invites');
 
   // Page history lists who wrote what.
@@ -81,10 +71,10 @@ test('an agent writes a page, the board follows live, and Alex edits it', async 
 
 test('a phone gets the same page and tools', async ({ browser }) => {
   const { alex, listId } = seed();
-  const doc = await api<Doc>('POST', '/docs', alex, { title: 'Phone page', list_id: listId, body_md: '## One\n\nHello.' });
+  const doc = await api<Doc>('POST', '/docs', { title: 'Phone page', list_id: listId, body_md: '## One\n\nHello.' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await context.newPage();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
   await expect(page.getByRole('heading', { name: 'One' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Page history' })).toBeVisible();
@@ -99,17 +89,17 @@ test('a phone gets the same page and tools', async ({ browser }) => {
 test('a page filed in a section is reachable from that section in the sidebar', async ({ page }) => {
   const { alex } = seed();
   const name = `Pages here ${Date.now()}`;
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name, audience: 'work' });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
+  await signIn(page);
   await page.goto(`/#/section/${section.id}`);
   await expect(page.getByRole('group', { name: `Section ${name}` })).toBeVisible();
 
   // Filed from elsewhere (an agent, another device): the sidebar follows live.
-  const doc = await api<{ id: string }>('POST', '/docs', alex, { title: 'Project spec', section_id: section.id, body_md: 'Hello' });
+  const doc = await api<{ id: string }>('POST', '/docs', { title: 'Project spec', section_id: section.id, body_md: 'Hello' });
   const row = page.locator('.nav-doc', { hasText: 'Project spec' });
   await expect(row).toBeVisible();
   // A subpage stays inside the page tree, not in the sidebar.
-  await api('POST', '/docs', alex, { title: 'Spec detail', parent_id: doc.id, body_md: 'Sub' });
+  await api('POST', '/docs', { title: 'Spec detail', parent_id: doc.id, body_md: 'Sub' });
   await expect(page.locator('.nav-doc', { hasText: 'Spec detail' })).toHaveCount(0);
 
   // Going somewhere else and back: the sidebar link opens the page and marks it active.
@@ -122,12 +112,12 @@ test('a page filed in a section is reachable from that section in the sidebar', 
 
 test('a page that starts with a facts block shows them as a table, live, and keeps the block editable', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const doc = await api<Doc>('POST', '/docs', agent, {
+  const doc = await api<Doc>('POST', '/docs', {
     title: 'Home insurance',
     list_id: listId,
     body_md: '```facts\nPolicy number: HO-4471-220\nRenews: 2027-03-01\n```\n\n## Notes\n\nClaim closed.\n',
-  });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  }, agent);
+  await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
   const facts = page.getByRole('table', { name: 'Facts' });
   await expect(facts.getByRole('row')).toHaveCount(2);
@@ -137,13 +127,13 @@ test('a page that starts with a facts block shows them as a table, live, and kee
   // The editor still holds the raw block (no facts editor): it is a code block in the page.
   await expect(page.locator('.doc-rendered pre code')).toContainText('Policy number: HO-4471-220');
   // An agent changes a value: the table follows without a reload.
-  await api('PATCH', `/docs/${doc.id}`, agent, {
+  await api('PATCH', `/docs/${doc.id}`, {
     body_md: '```facts\nPolicy number: HO-4471-220\nRenews: 2028-03-01\nCarrier: Example Mutual\n```\n\n## Notes\n\nClaim closed.\n',
-  });
+  }, agent);
   await expect(facts.getByRole('row')).toHaveCount(3);
   await expect(facts.getByRole('cell', { name: '2028-03-01' })).toBeVisible();
   // A page without the block has no table.
-  const plain = await api<Doc>('POST', '/docs', agent, { title: 'Plain page', list_id: listId, body_md: 'Just notes.' });
+  const plain = await api<Doc>('POST', '/docs', { title: 'Plain page', list_id: listId, body_md: 'Just notes.' }, agent);
   await page.goto(`/#/docs/${plain.id}`);
   await expect(page.getByText('Just notes.', { exact: true })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Facts' })).toHaveCount(0);

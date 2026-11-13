@@ -3,17 +3,7 @@
 // revision upload that appears as a folded activity line, and a thread that reads as outdated
 // once the file moves on. The panel follows live changes from an agent.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, BASE_URL, seed, signIn } from './support';
 
 async function upload(docId: string, token: string, note: string, body: string) {
   const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent('venue.png')}&note=${encodeURIComponent(note)}`, {
@@ -29,13 +19,13 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 test('discussion, a review thread from a selection, and Accept on a page', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const doc = await api<{ id: string }>('POST', '/docs', alex, {
+  const doc = await api<{ id: string }>('POST', '/docs', {
     title: 'Seating plan',
     list_id: listId,
     body_md: 'Seat 12 guests at the head table.\n\nConfirm by Friday.',
   });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
   await expect(page.getByText('Seat 12 guests at the head table.')).toBeVisible();
 
@@ -49,7 +39,7 @@ test('discussion, a review thread from a selection, and Accept on a page', async
   await expect(talk.locator('.dd-rev')).toHaveText('on v1');
 
   // An agent's comment arrives live, and Alex asks the agent something.
-  await api('POST', `/docs/${doc.id}/comments`, agent, { body_md: 'I can start Monday.' });
+  await api('POST', `/docs/${doc.id}/comments`, { body_md: 'I can start Monday.' }, agent);
   await expect(panel.locator('[data-comment]', { hasText: 'I can start Monday.' })).toBeVisible();
 
   // Review: select text on the page, Comment, suggest a replacement, Accept.
@@ -90,10 +80,10 @@ test('discussion, a review thread from a selection, and Accept on a page', async
 
 test('a pin on an image, and a thread reads as outdated after the next revision', async ({ page }) => {
   const { alex, agent, listId } = seed();
-  const doc = await api<{ id: string }>('POST', '/docs', alex, { kind: 'file', title: 'Venue photo', list_id: listId });
+  const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Venue photo', list_id: listId });
   await upload(doc.id, agent, 'First shot', PNG);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
   const img = page.locator('.file-view[data-kind="image"] img');
   await expect(img).toBeVisible();

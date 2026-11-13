@@ -4,21 +4,11 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, BASE_URL, seed, signIn } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
 
 async function upload(token: string, itemId: string, name: string, type: string) {
   const res = await fetch(`${BASE_URL}/api/v1/items/${itemId}/attachments?filename=${name}`, {
@@ -31,13 +21,13 @@ async function upload(token: string, itemId: string, name: string, type: string)
 
 test('a Word file and a workbook open in the viewer, full size', async ({ page }) => {
   const { alex } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Events', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Quotes' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Project scope review' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Events', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Quotes' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Project scope review' });
   await upload(alex, item.id, 'scope.docx', DOCX);
   await upload(alex, item.id, 'quote.xlsx', XLSX);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const files = page.locator('.tw').getByRole('region', { name: 'Attachments' });
 
@@ -69,12 +59,12 @@ test('a Word file and a workbook open in the viewer, full size', async ({ page }
 
 test('a Word file longer than the screen stays on its white page to the last line', async ({ page }) => {
   const { alex } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Long docs', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Quotes' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Questions for the quote' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Long docs', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Quotes' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Questions for the quote' });
   await upload(alex, item.id, 'long.docx', DOCX);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   await page.locator('.tw').getByRole('region', { name: 'Attachments' }).getByRole('button', { name: 'Open long.docx' }).click();
   const docPage = page.getByRole('dialog', { name: 'Viewing long.docx' }).getByRole('article', { name: 'Document' });
