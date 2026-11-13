@@ -1,14 +1,18 @@
 """The MCP tool table: params models, actions and their two bindings, schemas, descriptions.
 
-One `ToolSpec` per resource; each `Action` has `local` and `rest` (the equivalent REST call,
-used by stdio mode). **An action is the REST handler plus an id**: its params are the REST
-request model (`with_id(ItemPatch, "id")`) or a model derived from the GET handler's query
-parameters (`query_model(items_api.query_items)`), and `local` runs the REST handler itself
-through `via(handler, item_id="id")`, so a field added to a REST route reaches agents without
-a second copy here. `tests/test_mcp_parity.py` fails on any remaining drift. The few actions
-whose local path differs from REST (batch, check-in, the work loop's `next` and `finish`,
-`me`) keep a hand-written binding. `slate.mcp_server` serves this table over streamable HTTP
-and stdio. See docs/mcp-server.md.
+One `ToolSpec` per resource; each `Action` has a scope, params, `local` and `rest` (the
+equivalent REST call, used by stdio mode). **An action is the REST handler plus an id**:
+`bind(handler, doc, params)` reads the method, path, path ids, query parameters, body model
+and scope from the handler's route. Its params are the REST request model
+(`with_id(ItemPatch, "id")`, or the body model itself by default) or a model derived from the
+GET handler's query parameters (`query_model(items_api.query_items)`), and `local` runs the
+REST handler itself through `via`, so a field added to a REST route reaches agents without a
+second copy here. Only the one-line `doc` an agent reads is written here.
+`tests/test_mcp_parity.py` fails on any drift in params or scope. The few actions whose local
+path differs from REST (batch, check-in, the work loop's `next` and `finish`, `me`) pass their
+own `local`; three (`slate_share who` and `private`, `slate_automation runs`) pick one of two
+routes and are written out. `slate.mcp_server` serves this table over streamable HTTP and
+stdio. See docs/mcp-server.md.
 """
 
 from __future__ import annotations
@@ -60,16 +64,15 @@ from slate.api import views as views_api
 from slate.api import webhooks as webhooks_api
 from slate.api import work as work_api
 from slate.api import workload as workload_api
-from slate.api.accounts import AccountIn, AccountPatch, TokenIn, me_view
+from slate.api.accounts import AccountPatch, TokenIn, me_view
 from slate.api.auth import Auth
-from slate.api.automations import AutomationIn, AutomationPatch, RunNowIn
+from slate.api.automations import AutomationPatch, RunNowIn
 from slate.api.chat import MessageIn, MessagePatch, ReadIn, TaskIn
 from slate.api.doc_comments import DocCommentAssignIn, DocCommentIn, DocCommentPatch
 from slate.api.docs import (
     Base64FileIn,
     Base64RevisionIn,
     DocDuplicateIn,
-    DocIn,
     DocMoveIn,
     DocPatch,
     DocTaskIn,
@@ -77,9 +80,8 @@ from slate.api.docs import (
     PromoteIn,
 )
 from slate.api.events import CURSOR_PATTERN
-from slate.api.favorites import FavoriteIn, FavoriteOrder
-from slate.api.permissions import RoleIn, ShareIn
-from slate.api.recurrences import AdoptIn, RecurrenceIn, RecurrencePatch
+from slate.api.permissions import RoleIn
+from slate.api.recurrences import AdoptIn, RecurrencePatch
 from slate.api.reminders import ReminderIn
 from slate.api.schemas import (
     ChecklistEntryIn,
@@ -87,26 +89,22 @@ from slate.api.schemas import (
     ChecklistIn,
     ChecklistPatch,
     CommentIn,
-    ItemIn,
     ItemOut,
     ItemPatch,
     LinkIn,
-    ListIn,
     ListPatch,
     ReactionIn,
     ReportIn,
-    SectionIn,
     SectionPatch,
     SplitIn,
     StatusesPut,
-    TagIn,
     TagMergeIn,
     TagPatch,
     WatchersIn,
     WatchIn,
 )
-from slate.api.views import ViewIn, ViewPatch
-from slate.api.webhooks import WebhookIn, WebhookPatch
+from slate.api.views import ViewPatch
+from slate.api.webhooks import WebhookPatch
 from slate.api.work import FinishIn, FinishOut, HeartbeatIn, NextIn, NextOut
 from slate.api.workload import CapacityIn
 from slate.batch import Later
@@ -230,6 +228,31 @@ def _answer(lc: Local, route: Any, adapter: TypeAdapter | None, result: Any, emp
     return out
 
 
+_MISSING = object()
+
+
+def _pick(p: BaseModel, source: Any, in_path: bool = False) -> Any:
+    """What params `p` give a handler parameter: `source(p)` when `source` is a function,
+    else the field named `source`; a path id that no field names is the params' `id`."""
+    if callable(source):
+        return source(p)
+    fields = type(p).model_fields
+    if source in fields:
+        return getattr(p, source)
+    if in_path and "id" in fields:
+        return getattr(p, "id")  # noqa: B009 - `p.id` is not on every params model
+    return _MISSING
+
+
+def _body_model(fn: Callable[..., Any]) -> type[BaseModel] | None:
+    hints = typing.get_type_hints(fn, include_extras=True)
+    for name in inspect.signature(fn).parameters:
+        kind = _unwrap(hints[name])
+        if inspect.isclass(kind) and issubclass(kind, BaseModel):
+            return kind
+    return None
+
+
 def via(
     fn: Callable[..., Any], *, empty: Callable[[Any], Any] | None = None, **binds: Any
 ) -> Callable[[Local, Any], Any]:
@@ -238,10 +261,12 @@ def via(
     Each handler parameter is filled by its annotation: the `Auth` from the caller's principal
     and actor, the `Session`, the body model from the params (`_body`), and every other (path
     or query) parameter from the params field of the same name, or as `binds` says: a field
-    name (`item_id="id"`) or a function of the params (`fields=lambda p: ...`). The answer
-    is rendered with the route's `response_model`; a 204 route answers `empty(params)`.
+    name (`key="channel"`) or a function of the params (`fields=lambda p: ...`). A path id
+    that no params field names (`item_id` in `/items/{item_id}`) is the params' `id`. The
+    answer is rendered with the route's `response_model`; a 204 route answers `empty(params)`.
     """
     route = _route_of(fn)
+    path_ids = {param.name for param in route.dependant.path_params}
     hints = typing.get_type_hints(fn, include_extras=True)
     plan: list[tuple[str, str, Any]] = []
     for name, param in inspect.signature(fn).parameters.items():
@@ -253,7 +278,8 @@ def via(
         elif inspect.isclass(kind) and issubclass(kind, BaseModel):
             plan.append((name, "body", kind))
         else:
-            plan.append((name, "value", (binds.get(name, name), param.default)))
+            source = binds.get(name, name)
+            plan.append((name, "value", (source, param.default, name in path_ids)))
     adapter = TypeAdapter(route.response_model) if route.response_model is not None else None
 
     def local(lc: Local, p: Any) -> Any:
@@ -266,11 +292,10 @@ def via(
             elif how == "body":
                 kwargs[name] = _body(what, p)
             else:
-                source, default = what
-                if callable(source):
-                    kwargs[name] = source(p)
-                elif source in type(p).model_fields:
-                    kwargs[name] = getattr(p, source)
+                source, default, in_path = what
+                value = _pick(p, source, in_path)
+                if value is not _MISSING:
+                    kwargs[name] = value
                 elif default is inspect.Parameter.empty:
                     raise TypeError(f"{fn.__qualname__} needs {name}; no param feeds it")
         try:
@@ -319,15 +344,6 @@ ItemQuery = query_model(
         Field(default=None, max_length=1000, description="Only these item ids (at most 1000)"),
     ),
 )
-
-
-def _items_query(p: Any) -> dict[str, Any]:
-    query = _fields(p, "fields", "ids")
-    if p.fields:
-        query["fields"] = ",".join(p.fields)
-    if getattr(p, "ids", None):
-        query["ids"] = ",".join(p.ids)
-    return query
 
 
 # Narrow actions: one intent, one field, on the same PATCH route as `update`.
@@ -381,10 +397,6 @@ class ChecklistEntryRef(P):
 
 class TagRef(P):
     tag: str = Field(description="Tag name or id")
-
-
-class ListRef(P):
-    id: str = Field(description="List id")
 
 
 class AccountRef(P):
@@ -552,6 +564,82 @@ class ToolSpec:
     missing: str | None = None  # error text for an action with no local binding
 
 
+def _scope_of(route: Any) -> str:
+    """The scope the route's `require(...)` dependency demands."""
+    stack, found = list(route.dependant.dependencies), set()
+    while stack:
+        dep = stack.pop()
+        if isinstance(getattr(dep.call, "scope", None), str):
+            found.add(dep.call.scope)
+        stack.extend(dep.dependencies)
+    if len(found) != 1:
+        raise LookupError(f"{route.path}: expected one required scope, found {sorted(found)}")
+    return found.pop()
+
+
+def _default_params(fn: Callable[..., Any], route: Any) -> type[BaseModel]:
+    if route.dependant.path_params:
+        raise TypeError(f"{fn.__qualname__} has a path id: name its params model")
+    body = _body_model(fn)
+    if body is not None:
+        return strict(body)
+    return query_model(fn) if route.dependant.query_params else NoParams
+
+
+def bind(
+    fn: Callable[..., Any],
+    doc: str,
+    params: type[BaseModel] | None = None,
+    *,
+    send: Literal["given", "set", "all"] | None = None,
+    empty: Callable[[Any], Any] | None = None,
+    local: Callable[[Local, Any], Any] | None = None,
+    **binds: Any,
+) -> Action:
+    """The action for REST handler `fn`: its scope from the route's `require`, both bindings
+    from the route, `doc` the line agents read.
+
+    `params` defaults to the route's body model (`strict`), its query parameters
+    (`query_model`) or none. Path ids, query parameters and the body are read from the params
+    as `via` reads them (`binds`, the `id` fallback). `send` says which params go over REST:
+    `given` (not null; the default), `set` (what the caller sent; the default for PATCH) or
+    `all`. `local` replaces the in-process binding when it is more than the handler.
+    """
+    route = _route_of(fn)
+    (method,) = route.methods
+    params = params or _default_params(fn, route)
+    send = send or ("set" if method == "PATCH" else "given")
+    body_model = _body_model(fn)
+    path_ids = [(f.name, f.alias) for f in route.dependant.path_params]
+    queries = [(f.name, f.alias) for f in route.dependant.query_params]
+
+    def rest(p: Any) -> Rest:
+        path = route.path.removeprefix("/api/v1")
+        for name, alias in path_ids:
+            path = path.replace(f"{{{alias}}}", _q(str(_pick(p, binds.get(name, name), True))))
+        sent = p.model_fields_set if send == "set" else type(p).model_fields
+        query: dict[str, Any] = {}
+        for name, alias in queries:
+            source = binds.get(name, name)
+            if callable(source) or source in sent:
+                value = _pick(p, source)
+                if value is not None or send != "given":
+                    query[alias] = value
+        body = None
+        if body_model is not None:
+            data = p.model_dump(exclude_unset=send == "set", exclude_none=send == "given")
+            body = jsonable({k: v for k, v in data.items() if k in body_model.model_fields})
+        return Rest(method, path, query or None, body, empty(p) if empty else None)
+
+    return Action(
+        doc,
+        _scope_of(route),
+        params,
+        rest,
+        local or via(fn, empty=empty, **binds),
+    )
+
+
 def _dump(model: type[BaseModel], value: Any) -> Any:
     return model.model_validate(value, from_attributes=True).model_dump(mode="json")
 
@@ -581,479 +669,268 @@ def _deleted(key: str, field: str = "id") -> Callable[[Any], dict[str, Any]]:
 # Items --------------------------------------------------------------------------------------
 
 ITEM_ACTIONS = {
-    "get": Action(
-        "the item with subtasks, comments and last 20 events",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}"),
-        local=via(items_api.get_item, item_id="id"),
-    ),
-    "list": Action(
+    "get": bind(items_api.get_item, "the item with subtasks, comments and last 20 events", ItemRef),
+    "list": bind(
+        items_api.query_items,
         "items matching every filter given (AND); `fields` trims each item, `changed_since` "
         "returns only items changed after an event id, `limit`/`offset` page",
-        "read",
         ItemQuery,
-        rest=lambda p: Rest("GET", "/items", query=_items_query(p)),
-        local=via(items_api.query_items, fields=_joined("fields"), ids=_joined("ids")),
+        fields=_joined("fields"),
+        ids=_joined("ids"),
     ),
-    "create": Action(
-        "file ONE item in list_id (parent_id instead makes it one subtask)",
-        "write",
-        strict(ItemIn),
-        rest=lambda p: Rest("POST", "/items", body=_fields(p)),
-        local=via(items_api.create_item),
+    "create": bind(
+        items_api.create_item, "file ONE item in list_id (parent_id instead makes it one subtask)"
     ),
-    "update": Action(
+    "update": bind(
+        items_api.update_item,
         "change any fields; null clears; assignees/tags replace the set",
-        "write",
         with_id(ItemPatch, "id", "Item id"),
-        rest=lambda p: Rest("PATCH", f"/items/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(items_api.update_item, item_id="id"),
     ),
-    "set_status": Action(
-        "move to a status of its list (done stamps completed_at)",
-        "write",
-        ItemStatus,
-        rest=lambda p: Rest("PATCH", f"/items/{_q(p.id)}", body={"status": p.status}),
-        local=via(items_api.update_item, item_id="id"),
+    "set_status": bind(
+        items_api.update_item, "move to a status of its list (done stamps completed_at)", ItemStatus
     ),
-    "assign": Action(
+    "assign": bind(
+        items_api.update_item,
         "set who it is assigned to (replaces the set; to take an item yourself, `report` with "
         "assign_me)",
-        "write",
         ItemAssign,
-        rest=lambda p: Rest("PATCH", f"/items/{_q(p.id)}", body={"assignees": p.assignees}),
-        local=via(items_api.update_item, item_id="id"),
     ),
-    "tag": Action(
-        "set its tags",
-        "write",
-        ItemTags,
-        rest=lambda p: Rest("PATCH", f"/items/{_q(p.id)}", body={"tags": p.tags}),
-        local=via(items_api.update_item, item_id="id"),
-    ),
-    "report": Action(
+    "tag": bind(items_api.update_item, "set its tags", ItemTags),
+    "report": bind(
+        items_api.report,
         "say what you are doing on it: state working / blocked / review shows a live badge on "
         "the card (with note and progress); done clears it and completes the item; idle clears "
         "it. The note is also posted as your comment",
-        "write",
         with_id(ReportIn, "id", "Item id"),
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/report", body=_fields(p, "id", unset=True)),
-        local=via(items_api.report, item_id="id"),
+        send="set",
     ),
-    "run": Action(
+    "run": bind(
+        items_api.run,
         "Run now: ask the item's agent assignees to start on it now (records "
         "item.run_requested; their runners take it at once). Refused when no agent is assigned "
         "or it is done, cancelled or archived",
-        "write",
         ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/run"),
-        local=via(items_api.run, item_id="id"),
     ),
-    "brief": Action(
+    "brief": bind(
+        items_api.get_brief,
         "the task as one paste-ready prompt (title, due, description, checklists, recent "
         "comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: "
         "review`, `SLATE: later` or `SLATE: blocked waiting_on <handle>`; a comment ending so "
         "reports back",
-        "read",
         query_model(items_api.get_brief, id=ITEM_ID),
-        rest=lambda p: Rest(
-            "GET", f"/items/{_q(p.id)}/brief", query={"ask": p.ask} if p.ask else None
-        ),
-        local=via(items_api.get_brief, item_id="id"),
     ),
-    "comment": Action(
-        "add a comment",
-        "write",
-        ItemComment,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/comments", body={"body_md": p.body_md}),
-        local=via(comments_api.add_comment, item_id="id"),
+    "comment": bind(comments_api.add_comment, "add a comment", ItemComment),
+    "bulk_update": bind(
+        items_api.bulk_update, "apply one change to many items at once (all or nothing; up to 500)"
     ),
-    "bulk_update": Action(
-        "apply one change to many items at once (all or nothing; up to 500)",
-        "write",
-        strict(items_api.BulkIn),
-        rest=lambda p: Rest("POST", "/items/bulk", body={"ids": p.ids, "changes": p.changes}),
-        local=via(items_api.bulk_update),
+    "archive": bind(
+        items_api.archive_item, "hide it and its subtasks (soft; history stays)", ItemRef
     ),
-    "archive": Action(
-        "hide it and its subtasks (soft; history stays)",
-        "write",
-        ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/archive"),
-        local=via(items_api.archive_item, item_id="id"),
-    ),
-    "unarchive": Action(
-        "bring it back",
-        "write",
-        ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/unarchive"),
-        local=via(items_api.unarchive_item, item_id="id"),
-    ),
-    "trash": Action(
+    "unarchive": bind(items_api.unarchive_item, "bring it back", ItemRef),
+    "trash": bind(
+        items_api.trash_item,
         "move it (and its subtasks) to the trash: hidden, restorable, deleted for good after "
         "the trash period (30 days by default)",
-        "write",
         ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/trash"),
-        local=via(items_api.trash_item, item_id="id"),
     ),
-    "restore": Action(
-        "take it out of the trash",
-        "write",
-        ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/restore"),
-        local=via(items_api.restore_item, item_id="id"),
-    ),
-    "purge": Action(
+    "restore": bind(items_api.restore_item, "take it out of the trash", ItemRef),
+    "purge": bind(
+        items_api.purge_item,
         "delete a trashed item for good (history stays)",
-        "write",
         ItemRef,
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/purge", empty={"purged": p.id}),
-        local=via(items_api.purge_item, item_id="id", empty=_deleted("purged")),
+        empty=_deleted("purged"),
     ),
-    "split": Action(
+    "split": bind(
+        items_api.split_item,
         "create several subtasks under it: the only multi-child path",
-        "write",
         with_id(SplitIn, "id", "Item id"),
-        rest=lambda p: Rest(
-            "POST",
-            f"/items/{_q(p.id)}/split",
-            body={"children": [c.model_dump(exclude_none=True) for c in p.children]},
-        ),
-        local=via(items_api.split_item, item_id="id"),
     ),
-    "delete": Action(
+    "delete": bind(
+        items_api.delete_item,
         "undo your own create within 10 minutes; otherwise archive",
-        "write",
         ItemRef,
-        rest=lambda p: Rest("DELETE", f"/items/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(items_api.delete_item, item_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "link": Action(
+    "link": bind(
+        links_api.add_link,
         "add a link: kind blocks / blocked_by / relates / duplicate_of / duplicated_by, from this "
         "item's side",
-        "write",
         with_id(LinkIn, "id", "Item id"),
-        rest=lambda p: Rest(
-            "POST", f"/items/{_q(p.id)}/links", body={"kind": p.kind, "item_id": p.item_id}
-        ),
-        local=via(links_api.add_link, item_id="id"),
+        item_id="id",
     ),
-    "unlink": Action(
+    "unlink": bind(
+        links_api.remove_link,
         "remove a dependency (same kind and item_id as when added)",
-        "write",
         with_id(LinkIn, "id", "Item id"),
-        rest=lambda p: Rest(
-            "DELETE", f"/items/{_q(p.id)}/links", query={"kind": p.kind, "other": p.item_id}
-        ),
-        local=via(links_api.remove_link, item_id="id", other="item_id"),
+        item_id="id",
+        other="item_id",
     ),
-    "activity": Action(
+    "activity": bind(
+        items_api.item_activity,
         "comments and history in one list, oldest first (what people see beside the task)",
-        "read",
         query_model(items_api.item_activity, id=ITEM_ID),
-        rest=lambda p: Rest(
-            "GET", f"/items/{_q(p.id)}/activity", query=_fields(p, "id", unset=True)
-        ),
-        local=via(items_api.item_activity, item_id="id"),
+        send="set",
     ),
-    "watch": Action(
+    "watch": bind(
+        items_api.watch,
         "add a watcher (you, or `account`): watchers hear about every change to the item "
         "(check-in `watching`, inbox, an assignee_me webhook)",
-        "write",
         with_id(WatchIn, "id", "Item id"),
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/watch", body=_fields(p, "id")),
-        local=via(items_api.watch, item_id="id"),
     ),
-    "unwatch": Action(
-        "remove a watcher (you, or `account`)",
-        "write",
-        with_id(WatchIn, "id", "Item id"),
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/unwatch", body=_fields(p, "id")),
-        local=via(items_api.unwatch, item_id="id"),
+    "unwatch": bind(
+        items_api.unwatch, "remove a watcher (you, or `account`)", with_id(WatchIn, "id", "Item id")
     ),
-    "watchers": Action(
-        "who follows the item",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/watchers"),
-        local=via(items_api.list_watchers, item_id="id"),
-    ),
-    "set_watchers": Action(
+    "watchers": bind(items_api.list_watchers, "who follows the item", ItemRef),
+    "set_watchers": bind(
+        items_api.set_watchers,
         "replace who follows the item (handles or ids)",
-        "write",
         with_id(WatchersIn, "id", "Item id"),
-        rest=lambda p: Rest("PUT", f"/items/{_q(p.id)}/watchers", body=_fields(p, "id")),
-        local=via(items_api.set_watchers, item_id="id"),
     ),
-    "attachments": Action(
+    "attachments": bind(
+        attachments_api.list_attachments,
         "the item's files: id, filename, size, content type",
-        "read",
         ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/attachments"),
-        local=via(attachments_api.list_attachments, item_id="id"),
     ),
-    "detach": Action(
+    "detach": bind(
+        attachments_api.remove,
         "remove one attachment by its id",
-        "write",
         AttachmentRef,
-        rest=lambda p: Rest("DELETE", f"/attachments/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(attachments_api.remove, attachment_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "attach": Action(
+    "attach": bind(
+        attachments_api.add_attachment_base64,
         "attach a file (base64) to the item",
-        "write",
         with_id(attachments_api.Base64In, "id", "Item id"),
-        rest=lambda p: Rest("POST", f"/items/{_q(p.id)}/attachments/base64", body=_fields(p, "id")),
-        local=via(attachments_api.add_attachment_base64, item_id="id"),
     ),
-    "promote_attachment": Action(
+    "promote_attachment": bind(
+        docs_api.promote_attachment,
         "move an attachment into Docs & Files: a file doc with the bytes as revision 1; "
         "the task gets a comment linking it",
-        "write",
         with_id(PromoteIn, "id", "Attachment id"),
-        rest=lambda p: Rest(
-            "POST", f"/attachments/{_q(p.id)}/promote", body=jsonable(_fields(p, "id"))
-        ),
-        local=via(docs_api.promote_attachment, attachment_id="id"),
     ),
-    "history": Action(
-        "every event on the item, oldest first",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/events"),
-        local=via(items_api.item_events, item_id="id"),
-    ),
-    "versions": Action(
-        "every body version, oldest first",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/versions"),
-        local=via(items_api.item_versions, item_id="id"),
-    ),
-    "revert": Action(
+    "history": bind(items_api.item_events, "every event on the item, oldest first", ItemRef),
+    "versions": bind(items_api.item_versions, "every body version, oldest first", ItemRef),
+    "revert": bind(
+        events_api.revert_event,
         "undo one change from the history (an item.updated field, item.status_changed, "
         "item.assigned or item.moved event) by issuing its inverse as you: a new event, "
         "session_ref revert:<event_id>. Refused when the field has changed again since",
-        "write",
         EventRef,
-        rest=lambda p: Rest("POST", f"/events/{_q(p.event_id)}/revert"),
-        local=via(events_api.revert_event),
     ),
 }
 
 # Lists, sections, tags ----------------------------------------------------------------------
 
 LIST_ACTIONS = {
-    "list": Action(
-        "lists with their statuses",
-        "read",
-        query_model(lists_api.list_lists),
-        rest=lambda p: Rest("GET", "/lists", query=_fields(p)),
-        local=via(lists_api.list_lists),
+    "list": bind(lists_api.list_lists, "lists with their statuses"),
+    "create": bind(
+        lists_api.create_list, "a list in a section (default statuses open, active, done)"
     ),
-    "create": Action(
-        "a list in a section (default statuses open, active, done)",
-        "write",
-        strict(ListIn),
-        rest=lambda p: Rest("POST", "/lists", body=_fields(p)),
-        local=via(lists_api.create_list),
-    ),
-    "update": Action(
+    "update": bind(
+        lists_api.update_list,
         "rename, reorder, set default_status, or archived true/false",
-        "write",
         with_id(ListPatch, "id", "List id"),
-        rest=lambda p: Rest("PATCH", f"/lists/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(lists_api.update_list, list_id="id"),
     ),
-    "set_statuses": Action(
+    "set_statuses": bind(
+        lists_api.set_statuses,
         "replace the statuses (columns) in order; fallback for stranded items",
-        "write",
         with_id(StatusesPut, "id", "List id"),
-        rest=lambda p: Rest(
-            "PUT", f"/lists/{_q(p.id)}/statuses", body=p.model_dump(exclude={"id"})
-        ),
-        local=via(lists_api.set_statuses, list_id="id"),
+        send="all",
     ),
 }
 
 SECTION_ACTIONS = {
-    "list": Action(
-        "all sections",
-        "read",
-        query_model(sections_api.list_sections),
-        rest=lambda p: Rest("GET", "/sections", query=_fields(p)),
-        local=via(sections_api.list_sections),
+    "list": bind(sections_api.list_sections, "all sections"),
+    "create": bind(
+        sections_api.create_section, "a section (one per audience or rhythm, never per topic)"
     ),
-    "create": Action(
-        "a section (one per audience or rhythm, never per topic)",
-        "write",
-        strict(SectionIn),
-        rest=lambda p: Rest("POST", "/sections", body=_fields(p)),
-        local=via(sections_api.create_section),
-    ),
-    "update": Action(
+    "update": bind(
+        sections_api.update_section,
         "rename, reorder, change audience, or archived true/false",
-        "write",
         with_id(SectionPatch, "id", "Section id"),
-        rest=lambda p: Rest("PATCH", f"/sections/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(sections_api.update_section, section_id="id"),
     ),
 }
 
 TAG_ACTIONS = {
-    "list": Action(
-        "all tags with item_count",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/tags"),
-        local=via(tags_api.list_tags),
-    ),
-    "create": Action(
-        "a tag (stored lowercase)",
-        "write",
-        strict(TagIn),
-        rest=lambda p: Rest("POST", "/tags", body=_fields(p)),
-        local=via(tags_api.create_tag),
-    ),
-    "rename": Action(
+    "list": bind(tags_api.list_tags, "all tags with item_count"),
+    "create": bind(tags_api.create_tag, "a tag (stored lowercase)"),
+    "rename": bind(
+        tags_api.update_tag,
         "rename or recolor a tag; items keep it",
-        "write",
         with_id(TagPatch, "tag", "Current tag name or id"),
-        rest=lambda p: Rest("PATCH", f"/tags/{_q(p.tag)}", body=_fields(p, "tag", unset=True)),
-        local=via(tags_api.update_tag),
     ),
-    "merge": Action(
+    "merge": bind(
+        tags_api.merge_tag,
         "fold a tag into another: items and rules carry `into` instead; the tag is deleted",
-        "write",
         with_id(TagMergeIn, "tag", "The tag (name or id) to fold away"),
-        rest=lambda p: Rest("POST", f"/tags/{_q(p.tag)}/merge", body={"into": p.into}),
-        local=via(tags_api.merge_tag),
     ),
-    "delete": Action(
+    "delete": bind(
+        tags_api.delete_tag,
         "remove a tag from every item and rule, then delete it",
-        "write",
         TagRef,
-        rest=lambda p: Rest("DELETE", f"/tags/{_q(p.tag)}", empty={"deleted": p.tag}),
-        local=via(tags_api.delete_tag, empty=_deleted("deleted", "tag")),
+        empty=_deleted("deleted", "tag"),
     ),
 }
 
 # Recurrences --------------------------------------------------------------------------------
 
 RECURRENCE_ACTIONS = {
-    "preview": Action(
+    "preview": bind(
+        recurrences_api.preview,
         "try an RRULE without saving: next dates and the rule in plain English",
-        "read",
-        query_model(recurrences_api.preview),
-        rest=lambda p: Rest("GET", "/recurrences/preview", query=_fields(p)),
-        local=via(recurrences_api.preview),
     ),
-    "upcoming": Action(
+    "upcoming": bind(
+        recurrences_api.upcoming,
         "dates scheduled rules will fill in a window that are not items yet",
-        "read",
-        query_model(recurrences_api.upcoming),
-        rest=lambda p: Rest(
-            "GET", "/recurrences/upcoming", query=p.model_dump(mode="json", exclude_none=True)
-        ),
-        local=via(recurrences_api.upcoming),
     ),
-    "list": Action(
-        "recurrence rules, optionally in one list",
-        "read",
-        query_model(recurrences_api.list_recurrences),
-        rest=lambda p: Rest("GET", "/recurrences", query=_fields(p)),
-        local=via(recurrences_api.list_recurrences),
+    "list": bind(recurrences_api.list_recurrences, "recurrence rules, optionally in one list"),
+    "get": bind(
+        recurrences_api.get_recurrence, "one rule with its next occurrences", RecurrenceRef
     ),
-    "get": Action(
-        "one rule with its next occurrences",
-        "read",
-        RecurrenceRef,
-        rest=lambda p: Rest("GET", f"/recurrences/{_q(p.id)}"),
-        local=via(recurrences_api.get_recurrence, rule_id="id"),
-    ),
-    "create": Action(
-        "a rule that spawns one item per occurrence",
-        "write",
-        strict(RecurrenceIn),
-        rest=lambda p: Rest("POST", "/recurrences", body=_fields(p)),
-        local=via(recurrences_api.create_recurrence),
-    ),
-    "update": Action(
+    "create": bind(recurrences_api.create_recurrence, "a rule that spawns one item per occurrence"),
+    "update": bind(
+        recurrences_api.update_recurrence,
         "change a rule (`ended: true` ends it for good)",
-        "write",
         with_id(RecurrencePatch, "id", "Recurrence rule id"),
-        rest=lambda p: Rest("PATCH", f"/recurrences/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(recurrences_api.update_recurrence, rule_id="id"),
     ),
-    "pause": Action(
-        "stop spawning",
-        "write",
-        RecurrenceRef,
-        rest=lambda p: Rest("POST", f"/recurrences/{_q(p.id)}/pause"),
-        local=via(recurrences_api.pause_recurrence, rule_id="id"),
+    "pause": bind(recurrences_api.pause_recurrence, "stop spawning", RecurrenceRef),
+    "resume": bind(
+        recurrences_api.resume_recurrence, "start spawning again from today", RecurrenceRef
     ),
-    "resume": Action(
-        "start spawning again from today",
-        "write",
-        RecurrenceRef,
-        rest=lambda p: Rest("POST", f"/recurrences/{_q(p.id)}/resume"),
-        local=via(recurrences_api.resume_recurrence, rule_id="id"),
-    ),
-    "adopt": Action(
+    "adopt": bind(
+        recurrences_api.adopt,
         "make an existing item the rule's current occurrence (it keeps its due date)",
-        "write",
         with_id(AdoptIn, "id", "Recurrence rule id"),
-        rest=lambda p: Rest("POST", f"/recurrences/{_q(p.id)}/adopt", body={"item_id": p.item_id}),
-        local=via(recurrences_api.adopt, rule_id="id"),
     ),
-    "run_now": Action(
+    "run_now": bind(
+        recurrences_api.run_now,
         "spawn everything due within the rule's lead window now",
-        "write",
         RecurrenceRef,
-        rest=lambda p: Rest("POST", f"/recurrences/{_q(p.id)}/run-now"),
-        local=via(recurrences_api.run_now, rule_id="id"),
     ),
 }
 
 # Webhooks: every action needs `write`, like /api/v1/webhooks ---------------------------------
 
 WEBHOOK_ACTIONS = {
-    "list": Action(
-        "your webhooks (an admin sees everyone's)",
-        "write",
-        NoParams,
-        rest=lambda p: Rest("GET", "/webhooks"),
-        local=via(webhooks_api.list_webhooks),
-    ),
-    "create": Action(
+    "list": bind(webhooks_api.list_webhooks, "your webhooks (an admin sees everyone's)"),
+    "create": bind(
+        webhooks_api.create_webhook,
         "subscribe a URL to event types; the reply holds the signing secret, shown only once",
-        "write",
-        strict(WebhookIn),
-        rest=lambda p: Rest("POST", "/webhooks", body=_fields(p)),
-        local=via(webhooks_api.create_webhook),
     ),
-    "update": Action(
+    "update": bind(
+        webhooks_api.update_webhook,
         "change url, events, filter (replaced whole) or disabled",
-        "write",
         with_id(WebhookPatch, "id", "Webhook id"),
-        rest=lambda p: Rest("PATCH", f"/webhooks/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(webhooks_api.update_webhook, webhook_id="id"),
     ),
-    "deliveries": Action(
+    "deliveries": bind(
+        webhooks_api.list_deliveries,
         "the delivery log, newest first",
-        "write",
         query_model(webhooks_api.list_deliveries, id=(str, Field(description="Webhook id"))),
-        rest=lambda p: Rest("GET", f"/webhooks/{_q(p.id)}/deliveries", query=_fields(p, "id")),
-        local=via(webhooks_api.list_deliveries, webhook_id="id"),
     ),
-    "test": Action(
+    "test": bind(
+        webhooks_api.test_webhook,
         "send a webhook.test delivery now (one attempt) and return its outcome",
-        "write",
         WebhookRef,
-        rest=lambda p: Rest("POST", f"/webhooks/{_q(p.id)}/test"),
-        local=via(webhooks_api.test_webhook, webhook_id="id"),
     ),
 }
 
@@ -1068,97 +945,54 @@ def _me(lc: Local) -> dict:
 ACCOUNT_ID = (str, Field(description="Account id (from `list` or `me`)"))
 
 ACCOUNT_ACTIONS = {
-    "me": Action(
-        "who this token is, and its scopes",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/me"),
-        local=lambda lc, p: _me(lc),
-    ),
-    "list": Action(
-        "all accounts (admin)",
-        "admin",
-        NoParams,
-        rest=lambda p: Rest("GET", "/accounts"),
-        local=via(accounts_api.list_accounts),
-    ),
-    "create": Action(
-        "a person or agent account (admin)",
-        "admin",
-        strict(AccountIn),
-        rest=lambda p: Rest("POST", "/accounts", body=_fields(p)),
-        local=via(accounts_api.create_account),
-    ),
-    "create_token": Action(
+    "me": bind(accounts_api.me, "who this token is, and its scopes", local=lambda lc, p: _me(lc)),
+    "list": bind(accounts_api.list_accounts, "all accounts (admin)"),
+    "create": bind(accounts_api.create_account, "a person or agent account (admin)"),
+    "create_token": bind(
+        accounts_api.create_token,
         "issue a token; its plaintext is shown only in this result (admin)",
-        "admin",
         with_id(TokenIn, "account_id", "Account id"),
-        rest=lambda p: Rest(
-            "POST", f"/accounts/{_q(p.account_id)}/tokens", body=_fields(p, "account_id")
-        ),
-        local=via(accounts_api.create_token),
     ),
-    "update": Action(
+    "update": bind(
+        accounts_api.update_account,
         "rename an account, or disable it (`disabled: true` stops its tokens at once) (admin)",
-        "admin",
         with_id(AccountPatch, "account_id", "Account id"),
-        rest=lambda p: Rest(
-            "PATCH", f"/accounts/{_q(p.account_id)}", body=_fields(p, "account_id", unset=True)
-        ),
-        local=via(accounts_api.update_account),
     ),
-    "tokens": Action(
+    "tokens": bind(
+        accounts_api.list_tokens,
         "an account's tokens with last use, never the secret (admin, or your own)",
-        "read",
         query_model(accounts_api.list_tokens, account_id=ACCOUNT_ID),
-        rest=lambda p: Rest(
-            "GET",
-            f"/accounts/{_q(p.account_id)}/tokens",
-            query={"include_revoked": p.include_revoked},
-        ),
-        local=via(accounts_api.list_tokens),
+        send="all",
     ),
-    "usage": Action(
+    "usage": bind(
+        accounts_api.account_usage,
         "events per day by source, busiest event types, requests per token (admin, or yours)",
-        "read",
         query_model(accounts_api.account_usage, account_id=ACCOUNT_ID),
-        rest=lambda p: Rest("GET", f"/accounts/{_q(p.account_id)}/usage", query={"days": p.days}),
-        local=via(accounts_api.account_usage),
+        send="all",
     ),
-    "revoke_token": Action(
+    "revoke_token": bind(
+        accounts_api.revoke_token,
         "revoke a token at once (admin, or your own token)",
-        "read",
         TokenRef,
-        rest=lambda p: Rest("DELETE", f"/tokens/{_q(p.token_id)}", empty={"revoked": True}),
-        local=via(accounts_api.revoke_token, empty=lambda p: {"revoked": True}),
+        empty=lambda p: {"revoked": True},
     ),
-    "set_role": Action(
+    "set_role": bind(
+        permissions_api.set_role,
         "change an account's role: owner, admin, member, guest (admin; admins only by the owner)",
-        "admin",
         with_id(RoleIn, "account_id", "Account id (from `list` or `me`)"),
-        rest=lambda p: Rest("PUT", f"/accounts/{_q(p.account_id)}/role", body={"role": p.role}),
-        local=via(permissions_api.set_role),
     ),
-    "access": Action(
+    "access": bind(
+        permissions_api.account_access,
         "every section and list an account reaches, with its level (admin, or yourself)",
-        "read",
         AccountRef,
-        rest=lambda p: Rest("GET", f"/accounts/{_q(p.account_id)}/access"),
-        local=via(permissions_api.account_access),
     ),
-    "agent_rules": Action(
+    "agent_rules": bind(
+        settings_api.get_agent_rules,
         "what agent accounts may never do here, whatever their token (admin)",
-        "admin",
-        NoParams,
-        rest=lambda p: Rest("GET", "/settings/agents"),
-        local=via(settings_api.get_agent_rules),
     ),
-    "set_agent_rules": Action(
+    "set_agent_rules": bind(
+        settings_api.set_agent_rules,
         "replace what agents may never do: `denied` lists action keys (owner or admin person)",
-        "admin",
-        strict(settings_api.AgentRulesIn),
-        rest=lambda p: Rest("PUT", "/settings/agents", body=_fields(p)),
-        local=via(settings_api.set_agent_rules),
     ),
 }
 
@@ -1177,20 +1011,11 @@ _private = {
 }
 
 SHARE_ACTIONS = {
-    "list": Action(
-        "shares, by account and/or section/list (admin)",
-        "admin",
-        query_model(permissions_api.list_shares),
-        rest=lambda p: Rest("GET", "/shares", query=_fields(p)),
-        local=via(permissions_api.list_shares),
-    ),
-    "set": Action(
+    "list": bind(permissions_api.list_shares, "shares, by account and/or section/list (admin)"),
+    "set": bind(
+        permissions_api.put_share,
         "share a section or list with an account at view, comment or edit; level null revokes "
         "(admin)",
-        "admin",
-        strict(ShareIn),
-        rest=lambda p: Rest("PUT", "/shares", body=p.model_dump()),
-        local=via(permissions_api.put_share),
     ),
     "who": Action(
         "everyone who reaches a section or list, at what level and why (admin)",
@@ -1211,34 +1036,22 @@ SHARE_ACTIONS = {
 }
 
 AUDIT_ACTIONS = {
-    "list": Action(
+    "list": bind(
+        permissions_api.audit_log,
         "who (person or agent) did what, when, through which door; newest first, filterable; "
         "pass next_before back as before",
-        "read",
-        query_model(permissions_api.audit_log),
-        rest=lambda p: Rest("GET", "/audit", query=_fields(p)),
-        local=via(permissions_api.audit_log),
     ),
-    "facets": Action(
-        "event types and actors in the log you can see",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/audit/facets"),
-        local=via(permissions_api.audit_facets),
-    ),
+    "facets": bind(permissions_api.audit_facets, "event types and actors in the log you can see"),
 }
 
 # Today, check-in, work, health, agents, events ----------------------------------------------
 
 TODAY_ACTIONS = {
-    "get": Action(
+    "get": bind(
+        today_api.get_today,
         "overdue, due today, waiting on you (`fields` trims each item)",
-        "read",
         query_model(today_api.get_today, fields=FIELDS),
-        rest=lambda p: Rest(
-            "GET", "/today", query={"fields": ",".join(p.fields)} if p.fields else None
-        ),
-        local=via(today_api.get_today, fields=_joined("fields")),
+        fields=_joined("fields"),
     )
 }
 
@@ -1261,12 +1074,12 @@ def _checkin(lc: Local, p: CheckinQuery) -> dict:
 
 
 CHECKIN_ACTIONS = {
-    "get": Action(
+    "get": bind(
+        checkin_api.get_checkin,
         "your open items (queue) and others' events that concern you (news, with why), "
         "from a cursor",
-        "read",
         CheckinQuery,
-        rest=lambda p: Rest("GET", "/checkin", query=_items_query(p)),
+        fields=_joined("fields"),
         local=_checkin,
     )
 }
@@ -1291,462 +1104,277 @@ def _work_finish(lc: Local, p: WorkFinish) -> dict:
 
 
 WORK_ACTIONS = {
-    "reconcile": Action(
+    "reconcile": bind(
+        work_api.reconcile,
         "confirm remote termination with run proof and actual runtime evidence; "
         "unlock without completing",
-        "write",
         with_id(work_api.ReconcileIn, "item_id", "The task you hold"),
-        rest=lambda p: Rest("POST", f"/work/{_q(p.item_id)}/reconcile", body=_fields(p, "item_id")),
-        local=via(work_api.reconcile),
     ),
-    "chat_heartbeat": Action(
-        "renew a chat turn with its run_id proof",
-        "write",
-        strict(work_api.ChatHeartbeatIn),
-        rest=lambda p: Rest("POST", "/work/chat/heartbeat", body=_fields(p)),
-        local=via(work_api.chat_heartbeat),
-    ),
-    "chat_finish": Action(
+    "chat_heartbeat": bind(work_api.chat_heartbeat, "renew a chat turn with its run_id proof"),
+    "chat_finish": bind(
+        work_api.chat_finish,
         "settle only the proved chat attempt; identical retries return its durable receipt",
-        "write",
-        strict(work_api.ChatFinishIn),
-        rest=lambda p: Rest("POST", "/work/chat/finish", body=_fields(p)),
-        local=via(work_api.chat_finish),
     ),
-    "chat_reconcile": Action(
+    "chat_reconcile": bind(
+        work_api.chat_reconcile,
         "confirm remote chat termination with run proof and actual runtime evidence",
-        "write",
-        strict(work_api.ChatReconcileIn),
-        rest=lambda p: Rest("POST", "/work/chat/reconcile", body=_fields(p)),
-        local=via(work_api.chat_reconcile),
     ),
-    "chat_clear": Action(
+    "chat_clear": bind(
+        work_api.chat_clear,
         "a person's Clear of an agent's expired chat turn (its runner lost the run proof): "
         "the turn ends as released and reconciled by you, and a mention that waited in it is "
         "the agent's next turn",
-        "write",
-        strict(work_api.ChatClearIn),
-        rest=lambda p: Rest("POST", "/work/chat/clear", body=_fields(p)),
-        local=via(work_api.chat_clear),
     ),
-    "doc_heartbeat": Action(
-        "renew a doc turn (a page mention from next) with its run_id proof",
-        "write",
-        strict(work_api.DocHeartbeatIn),
-        rest=lambda p: Rest("POST", "/work/doc/heartbeat", body=_fields(p)),
-        local=via(work_api.doc_heartbeat),
+    "doc_heartbeat": bind(
+        work_api.doc_heartbeat, "renew a doc turn (a page mention from next) with its run_id proof"
     ),
-    "doc_finish": Action(
+    "doc_finish": bind(
+        work_api.doc_finish,
         "end a doc turn: done with reply posts your comment in the thread (a new discussion "
         "thread for a mention in the page body); release posts nothing. Identical retries "
         "return its durable receipt",
-        "write",
-        strict(work_api.DocFinishIn),
-        rest=lambda p: Rest("POST", "/work/doc/finish", body=_fields(p)),
-        local=via(work_api.doc_finish),
     ),
-    "doc_reconcile": Action(
+    "doc_reconcile": bind(
+        work_api.doc_reconcile,
         "confirm remote doc-turn termination with run proof and actual runtime evidence",
-        "write",
-        strict(work_api.DocReconcileIn),
-        rest=lambda p: Rest("POST", "/work/doc/reconcile", body=_fields(p)),
-        local=via(work_api.doc_reconcile),
     ),
-    "doc_clear": Action(
-        "a person's Clear of an agent's expired doc turn, as chat_clear",
-        "write",
-        strict(work_api.DocClearIn),
-        rest=lambda p: Rest("POST", "/work/doc/clear", body=_fields(p)),
-        local=via(work_api.doc_clear),
+    "doc_clear": bind(
+        work_api.doc_clear, "a person's Clear of an agent's expired doc turn, as chat_clear"
     ),
-    "next": Action(
+    "next": bind(
+        work_api.next_task,
         "take your next task: the best open one assigned to you or waiting on you (pool: also "
         "unassigned ones) that is not blocked, not held by another agent and not waiting on a "
         "person; priority order, then due date. It is yours for lease_seconds; "
         "item is null when none is free (wait: long-poll for one)",
-        "write",
         WorkNext,
-        rest=lambda p: Rest("POST", "/work/next", body=_fields(p)),
         local=lambda lc, p: _dump(NextOut, _take_next(lc, p)),
     ),
-    "heartbeat": Action(
+    "heartbeat": bind(
+        work_api.heartbeat,
         "keep holding the task (the lease runs lease_seconds from now); note/progress update "
         "the badge. An error saying you do not hold it means stop: another agent has it",
-        "write",
         with_id(HeartbeatIn, "item_id", "The task you hold"),
-        rest=lambda p: Rest("POST", f"/work/{_q(p.item_id)}/heartbeat", body=_fields(p, "item_id")),
-        local=via(work_api.heartbeat),
     ),
-    "finish": Action(
+    "finish": bind(
+        work_api.finish,
         "report back in one call: outcome done / review / later (stay assigned, no badge, the "
         "due time still to come runs you again) / blocked (waiting_on) / release, a "
         "note posted as your comment, a status, hand_to another account; "
         "next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, "
         "not resolution; asked-only agent done explicitly resolves only its taken Asks. "
         "New/reassigned Asks during the run remain pending; humans must explicitly resolve",
-        "write",
         WorkFinish,
-        rest=lambda p: Rest("POST", f"/work/{_q(p.item_id)}/finish", body=_fields(p, "item_id")),
         local=_work_finish,
     ),
-    "held": Action(
-        "the tasks you hold now and when each lease runs out",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/work"),
-        local=via(work_api.my_leases),
-    ),
-    "plan": Action(
+    "held": bind(work_api.my_leases, "the tasks you hold now and when each lease runs out"),
+    "plan": bind(
+        agents_api.agents_plan,
         "what each agent is about to run in the next 24 h, by the same rule as `next`: tasks "
         "whose run time comes (reason due), Run now presses (run_requested), open Asks (ask), "
         "and the tasks each holds now with their age; soonest first",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/agents/plan"),
-        local=via(agents_api.agents_plan),
     ),
 }
 
 HEALTH_ACTIONS = {
-    "get": Action(
+    "get": bind(
+        health_api.get_health,
         "Slate's health (owners and admins): overall status and checks, background pollers "
         "(last run, last success, errors), engines, calls and errors per token in the last "
         "hour, latency percentiles, failed automation runs, queues, database size",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/health"),
-        local=via(health_api.get_health),
     )
 }
 
 AGENT_ACTIONS = {
-    "list": Action(
+    "list": bind(
+        agents_api.list_agents,
         "each agent's presence (online, last_seen_at), current reports (working), open "
         "assignments and events in the last 24 h",
-        "read",
-        query_model(agents_api.list_agents),
-        rest=lambda p: Rest("GET", "/agents", query={"kind": p.kind}),
-        local=via(agents_api.list_agents),
+        send="all",
     )
 }
 
 EVENT_ACTIONS = {
-    "poll": Action(
-        "events after `since`, oldest first; pass next_since back",
-        "read",
-        query_model(events_api.list_events),
-        rest=lambda p: Rest("GET", "/events", query=_fields(p)),
-        local=via(events_api.list_events),
-    )
+    "poll": bind(events_api.list_events, "events after `since`, oldest first; pass next_since back")
 }
 
 # Views, favorites ---------------------------------------------------------------------------
 
 VIEW_ACTIONS = {
-    "list": Action(
-        "saved views, optionally for one scope",
-        "read",
-        query_model(views_api.list_views),
-        rest=lambda p: Rest("GET", "/views", query=_fields(p)),
-        local=via(views_api.list_views),
-    ),
-    "get": Action(
-        "one saved view",
-        "read",
-        ViewRef,
-        rest=lambda p: Rest("GET", f"/views/{_q(p.id)}"),
-        local=via(views_api.get_view, view_id="id"),
-    ),
-    "create": Action(
+    "list": bind(views_api.list_views, "saved views, optionally for one scope"),
+    "get": bind(views_api.get_view, "one saved view", ViewRef),
+    "create": bind(
+        views_api.create_view,
         "save a view. config example: {layout: board, group_by: due, due_window_days: 6, "
         "sort: [{field: priority, dir: desc}], filter: {op: and, rules: [{field: tag, cmp: any, "
         "value: [home]}]}, show_closed: false}",
-        "write",
-        strict(ViewIn),
-        rest=lambda p: Rest("POST", "/views", body=_fields(p)),
-        local=via(views_api.create_view),
     ),
-    "update": Action(
+    "update": bind(
+        views_api.update_view,
         "rename, reconfigure, reorder or share a view",
-        "write",
         with_id(ViewPatch, "id", "View id"),
-        rest=lambda p: Rest("PATCH", f"/views/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(views_api.update_view, view_id="id"),
     ),
-    "archive": Action(
-        "hide a view",
-        "write",
-        ViewRef,
-        rest=lambda p: Rest("POST", f"/views/{_q(p.id)}/archive"),
-        local=via(views_api.archive_view, view_id="id"),
-    ),
-    "unarchive": Action(
-        "bring an archived view back",
-        "write",
-        ViewRef,
-        rest=lambda p: Rest("POST", f"/views/{_q(p.id)}/unarchive"),
-        local=via(views_api.unarchive_view, view_id="id"),
-    ),
+    "archive": bind(views_api.archive_view, "hide a view", ViewRef),
+    "unarchive": bind(views_api.unarchive_view, "bring an archived view back", ViewRef),
 }
 
 FAVORITE_ACTIONS = {
-    "list": Action(
+    "list": bind(
+        favorites_api.list_favorites,
         "your favorites in bar order, each with its target's name and scope",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/favorites"),
-        local=via(favorites_api.list_favorites),
     ),
-    "add": Action(
+    "add": bind(
+        favorites_api.add_favorite,
         "pin a list, section, saved view or item (kind + target_id); pinning twice is a no-op",
-        "write",
-        strict(FavoriteIn),
-        rest=lambda p: Rest("POST", "/favorites", body=_fields(p)),
-        local=via(favorites_api.add_favorite),
     ),
-    "remove": Action(
+    "remove": bind(
+        favorites_api.remove_favorite,
         "unpin by favorite id",
-        "write",
         FavoriteRef,
-        rest=lambda p: Rest("DELETE", f"/favorites/{_q(p.id)}", empty={"removed": p.id}),
-        local=via(favorites_api.remove_favorite, favorite_id="id", empty=_deleted("removed")),
+        empty=_deleted("removed"),
     ),
-    "reorder": Action(
-        "set the bar order; ids must list every favorite once",
-        "write",
-        strict(FavoriteOrder),
-        rest=lambda p: Rest("PUT", "/favorites/order", body=_fields(p)),
-        local=via(favorites_api.reorder_favorites),
+    "reorder": bind(
+        favorites_api.reorder_favorites, "set the bar order; ids must list every favorite once"
     ),
 }
 
 # Comments, chat, checklists -----------------------------------------------------------------
 
 COMMENT_ACTIONS = {
-    "list": Action(
-        "the item's comments, oldest first, with reactions",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/comments"),
-        local=via(comments_api.list_comments, item_id="id"),
+    "list": bind(
+        comments_api.list_comments, "the item's comments, oldest first, with reactions", ItemRef
     ),
-    "add": Action(
+    "add": bind(
+        comments_api.add_comment,
         "comment on item id; @handle mentions an account; assignee makes it an Ask (open in "
         "their queue until explicitly resolved); replies notify earlier participants but "
         "do not resolve Asks; keep_open is accepted for compatibility",
-        "write",
         with_id(CommentIn, "id", "Item id"),
-        rest=lambda p: Rest(
-            "POST", f"/items/{_q(p.id)}/comments", body=_fields(p, "id", unset=True)
-        ),
-        local=via(comments_api.add_comment, item_id="id"),
+        send="set",
     ),
-    "assign": Action(
+    "assign": bind(
+        comments_api.edit_comment,
         "address a comment to an account, or take it off with assignee null (id is the "
         "comment id; the author or an admin)",
-        "write",
         CommentAssign,
-        rest=lambda p: Rest("PATCH", f"/comments/{_q(p.id)}", body={"assignee": p.assignee}),
-        local=via(comments_api.edit_comment, comment_id="id"),
     ),
-    "resolve": Action(
+    "resolve": bind(
+        comments_api.resolve,
         "close an Ask (id is the comment id; its assignee, author or an admin)",
-        "write",
         CommentRef,
-        rest=lambda p: Rest("POST", f"/comments/{_q(p.id)}/resolve"),
-        local=via(comments_api.resolve, comment_id="id"),
     ),
-    "edit": Action(
-        "edit your own comment (id is the comment id)",
-        "write",
-        CommentEdit,
-        rest=lambda p: Rest("PATCH", f"/comments/{_q(p.id)}", body={"body_md": p.body_md}),
-        local=via(comments_api.edit_comment, comment_id="id"),
+    "edit": bind(
+        comments_api.edit_comment, "edit your own comment (id is the comment id)", CommentEdit
     ),
-    "delete": Action(
+    "delete": bind(
+        comments_api.delete_comment,
         "delete a comment for good (id is the comment id; your own, or anyone's as an admin)",
-        "write",
         CommentRef,
-        rest=lambda p: Rest("DELETE", f"/comments/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(comments_api.delete_comment, comment_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "react": Action(
+    "react": bind(
+        comments_api.react,
         "add your emoji reaction to a comment",
-        "write",
         with_id(ReactionIn, "id", "Comment id"),
-        rest=lambda p: Rest("POST", f"/comments/{_q(p.id)}/reactions", body={"emoji": p.emoji}),
-        local=via(comments_api.react, comment_id="id"),
     ),
-    "unreact": Action(
-        "remove your emoji reaction",
-        "write",
-        with_id(ReactionIn, "id", "Comment id"),
-        rest=lambda p: Rest("DELETE", f"/comments/{_q(p.id)}/reactions/{_q(p.emoji)}"),
-        local=via(comments_api.unreact, comment_id="id"),
+    "unreact": bind(
+        comments_api.unreact, "remove your emoji reaction", with_id(ReactionIn, "id", "Comment id")
     ),
 }
 
 CHAT_ACTIONS = {
-    "channels": Action(
-        "every channel in board order with your unread and mention counts",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/channels"),
-        local=via(chat_api.list_channels),
+    "channels": bind(
+        chat_api.list_channels, "every channel in board order with your unread and mention counts"
     ),
-    "messages": Action(
+    "messages": bind(
+        chat_api.list_messages,
         "a page of a channel, oldest first (newest top-level by default; after: follow it)",
-        "read",
         query_model(chat_api.list_messages, channel=CHANNEL),
-        rest=lambda p: Rest(
-            "GET",
-            f"/channels/{_q(p.channel)}/messages",
-            query=_fields(p, "channel"),
-        ),
-        local=via(chat_api.list_messages, key="channel"),
+        key="channel",
     ),
-    "thread": Action(
-        "a thread: its first message then every reply",
-        "read",
-        MessageRef,
-        rest=lambda p: Rest("GET", f"/messages/{_q(p.id)}/thread"),
-        local=via(chat_api.get_thread, message_id="id"),
-    ),
-    "upload_file": Action(
+    "thread": bind(chat_api.get_thread, "a thread: its first message then every reply", MessageRef),
+    "upload_file": bind(
+        chat_api.upload_file_base64,
         "upload a file (base64) to a channel, then send it: post with its id in file_ids",
-        "write",
         with_id(attachments_api.Base64In, "channel", CHANNEL_DOC),
-        rest=lambda p: Rest(
-            "POST", f"/channels/{_q(p.channel)}/files/base64", body=_fields(p, "channel")
-        ),
-        local=via(chat_api.upload_file_base64, key="channel"),
+        key="channel",
     ),
-    "discard_file": Action(
+    "discard_file": bind(
+        chat_api.discard_file,
         "take back an upload you have not sent",
-        "write",
         MessageRef,
-        rest=lambda p: Rest("DELETE", f"/message-files/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(chat_api.discard_file, file_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "post": Action(
+    "post": bind(
+        chat_api.post_message,
         "post to a channel, or reply in a thread with parent_id; file_ids sends your uploads",
-        "write",
         with_id(MessageIn, "channel", CHANNEL_DOC),
-        rest=lambda p: Rest(
-            "POST", f"/channels/{_q(p.channel)}/messages", body=_fields(p, "channel")
-        ),
-        local=via(chat_api.post_message, key="channel"),
+        key="channel",
     ),
-    "edit": Action(
-        "edit your own message",
-        "write",
-        with_id(MessagePatch, "id", "Message id"),
-        rest=lambda p: Rest("PATCH", f"/messages/{_q(p.id)}", body={"body_md": p.body_md}),
-        local=via(chat_api.edit_message, message_id="id"),
+    "edit": bind(
+        chat_api.edit_message, "edit your own message", with_id(MessagePatch, "id", "Message id")
     ),
-    "delete": Action(
-        "delete your own message (its thread stays)",
-        "write",
-        MessageRef,
-        rest=lambda p: Rest("DELETE", f"/messages/{_q(p.id)}"),
-        local=via(chat_api.delete_message, message_id="id"),
+    "delete": bind(
+        chat_api.delete_message, "delete your own message (its thread stays)", MessageRef
     ),
-    "react": Action(
+    "react": bind(
+        chat_api.react,
         "add your emoji reaction to a message",
-        "write",
         with_id(ReactionIn, "id", "Message id"),
-        rest=lambda p: Rest("POST", f"/messages/{_q(p.id)}/reactions", body={"emoji": p.emoji}),
-        local=via(chat_api.react, message_id="id"),
     ),
-    "unreact": Action(
-        "remove your emoji reaction",
-        "write",
-        with_id(ReactionIn, "id", "Message id"),
-        rest=lambda p: Rest("DELETE", f"/messages/{_q(p.id)}/reactions/{_q(p.emoji)}"),
-        local=via(chat_api.unreact, message_id="id"),
+    "unreact": bind(
+        chat_api.unreact, "remove your emoji reaction", with_id(ReactionIn, "id", "Message id")
     ),
-    "task": Action(
+    "task": bind(
+        chat_api.make_task,
         "turn a message into one task (in the channel's list unless list_id)",
-        "write",
         with_id(TaskIn, "id", "Message id"),
-        rest=lambda p: Rest("POST", f"/messages/{_q(p.id)}/task", body=_fields(p, "id")),
-        local=via(chat_api.make_task, message_id="id"),
     ),
-    "read": Action(
+    "read": bind(
+        chat_api.mark_read,
         "mark a channel read up to through (default its newest message)",
-        "write",
         with_id(ReadIn, "channel", CHANNEL_DOC),
-        rest=lambda p: Rest("POST", f"/channels/{_q(p.channel)}/read", body=_fields(p, "channel")),
-        local=via(chat_api.mark_read, key="channel"),
+        key="channel",
     ),
-    "read_all": Action(
-        "mark every channel read",
-        "write",
-        NoParams,
-        rest=lambda p: Rest("POST", "/channels/read-all"),
-        local=via(chat_api.read_all),
-    ),
+    "read_all": bind(chat_api.read_all, "mark every channel read"),
 }
 
 CHECKLIST_ACTIONS = {
-    "list": Action(
-        "the item's checklists with their entries",
-        "read",
-        ItemRef,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.id)}/checklists"),
-        local=via(checklists_api.list_checklists, item_id="id"),
+    "list": bind(
+        checklists_api.list_checklists, "the item's checklists with their entries", ItemRef
     ),
-    "create": Action(
+    "create": bind(
+        checklists_api.create_checklist,
         "a checklist on item_id, optionally with its first entries",
-        "write",
         with_id(ChecklistIn, "item_id", "Item id"),
-        rest=lambda p: Rest(
-            "POST",
-            f"/items/{_q(p.item_id)}/checklists",
-            body={"name": p.name, "items": p.items},
-        ),
-        local=via(checklists_api.create_checklist),
+        send="all",
     ),
-    "rename": Action(
+    "rename": bind(
+        checklists_api.update_checklist,
         "rename a checklist (position reorders it)",
-        "write",
         with_id(ChecklistPatch, "id", "Checklist id"),
-        rest=lambda p: Rest("PATCH", f"/checklists/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(checklists_api.update_checklist, checklist_id="id"),
     ),
-    "delete": Action(
+    "delete": bind(
+        checklists_api.delete_checklist,
         "remove a checklist and its entries",
-        "write",
         ChecklistRef,
-        rest=lambda p: Rest("DELETE", f"/checklists/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(checklists_api.delete_checklist, checklist_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "add_entry": Action(
+    "add_entry": bind(
+        checklists_api.add_entry,
         "add an entry to checklist_id",
-        "write",
         with_id(ChecklistEntryIn, "checklist_id", "Checklist id"),
-        rest=lambda p: Rest(
-            "POST", f"/checklists/{_q(p.checklist_id)}/items", body=_fields(p, "checklist_id")
-        ),
-        local=via(checklists_api.add_entry),
     ),
-    "update_entry": Action(
+    "update_entry": bind(
+        checklists_api.update_entry,
         "tick (done true), untick, rename, assign or reorder an entry",
-        "write",
         with_id(ChecklistEntryPatch, "entry_id", "Checklist entry id"),
-        rest=lambda p: Rest(
-            "PATCH", f"/checklist-items/{_q(p.entry_id)}", body=_fields(p, "entry_id", unset=True)
-        ),
-        local=via(checklists_api.update_entry),
     ),
-    "remove_entry": Action(
+    "remove_entry": bind(
+        checklists_api.delete_entry,
         "delete an entry",
-        "write",
         ChecklistEntryRef,
-        rest=lambda p: Rest(
-            "DELETE", f"/checklist-items/{_q(p.entry_id)}", empty={"deleted": p.entry_id}
-        ),
-        local=via(checklists_api.delete_entry, empty=_deleted("deleted", "entry_id")),
+        empty=_deleted("deleted", "entry_id"),
     ),
 }
 
@@ -1756,62 +1384,40 @@ _runs_of = via(automations_api.automation_runs, automation_id="id")
 _all_runs = via(automations_api.all_runs)
 
 AUTOMATION_ACTIONS = {
-    "catalog": Action(
-        "every trigger, condition field and action with its parameters",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/automations/catalog"),
-        local=via(automations_api.catalog),
+    "catalog": bind(
+        automations_api.catalog, "every trigger, condition field and action with its parameters"
     ),
-    "list": Action(
+    "list": bind(
+        automations_api.list_automations,
         "rules, each with a plain-English description and its last run",
-        "read",
-        query_model(automations_api.list_automations),
-        rest=lambda p: Rest("GET", "/automations", query=_fields(p)),
-        local=via(automations_api.list_automations),
     ),
-    "get": Action(
-        "one rule",
-        "read",
-        AutomationRef,
-        rest=lambda p: Rest("GET", f"/automations/{_q(p.id)}"),
-        local=via(automations_api.get_automation, automation_id="id"),
-    ),
-    "create": Action(
+    "get": bind(automations_api.get_automation, "one rule", AutomationRef),
+    "create": bind(
+        automations_api.create_automation,
         "name, trigger {type,...}, actions [{type,...}], optional conditions and list_id or "
         "section_id (neither = every list); see catalog",
-        "write",
-        strict(AutomationIn),
-        rest=lambda p: Rest("POST", "/automations", body=p.model_dump(mode="json")),
-        local=via(automations_api.create_automation),
+        send="all",
     ),
-    "update": Action(
+    "update": bind(
+        automations_api.update_automation,
         "change any field; enabled false pauses the rule",
-        "write",
         with_id(AutomationPatch, "id", "Automation id"),
-        rest=lambda p: Rest("PATCH", f"/automations/{_q(p.id)}", body=_fields(p, "id", unset=True)),
-        local=via(automations_api.update_automation, automation_id="id"),
     ),
-    "delete": Action(
+    "delete": bind(
+        automations_api.delete_automation,
         "remove a rule and its run log (its history stays)",
-        "write",
         AutomationRef,
-        rest=lambda p: Rest("DELETE", f"/automations/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(automations_api.delete_automation, automation_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "run": Action(
+    "run": bind(
+        automations_api.run_automation,
         "run a rule's actions on one item now (trigger and conditions skipped)",
-        "write",
         with_id(RunNowIn, "id", "Automation id"),
-        rest=lambda p: Rest("POST", f"/automations/{_q(p.id)}/run", body={"item_id": p.item_id}),
-        local=via(automations_api.run_automation, automation_id="id"),
     ),
-    "rotate_secret": Action(
+    "rotate_secret": bind(
+        automations_api.rotate_secret,
         "a new secret for verifying the rule's webhook signatures (shown once)",
-        "write",
         AutomationRef,
-        rest=lambda p: Rest("POST", f"/automations/{_q(p.id)}/secret"),
-        local=via(automations_api.rotate_secret, automation_id="id"),
     ),
     "runs": Action(
         "the run log, newest first: what fired, on which item, how each action went",
@@ -1831,419 +1437,251 @@ AUTOMATION_ACTIONS = {
 DOC_ID = (str, Field(description="Doc id"))
 
 DOC_ACTIONS = {
-    "list": Action(
-        "pages in tree order without bodies; q searches titles and bodies",
-        "read",
-        query_model(docs_api.list_docs),
-        rest=lambda p: Rest("GET", "/docs", query=_fields(p)),
-        local=via(docs_api.list_docs),
+    "list": bind(
+        docs_api.list_docs, "pages in tree order without bodies; q searches titles and bodies"
     ),
-    "get": Action(
+    "get": bind(
+        docs_api.get_doc,
         "one page: body, path, subpages, outline, embedded tasks, links, backlinks, files",
-        "read",
         DocRefP,
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}"),
-        local=via(docs_api.get_doc, doc_id="id"),
     ),
-    "templates": Action(
-        "starting points for create's template",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/docs/templates"),
-        local=via(docs_api.templates),
-    ),
-    "create": Action(
+    "templates": bind(docs_api.templates, "starting points for create's template"),
+    "create": bind(
+        docs_api.create_doc,
         "a page in list_id, section_id, the workspace (neither) or under parent_id; "
         "body_md is Markdown, [[task:<id>]] embeds a task card, [[doc:<id>]] links a page",
-        "write",
-        strict(DocIn),
-        rest=lambda p: Rest("POST", "/docs", body=_fields(p)),
-        local=via(docs_api.create_doc),
     ),
-    "update": Action(
+    "update": bind(
+        docs_api.update_doc,
         "edit title, icon or body: body_md replaces, append_md adds at the end, "
         "replace_section {heading, body_md} rewrites one part; base_revision guards against "
         "overwriting a newer edit; note names a page-history version",
-        "write",
         with_id(DocPatch, "id", "Doc id"),
-        rest=lambda p: Rest(
-            "PATCH", f"/docs/{_q(p.id)}", body=jsonable(_fields(p, "id", unset=True))
-        ),
-        local=via(docs_api.update_doc, doc_id="id"),
     ),
-    "move": Action(
+    "move": bind(
+        docs_api.move_doc,
         "move under parent_id, or to the top of list_id / section_id / the workspace; before_id "
         "orders it",
-        "write",
         with_id(DocMoveIn, "id", "Doc id"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/move", body=_fields(p, "id", unset=True)),
-        local=via(docs_api.move_doc, doc_id="id"),
+        send="set",
     ),
-    "archive": Action(
-        "hide a page and its subpages",
-        "write",
-        DocRefP,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/archive"),
-        local=via(docs_api.archive_doc, doc_id="id"),
+    "archive": bind(docs_api.archive_doc, "hide a page and its subpages", DocRefP),
+    "unarchive": bind(docs_api.unarchive_doc, "bring an archived page back", DocRefP),
+    "delete": bind(
+        docs_api.delete_doc, "delete an archived page and its subpages for good", DocRefP
     ),
-    "unarchive": Action(
-        "bring an archived page back",
-        "write",
-        DocRefP,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/unarchive"),
-        local=via(docs_api.unarchive_doc, doc_id="id"),
-    ),
-    "delete": Action(
-        "delete an archived page and its subpages for good",
-        "write",
-        DocRefP,
-        rest=lambda p: Rest("DELETE", f"/docs/{_q(p.id)}"),
-        local=via(docs_api.delete_doc, doc_id="id"),
-    ),
-    "duplicate": Action(
+    "duplicate": bind(
+        docs_api.duplicate_doc,
         "copy a page (and its subpages) next to it",
-        "write",
         with_id(DocDuplicateIn, "id", "Doc id"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/duplicate", body=_fields(p, "id")),
-        local=via(docs_api.duplicate_doc, doc_id="id"),
     ),
-    "versions": Action(
-        "page history, newest first (no bodies)",
-        "read",
-        DocRefP,
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}/versions"),
-        local=via(docs_api.versions, doc_id="id"),
-    ),
-    "version": Action(
-        "one version with its body",
-        "read",
-        DocVersionRef,
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}/versions/{p.version_no}"),
-        local=via(docs_api.version, doc_id="id"),
-    ),
-    "diff": Action(
+    "versions": bind(docs_api.versions, "page history, newest first (no bodies)", DocRefP),
+    "version": bind(docs_api.version, "one version with its body", DocVersionRef),
+    "diff": bind(
+        docs_api.diff,
         "unified diff of the body between two versions (default to: the current text)",
-        "read",
         query_model(docs_api.diff, id=DOC_ID),
-        rest=lambda p: Rest(
-            "GET",
-            f"/docs/{_q(p.id)}/diff",
-            query={"from": p.from_version, **({"to": p.to_version} if p.to_version else {})},
-        ),
-        local=via(docs_api.diff, doc_id="id"),
     ),
-    "restore": Action(
+    "restore": bind(
+        docs_api.restore,
         "put an older version's title and body back (as a new version)",
-        "write",
         DocVersionRef,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/versions/{p.version_no}/restore"),
-        local=via(docs_api.restore, doc_id="id"),
     ),
-    "create_task": Action(
+    "create_task": bind(
+        docs_api.create_task,
         "file one task from the page: replace names the text that becomes its live card "
         f"(else the card is added at the end); the task links back. {RULE}",
-        "write",
         with_id(DocTaskIn, "id", "Doc id"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/tasks", body=jsonable(_fields(p, "id"))),
-        local=via(docs_api.create_task, doc_id="id"),
     ),
-    "attach": Action(
+    "attach": bind(
+        docs_api.add_file_base64,
         "upload an image or file into the page; paste the returned markdown into the body",
-        "write",
         with_id(Base64FileIn, "id", "Doc id"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/files/base64", body=_fields(p, "id")),
-        local=via(docs_api.add_file_base64, doc_id="id"),
     ),
-    "remove_file": Action(
+    "remove_file": bind(
+        docs_api.remove_file,
         "remove an uploaded file",
-        "write",
         DocFileRef,
-        rest=lambda p: Rest("DELETE", f"/doc-files/{_q(p.file_id)}", empty={"removed": p.file_id}),
-        local=via(docs_api.remove_file, empty=_deleted("removed", "file_id")),
+        empty=_deleted("removed", "file_id"),
     ),
-    "upload": Action(
+    "upload": bind(
+        docs_api.add_revision_base64,
         "the next revision of a file doc (a PDF, spreadsheet, photo); the previous revision "
         "stays, superseded; note says what changed and is required",
-        "write",
         with_id(Base64RevisionIn, "id", "Doc id (a file doc: create with kind='file')"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/revisions/base64", body=_fields(p, "id")),
-        local=via(docs_api.add_revision_base64, doc_id="id"),
     ),
-    "revisions": Action(
+    "revisions": bind(
+        docs_api.revisions,
         "a file doc's revisions, newest first (metadata; bytes at each url)",
-        "read",
         DocRefP,
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}/revisions"),
-        local=via(docs_api.revisions, doc_id="id"),
     ),
-    "restore_revision": Action(
+    "restore_revision": bind(
+        docs_api.restore_revision,
         "make an older revision of a file doc current again (as a new revision)",
-        "write",
         DocRevisionRef,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/revisions/{p.revision_no}/restore"),
-        local=via(docs_api.restore_revision, doc_id="id"),
     ),
-    "hub": Action(
+    "hub": bind(
+        docs_api.section_documents,
         "a section's documents hub: its drawers with counts, pages outside any drawer, what "
         "needs you (open asks to you, open review threads by others on docs you touched)",
-        "read",
         SectionDocs,
-        rest=lambda p: Rest("GET", f"/sections/{_q(p.section_id)}/documents"),
-        local=via(docs_api.section_documents),
     ),
-    "drawer": Action(
+    "drawer": bind(
+        docs_api.drawer,
         "a drawer's entries (folders and documents) at its top or inside a folder, with "
         "revisions, pins, tags, thread counts; a drawer is a list of kind drawer",
-        "read",
         query_model(
             docs_api.drawer,
             list_id=(str, Field(description="The drawer (a list of kind drawer)")),
         ),
-        rest=lambda p: Rest(
-            "GET",
-            f"/lists/{_q(p.list_id)}/drawer",
-            query={"folder": p.folder} if p.folder else {},
-        ),
-        local=via(docs_api.drawer),
     ),
-    "to_drawer": Action(
+    "to_drawer": bind(
+        docs_api.to_drawer,
         "turn a top-level page into a drawer of the same name in its section (its subpages "
         "become the entries; the page moves in too)",
-        "write",
         DocRefP,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/to-drawer"),
-        local=via(docs_api.to_drawer, doc_id="id"),
     ),
-    "pin_revision": Action(
+    "pin_revision": bind(
+        docs_api.pin_revision,
         "mark a file doc's revision as the one in use; one pin per doc",
-        "write",
         with_id(
             PinIn,
             "id",
             "Doc id (a file doc)",
             revision_no=(int, Field(ge=1, description="The revision in use")),
         ),
-        rest=lambda p: Rest(
-            "POST", f"/docs/{_q(p.id)}/revisions/{p.revision_no}/pin", body={"note": p.note}
-        ),
-        local=via(docs_api.pin_revision, doc_id="id"),
+        send="all",
     ),
-    "unpin_revision": Action(
-        "take the pin off a file doc",
-        "write",
-        DocRefP,
-        rest=lambda p: Rest("DELETE", f"/docs/{_q(p.id)}/pin"),
-        local=via(docs_api.unpin_revision, doc_id="id"),
-    ),
-    "pin_to_top": Action(
+    "unpin_revision": bind(docs_api.unpin_revision, "take the pin off a file doc", DocRefP),
+    "pin_to_top": bind(
+        docs_api.pin_to_top,
         "pin a document (file, page or folder) to the top of its drawer or folder listing, "
         "for everyone",
-        "write",
         DocRefP,
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/top"),
-        local=via(docs_api.pin_to_top, doc_id="id"),
     ),
-    "unpin_from_top": Action(
+    "unpin_from_top": bind(
+        docs_api.unpin_from_top,
         "take a document off the top of its drawer or folder listing",
-        "write",
         DocRefP,
-        rest=lambda p: Rest("DELETE", f"/docs/{_q(p.id)}/top"),
-        local=via(docs_api.unpin_from_top, doc_id="id"),
     ),
-    "compare_revisions": Action(
+    "compare_revisions": bind(
+        docs_api.compare_revisions,
         "what changed between two revisions of a file doc: text files line by line, "
         "CSV/XLSX cell by cell per sheet, PDFs by extracted text (approximate); images none",
-        "read",
         DocCompare,
-        rest=lambda p: Rest(
-            "GET",
-            f"/docs/{_q(p.id)}/revisions/compare",
-            query={
-                "from": p.from_revision,
-                **({"to": p.to_revision} if p.to_revision else {}),
-            },
-        ),
-        local=via(
-            docs_api.compare_revisions, doc_id="id", from_no="from_revision", to_no="to_revision"
-        ),
+        from_no="from_revision",
+        to_no="to_revision",
     ),
-    "comments": Action(
+    "comments": bind(
+        doc_comments_api.list_comments,
         "every comment on the doc, oldest first (review threads carry an anchor and can be "
         "resolved; discussion has none; replies carry parent_id)",
-        "read",
         DocRefP,
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}/comments"),
-        local=via(doc_comments_api.list_comments, doc_id="id"),
     ),
-    "comment": Action(
+    "comment": bind(
+        doc_comments_api.add_comment,
         "comment on a page or file: with anchor (quote/start/end on a page; page and/or x,y "
         "on a file) a review thread, without one discussion; parent_id replies; "
         "suggestion_md proposes replacement text for the quote; assignee makes it an Ask",
-        "write",
         with_id(DocCommentIn, "id", "Doc id"),
-        rest=lambda p: Rest("POST", f"/docs/{_q(p.id)}/comments", body=jsonable(_fields(p, "id"))),
-        local=via(doc_comments_api.add_comment, doc_id="id"),
     ),
-    "edit_comment": Action(
+    "edit_comment": bind(
+        doc_comments_api.edit_comment,
         "edit your own doc comment",
-        "write",
         with_id(DocCommentPatch, "comment_id", "Doc comment id"),
-        rest=lambda p: Rest(
-            "PATCH", f"/doc-comments/{_q(p.comment_id)}", body={"body_md": p.body_md}
-        ),
-        local=via(doc_comments_api.edit_comment),
     ),
-    "resolve_comment": Action(
-        "close a review thread or Ask (its first comment)",
-        "write",
-        DocCommentRef,
-        rest=lambda p: Rest("POST", f"/doc-comments/{_q(p.comment_id)}/resolve"),
-        local=via(doc_comments_api.resolve),
+    "resolve_comment": bind(
+        doc_comments_api.resolve, "close a review thread or Ask (its first comment)", DocCommentRef
     ),
-    "reopen_comment": Action(
-        "reopen a resolved thread",
-        "write",
-        DocCommentRef,
-        rest=lambda p: Rest("POST", f"/doc-comments/{_q(p.comment_id)}/reopen"),
-        local=via(doc_comments_api.reopen),
-    ),
-    "assign_comment": Action(
+    "reopen_comment": bind(doc_comments_api.reopen, "reopen a resolved thread", DocCommentRef),
+    "assign_comment": bind(
+        doc_comments_api.assign,
         "address a doc comment to an account (an Ask), or take it off",
-        "write",
         with_id(DocCommentAssignIn, "comment_id", "Doc comment id"),
-        rest=lambda p: Rest(
-            "POST", f"/doc-comments/{_q(p.comment_id)}/assign", body={"assignee": p.assignee}
-        ),
-        local=via(doc_comments_api.assign),
+        send="all",
     ),
-    "accept_suggestion": Action(
+    "accept_suggestion": bind(
+        doc_comments_api.accept,
         "apply a review comment's suggestion_md to the page and resolve the thread",
-        "write",
         DocCommentRef,
-        rest=lambda p: Rest("POST", f"/doc-comments/{_q(p.comment_id)}/accept"),
-        local=via(doc_comments_api.accept),
     ),
-    "activity": Action(
+    "activity": bind(
+        doc_comments_api.activity,
         "the doc's comments plus the events the side panel folds in (revisions, saves, "
         "moves, resolved threads), oldest first",
-        "read",
         query_model(doc_comments_api.activity, id=DOC_ID),
-        rest=lambda p: Rest("GET", f"/docs/{_q(p.id)}/activity", query={"limit": p.limit}),
-        local=via(doc_comments_api.activity, doc_id="id"),
+        send="all",
     ),
 }
 
 # Workload -----------------------------------------------------------------------------------
 
 WORKLOAD_ACTIONS = {
-    "boxes": Action(
+    "boxes": bind(
+        workload_api.get_boxes,
         "the Box view: per person and agent (and unassigned) open, in progress, overdue and "
         "recently done counts, with open minutes against this week's capacity",
-        "read",
-        query_model(workload_api.get_boxes),
-        rest=lambda p: Rest("GET", "/workload/boxes", query=_fields(p)),
-        local=via(workload_api.get_boxes),
     ),
-    "capacities": Action(
+    "capacities": bind(
+        workload_api.list_capacities,
         "every person's and agent's capacity (hours a day, tasks a day, days)",
-        "read",
-        query_model(workload_api.list_capacities),
-        rest=lambda p: Rest("GET", "/capacities", query=_fields(p)),
-        local=via(workload_api.list_capacities),
     ),
-    "capacity": Action(
-        "one account's capacity",
-        "read",
-        AccountRef,
-        rest=lambda p: Rest("GET", f"/accounts/{_q(p.account_id)}/capacity"),
-        local=via(workload_api.get_capacity),
-    ),
-    "set_capacity": Action(
+    "capacity": bind(workload_api.get_capacity, "one account's capacity", AccountRef),
+    "set_capacity": bind(
+        workload_api.set_capacity,
         "set your own capacity (or anyone's as an admin): hours_per_day, tasks_per_day "
         "(null = no limit) and work_days (0 = Monday)",
-        "write",
         with_id(CapacityIn, "account_id", "Account id (a person or an agent)"),
-        rest=lambda p: Rest(
-            "PATCH",
-            f"/accounts/{_q(p.account_id)}/capacity",
-            body=_fields(p, "account_id", unset=True),
-        ),
-        local=via(workload_api.set_capacity),
     ),
-    "reset_capacity": Action(
+    "reset_capacity": bind(
+        workload_api.reset_capacity,
         "put an account's capacity back to the defaults for its kind",
-        "write",
         AccountRef,
-        rest=lambda p: Rest("DELETE", f"/accounts/{_q(p.account_id)}/capacity"),
-        local=via(workload_api.reset_capacity),
     ),
 }
 
 # Reminders ----------------------------------------------------------------------------------
 
 REMINDER_ACTIONS = {
-    "add": Action(
+    "add": bind(
+        reminders_api.add_reminder,
         "remind you (or `account`) about an item `at` a time, or `before_minutes` before its "
         "due date; it arrives in the inbox, check-in and on phone and desktop. Alerts before "
         "due: one call per lead (5, 15, 30, 60, 120, 1440, 2880, 10080...), any number per item; "
         "the same lead twice is one alert. Setting one for a person from a chat app: pass "
         "`account` (`alex`), else it reminds you",
-        "write",
         with_id(ReminderIn, "item_id", "Item id"),
-        rest=lambda p: Rest(
-            "POST", f"/items/{_q(p.item_id)}/reminders", body=_fields(p, "item_id")
-        ),
-        local=via(reminders_api.add_reminder),
     ),
-    "list": Action(
-        "an item's reminders, fired or not",
-        "read",
-        ReminderItem,
-        rest=lambda p: Rest("GET", f"/items/{_q(p.item_id)}/reminders"),
-        local=via(reminders_api.item_reminders),
-    ),
-    "upcoming": Action(
+    "list": bind(reminders_api.item_reminders, "an item's reminders, fired or not", ReminderItem),
+    "upcoming": bind(
+        reminders_api.my_reminders,
         "your reminders that have not gone off yet, soonest first",
-        "read",
-        query_model(reminders_api.my_reminders),
-        rest=lambda p: Rest("GET", "/reminders", query={"limit": p.limit}),
-        local=via(reminders_api.my_reminders),
+        send="all",
     ),
-    "remove": Action(
+    "remove": bind(
+        reminders_api.remove_reminder,
         "remove a reminder (yours, or one you set)",
-        "write",
         ReminderRef,
-        rest=lambda p: Rest("DELETE", f"/reminders/{_q(p.id)}", empty={"deleted": p.id}),
-        local=via(reminders_api.remove_reminder, reminder_id="id", empty=_deleted("deleted")),
+        empty=_deleted("deleted"),
     ),
-    "digest": Action(
+    "digest": bind(
+        reminders_api.my_digest,
         "what your daily digest says right now: overdue, due today, waiting on you",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/me/digest"),
-        local=via(reminders_api.my_digest),
     ),
 }
 
 # Export, batch, inbox, search ---------------------------------------------------------------
 
 EXPORT_ACTIONS = {
-    "json": Action(
+    "json": bind(
+        data_api.export_data,
         "a list, a section or everything as one JSON document: every task (the item shape) "
         "with comments, checklists and links, plus the lists, statuses, tags and "
         "fields around them; trashed tasks are left out",
-        "read",
         query_model(data_api.export_data, format=None),
-        rest=lambda p: Rest("GET", "/export", query={"format": "json", **_fields(p)}),
-        local=via(data_api.export_data, format=lambda p: "json"),
+        format=lambda p: "json",
     ),
-    "empty_trash": Action(
-        "delete everything in the trash for good (admins)",
-        "admin",
-        NoParams,
-        rest=lambda p: Rest("POST", "/trash/empty"),
-        local=via(data_api.empty_trash),
-    ),
+    "empty_trash": bind(data_api.empty_trash, "delete everything in the trash for good (admins)"),
 }
 
 
@@ -2256,60 +1694,33 @@ def _batch(lc: Local, p: Any) -> dict:
 
 
 def _batch_actions() -> dict[str, Action]:
+    from slate.api import batch as batch_api
     from slate.batch import BatchIn
 
-    return {
-        "run": Action(
-            "{atomic, results: [{ok, result | error}]}, one slot per op in order",
-            "read",
-            BatchIn,
-            rest=lambda p: Rest("POST", "/batch", body=p.model_dump(exclude_none=True)),
-            local=_batch,
-        )
-    }
+    doc = "{atomic, results: [{ok, result | error}]}, one slot per op in order"
+    return {"run": bind(batch_api.run_batch, doc, BatchIn, local=_batch)}
 
 
 INBOX_ACTIONS = {
-    "list": Action(
+    "list": bind(
+        inbox_api.list_inbox,
         "your notifications, newest first: mentions, assignments, due nudges and changes on "
         "items you are assigned to or watch",
-        "read",
-        query_model(inbox_api.list_inbox),
-        rest=lambda p: Rest("GET", "/inbox", query=_fields(p)),
-        local=via(inbox_api.list_inbox),
     ),
-    "count": Action(
-        "how many are unread",
-        "read",
-        NoParams,
-        rest=lambda p: Rest("GET", "/inbox/count"),
-        local=via(inbox_api.inbox_count),
+    "count": bind(inbox_api.inbox_count, "how many are unread"),
+    "read": bind(
+        inbox_api.mark_read, "mark entries read: event_ids, every entry for an item_id, or all"
     ),
-    "read": Action(
-        "mark entries read: event_ids, every entry for an item_id, or all",
-        "write",
-        strict(inbox_api.InboxMarkIn),
-        rest=lambda p: Rest("POST", "/inbox/read", body=_fields(p)),
-        local=via(inbox_api.mark_read),
-    ),
-    "clear": Action(
-        "clear entries out of the inbox (same targets as read)",
-        "write",
-        strict(inbox_api.InboxMarkIn),
-        rest=lambda p: Rest("POST", "/inbox/clear", body=_fields(p)),
-        local=via(inbox_api.clear),
-    ),
+    "clear": bind(inbox_api.clear, "clear entries out of the inbox (same targets as read)"),
 }
 
 SEARCH_ACTIONS = {
-    "search": Action(
+    "search": bind(
+        search_api.search,
         "find q in tasks (title, description), docs (title, page text, file text) and chat "
         "messages at once: typed hits, tasks first, then docs, then messages (newest first); "
         "only what you can read; `%` and `_` are literal",
-        "read",
-        query_model(search_api.search),
-        rest=lambda p: Rest("GET", "/search", query={"q": p.q, "limit": p.limit}),
-        local=via(search_api.search),
+        send="all",
     )
 }
 

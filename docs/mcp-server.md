@@ -50,26 +50,41 @@ else is a protocol error (`-32603`), i.e. a bug.
 
 **An action is the REST handler plus an id.** `mcp_tools.py` does not mirror the REST
 layer by hand: a hand-written mirror drifts, and a field added to a REST model is then silently
-dropped over MCP. An action's params are the REST request
-model made strict plus the route's path id, `with_id(ItemPatch, "id", "Item id")` (or
-`strict(ItemIn)` when there is none), or for a GET, `query_model(items_api.query_items)`: a model
+dropped over MCP. An action is `bind(items_api.update_item, "doc line", params)`: `bind` reads the
+handler's route once and derives everything else from it: the scope (the `require(...)`
+dependency's), the method and path, and both bindings. The only thing written per action is the
+one-line `doc` agents read.
+
+Its params are the REST request model made strict plus the route's path id,
+`with_id(ItemPatch, "id", "Item id")`, or for a GET, `query_model(items_api.query_items)`: a model
 built from the handler's query parameters with their types, bounds, defaults and descriptions
-(`**overrides` add or replace fields, e.g. `fields` as a list). Its `local` binding is
-`via(items_api.update_item, item_id="id")`: `via` reads the handler's signature once, fills `Auth`
-from the caller's principal and actor, the `Session`, the body model from the params (the REST base
-of a `with_id` model, or the overlapping fields of a narrow model such as `set_status`), and every
-other parameter from the params field of the same name or as the binds say (a field name, or a
-function of the params such as `fields=_joined("fields")`); it renders the answer with the route's
-`response_model`, turns an `HTTPException` into a tool error, answers `empty(params)` for a 204, and
-under a batch with `views: "final"` re-marks `ItemOut` answers as `Later`. Which route each action
-calls is in the generated `docs/agents/reference/mcp.md`. **`tests/test_mcp_parity.py` is the
-guard:** it runs every action's `rest=` binding on traceable sample params and fails when a REST
-query parameter or body field is never sent, when the action sends a key the route rejects, or when
-an MCP param reaches nothing; deliberate differences (the narrow actions, `finish`'s `next`) sit in
-its small allowlist with a reason each. Still hand-written, because their local path is not one REST
-call: `slate_batch`, `slate_checkin` (long-poll), `slate_work next` and `finish` (long-poll,
-`next`), `slate_account me` (the REST route also renews a cookie), and the two-route choices
-(`slate_share who`/`private`, `slate_automation runs`). The REST `Query(description=...)` and
+(`**overrides` add or replace fields, e.g. `fields` as a list). Left out, params default to
+`strict(body model)`, else the route's query parameters, else none; a route with a path id needs
+them named. Path ids, query parameters and the body are read from the params the same way for both
+bindings: from the params field of the same name, or as the binds say (a field name such as
+`key="channel"`, or a function of the params such as `fields=_joined("fields")`); a path id that no
+field names (`item_id` in `/items/{item_id}`) is the params' `id`.
+
+The `rest` binding (stdio mode) fills the route's path, sends the query parameters that are set and
+the params that are body fields; `send=` picks which: `given` (not null, the default), `set` (what
+the caller sent, the default for PATCH, so null clears) or `all`. The `local` binding is
+`via(handler)`: it fills `Auth` from the caller's principal and actor, the `Session`, the body model
+from the params (the REST base of a `with_id` model, or the overlapping fields of a narrow model
+such as `set_status`), and every other parameter as above; it renders the answer with the route's
+`response_model`, turns an `HTTPException` into a tool error, answers `empty(params)` for a 204,
+and under a batch with `views: "final"` re-marks `ItemOut` answers as `Later`. Which route each
+action calls is in the generated `docs/agents/reference/mcp.md`.
+
+**`tests/test_mcp_parity.py` is the guard:** it runs every action's `rest` binding on traceable
+sample params and fails when a REST query parameter or body field is never sent, when the action
+sends a key the route rejects, or when an MCP param reaches nothing; deliberate differences (the
+narrow actions, `finish`'s `next`) sit in its small allowlist with a reason each. It also fails
+when an action's scope is not its route's: the MCP door checks `Action.scope` itself, since REST's
+`require` never runs there. A few actions pass their own `local=` to `bind`, because their local
+path is not one REST handler call: `slate_batch`, `slate_checkin` (long-poll), `slate_work next`
+and `finish` (long-poll, `next`) and `slate_account me` (the REST route also renews a cookie). The
+two-route choices (`slate_share who`/`private`, `slate_automation runs`) are written out as
+`Action(doc, scope, params, rest=..., local=...)`. The REST `Query(description=...)` and
 request-model descriptions are what agents see in the tool schemas, so describe a parameter
 there, once.
 
@@ -107,10 +122,10 @@ httpx). The stdio side runs `Client(build_server(lambda _: RestBackend(...)))` i
 `TestClient`, which checks every REST path and body.
 
 **How to add a tool or action.** (1) Write or reuse the service function (see "How to add an
-endpoint"). (2) In `mcp_tools.py` add an `Action(doc, scope, params, rest=..., local=...)` to the
-tool's action dict with `params=with_id(TheIn, "id", "Thing id")` (or `strict(TheIn)`, or
-`query_model(the_api.list_things)`) and `local=via(the_api.handler, thing_id="id")`;
-`tests/test_mcp_parity.py` then checks the two bindings against the route. A new resource gets a
+endpoint"). (2) In `mcp_tools.py` add `bind(the_api.handler, "what it does")` to the tool's
+action dict, with `with_id(TheIn, "id", "Thing id")` as its params when the route has a path id
+(or a `P` model of ids, or `query_model(the_api.list_things)`); `tests/test_mcp_parity.py` then
+checks the params and scope against the route. A new resource gets a
 `ToolSpec` in `TOOLS` with a two-sentence `about`, an `example`, and honest
 `read_only`/`destructive`. (3) Call it in `tests/test_mcp.py`, both in the in-process test and in
 the stdio bridge test.
