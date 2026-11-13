@@ -80,7 +80,7 @@ MAX_ESTIMATE = 60 * 24 * 365
 
 def _due_date_only(fields: Mapping[str, Any]) -> bool:
     """`due_date_only` for a write that sets `due_at`: a bare YYYY-MM-DD means date-only; an
-    internal caller (recurrences, importers) passes `due_date_only` itself."""
+    internal caller (recurrences) passes `due_date_only` itself."""
     if fields.get("due_at") is None:
         return False
     if fields.get("due_date_only") is not None:
@@ -408,20 +408,6 @@ def depth_of(session: Session, item: Item) -> int:
     return depth
 
 
-def ancestors_of(session: Session, item: Item) -> list[Item]:
-    """The parent, grandparent... of `item`, nearest first."""
-    out: list[Item] = []
-    seen = {item.id}
-    cur = item
-    while cur.parent_id is not None and cur.parent_id not in seen:
-        seen.add(cur.parent_id)
-        cur = session.get(Item, cur.parent_id)
-        if cur is None:
-            break
-        out.append(cur)
-    return out
-
-
 def descendants_of(session: Session, item_id: str, *, include_archived: bool = True) -> list[Item]:
     """Every subtask under `item_id` at any depth, parents before children."""
     out: list[Item] = []
@@ -433,17 +419,6 @@ def descendants_of(session: Session, item_id: str, *, include_archived: bool = T
         out.extend(rows)
         frontier = [r.id for r in rows]
     return out
-
-
-def height_of(session: Session, item_id: str) -> int:
-    """How many levels of subtasks hang under `item_id`: 0 when it has none."""
-    height = 0
-    frontier = [item_id]
-    while frontier:
-        frontier = list(session.scalars(select(Item.id).where(Item.parent_id.in_(frontier))))
-        if frontier:
-            height += 1
-    return height
 
 
 def item_detail(session: Session, item_id: str) -> dict[str, Any]:
@@ -961,16 +936,6 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
         if tag_names is not None:
             _set_tags(cx, item, tag_names)
     return item
-
-
-def set_assignees(session: Session, actor: Actor, item_id: str, refs: Sequence[str]) -> Item:
-    """Replace the item's assignees (handles or ids). One `item.assigned` event naming the diff."""
-    return update_item(session, actor, item_id, {"assignees": list(refs)})
-
-
-def set_tags(session: Session, actor: Actor, item_id: str, names: Sequence[str]) -> Item:
-    """Replace the item's tags (names; unknown ones are created)."""
-    return update_item(session, actor, item_id, {"tags": list(names)})
 
 
 MAX_BULK = 500

@@ -104,10 +104,6 @@ class LeaseOut(BaseModel):
     account_id: str
     claimed_at: datetime
     until: datetime = Field(description="Heartbeat before this, or the task goes back")
-    from_pool: bool = Field(
-        description="The take assigned you (the task had no assignee); an expired lease "
-        "un-assigns you again"
-    )
 
 
 class ChatLeaseOut(BaseModel):

@@ -97,10 +97,6 @@ class Channel:
     mention_required: bool = True
 
 
-def channel_key(kind: str, target_id: str | None = None) -> str:
-    return GENERAL if kind == GENERAL else f"{kind}:{target_id}"
-
-
 def place(key: str | None, name: str | None) -> str:
     """How a notification names a channel: `#Todo`, or `chat with My Agent` for an agent's chat."""
     if (key or "").startswith(f"{AGENT}:"):

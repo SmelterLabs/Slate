@@ -1548,11 +1548,6 @@ def participant_ids(session: Session) -> set[str] | None:
     return ids
 
 
-def can_see_list(session: Session, list_id: str) -> bool:
-    access = current(session)
-    return access is None or access.list_level(list_id) > 0
-
-
 def check_scope(session: Session, list_id: str | None, section_id: str | None, what: str) -> None:
     """Raise `Forbidden` unless the caller may edit the scope `(list_id, section_id)`: the
     list, else the section, else (neither: the whole workspace) only an unrestricted caller."""
@@ -1596,5 +1591,4 @@ __all__ = [
     "compute",
     "current",
     "read_criteria",
-    "true",
 ]

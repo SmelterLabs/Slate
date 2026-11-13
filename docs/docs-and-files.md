@@ -9,7 +9,7 @@ resource-safety rules around them.
 ClickUp-style Docs: pages next to the work, nested up to 8 deep, in the Workspace, a section or a
 list. The same tree also holds **file docs**.
 
-- **File docs** (migration `f4b8d2a6c1e9`): `docs.kind` is `page` (default) or `file`. A file doc's
+- **File docs**: `docs.kind` is `page` (default) or `file`. A file doc's
   uploads are `doc_files` rows with a `revision_no` (1 upward, unique per doc), a `note` (what
   changed; **required for everyone**), `superseded_at` (stamped on the previous
   revision when the next arrives) and `restored_from`. Pages' inline images are `doc_files` rows
@@ -28,7 +28,7 @@ list. The same tree also holds **file docs**.
   `upload|revisions|restore_revision`, `slate_item` `promote_attachment`. Export rows carry `file`;
   the health report's `db.blob_bytes` sums attachment and doc-file sizes (the Health page's "Files
   stored" tile).
-- **Discussion and review threads** (migration `a7c3e9f1b5d2`, table `doc_comments`,
+- **Discussion and review threads** (table `doc_comments`,
   `service/doc_threads.py`, `api/doc_comments.py`): one table for two surfaces. A **review** root is
   anchored (`anchor_start`/`anchor_end`/`anchor_quote` on a page; `anchor_page`,
   `anchor_x`/`anchor_y` in 0–1 on a file), can be resolved and reopened, and on a page may carry
@@ -56,7 +56,7 @@ list. The same tree also holds **file docs**.
   /docs/{id}/activity`; MCP `slate_doc`
   `comments|comment|edit_comment|resolve_comment|reopen_comment|assign_comment|accept_suggestion|activity`.
   Tests: `tests/test_doc_threads.py`, `web/e2e/doc-threads.spec.ts`.
-- **Drawers** (migration `d2f6a8c4e1b7`): `lists.kind` is `tasks` or `drawer`; a drawer is a list
+- **Drawers**: `lists.kind` is `tasks` or `drawer`; a drawer is a list
   whose entries are documents (`docs.list_id`), so one place answers "where does this go" and
   nothing is aggregated. `lists.require_tasks` refuses items on create and move;
   `update_list(kind=…)` converts, to a drawer only while the list holds no tasks. `docs.kind` also
@@ -79,7 +79,7 @@ list. The same tree also holds **file docs**.
   glyph and a document count, Docs & Files sits under More; `ListSettings` has a Kind switch
   (`board.setListKind`); `DocsHub` is drawers + pages + Needs you. Tests: `tests/test_drawers.py`,
   `web/e2e/drawer.spec.ts` (and `hub.spec.ts`, `collaboration.spec.ts`).
-- **Hub, filters and tags** (migration `c9e5f3b8d4a2`, table `doc_tags`): docs carry the
+- **Hub, filters and tags** (table `doc_tags`): docs carry the
   same `tags` tasks do (`docs._set_tags`, one `doc.updated` field `tags` with sorted names
   before/after; `tags` on create and PATCH; `GET /docs?tag=&kind=`; summaries carry `tags`;
   `tags.usage_counts` adds docs, so the Tags page counts them).
@@ -87,17 +87,15 @@ list. The same tree also holds **file docs**.
   and MCP `slate_doc hub` (the shape under Drawers above): `needs_you` is the open roots (Asks
   addressed to `me`; review threads by someone else on a doc `me` created, edited or commented
   on), each with the board URL `/#/docs/<id>?comment=<cid>`. Guests see it only where they see the
-  section. `slate backfill-doc-text` (`doc_compare.backfill_text`, as the `slate` system agent,
-  one `doc.text_extracted` event per revision) indexes revisions that have no stored text or
-  tables, for example after the extraction cap is raised. Board:
+  section. Board:
   `components/docs/DocsHub.svelte` is the documents block on `ProjectHome` (reloads on `doc.*`
   events; `?upload=1&in=s:<id>` on `#/docs` opens the upload sheet for the section); `lib/docs.ts`
   `fileGroup`, `filterDocs` (keeps ancestors so the tree still reads), `sortTree`, `tagCounts`;
   `DocsPage` has kind and file-group chips, a sort select and tag chips (state in `localStorage`
   `slate.docs.filter`); `DocPage` shows a `TagEditor` under the title (`docs.setTags`). Tests:
   `tests/test_doc_hub.py`, `web/e2e/hub.spec.ts`, Vitest for the helpers.
-- **Compare** (migration `b8d4f2a7c3e1`, `service/doc_compare.py`): `doc_files.text` holds
-  text extracted once on upload (`extract_text`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
+- **Compare** (`service/doc_compare.py`): `doc_files.text` holds
+  text extracted once on upload (`extract`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
   as they are; XLSX through `openpyxl` read-only, one `## Sheet` block per sheet, cells tab-joined;
   PDF through `pypdf` per page; `MAX_TEXT` 300k chars; never raises, a file that cannot be read
   uploads without text). `GET /docs?q=` matches it and the snippet comes from the current revision's
@@ -127,7 +125,7 @@ list. The same tree also holds **file docs**.
   images (`.file-pin`, amber when outdated) and a click on the image starts a thread at that spot.
   `DocPage` toggles the panel (badge = open threads, else comments; it shares the right column with
   history) and reads `?comment=`. Styles under `/* --- discussion and review threads` in `docs.css`.
-- **Pinned to top (migration `f3a9c7e2b5d1`):** `docs.top_pinned_at` / `top_pinned_by`;
+- **Pinned to top:** `docs.top_pinned_at` / `top_pinned_by`;
   `docs.pin_to_top` / `unpin_from_top` (`doc.pinned_to_top|unpinned_from_top`, field
   `top_pinned_at`), `POST|DELETE /docs/{id}/top`, MCP `slate_doc pin_to_top|unpin_from_top`;
   summaries carry `pinned_to_top: {at, by} | null`. `drawer_listing` orders each listing with
@@ -164,7 +162,7 @@ list. The same tree also holds **file docs**.
   (`task.promoteAttachment`, into the task's section). Tests: `tests/test_doc_files.py`,
   `web/e2e/files.spec.ts`, Vitest in `docs.test.ts`.
 
-- **Tables** (migration `38b0917911cc` after `72dfb391b796`): `docs` (title, icon, `parent_id` |
+- **Tables**: `docs` (title, icon, `parent_id` |
   `section_id` | `list_id` for a top page, `body_md`, `position`, `revision` bumped on every save,
   `version_no`, archived_at), `doc_versions` (one row per sitting: title + body as they stood,
   author, note), `doc_files` (bytes in SQLite, deferred column). The migration also widens the
@@ -236,7 +234,7 @@ list. The same tree also holds **file docs**.
 
 ### Collaboration correctness
 
-- Migration `a149dc02b001` adds nullable `doc_comments.anchor_page_revision`. Page comments use the
+- `doc_comments.anchor_page_revision` is nullable. Page comments use the
   monotonic `Doc.revision`, not folded `version_no`, for staleness; an anchor without one reads as
   stale, because folded history cannot prove its identity. The history-version stamp
   (`anchor_revision`) is kept for display. File comments accept optional `viewed_revision` through
@@ -283,11 +281,11 @@ list. The same tree also holds **file docs**.
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even
   read-only; a 1 MB bomb measured 146 s and 1.5 GB); DOCX uses the same cap; `_pdf_text` measures
   each page's content streams with a capped `zlib` inflate before opening the page. CSV/TSV/XLSX
-  tables are stored as JSON in `doc_files.tables_json` (migration `7c2d9e4b1f60`, `[[sheet, rows], ...]`,
+  tables are stored as JSON in `doc_files.tables_json` (`[[sheet, rows], ...]`,
   64 sheets max); **`compare` reads only `text` and `tables_json` and never opens a file** (opening
   two 2 MB workbooks measured 7 s per GET): a revision with either NULL answers `kind: none` with a
-  `message` naming the unindexed revision. `slate backfill-doc-text` fills both columns for rows
-  that lack them. Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
+  `message` naming the unindexed revision; uploading the file again as a new revision indexes it.
+  Raw upload routes (attachments, `/docs/{id}/files`, `/docs/{id}/revisions`) read
   the body through `api/uploads.read_body`, which refuses a declared length over the cap, counts
   `request.stream()` as it arrives and stops at the cap with the same 422; `Content-Length` is not
   trusted (a chunked request has none). Board: `notIndexed` in `lib/docs.ts`, "not

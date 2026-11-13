@@ -37,7 +37,7 @@ def export_data(
     include_archived: Annotated[bool, Query(description="Archived tasks too (default)")] = True,
 ) -> Response:
     """Download a list (`list_id`), a section (`section_id`) or everything. JSON holds every
-    task with its comments, checklists, time and links, docs pages, the scope's chat channels
+    task with its comments, checklists and links, docs pages, the scope's chat channels
     (messages, thread replies, reactions), plus the structure around them; CSV is one row per
     task for a spreadsheet. Trashed tasks are never included."""
     scope = export.scope_of(session, list_id=list_id, section_id=section_id)
