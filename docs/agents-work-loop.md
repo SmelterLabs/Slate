@@ -8,8 +8,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
 
 - **Reports** (`service/reports.py`, `POST /items/{id}/report`, MCP `slate_item report`): an agent
   says `working | blocked | review | done | idle` with an optional `note` and `progress`. The
-  current flag lives in `items.agent_state/_by/_at`, `agent_note`, `agent_progress` (migration
-  `7a9e4c1d2b30`) and every report is one `item.reported` event (`after = {state, note, progress,
+  current flag lives in `items.agent_state/_by/_at`, `agent_note`, `agent_progress`
+  and every report is one `item.reported` event (`after = {state, note, progress,
   by}`), so history has every report. It is a flag beside the status, never a status (rule 4).
   `done` clears the flag and, with `complete` (default), moves the item to the list's first done
   status; `idle` clears it only. `blocked` + `waiting_on` sets `waiting_on_account_id`; `assign_me`
@@ -68,7 +68,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   reports back, `GET /work` lists what the caller holds. A take is an ordinary claim
   (`reports.report(state="working", claim=True, comment=False)`), so the board needs nothing extra:
   `item.reported` + `item.assigned` events. On top of it sits a **lease** in `work_leases`
-  (migration `5b7d2e9a4c18`; one row per held item: account, `until`, `from_pool`). The lease is
+  (one row per held item: account, `until`). The lease is
   bookkeeping (`core.BOOKKEEPING_MODELS`, like token `last_used_at`): a bare heartbeat moves `until`
   with no event, so an agent beating every minute does not flood the history; a heartbeat with
   `note`/`progress` is a real `working` report, unless it repeats the note and progress the badge
@@ -132,7 +132,7 @@ Slate stays the doorbell: it never launches an agent.
 - **`item.run_requested`** (`work.request_run`, `POST /items/{id}/run` 202 → the event, MCP
   `slate_item run`): actor = who pressed, `after = {for: [agent account ids], reason: "now"}`, field
   `run_requested_at`. 422 with no agent assignee, or done/cancelled/archived. Also sets
-  `items.run_requested_at` (migration `8c1f4a7e2d90`), which `work.take()` clears: "a Run now newer
+  `items.run_requested_at`, which `work.take()` clears: "a Run now newer
   than the last run".
 - **Due gate** (`work._run_time_has_come`, inside `eligible()`): when the caller is an agent, a task
   assigned to it with a `due_at` is takeable only once its run time has come or `run_requested_at`
@@ -212,7 +212,7 @@ the asked-only `work/finish done` operation explicitly answers that Ask.
 An Ask is a comment addressed to one account, open until explicitly resolved; independent of the
 item's assignees and `waiting_on`.
 
-- **Model** (migration `3e6a9d2b7f41`): `comments.assignee_id` (indexed), `resolved_at`,
+- **Model**: `comments.assignee_id` (indexed), `resolved_at`,
   `resolved_by_id`. **Service** `service/comments.py`: `add_comment(assignee=, keep_open=)`,
   `assign_comment` (author or admin; assigning reopens), `resolve_comment` (assignee, author or
   admin; idempotent), `open_asks(account, item_id=)`. Events `comment.assigned` (`after = {assignee:
@@ -230,7 +230,7 @@ item's assignees and `waiting_on`.
   you" (client side, `mywork.askedOfMe`).
 - **Agents**: `comment.assigned` is a `work.WAKE_TYPES` hint. `work.eligible()` includes pending,
   unconsumed Ask assignments (why `asked`), even on done cards. Taking an asked-only item does not
-  assign the agent (`reports.report(no_assign=True)`, lease `from_pool` false); `finish done`
+  assign the agent (`reports.report(no_assign=True)`); `finish done`
   answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
   pending `asks` within that take; new/reassigned Asks wait for the next turn.
@@ -255,7 +255,7 @@ records independently of task history.
 
 The agent-facing version is `docs/agents/pull-agents.md`.
 
-- **`accounts.wake`** (`push` | `pull` | `manual`, default `push`; migration `6b2d8e4f1a73`): set on
+- **`accounts.wake`** (`push` | `pull` | `manual`, default `push`): set on
   create/PATCH (`accounts.WAKE_MODES`, an `account.updated` event) and on the Agents page
   (`agents/AgentWake.svelte`, with the saved prompt for `pull`). `GET /agents` rows carry `wake`.
   Nothing in core branches on it except who a run request notifies.
@@ -296,7 +296,7 @@ The agent-facing version is `docs/agents/pull-agents.md`.
 
 Slate holds only generic pieces; everything runtime-specific is in `integrations/`.
 
-- **Thread reference** (`models.AgentThread`, table `agent_threads`, migration `9d4f7b2c6e18`): one
+- **Thread reference** (`models.AgentThread`, table `agent_threads`): one
   row per (item, agent), `ref` (opaque, ≤ 200) and `url`. `report`/`heartbeat`/`finish` take
   `thread: {ref, url?}` (`reports.check_thread`; a plain dict in the schemas, because a nested model
   would put a `$ref` in MCP tool params). A new or changed thread rides on the `item.reported` event
@@ -383,7 +383,7 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
 A person's `@mention` of an agent in a channel or thread starts its runner, the way an Ask on a
 card does; the reply lands in the chat.
 
-- **Model** `models.ChatWake` (table `chat_wakes`, migration `a7c3e9f1b2d4`): one row per (agent,
+- **Model** `models.ChatWake` (table `chat_wakes`): one row per (agent,
   channel, thread; `thread_id` is `""` for the channel itself, since NULL cannot be in the key).
   `message_id` = the newest unanswered mention, `since_id` = the oldest, `taken_id` = the mention a
   take covers, `claimed_at`/`until` = the lease. `(ChatWake, "until")` is in `core.BOOKKEEPING`, so
@@ -429,7 +429,7 @@ page (a save that adds the handle) or in one of its review/discussion threads (a
 mentions it, or an Ask addressed to it) is a turn the runner takes; the answer lands on the page.
 `doc.mentioned` is recorded as for any mention, so the inbox and check-in list it.
 
-- **Model** `models.DocWake` (table `doc_wakes`, migration `d8e4a1c7f3b9`): one row per (agent,
+- **Model** `models.DocWake` (table `doc_wakes`): one row per (agent,
   doc, thread; `thread_id` = the thread's first comment, `""` for a body mention). Where chat
   compares message ids, a doc mention has no row of its own for a body save, so the row counts
   instead: `mention_no` goes up per mention, a take sets `taken_no`, and `pending` = `mention_no >

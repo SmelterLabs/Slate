@@ -411,7 +411,6 @@ def lease_view(lease: WorkLease) -> dict[str, Any]:
         "account_id": lease.account_id,
         "claimed_at": lease.claimed_at,
         "until": lease.until,
-        "from_pool": lease.from_pool,
     }
 
 
@@ -469,13 +468,12 @@ def take(
             item.run_requested_at = None  # this take is the run that was asked for
         row = session.get(WorkLease, item.id)
         if row is None:
-            row = WorkLease(item_id=item.id, account_id=actor.account_id, from_pool=False)
+            row = WorkLease(item_id=item.id, account_id=actor.account_id)
             session.add(row)
             row.claimed_at = now
         elif row.account_id != actor.account_id or row.until < now:
-            row.account_id, row.from_pool, row.claimed_at = actor.account_id, False, now
+            row.account_id, row.claimed_at = actor.account_id, now
         row.until = now + timedelta(seconds=seconds)
-        row.from_pool = (row.from_pool or not was_assigned) and not asked
         if new_turn:
             row.run_id = secrets.token_urlsafe(32)
             row.asked_only = asked or item.completed_at is not None

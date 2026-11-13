@@ -119,7 +119,6 @@ def _attach(
         filename=name,
         content_type=ctype,
         size=len(data),
-        path=f"db:{att_id}",
         uploaded_by=cx.actor.account_id,
         created_at=utcnow(),
     )

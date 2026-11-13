@@ -133,7 +133,7 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
 
 `service/agent_rules.py`, `api/settings.py` (`GET/PUT /settings/agents`), MCP `slate_account
 agent_rules` / `set_agent_rules`, board `components/members/AgentRules.svelte` (top of
-Members), `lib/permissions.ts` (`toggleDenied`, `changesAgentRules`). Migration `d9a4f2c7e1b5`.
+Members), `lib/permissions.ts` (`toggleDenied`, `changesAgentRules`).
 
 Everything above limits what a token *reaches*. This limits what an **agent** may *do* at all:
 one workspace rule, so an agent on an unlimited admin token, or a project agent a guest is
