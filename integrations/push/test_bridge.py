@@ -34,6 +34,7 @@ class Fake:
         self.alerts: list[dict] = []
         self.urls: list[str] = []
         self.broker_status = 200
+        self.roster_status = 200
 
     def __call__(self, method, url, headers, body):
         if url.startswith("http://push/"):
@@ -45,7 +46,12 @@ class Fake:
         if "/inbox" in url:
             return 200, list(self.inbox)
         if url.endswith("/accounts"):
-            return 200, [{"id": "A1", "display_name": "My Agent"}]
+            return 403, {"detail": "admin only"}  # the bridge holds an ordinary token
+        if url.endswith("/agents?kind=all"):
+            if self.roster_status != 200:
+                return self.roster_status, None
+            account = {"id": "A1", "handle": "my-agent", "display_name": "My Agent"}
+            return 200, [{"account": account}]
         item = url.rsplit("/", 1)[1]
         return 200, {"id": item, "priority": self.priorities.get(item)}
 
@@ -121,3 +127,26 @@ def test_failed_publish_is_retried_not_lost(tmp_path):
     assert fake.alerts == []
     fake.broker_status = 200
     assert b.run_once() == 1
+
+
+def test_names_come_from_the_roster_an_ordinary_token_may_read(tmp_path):
+    fake = Fake()
+    b = make(tmp_path, fake)
+    assert b.name("A1") == "My Agent"
+    assert b.name("nobody") == "Someone"
+
+
+def test_a_roster_it_cannot_read_still_sends_the_alert(tmp_path):
+    fake = Fake()
+    fake.roster_status = 403
+    b = make(tmp_path, fake)
+    b.run_once()  # first run: the cursor
+    fake.inbox = [
+        {
+            "reason": "assigned",
+            "event": {"id": "E1", "at": "2026-11-13T10:00:00Z", "actor_id": "A1", "item_id": "I1"},
+            "title": "Renew passport",
+        }
+    ]
+    assert b.run_once() == 1
+    assert fake.alerts[0]["title"].startswith("Slate: Someone")

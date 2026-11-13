@@ -16,6 +16,10 @@ Reasons sent (`--reasons`, default): mention, reply, assigned, waiting, due, unb
 reminder, health, access (no chat, no daily digest). Titles start `Slate:` so a broker rule
 can cap or mute them. A tap opens the card in the Slate inbox.
 
+The token is an ordinary `read` token of the account whose inbox it relays (never an admin
+one): it reads `/inbox`, the card for its priority and `GET /agents?kind=all` for the names
+in the titles. A name it cannot find reads "Someone"; the alert still goes.
+
 ```sh
 python integrations/push/bridge.py --once --token-file ~/.slate-push.token \
     --broker https://push.example.com --key-file ~/.push-key \
