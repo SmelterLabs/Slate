@@ -251,8 +251,9 @@ def stream_auth(
         if not principal.has("read"):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="token lacks 'read' scope")
         gate = access.EventGate(principal.account.id, principal.token_id)
+        mark = _reach_mark()  # before computing: a change meanwhile reloads next time
         gate.load(session)
-    _fresh(gate)
+    _fresh(gate, mark)
     if _open_streams[principal.token_id] >= MAX_STREAMS_PER_TOKEN:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -267,14 +268,45 @@ def stream_auth(
 MAX_STREAMS_PER_TOKEN = 10
 _open_streams: Counter[str] = Counter()
 # Live delivery rechecks the token and the account on every event, but recomputes the
-# caller's whole reach only when an event may have changed it (`EventGate.needs_reload`) or
-# after this long, whichever comes first.
+# caller's whole reach only when something that may change it has happened since the last
+# computation (any event outside `CONTENT_FAMILIES`, anywhere in Slate, whether this stream
+# was sent it or not), or after `GATE_TTL_SECONDS`, whichever comes first.
 GATE_TTL_SECONDS = 10.0
-_gate_loaded: WeakKeyDictionary[access.EventGate, float] = WeakKeyDictionary()
+# Event families that never change who may read what. Any other family (shares, accounts,
+# tokens, sections, lists, invitations, sessions, connections, settings, and any new one)
+# makes the next live check recompute.
+CONTENT_FAMILIES = frozenset(
+    {
+        "automation",
+        "capacity",
+        "channel",
+        "checklist",
+        "comment",
+        "doc",
+        "favorite",
+        "health",
+        "inbox",
+        "item",
+        "message",
+        "push",
+        "recurrence",
+        "tag",
+        "view",
+        "webhook",
+    }
+)
+_gate_loaded: WeakKeyDictionary[access.EventGate, tuple[float, str]] = WeakKeyDictionary()
 
 
-def _fresh(gate: access.EventGate) -> None:
-    _gate_loaded[gate] = time.monotonic()
+def _reach_mark() -> str:
+    """The newest event id published in a family that may change reach ("" if none yet)."""
+    marks = dict(bus.last_id_by_family)
+    return max((v for k, v in marks.items() if k not in CONTENT_FAMILIES), default="")
+
+
+def _fresh(gate: access.EventGate, mark: str) -> None:
+    """Record that `gate` was just computed; `mark` is `_reach_mark()` taken before that."""
+    _gate_loaded[gate] = (time.monotonic(), mark)
 
 
 def _lapsed(session: Session, gate: access.EventGate) -> bool:
@@ -293,8 +325,9 @@ def _lapsed(session: Session, gate: access.EventGate) -> bool:
 def _read_page(since: str, filters: Filters, gate: access.EventGate | None = None) -> list[dict]:
     with db.SessionLocal() as session:
         if gate is not None:
+            mark = _reach_mark()
             gate.load(session)
-            _fresh(gate)
+            _fresh(gate, mark)
             if gate.denied:
                 return []
             if gate.access is not None:
@@ -304,17 +337,19 @@ def _read_page(since: str, filters: Filters, gate: access.EventGate | None = Non
 
 def _gate_check(gate: access.EventGate, payload: dict[str, Any]) -> dict[str, Any] | None:
     """Before every live delivery, in the threadpool: recheck the token and the account (a
-    revoked token is cut off at the next event), and recompute the caller's reach when this
-    event may change it or the last computation is `GATE_TTL_SECONDS` old."""
+    revoked token is cut off at the next event), and recompute the caller's reach when it may
+    have changed since the last computation or that is `GATE_TTL_SECONDS` old."""
     with db.SessionLocal() as session:
         loaded = _gate_loaded.get(gate)
         if (
             loaded is None
             or gate.needs_reload(payload)
-            or time.monotonic() - loaded > GATE_TTL_SECONDS
+            or loaded[1] != _reach_mark()
+            or time.monotonic() - loaded[0] > GATE_TTL_SECONDS
         ):
+            mark = _reach_mark()
             gate.load(session)
-            _fresh(gate)
+            _fresh(gate, mark)
         elif _lapsed(session, gate):
             gate.denied = True
             return None

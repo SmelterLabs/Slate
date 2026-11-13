@@ -9,6 +9,7 @@ from slate import db as slate_db
 from slate.api import events as events_api
 from slate.models import Token
 from slate.service import access
+from slate.service.bus import bus
 
 API = "/api/v1"
 
@@ -19,9 +20,10 @@ def _gate(client, headers):
         token_id = s.scalar(
             select(Token.id).where(Token.account_id == me["account"]["id"]).limit(1)
         )
+        mark = events_api._reach_mark()
         gate = access.EventGate(me["account"]["id"], token_id)
         gate.load(s)
-    events_api._fresh(gate)
+    events_api._fresh(gate, mark)
     return gate, token_id
 
 
@@ -40,6 +42,12 @@ def test_live_events_do_not_recompute_access_each_time(client, alex, monkeypatch
     assert calls == []
     events_api._gate_check(gate, _payload("share.created"))  # reach may have changed
     assert len(calls) == 1
+    # A reach change anywhere in Slate (one this stream was never sent) counts too.
+    monkeypatch.setitem(bus.last_id_by_family, "share", "zzzzzzzzzzzz")
+    events_api._gate_check(gate, _payload())
+    assert len(calls) == 2
+    events_api._gate_check(gate, _payload())
+    assert len(calls) == 2
 
 
 def test_a_revoked_token_is_cut_off_at_the_next_event(client, alex, make_account):
