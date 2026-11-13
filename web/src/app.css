@@ -1327,11 +1327,6 @@ a.nav-heading.active {
   max-height: 320px;
   overflow-y: auto;
 }
-.bb-ellipsis {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .bb-dot {
   width: 9px;
   height: 9px;
@@ -2175,10 +2170,6 @@ kbd {
 .inline-swatches {
   flex-basis: auto;
   padding-left: 0;
-}
-.tiny-wide {
-  width: 140px;
-  padding: 2px 6px;
 }
 
 /* table layout */

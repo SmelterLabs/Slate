@@ -30,7 +30,6 @@ export interface QuickAdd {
   rrule: string | null;
 }
 
-export { TZ } from './timezone';
 import { workspaceFormatter } from './timezone';
 
 const PRIORITIES: Record<string, Priority> = {

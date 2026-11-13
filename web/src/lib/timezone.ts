@@ -3,8 +3,7 @@ import { SvelteMap } from 'svelte/reactivity';
 
 export const DEFAULT_TIMEZONE = 'UTC';
 const workspace = new SvelteMap([['timezone', DEFAULT_TIMEZONE]]);
-// Compatibility for callers importing TZ; formatters must resolve it at use, not at import.
-export let TZ = DEFAULT_TIMEZONE;
+
 const zones = new Map<string, string>();
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -25,8 +24,7 @@ export function workspaceTimezone(): string {
 
 /** Missing metadata (old servers or sign-out) and invalid IANA names fall back safely. */
 export function setWorkspaceTimezone(zone?: string | null): void {
-  TZ = safeZone(zone);
-  workspace.set('timezone', TZ);
+  workspace.set('timezone', safeZone(zone));
 }
 
 /** Cache by zone and options: a workspace change cannot reuse an old-zone formatter. */
