@@ -193,12 +193,31 @@
     task.reset();
   });
 
+  // The title box grows to fit its text. Measure again whenever the text changes, the box
+  // changes width (window resized, docked, side panel opened) or the heading font finishes
+  // loading: a height measured once, before the window settled, cut long titles off.
+  function fitTitle() {
+    if (!titleArea) return;
+    titleArea.style.height = 'auto';
+    // The box is border-box, so its height has to hold the border as well as the text.
+    titleArea.style.height = `${titleArea.scrollHeight + titleArea.offsetHeight - titleArea.clientHeight}px`;
+  }
   $effect(() => {
     void title;
-    if (titleArea) {
-      titleArea.style.height = 'auto';
-      titleArea.style.height = `${titleArea.scrollHeight}px`;
-    }
+    fitTitle();
+  });
+  $effect(() => {
+    const el = titleArea;
+    if (!el) return;
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return; // our own height change, not a new width
+      width = el.clientWidth;
+      fitTitle();
+    });
+    ro.observe(el);
+    void document.fonts?.ready.then(fitTitle);
+    return () => ro.disconnect();
   });
 
   function save(changes: Record<string, unknown>): Promise<boolean> {
@@ -395,7 +414,7 @@
     <div class="top-actions">
       {#if d}
         <span class="meta muted" title={fullStamp(d.created_at)}>
-          Created {stamp(d.created_at, board.now)}{#if d.created_by} by {d.created_by === task.me ? 'you' : (board.accountName(d.created_by) ?? 'someone')}{/if}
+          Created {stamp(d.created_at, board.now)}{#if d.created_by}{' '}by {d.created_by === task.me ? 'you' : (board.accountName(d.created_by) ?? 'someone')}{/if}
         </span>
         <button
           class="ghost fav-star"
