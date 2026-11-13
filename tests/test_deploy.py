@@ -132,7 +132,7 @@ def test_forwarded_for_comes_from_the_proxy_not_the_client():
                 await mw(scope, None, None)
 
     asyncio.run(run())
-    assert seen == ["203.0.113.7"] * 6
+    assert seen == ["203.0.113.7"] * 9
 
 
 def test_backup_units():
