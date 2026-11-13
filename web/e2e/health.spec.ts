@@ -1,18 +1,10 @@
 // Health: the owner sees the verdict, every check, the background jobs and calls per token
 // (an agent's failed call shows up with its route and status), the same sections on a phone,
 // and finds the page from the palette. An agent (not an owner or admin) is refused.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { BASE_URL, screenshots, seed, signIn } from './support';
 
-const shots = process.env.SLATE_HEALTH_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string, fullPage = true) {
-  if (!shots) return;
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: join(shots, `${name}.png`), fullPage });
-}
+const shot = screenshots('SLATE_HEALTH_SHOTS', { fullPage: true });
 
 async function asAgent(path: string, init: RequestInit = {}) {
   return fetch(`${BASE_URL}/api/v1${path}`, {
@@ -30,7 +22,7 @@ test('the owner reads Slate health; an agent call that failed is listed', async 
   expect(pub.status).toBe(200);
   expect((await pub.json()).checks.length).toBeGreaterThan(3);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/health');
   const main = page.getByRole('region', { name: 'Health' });
   await expect(main.getByRole('heading', { name: 'Health', level: 1 })).toBeVisible();
@@ -55,7 +47,7 @@ test('the owner reads Slate health; an agent call that failed is listed', async 
 });
 
 test('the palette opens Health, and a phone shows the same sections', async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/home');
   await page.keyboard.press('Control+k');
   await page.keyboard.type('health');
@@ -72,5 +64,5 @@ test('the palette opens Health, and a phone shows the same sections', async ({ p
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(wide).toBe(false);
   await shot(page, 'health-phone');
-  await shot(page, 'health-phone-top', false);
+  await shot(page, 'health-phone-top', { fullPage: false });
 });

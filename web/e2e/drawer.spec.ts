@@ -2,33 +2,14 @@
 // into it, read it with the rail and discussion, pin a revision as the one in use, see the
 // drawer on the project home, and turn a page with subpages into a drawer.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
-
-async function upload(docId: string, token: string, name: string, note: string, body: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Authorization: `Bearer ${token}` },
-    body,
-  });
-  expect(res.ok).toBe(true);
-}
+import { addRevision, api, BASE_URL, seed, signIn } from './support';
 
 test('a drawer from the sidebar: folder, upload, reading state, pin, move', async ({ page }) => {
   const { alex, agent } = seed();
   const name = `Drawer section ${Date.now()}`;
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name, audience: 'work' });
+  const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/section/${section.id}`);
   const group = page.getByRole('group', { name: `Section ${name}` });
   await group.getByRole('button', { name: `Add list to ${name}` }).click();
@@ -63,7 +44,7 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
   await expect(page.locator('.nav-list[data-list="Contracts"] .count')).toHaveText('1');
 
   // Pin to top: a page added after the folder sits first once pinned, with the pin glyph.
-  await api('POST', '/docs', alex, { kind: 'page', title: 'Project spec', list_id: listId });
+  await api('POST', '/docs', { kind: 'page', title: 'Project spec', list_id: listId });
   const table = page.getByTestId('drawer-table');
   await expect(table.locator('tbody tr').first()).toHaveAttribute('data-kind', 'folder');
   const specRow = table.locator('tr', { hasText: 'Project spec' });
@@ -76,7 +57,7 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
   await expect(table.locator('tbody tr').first()).toHaveAttribute('data-kind', 'folder');
 
   // Created: a file named with a date is created on that date.
-  await api('POST', '/docs', alex, { kind: 'file', title: '2026-10-30 - Venue photos', list_id: listId });
+  await api('POST', '/docs', { kind: 'file', title: '2026-10-30 - Venue photos', list_id: listId });
   await expect(table.locator('tr', { hasText: 'Venue photos' }).locator('[data-created]')).toHaveText('Oct 30');
 
   // Reading state: click the file; the rail and discussion open; pin the revision.
@@ -86,7 +67,7 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
   await expect(page.getByRole('complementary', { name: 'Discussion' })).toBeVisible();
   await expect(page.getByTestId('file-meta')).toContainText('Revision 1');
   const docId = new URLSearchParams(page.url().split('?')[1]).get('doc')!;
-  await upload(docId, agent, 'notes.txt', 'Updated text', 'Hello again\n');
+  await addRevision(docId, 'notes.txt', 'Hello again\n', { note: 'Updated text', token: agent });
   await expect(page.getByTestId('file-meta')).toContainText('Revision 2');
   await page.getByRole('button', { name: 'Revisions' }).click();
   const rev1 = page.getByRole('complementary', { name: 'Revisions' }).locator('.rev-item[data-revision="1"]');
@@ -99,7 +80,7 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
   await expect(page.getByTestId('drawer-counts')).toContainText('3 docs · 1 folder');
 
   // The project home shows the drawer with its count.
-  await api('PATCH', `/sections/${section.id}`, alex, { private: true });
+  await api('PATCH', `/sections/${section.id}`, { private: true });
   await page.goto(`/#/section/${section.id}`);
   await expect(page.getByTestId('hub-drawer')).toContainText('Contracts');
   await expect(page.getByTestId('hub-drawer')).toContainText('3');
@@ -109,14 +90,13 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
 });
 
 test('a page with subpages becomes a drawer', async ({ page }) => {
-  const { alex } = seed();
   const name = `Convert ${Date.now()}`;
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name, audience: 'work' });
-  const meetings = await api<{ id: string }>('POST', '/docs', alex, { title: 'Meetings', section_id: section.id, body_md: 'Transcripts.' });
-  await api('POST', '/docs', alex, { title: '2026-10-29 - review', parent_id: meetings.id, body_md: 'a' });
-  await api('POST', '/docs', alex, { title: '2026-10-30 - plan', parent_id: meetings.id, body_md: 'b' });
+  const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
+  const meetings = await api<{ id: string }>('POST', '/docs', { title: 'Meetings', section_id: section.id, body_md: 'Transcripts.' });
+  await api('POST', '/docs', { title: '2026-10-29 - review', parent_id: meetings.id, body_md: 'a' });
+  await api('POST', '/docs', { title: '2026-10-30 - plan', parent_id: meetings.id, body_md: 'b' });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/docs/${meetings.id}`);
   await page.getByRole('button', { name: 'Page actions' }).click();
   await page.getByRole('menuitem', { name: 'Turn into a drawer' }).click();

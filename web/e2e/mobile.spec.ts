@@ -1,14 +1,9 @@
 // Phone and installed-app (PWA) checks: manifest, icons, service worker shell cache, and a
 // layout that fits a 390 px touch screen without sideways scrolling or iOS focus zoom.
-import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { BASE_URL, seed, signedIn } from './support';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-}
 
 test('installable: manifest, icons and theme are served', async ({ page, request }) => {
   await page.goto('/');

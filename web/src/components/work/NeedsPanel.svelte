@@ -100,10 +100,10 @@
 
 <style>
   .needs {
-    --t-waiting: var(--danger);
-    --t-blocked: var(--danger);
-    --t-asked: var(--accent);
-    --t-review: var(--prio-high);
+    --t-waiting: var(--need-waiting);
+    --t-blocked: var(--need-blocked);
+    --t-asked: var(--need-asked);
+    --t-review: var(--need-review);
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--panel);

@@ -43,8 +43,6 @@ describe('global stylesheets', () => {
   it('do not style one class name for two features', () => {
     const clashes = [...sharedClasses()]
       .filter(([name]) => !(name in LAYERED))
-      // app.css and design.css still restate each other's rules; they are one layer.
-      .filter(([, files]) => files.some((f) => f !== 'app.css' && f !== 'design.css'))
       .map(([name, files]) => `.${name}: ${files.join(', ')}`);
     expect(clashes).toEqual([]);
   });

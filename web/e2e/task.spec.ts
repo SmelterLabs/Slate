@@ -1,31 +1,9 @@
 // The task window: opened by link, checklists, description tick boxes, files, reactions,
 // watching, and the activity column as an agent works the task.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signIn, upload } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS
-  ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
-  : null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string, scheme: 'dark' | 'light' = 'dark') {
-  if (!shots) return;
-  await page.emulateMedia({ colorScheme: scheme });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
-  await page.emulateMedia({ colorScheme: null });
-}
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
 // A 2x2 PNG, so the attachment shows a thumbnail.
 const PNG = Buffer.from(
@@ -36,10 +14,10 @@ const PNG = Buffer.from(
 test('the task window: link, checklists, tick boxes, files, reactions, watching, live activity', async ({
   page,
 }) => {
-  const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Projects', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Garage' });
-  const item = await api<{ id: string }>('POST', '/items', alex, {
+  const { agent } = seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Projects', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Garage' });
+  const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
     title: 'Replace the garage door opener',
     priority: 'high',
@@ -48,24 +26,19 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
     assignees: ['alex', 'agent'],
     body_md: 'The old one grinds. Budget **$350**.\n\n- [ ] measure the rail\n- [ ] pick a model\n- [x] find the manual',
   });
-  await api('POST', `/items/${item.id}/checklists`, alex, {
+  await api('POST', `/items/${item.id}/checklists`, {
     name: 'Install',
     items: ['Unplug the old unit', 'Mount the rail', 'Program the remotes'],
   });
-  await api('POST', '/items', alex, { parent_id: item.id, title: 'Buy a ladder', due_at: '2030-03-10' });
-  await api('POST', `/items/${item.id}/comments`, agent, {
+  await api('POST', '/items', { parent_id: item.id, title: 'Buy a ladder', due_at: '2030-03-10' });
+  await api('POST', `/items/${item.id}/comments`, {
     body_md: 'Found two models under budget. @alex which do you prefer?',
-  });
-  const up = await fetch(`${BASE_URL}/api/v1/items/${item.id}/attachments?filename=opener.png`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${agent}`, 'Content-Type': 'image/png' },
-    body: PNG,
-  });
-  expect(up.status).toBe(201);
-  await api('PATCH', `/items/${item.id}`, agent, { status: 'In progress' });
+  }, agent);
+  await upload(`/items/${item.id}/attachments?filename=opener.png`, PNG, 'image/png', agent);
+  await api('PATCH', `/items/${item.id}`, { status: 'In progress' }, agent);
 
   // A link with ?task= opens the window.
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await expect(tw.getByLabel('Title')).toHaveValue('Replace the garage door opener');
@@ -83,7 +56,7 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
   const desc = tw.getByRole('region', { name: 'Description' });
   await desc.locator('input[data-line="2"]').check();
   await expect
-    .poll(async () => (await api<{ body_md: string }>('GET', `/items/${item.id}`, alex)).body_md)
+    .poll(async () => (await api<{ body_md: string }>('GET', `/items/${item.id}`)).body_md)
     .toContain('- [x] measure the rail');
 
   // The file shows as a thumbnail; clicking it opens the full-screen viewer, Escape closes it
@@ -109,32 +82,32 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
   await expect(tw.locator('.watch.on')).toBeVisible();
 
   // The agent works the task; the window follows live, history in gray lines.
-  await api('POST', `/items/${item.id}/comments`, agent, { body_md: 'Ordered the quieter model.' });
+  await api('POST', `/items/${item.id}/comments`, { body_md: 'Ordered the quieter model.' }, agent);
   await expect(tw.locator('.activity .comment', { hasText: 'Ordered the quieter' })).toBeVisible();
   await expect(tw.locator('.activity .ev', { hasText: 'Agent changed status' })).toContainText('In progress');
   await expect(tw.locator('.activity .ev', { hasText: 'You checked “Mount the rail”' })).toBeVisible();
   await page.mouse.move(0, 0);
   await shot(page, 'task-window-full');
-  await shot(page, 'task-window-light', 'light');
+  await shot(page, 'task-window-light', { scheme: 'light' });
 
   // Esc closes and the link leaves the URL.
   await page.keyboard.press('Escape');
   await expect(tw).toHaveCount(0);
   expect(page.url()).not.toContain('task=');
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
 test('revert from the history: an agent rename goes back as my change; a stale row says changed since', async ({
   page,
 }) => {
-  const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Revert', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Edits' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Paint the gate' });
-  await api('PATCH', `/items/${item.id}`, agent, { title: 'Paint the gate (Agent)' });
+  const { agent } = seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Revert', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Edits' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Paint the gate' });
+  await api('PATCH', `/items/${item.id}`, { title: 'Paint the gate (Agent)' }, agent);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await tw.getByRole('tab', { name: 'History' }).click();
@@ -146,7 +119,7 @@ test('revert from the history: an agent rename goes back as my change; a stale r
   await row.locator('.revert').click();
   await expect(page.locator('.toast')).toContainText('Put back');
   await expect(tw.locator('.activity .ev', { hasText: 'You renamed this to “Paint the gate”' })).toBeVisible();
-  await expect.poll(async () => (await api<{ title: string }>('GET', `/items/${item.id}`, alex)).title).toBe('Paint the gate');
+  await expect.poll(async () => (await api<{ title: string }>('GET', `/items/${item.id}`)).title).toBe('Paint the gate');
 
   // Reverting the same old row again: the field has moved on, so the server refuses (409)
   // and the row stays disabled with the reason.
@@ -157,5 +130,5 @@ test('revert from the history: an agent rename goes back as my change; a stale r
   await expect(stale).toHaveText('Changed since');
   await expect(stale).toHaveAttribute('title', /changed since/);
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });

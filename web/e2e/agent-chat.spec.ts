@@ -2,24 +2,8 @@
 // chat (`agent:<id>`). On a desktop it opens the chat panel; a message there reaches the agent
 // with no @mention, and the agent's answer lands in the same chat with an unread badge on the
 // robot. A phone has the robot in its top bar and opens the Chat page.
-import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /^Everything/ }).first()).toBeVisible();
-}
+import { expect, test } from '@playwright/test';
+import { api, seed, signedIn, signIn } from './support';
 
 async function agentId(): Promise<string> {
   const me = await api<{ account: { id: string } }>('GET', '/me', undefined, seed().agent);
@@ -32,7 +16,7 @@ test.describe('desktop', () => {
   test('the robot opens an agent chat in the panel; a message reaches the agent with no mention', async ({ page }) => {
     const agent = await agentId();
     const key = `agent:${agent}`;
-    await signedIn(page, '/#/home');
+    await signedIn(page, '/#/home', { ready: true });
 
     const robot = page.locator('.favbar').getByRole('button', { name: /^Chat with an agent/ });
     await expect(robot).toBeVisible();
@@ -70,7 +54,7 @@ test.describe('phone', () => {
 
   test('the robot in the top bar opens the agent chat page', async ({ page }) => {
     const agent = await agentId();
-    await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+    await signIn(page);
     await page.goto('/#/home');
     const robot = page.locator('.topbar').getByRole('button', { name: /^Chat with an agent/ });
     await expect(robot).toBeVisible();
@@ -97,8 +81,7 @@ test.describe('guest', () => {
       await api('PUT', '/shares', { account_id: who, scope_kind: 'section', scope_id: section.id, level: 'edit' });
     }
 
-
-    await page.addInitScript((t) => localStorage.setItem('slate.token', t), guestTok.token);
+    await signIn(page, guestTok.token);
     await page.goto('/#/home');
     const robot = page.locator('.favbar').getByRole('button', { name: /^Chat with an agent/ });
     await expect(robot).toBeVisible();

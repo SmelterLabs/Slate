@@ -1078,6 +1078,7 @@
 
 /* --- the agents' chat button (AgentChatButton.svelte): top right of the favorites bar on a
    desktop, in the top bar on a phone. Same colours as an agent's avatar (design.css). --- */
+/* The waiting bell (WaitingBell.svelte), left of Agents: mentions and messages waiting. */
 .favbar-end {
   margin-left: auto;
   padding-left: 8px;
@@ -1086,9 +1087,6 @@
   position: sticky;
   right: 0;
   background: inherit;
-}
-/* The waiting bell (WaitingBell.svelte), left of Agents: mentions and messages waiting. */
-.favbar-end {
   gap: 8px;
   align-items: center;
 }

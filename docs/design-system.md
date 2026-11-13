@@ -7,7 +7,7 @@ and the installed app (PWA) need: manifest, service worker, touch drag, sheets, 
 
 One look across every screen, ClickUp-style, with a violet brand.
 
-- **Tokens** live at the top of `web/src/app.css`: surfaces (`--bg` main, `--panel` sidebar/top
+- **Tokens** live at the top of `web/src/design.css`: surfaces (`--bg` main, `--panel` sidebar/top
   bar/inputs, `--raised` menus and windows, `--card`, `--card-hover`), ink (`--text`, `--muted`,
   `--faint`), lines (`--line`, `--line-strong`), brand (`--accent`, `--accent-hover`, `--accent-ink`
   for text on soft backgrounds, `--accent-soft`, `--brand-gradient`), status colours (`--danger`,
@@ -16,11 +16,11 @@ One look across every screen, ClickUp-style, with a violet brand.
   `--fs-xs..xl`) and motion (`--ease`, `--ease-spring`, `--dur-1..3`). Dark is `:root`; light is the
   same list twice (the system-preference media block and `:root[data-theme='light']`), so change
   both. Use tokens, not raw colours, in new styles. Base type is 14 px.
-- **`web/src/design.css`** is imported last by `main.ts` and holds what spans components: focus and
-  selection, scrollbars, hover/press feedback, menu and window entrances, card drag feedback and
-  drop-column highlight, toast, reconnect banner, skeletons, empty states, the sidebar and
-  favorites-bar look, the compact view bar, the sign-in screen, and `.sr-only`. Phone overrides for
-  those are at its end.
+- **`web/src/design.css`** is imported first by `main.ts` and holds the tokens and what spans
+  components: focus and selection, scrollbars, hover and press feedback, menu and window
+  entrances, skeletons, empty states and `.sr-only`. The sidebar, favorites bar, toast, reconnect
+  banner, sign-in screen and view bar are styled once, in their own sheet. `app.css` is the shell
+  and the features, `board.css` the board.
 - **Motion rules**: animate only `opacity` and the individual `scale`/`translate` properties, never
   `transform` (the sheet, list settings and toast centre themselves with `transform`; the task
   window uses `translate`). The task window only fades, because the phone e2e measures it right
@@ -45,7 +45,7 @@ One look across every screen, ClickUp-style, with a violet brand.
   with it. Doc-page names carry a prefix (`doc-sub-icon`, `doc-picker-list`, and `md-table-wrap`
   round a rendered Markdown table; `table-wrap` is the Table layout's scroller).
   `lib/classnames.test.ts` fails when two global sheets style the same class, unless the class
-  is in its `LAYERED` list with the reason (app.css and design.css count as one layer).
+  is in its `LAYERED` list with the reason. A selector lives in one sheet.
 - **Escape**: `Dropdown` and `Menu` listen in the capture phase and stop the event, so Escape closes
   the open panel only; App's window handler then closes the palette, sheet, tag manager, task window
   or selection, one per press.

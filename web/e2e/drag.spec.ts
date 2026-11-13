@@ -5,17 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
+import { api, signedIn } from './support';
 
 interface Lab {
   sectionId: string;
@@ -52,11 +42,6 @@ async function lab(cards: { title: string; due_at?: string; tags?: string[] }[],
   const ids: Record<string, string> = {};
   for (const c of cards) ids[c.title] = (await api<{ id: string }>('POST', '/items', { list_id: listId, ...c })).id;
   return { sectionId, listId, ids };
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 const column = (page: Page, key: string) => page.locator(`.column[data-group="${key}"]`);
@@ -160,20 +145,20 @@ async function centerOf(page: Page, loc: ReturnType<Page['locator']>): Promise<P
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-/** A finger through Chromium's DevTools protocol: down, hold, slide to `to`, up. `during` runs
- * while the finger is held still, before it moves. */
+/** A finger through Chromium's DevTools protocol: down, held until the card lifts, slide to
+ * `to`, up once a column takes the drop. `during` runs while the finger is held still, before
+ * it moves. */
 async function fingerDrag(page: Page, from: Pt, to: Pt, during?: () => Promise<void>) {
   const cdp = await page.context().newCDPSession(page);
   const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', p?: Pt) =>
     cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p.x, y: p.y }] : [] });
   await touch('touchStart', from);
-  await page.waitForTimeout(500);
+  await expect(page.locator('.touch-lifted')).toHaveCount(1); // the long press took
   await during?.();
   for (let i = 1; i <= 12; i++) {
     await touch('touchMove', { x: from.x + ((to.x - from.x) * i) / 12, y: from.y + ((to.y - from.y) * i) / 12 });
-    await page.waitForTimeout(16);
   }
-  await page.waitForTimeout(150);
+  await expect(page.locator('.column.over')).toHaveCount(1); // the column under the finger takes it
   await touch('touchEnd');
   await cdp.detach();
 }

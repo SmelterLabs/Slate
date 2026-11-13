@@ -2,24 +2,8 @@
 // and the board stays; it survives going to Docs and a reload; a doc sits at the left so the
 // panel covers none of it; the sidebar's Chat entry toggles it; a `?chat=` link opens it on a
 // channel; a thread opens inside the panel; Close closes it. A phone keeps the Chat page.
-import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /^Everything/ }).first()).toBeVisible();
-}
+import { expect, test } from '@playwright/test';
+import { api, seed, signedIn } from './support';
 
 test.describe('desktop', () => {
   // A desktop monitor: the doc's text column (760px) and the panel both fit beside the tree.
@@ -32,7 +16,7 @@ test.describe('desktop', () => {
     const doc = await api<{ id: string }>('POST', '/docs', { title: 'Wide page', list_id: list.id, body_md: '## Plan\n\nText.\n' });
     const root = await api<{ id: string }>('POST', `/channels/list:${list.id}/messages`, { body_md: 'Shelves this week?' }, seed().agent);
 
-    await signedIn(page, `/#/list/${list.id}`);
+    await signedIn(page, `/#/list/${list.id}`, { ready: true });
     const panel = page.getByRole('complementary', { name: 'Chat panel' });
     await expect(panel).toBeHidden();
 
@@ -158,7 +142,7 @@ test.describe('phone', () => {
   test('the Chat tab goes to the Chat page, and a ?chat= link does too', async ({ page }) => {
     const section = await api<{ id: string }>('POST', '/sections', { name: 'Phone panel space', audience: 'work' });
     const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Phone panel list' });
-    await signedIn(page, `/#/list/${list.id}`);
+    await signedIn(page, `/#/list/${list.id}`, { ready: true });
     await page.getByRole('tab').filter({ hasText: 'Chat' }).getByRole('link').click();
     await expect(page).toHaveURL(new RegExp(`#/list/${list.id}/chat`));
     await expect(page.getByRole('complementary', { name: 'Chat panel' })).toBeHidden();

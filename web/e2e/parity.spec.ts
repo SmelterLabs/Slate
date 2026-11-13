@@ -1,28 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
+import { api, screenshots, seed, signIn } from './support';
+
+const shot = screenshots('SLATE_PARITY_SHOTS');
 
 // ClickUp parity: the Table layout, estimates, dependencies and the tag manager.
 // Builds its own section and list so it does not disturb the other specs' data.
-
-const shots = process.env.SLATE_PARITY_SHOTS ?? null;
-if (shots) mkdirSync(shots, { recursive: true });
-async function shot(page: Page, name: string) {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: false });
-}
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status} ${res.ok ? '' : await res.text()}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
 
 interface Built {
   listId: string;
@@ -58,7 +42,7 @@ async function setup(): Promise<Built> {
 }
 
 async function openList(page: Page, listId: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${listId}`);
   await expect(page.locator('.list-page')).toBeVisible();
 }

@@ -1,7 +1,7 @@
 // Heavy pages load on demand: the board's first load does not carry Docs, Agents, Members,
 // Audit, Health, Archive or Chat. A page whose file can't be fetched says so and can try again.
 import { expect, test } from '@playwright/test';
-import { seed } from './seed';
+import { signIn } from './support';
 
 // The service worker would fetch the chunk itself, out of reach of page.route.
 test.use({ serviceWorkers: 'block' });
@@ -20,7 +20,7 @@ test('the first load names no page chunk; the board works without one', async ({
     refused++;
     return r.abort();
   });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/everything');
   await expect(page.locator('.column').first()).toBeVisible();
   await expect.poll(() => refused).toBeGreaterThan(0);
@@ -40,7 +40,7 @@ test('a page opened first, by its link, loads on its own', async ({ page }) => {
     const m = /\/assets\/([A-Za-z]+Page)-[^/]+\.js$/.exec(r.url());
     if (m) loaded.push(m[1]);
   });
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto('/#/agents');
   await expect(page.getByRole('heading', { name: 'Agents', level: 1 })).toBeVisible();
   expect(loaded[0]).toBe('AgentsPage');

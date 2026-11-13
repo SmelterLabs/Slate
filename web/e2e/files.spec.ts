@@ -2,34 +2,14 @@
 // with its revision, opens it in the viewer, Alex uploads the next revision with a note, the
 // Revisions panel lists both, and an older revision can be looked at and made current again.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
-
-async function upload(docId: string, token: string, name: string, note: string, body: string, type = 'text/csv') {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': type, Authorization: `Bearer ${token}` },
-    body,
-  });
-  expect(res.ok, `upload -> ${res.status}`).toBe(true);
-  return res.json() as Promise<{ revision_no: number }>;
-}
+import { addRevision, api, seed, signIn } from './support';
 
 test('a file doc shows its revisions and takes a new one with a note', async ({ page }) => {
-  const { alex, agent, listId } = seed();
-  const doc = await api<{ id: string }>('POST', '/docs', agent, { kind: 'file', title: 'Quote', list_id: listId, body_md: 'The quote from the printer.' });
-  await upload(doc.id, agent, 'quote.csv', 'First quote', 'item,price\ntickets,120\n');
+  const { agent, listId } = seed();
+  const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Quote', list_id: listId, body_md: 'The quote from the printer.' }, agent);
+  await addRevision(doc.id, 'quote.csv', 'item,price\ntickets,120\n', { note: 'First quote', type: 'text/csv', token: agent });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/docs');
   await expect(page.getByRole('heading', { name: 'Docs & Files', level: 1 })).toBeVisible();
   const row = page.getByRole('tree', { name: 'Pages and files' }).getByRole('treeitem').filter({ hasText: 'Quote' });
@@ -68,13 +48,12 @@ test('a file doc shows its revisions and takes a new one with a note', async ({ 
   await expect(panel.locator('.rev-item[data-revision="3"]')).toContainText('restored from 1');
 
   // A revision an agent adds elsewhere arrives live.
-  await upload(doc.id, agent, 'quote.csv', 'Approved', 'item,price\ntickets,135\n');
+  await addRevision(doc.id, 'quote.csv', 'item,price\ntickets,135\n', { note: 'Approved', type: 'text/csv', token: agent });
   await expect(page.getByTestId('file-meta')).toContainText('Revision 4');
 });
 
 test('upload a file from the Docs & Files page', async ({ page }) => {
-  const { alex } = seed();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto('/#/docs');
   await page.getByRole('button', { name: 'Upload', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Upload a file' });

@@ -1,30 +1,10 @@
 // Chat: a list's Chat tab, live messages from an agent, threads, reactions, turning a
 // message into a task, task links as cards, unread badges in the sidebar, and the same Chat
 // page on a phone.
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { expect, test } from '@playwright/test';
+import { api, screenshots, seed, signedIn, signIn } from './support';
 
-const shots = process.env.SLATE_SCREENSHOTS ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img') : null;
-if (shots) mkdirSync(shots, { recursive: true });
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path = '/') {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
-  await expect(page.getByRole('link', { name: /^Everything/ }).first()).toBeVisible();
-}
+const shot = screenshots();
 
 async function scratch(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} space`, audience: 'work' });
@@ -40,7 +20,7 @@ test.describe('desktop', () => {
   test('a list Chat tab: post, agent replies in a thread live, react, make a task', async ({ page }) => {
     const listId = await scratch('Garage');
     // The Chat tab page itself (on a wide screen the tab opens the chat panel instead: chat-panel.spec).
-    await signedIn(page, `/#/list/${listId}/chat`);
+    await signedIn(page, `/#/list/${listId}/chat`, { ready: true });
     await expect(page).toHaveURL(new RegExp(`#/list/${listId}/chat`));
     const view = page.getByRole('region', { name: '#Garage chat' });
     await expect(view.getByText('This is the start of #Garage')).toBeVisible();
@@ -80,19 +60,19 @@ test.describe('desktop', () => {
     const dialog = page.getByRole('dialog', { name: 'Turn into task' });
     await expect(dialog.getByRole('textbox', { name: 'Task title' })).toHaveValue(/Can someone clear the shelves/);
     await dialog.getByRole('textbox', { name: 'Task title' }).fill('Clear the garage shelves');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-make-task.png') });
+    await shot(page, 'chat-make-task');
     await dialog.getByRole('button', { name: 'Create task' }).click();
     const card = mine.locator('.chat-task-card');
     await expect(card).toContainText('Clear the garage shelves');
     await expect(card).toContainText('Made from this message');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-channel.png') });
+    await shot(page, 'chat-channel');
     await card.click();
     await expect(page.getByRole('dialog', { name: /Clear the garage shelves/ })).toBeVisible();
   });
 
   test('unread badges follow agents live, and opening the channel reads it', async ({ page }) => {
     const listId = await scratch('Pantry');
-    await signedIn(page, '/#/home');
+    await signedIn(page, '/#/home', { ready: true });
     await api('POST', `/channels/list:${listId}/messages`, { body_md: 'Restocked the rice' }, seed().agent);
     await api('POST', `/channels/list:${listId}/messages`, { body_md: '@alex we are out of beans' }, seed().agent);
     const nav = page.getByRole('navigation', { name: 'Lists' });
@@ -124,7 +104,7 @@ test.describe('desktop', () => {
 
   test('a section row always has a chat icon: it opens the section chat, and unread counts land on it live', async ({ page }) => {
     const section = await api<{ id: string }>('POST', '/sections', { name: 'Studio', audience: 'work' });
-    await signedIn(page, '/#/home');
+    await signedIn(page, '/#/home', { ready: true });
     const nav = page.getByRole('navigation', { name: 'Lists' });
     // Nothing unread: the icon is there all the same.
     const icon = nav.getByRole('link', { name: 'Open #Studio chat' });
@@ -155,7 +135,7 @@ test.describe('desktop', () => {
   test('the Chat page: General, a # task picker and task cards', async ({ page }) => {
     const listId = await scratch('Dry cleaning');
     await api('POST', '/items', { list_id: listId, title: 'Pick up dry cleaning' });
-    await signedIn(page, '/#/chat');
+    await signedIn(page, '/#/chat', { ready: true });
     await expect(page.getByRole('region', { name: '#General chat' })).toBeVisible();
     await expect(page.getByRole('navigation').locator('[data-channel="general"]')).toHaveClass(/active/);
     const box = page.getByRole('textbox', { name: 'Message #General' });
@@ -168,7 +148,7 @@ test.describe('desktop', () => {
     const msg = page.locator('.chat-msg', { hasText: 'Reminder:' });
     await expect(msg.locator('.task-ref')).toHaveText('#Pick up dry cleaning');
     await expect(msg.locator('.chat-task-card')).toContainText('Pick up dry cleaning');
-    if (shots) await page.screenshot({ path: join(shots, 'chat-page.png') });
+    await shot(page, 'chat-page');
   });
 
   test('# links a page and a list; a reader without access gets the gone screen, not the title', async ({ page, browser }) => {
@@ -176,7 +156,7 @@ test.describe('desktop', () => {
     const kitchen = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Kitchen' });
     const recipes = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Recipes', private: true });
     const doc = await api<{ id: string }>('POST', '/docs', { title: 'Secret sauce', icon: '🥫', list_id: recipes.id });
-    await signedIn(page, `/#/list/${kitchen.id}/chat`);
+    await signedIn(page, `/#/list/${kitchen.id}/chat`, { ready: true });
     const view = page.getByRole('region', { name: '#Kitchen chat' });
     const box = view.getByRole('textbox', { name: 'Message #Kitchen' });
     await box.click();
@@ -202,7 +182,7 @@ test.describe('desktop', () => {
     const token = (await api<{ token: string }>('POST', `/accounts/${acct.id}/tokens`, { scopes: ['write'], label: 'e2e' })).token;
     await api('PUT', '/shares', { account_id: acct.id, scope_kind: 'list', scope_id: kitchen.id, level: 'comment' });
     const guest = await browser.newPage();
-    await guest.addInitScript((t) => localStorage.setItem('slate.token', t), token);
+    await signIn(guest, token);
     await guest.goto(`/#/list/${kitchen.id}/chat`);
     const theirs = guest.getByRole('region', { name: '#Kitchen chat' }).locator('.chat-msg', { hasText: 'Read' });
     await expect(theirs.locator('a.doc-ref')).toHaveText('📄 a page');
@@ -220,7 +200,7 @@ test.describe('phone', () => {
   test('the same Chat page, one pane at a time, with every action', async ({ page }) => {
     const listId = await scratch('Yard');
     const msg = await api<Msg>('POST', `/channels/list:${listId}/messages`, { body_md: 'Mow on Sunday?' }, seed().agent);
-    await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+    await signIn(page);
     await page.goto('/#/chat');
     await expect(page.getByRole('heading', { name: 'Chat' })).toBeVisible();
     await page.locator(`[data-channel="list:${listId}"]`).click();
@@ -235,13 +215,13 @@ test.describe('phone', () => {
     await thread.getByRole('textbox', { name: 'Reply…' }).fill('Yes, after 10');
     await thread.getByRole('button', { name: 'Send' }).click();
     await expect(thread.locator('.chat-msg', { hasText: 'Yes, after 10' })).toBeVisible();
-    if (shots) await page.screenshot({ path: join(shots, 'chat-phone-thread.png') });
+    await shot(page, 'chat-phone-thread');
     await thread.getByRole('button', { name: 'Close thread' }).click();
     await expect(thread).toBeHidden();
     await expect(view.getByRole('button', { name: /1 reply/ })).toBeVisible();
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(width).toBeLessThanOrEqual(390);
-    if (shots) await page.screenshot({ path: join(shots, 'chat-phone.png') });
+    await shot(page, 'chat-phone');
     await view.getByRole('button', { name: 'All chats' }).click();
     await expect(page.locator(`[data-channel="list:${listId}"]`)).toBeVisible();
     expect(msg.id).toBeTruthy();

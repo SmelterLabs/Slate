@@ -1,9 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-async function api(method: string, path: string, body?: unknown, token = seed().alex) {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, {method, headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)});
-  expect(r.ok).toBe(true); return r.json();
-}
+import { api, seed } from './support';
 async function open(page: Page, id: string) {
   await page.goto(`/#/docs/${id}`); await expect(page.locator('.doc-rendered')).toBeVisible();
 }

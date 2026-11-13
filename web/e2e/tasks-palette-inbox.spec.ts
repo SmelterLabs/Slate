@@ -2,17 +2,7 @@
 // marked duplicate shows on its card, and the inbox names a task a chat message links instead
 // of showing its id; a doc @mention reaches the inbox.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 async function newList(name: string) {
   const section = await api<{ id: string }>('POST', '/sections', { name: `${name} area`, audience: 'work' });
@@ -20,7 +10,7 @@ async function newList(name: string) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
 });
 
 test('Ctrl+K opens a chat channel, and "Open the trash" works from the Archive page', async ({ page }) => {

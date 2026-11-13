@@ -6,21 +6,14 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { workspaceDay } from '../src/lib/quickadd';
+import { workspaceInstant } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
+import { api, signIn } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
 const dbPath = join(here, '..', '.e2e', 'slate-e2e.db'); // playwright.config.ts's dbPath
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status} ${res.ok ? '' : await res.text()}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
 
 /** The scheduler's due step, for real, on the e2e database (the e2e server runs it off). */
 function dueTick() {
@@ -41,16 +34,16 @@ async function reconnect(context: BrowserContext, page: Page) {
   await expect(page.locator('.banner.offline')).toHaveCount(0);
 }
 
-const chicago = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(d);
-
 test('a card that went overdue while the board was open still leaves Today when completed', async ({
   page,
   context,
 }) => {
-  // Due two hours ago, today in Chicago (as at 4 AM): past due and an hour past overdue.
-  const now = new Date();
-  const due = new Date(now.getTime() - 2 * 3600_000);
-  test.skip(chicago(due) !== chicago(now), 'needs two hours of today behind us in Chicago');
+  // The board's clock reads noon yesterday (workspace time) whatever the hour of the run, and
+  // the card was due at 10 that morning: on the board it is today's, past due and an hour past
+  // overdue, and the server, whose clock is later still, sends both events for it.
+  const day = addDays(workspaceDay(new Date()), -1);
+  const due = workspaceInstant(day, 10);
+  await page.clock.install({ time: workspaceInstant(day, 12) });
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Pickups home', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Pickups' });
   const item = await api<{ id: string }>('POST', '/items', {
@@ -60,14 +53,14 @@ test('a card that went overdue while the board was open still leaves Today when 
   });
 
   // A typical board: the list's Default view regrouped by due date.
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   await page.getByRole('button', { name: 'Group by' }).click();
   await page.getByRole('menuitemradio', { name: 'Due date' }).click();
   const inToday = page.locator(`.column[data-group="today"] .card[data-item="${item.id}"]`);
   await expect(inToday).toBeVisible();
 
-  dueTick(); // item.due + item.overdue, as the scheduler sent them at 4 and 5 AM
+  dueTick(); // item.due + item.overdue, as the scheduler sends them at 10 and 11
   await reconnect(context, page);
   // The card still reads as due today, not as a broken date.
   await expect(inToday).toBeVisible();

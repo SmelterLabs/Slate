@@ -2,11 +2,11 @@
 // line under its last message from the mention ("will answer…") through the runner's take
 // ("is working…") until the turn ends with the reply. A board loaded mid-turn shows it too
 // (`agent_turns` on GET /channels), and the channel itself never shows a thread's turn.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
@@ -21,21 +21,6 @@ function expireTurns() {
   });
   expect(out.status, out.stderr).toBe(0);
   expect(Number(out.stdout.trim())).toBeGreaterThan(0);
-}
-
-async function api<T>(method: string, path: string, body?: unknown, token = seed().alex): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (res.status === 204 ? undefined : await res.json()) as T;
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 test.use({ viewport: { width: 1440, height: 900 } });
