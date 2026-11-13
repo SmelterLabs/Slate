@@ -12,11 +12,18 @@ test('the first load names no page chunk; the board works without one', async ({
   const html = await (await request.get('/')).text();
   for (const name of PAGES) expect(html).not.toContain(`${name}-`);
 
-  // Docs can't be fetched at all: the board still opens.
-  await page.route(/\/assets\/DocsPage-[^/]+\.js$/, (r) => r.abort());
+  // Docs can't be fetched at all: the board still opens. Its one background fetch of the page
+  // (lib/lazy.svelte.ts) is refused too before Docs is opened; one that ran later, after the
+  // file is back, would bring the page in by itself and take Try again away before the click.
+  let refused = 0;
+  await page.route(/\/assets\/DocsPage-[^/]+\.js$/, (r) => {
+    refused++;
+    return r.abort();
+  });
   await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
   await page.goto('/#/everything');
   await expect(page.locator('.column').first()).toBeVisible();
+  await expect.poll(() => refused).toBeGreaterThan(0);
 
   // Opening it says what went wrong; once the file is there again, Try again opens the page.
   await page.goto('/#/docs');
