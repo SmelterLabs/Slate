@@ -530,3 +530,32 @@ def test_guesses_at_one_invitation_are_limited_whatever_the_address(client, alex
     other = f"invite_{'A' * 12}_{'x' * 43}"
     r = client.post(f"{API}/invitations/accept", json={"secret": other}, headers=BROWSER)
     assert r.status_code == 410, r.text
+
+
+# --- One token check for every door -----------------------------------------------------------
+
+
+async def test_an_mcp_call_resolves_its_token_with_one_write_at_most(alex, monkeypatch, db):
+    from datetime import timedelta
+
+    from slate.models import Token, utcnow
+    from slate.service import accounts
+    from test_mcp import call, http_mcp, ok
+
+    token_id = alex["Authorization"].split("_")[1]
+    db.get(Token, token_id).last_used_at = utcnow() - timedelta(hours=1)
+    db.commit()
+    touched: list[str] = []
+    real = accounts.touch_token
+    monkeypatch.setattr(accounts, "touch_token", lambda s, tid: (touched.append(tid), real(s, tid)))
+    async with http_mcp(alex) as client:
+        ok(await call(client, "slate_section", "list"))
+    assert touched == [token_id]
+
+
+def test_a_cookie_only_works_with_a_browser_session_on_every_door(client, alex):
+    plain = alex["Authorization"].split(" ")[1]
+    client.cookies.set("slate_session", plain)
+    assert client.get(f"{API}/me").status_code == 401
+    with client.stream("GET", f"{API}/events/stream") as r:
+        assert r.status_code == 401

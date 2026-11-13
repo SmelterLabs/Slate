@@ -221,6 +221,20 @@ def resolve_token(session: Session, plaintext: str, *, touch: bool = True) -> Pr
     return principal
 
 
+def authenticate(
+    session: Session, plaintext: str, *, cookie: bool = False, touch: bool = True
+) -> Principal | None:
+    """The one token check every door uses (REST, the live stream, MCP): `resolve_token`, and
+    a credential read from the browser cookie must be a browser session, not a pasted API
+    token. The caller then checks the scope it needs and binds the caller's access."""
+    principal = resolve_token(session, (plaintext or "").strip(), touch=touch)
+    if principal is not None and cookie:
+        token = session.get(Token, principal.token_id)
+        if token is None or not token.browser_session:
+            return None
+    return principal
+
+
 def needs_touch(session: Session, token_id: str) -> bool:
     token = session.get(Token, token_id)
     return token is not None and (

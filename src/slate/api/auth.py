@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from slate.db import get_session
-from slate.models import Account, Source, Token
+from slate.models import Account, Source
 from slate.presence import presence
 from slate.ratelimit import limiter
 from slate.service import access, accounts
@@ -87,9 +87,7 @@ def require(scope: str) -> Callable[..., Auth]:
                 check_browser_write(request)
         elif scheme.lower() != "bearer":
             raise _unauthorized("missing bearer token")
-        principal = accounts.resolve_token(session, token.strip(), touch=False)
-        if principal and cookie_auth and not session.get(Token, principal.token_id).browser_session:
-            principal = None
+        principal = accounts.authenticate(session, token, cookie=cookie_auth, touch=False)
         if principal is not None and accounts.needs_touch(session, principal.token_id):
             await run_in_threadpool(accounts.touch_token, session, principal.token_id)
         if principal is None:

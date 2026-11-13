@@ -49,7 +49,7 @@ from starlette.concurrency import run_in_threadpool
 from slate import db
 from slate.api.auth import DbSession, ReadAuth, WriteAuth, _unauthorized
 from slate.api.schemas import ItemOut
-from slate.models import Account, AccountKind, Event, Token
+from slate.models import Account, AccountKind, Event
 from slate.presence import presence
 from slate.service import access, accounts, items, revert
 from slate.service.bus import bus
@@ -235,14 +235,9 @@ def stream_auth(
     else:
         plaintext = request.cookies.get("slate_session", "")
     with db.SessionLocal() as session:
-        principal = accounts.resolve_token(session, plaintext)
-        if (
-            principal
-            and not authorization
-            and not token
-            and not session.get(Token, principal.token_id).browser_session
-        ):
-            principal = None
+        principal = accounts.authenticate(
+            session, plaintext, cookie=not authorization and not token
+        )
         if principal is None:
             raise _unauthorized("invalid or revoked token")
         if not principal.has("read"):
