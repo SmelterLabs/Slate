@@ -25,8 +25,10 @@ class InviteIn(BaseModel):
     section_id: str = Field(min_length=12, max_length=12)
     handle: str = Field(pattern=accounts.HANDLE_RE.pattern)
     display_name: str = Field(min_length=1, max_length=100)
-    role: Literal["guest"] = "guest"
-    level: Literal["edit"] = "edit"
+    # The only values there are: an invitation makes a guest with edit on the section. Kept as
+    # fields so a client that states them (the board does) is checked, not refused.
+    role: Literal["guest"] = Field(default="guest", description="Always `guest`")
+    level: Literal["edit"] = Field(default="edit", description="Always `edit`")
 
 
 class AcceptIn(BaseModel):
@@ -34,32 +36,32 @@ class AcceptIn(BaseModel):
 
 
 class Attempts:
-    """Single-process bounded limiter, independent of optional authenticated API limits."""
+    """Single-process bounded limiter, independent of optional authenticated API limits: ten
+    attempts a minute per key, at most 1,024 keys. There is no shared bucket on purpose: the
+    secrets are 256-bit, so a workspace-wide cap would only let anyone lock everyone out."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.clients = OrderedDict()
-        self.all = deque()
 
     def take(self, key: str):
         now = time.monotonic()
         with self.lock:
-            for queue in (self.all, self.clients.setdefault(key, deque())):
-                while queue and queue[0] <= now - 60:
-                    queue.popleft()
-            own = self.clients[key]
+            own = self.clients.setdefault(key, deque())
+            while own and own[0] <= now - 60:
+                own.popleft()
             self.clients.move_to_end(key)
             while len(self.clients) > 1024:
                 self.clients.popitem(last=False)
-            if len(own) >= 10 or len(self.all) >= 100:
+            if len(own) >= 10:
                 raise HTTPException(
                     429, "Too many attempts. Try again in a minute.", headers={"Retry-After": "60"}
                 )
             own.append(now)
-            self.all.append(now)
 
 
-attempts = Attempts()
+attempts = Attempts()  # per client address
+invite_attempts = Attempts()  # per invitation named by a well-formed secret
 
 
 def set_session_cookie(response: Response, request: Request, plaintext: str) -> None:
@@ -157,6 +159,9 @@ def accept(body: AcceptIn, request: Request, response: Response, session: DbSess
     """Consume a single-use link; sign in this browser for thirty days. Not email verification."""
     check_browser_write(request)
     attempts.take(request.client.host if request.client else "unknown")
+    named = collaboration.INVITE_RE.fullmatch(body.secret)
+    if named:
+        invite_attempts.take(named[1])
     row, plaintext = collaboration.accept(session, body.secret)
     set_session_cookie(response, request, plaintext)
     response.headers["Cache-Control"] = "no-store"

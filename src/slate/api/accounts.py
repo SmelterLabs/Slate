@@ -285,7 +285,7 @@ def bootstrap(body: BootstrapIn, session: DbSession) -> BootstrapOut:
 
 
 def my_access(session, account: Account) -> MyAccess:
-    found = access.current(session) or access.Access(account.id, account.role)
+    found = access.caller(session) or access.Access(account.id, account.role)
     level = access.LEVEL_NAME[found.cap]
     if found.lists is None:
         return MyAccess(

@@ -68,7 +68,7 @@ from slate.models import (
 )
 from slate.service import access, attachments, chat_files, guests
 from slate.service import items as items_svc
-from slate.service.comments import _is_admin, clean_emoji, mentions_in
+from slate.service.comments import clean_emoji, mentions_in
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.due import SYSTEM_HANDLE  # Slate's own account: nobody chats with it
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -743,7 +743,7 @@ def delete(session: Session, actor: Actor, message_id: str) -> Message:
     """The author, or an owner or admin (as for card comments), deletes a message: the body and
     its files go, the row stays so its thread holds. `message.deleted` keeps what it said."""
     msg = get_message(session, message_id)
-    if msg.author_id != actor.account_id and not _is_admin(session, actor.account_id):
+    if msg.author_id != actor.account_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only a message's author or an admin can delete it")
     if msg.deleted_at is not None:
         return msg

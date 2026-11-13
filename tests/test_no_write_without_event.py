@@ -90,6 +90,7 @@ READS = {
         "usage",
         # Writes only Token.last_used_at, the one listed bookkeeping exemption (core.BOOKKEEPING).
         "resolve_token",
+        "authenticate",
         "touch_token",
         "needs_touch",
     },
@@ -433,6 +434,11 @@ INFRASTRUCTURE = {
         "require_list_level",
         "check_scope",
         "unrestricted",
+        "caller",
+        "grants_admin",
+        "is_admin",
+        "is_personal",
+        "levels_on",
     },
     # Take an open Change (`cx`); they only run inside another mutation's apply_change().
     "slate.service.lists": {"move_item_to_status"},

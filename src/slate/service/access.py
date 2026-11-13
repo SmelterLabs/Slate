@@ -89,10 +89,20 @@ from slate.models import (
 from slate.service.errors import Forbidden
 
 ACCESS_KEY = "slate_access"
+# The bound caller's `Access`, kept even when it is unrestricted (and ACCESS_KEY is absent so
+# the read and write hooks cost nothing): "is this caller an admin" and the per-account event
+# rules read it. Absent for Slate's own sessions (scheduler, CLI).
+CALLER_KEY = "slate_caller"
 VIEW, COMMENT, EDIT = 1, 2, 3
 LEVEL_RANK = {ShareLevel.view: VIEW, ShareLevel.comment: COMMENT, ShareLevel.edit: EDIT}
 LEVEL_NAME = {0: None, VIEW: "view", COMMENT: "comment", EDIT: "edit"}
 ROLE_RANK = {Role.guest: 0, Role.member: 1, Role.admin: 2, Role.owner: 3}
+
+
+def grants_admin(role: Role | str | None, scopes: Any, limit: Any = None) -> bool:
+    """The one rule for "is this caller an admin": an owner or admin account, through a token
+    that carries the `admin` scope and is not limited to some sections or lists."""
+    return Role(role or Role.member) in (Role.owner, Role.admin) and "admin" in scopes and not limit
 
 
 def level_rank(level: str | ShareLevel | None) -> int:
@@ -123,6 +133,7 @@ class Access:
     # When each of those agents was shared into a place the caller sees (the earliest live
     # share): its chat is readable from then on, not before (`agent_chat_since`).
     agent_since: dict[str, datetime] | None = None
+    admin_scope: bool = True  # the token carries the `admin` scope (no token: Slate's own)
 
     @property
     def unrestricted(self) -> bool:
@@ -130,7 +141,7 @@ class Access:
 
     @property
     def is_admin(self) -> bool:
-        return self.role in (Role.owner, Role.admin) and not self.limited
+        return grants_admin(self.role, ("admin",) if self.admin_scope else (), self.limited)
 
     def list_level(self, list_id: str | None) -> int:
         if list_id is None:
@@ -207,10 +218,11 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
     if limit:
         cap = min(cap, level_rank(limit.get("level")) or EDIT)
     full = role in (Role.owner, Role.admin)
+    admin_scope = "admin" in scopes
     if full and not limit:
-        return Access(account.id, role, cap)
+        return Access(account.id, role, cap, admin_scope=admin_scope)
     if role == Role.member and not limit and not _any_private(session):
-        return Access(account.id, role, cap)
+        return Access(account.id, role, cap, admin_scope=admin_scope)
 
     rows = session.execute(
         select(List.id, List.section_id, List.private, Section.private).join(
@@ -226,14 +238,12 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
 
     sections: dict[str, int] = {}
     for sid, private in section_rows:
-        default = EDIT if full or (role == Role.member and not private) else 0
-        lvl = max(default, sec_share.get(sid, 0))
+        lvl = _section_rule(role, private, sec_share.get(sid, 0))
         if lvl:
             sections[sid] = lvl
     lists: dict[str, int] = {}
     for lid, sid, list_private, _section_private in rows:
-        inherited = 0 if list_private and not full else sections.get(sid, 0)
-        lvl = max(inherited, list_share.get(lid, 0))
+        lvl = _list_rule(role, list_private, sections.get(sid, 0), list_share.get(lid, 0))
         if lvl:
             lists[lid] = lvl
 
@@ -265,6 +275,7 @@ def compute(session: Session, account: Account, token: Token | None = None) -> A
         limited=bool(limit),
         agents=agents,
         agent_since=agent_since,
+        admin_scope=admin_scope,
         project_agent_ids=project_agent_ids,
     )
 
@@ -283,6 +294,53 @@ def agent_projects(session: Session, agent_id: str) -> set[str]:
         ).all()
     )
     return {sid if kind == "section" else section_of.get(sid, sid) for kind, sid in rows}
+
+
+def _section_rule(role: Role, private: bool, share: int) -> int:
+    """An account's level on a section: owners and admins edit every one, members every one
+    that is not private; a share can only add to that."""
+    full = role in (Role.owner, Role.admin)
+    return max(EDIT if full or (role == Role.member and not private) else 0, share)
+
+
+def _list_rule(role: Role, private: bool, section_level: int, share: int) -> int:
+    """An account's level on a list: its section's, unless the list is private (then only an
+    owner or admin keeps it); a share can only add to that."""
+    full = role in (Role.owner, Role.admin)
+    return max(0 if private and not full else section_level, share)
+
+
+def levels_on(session: Session, scope_kind: str, scope_id: str) -> dict[str, int]:
+    """Every enabled account's level on one section or list, as `compute` (with no token
+    limit) would give it, in a fixed number of queries whatever the roster's size."""
+    section_id = scope_id
+    list_private = False
+    if scope_kind == "list":
+        section_id, list_private = session.execute(
+            select(List.section_id, List.private).where(List.id == scope_id)
+        ).one()
+    section_private = bool(session.scalar(select(Section.private).where(Section.id == section_id)))
+    shares: dict[tuple[str, str], int] = {}
+    for account_id, kind, lvl in session.execute(
+        select(Share.account_id, Share.scope_kind, Share.level).where(
+            or_(
+                and_(Share.scope_kind == "section", Share.scope_id == section_id),
+                and_(Share.scope_kind == "list", Share.scope_id == scope_id),
+            )
+        )
+    ):
+        shares[(account_id, kind)] = level_rank(lvl)
+    out: dict[str, int] = {}
+    for account_id, role in session.execute(
+        select(Account.id, Account.role).where(Account.disabled_at.is_(None))
+    ):
+        role = Role(role or Role.member)
+        lvl = _section_rule(role, section_private, shares.get((account_id, "section"), 0))
+        if scope_kind == "list":
+            lvl = _list_rule(role, list_private, lvl, shares.get((account_id, "list"), 0))
+        if lvl:
+            out[account_id] = lvl
+    return out
 
 
 def _project_agents(
@@ -344,20 +402,14 @@ def bind(session: Session, account: Account, token_id: str) -> Access:
     """Compute and attach the access of `account` using token `token_id`."""
     found = compute(session, account, session.get(Token, token_id))
     attach(session, found)
-    token = session.get(Token, token_id)
     session.info["slate_authenticated_token_id"] = token_id
-    session.info["slate_connection_event_manager"] = bool(
-        found.is_admin and (token is None or "admin" in token.scopes.split())
-    )
     return found
 
 
 def attach(session: Session, access: Access) -> None:
     """Make `access` govern every later read and write on `session` (no-op when unrestricted
     and not limited: the hooks then cost nothing)."""
-    # Connection events are private even for members with unrestricted project access.
-    session.info["slate_connection_event_access"] = access
-    session.info["slate_connection_event_manager"] = False
+    session.info[CALLER_KEY] = access
     if access.unrestricted and access.cap == EDIT:
         session.info.pop(ACCESS_KEY, None)
         return
@@ -365,7 +417,27 @@ def attach(session: Session, access: Access) -> None:
 
 
 def current(session: Session) -> Access | None:
+    """The caller's `Access` when it filters anything (None: unrestricted, or Slate's own)."""
     return session.info.get(ACCESS_KEY)
+
+
+def caller(session: Session) -> Access | None:
+    """The bound caller's `Access`, restricted or not (None: Slate's own session)."""
+    return session.info.get(CALLER_KEY)
+
+
+def is_admin(session: Session, account_id: str | None = None) -> bool:
+    """Whether the session's caller is an owner or admin through an unlimited admin token
+    (`grants_admin`). With no bound caller (scheduler, CLI, a service called directly) it is
+    the role of `account_id` when one is named, else Slate's own session: an admin."""
+    found = caller(session)
+    if found is not None:
+        return found.is_admin
+    if account_id is None:
+        return True
+    with session.no_autoflush:
+        account = session.get(Account, account_id)
+    return account is not None and account.role in (Role.owner, Role.admin)
 
 
 @dataclass
@@ -422,6 +494,49 @@ _docs = Doc.__table__
 # Workspace-wide things: capacities belong to no list, so they follow General
 # (members yes; guests and list-limited tokens no).
 _WORKSPACE_TYPES = ("capacity.",)
+# Events about one account's own settings and bookkeeping: only that account and an admin
+# read them, whatever else the caller can see (`_owned`, `EventGate._owns`).
+PERSONAL_PREFIXES = (
+    "agent.connection_",
+    "favorite.",
+    "inbox.",
+    "push.",
+    "session.",
+    "token.",
+    "webhook.",
+)
+PERSONAL_TYPES = ("account.prefs_changed", "account.digest", "channel.read", "item.read")
+
+
+def is_personal(type_: str) -> bool:
+    return type_ in PERSONAL_TYPES or type_.startswith(PERSONAL_PREFIXES)
+
+
+def _owner_tables() -> list[Any]:
+    from slate.models import Favorite, PushSubscription, Webhook
+
+    return [Token.__table__, Webhook.__table__, Favorite.__table__, PushSubscription.__table__]
+
+
+def _view_events(c: Any, me: str) -> Any:
+    """SQL: the event is not about a saved view someone else keeps unshared."""
+    t = View.__table__
+    hidden = select(t.c.id).where(t.c.shared.is_(False), t.c.owner_id != me)
+    return or_(~c.type.startswith("view."), c.subject_id.not_in(hidden))
+
+
+def _owned(c: Any, me: str) -> Any:
+    """SQL: the event is not personal, or it is `me`'s (subject, payload or owning row)."""
+    personal = or_(c.type.in_(PERSONAL_TYPES), *(c.type.startswith(p) for p in PERSONAL_PREFIXES))
+    return or_(
+        ~personal,
+        c.subject_id == me,
+        c.after_json["account_id"].as_string() == me,
+        c.before_json["account_id"].as_string() == me,
+        *(c.subject_id.in_(select(t.c.id).where(t.c.account_id == me)) for t in _owner_tables()),
+    )
+
+
 _ITEM_SCOPED: list[type] = []
 _LIST_SCOPED: list[type] = []
 # Slate's own landing views (service/views.py SEED_VIEWS): generic lenses, so everyone's.
@@ -509,22 +624,22 @@ def _chat_visible(
 
 
 def read_criteria(state: ORMExecuteState) -> None:
-    connection_access = state.session.info.get("slate_connection_event_access")
-    if (
-        state.is_select
-        and connection_access is not None
-        and not state.session.info.get("slate_connection_event_manager", False)
-    ):
-        connection_me = connection_access.account_id
-        state.statement = state.statement.options(
+    # Personal events are private even for members with unrestricted project access, and a
+    # saved view that is not shared (and its history) is its owner's alone, admins included.
+    bound: Access | None = state.session.info.get(CALLER_KEY)
+    if state.is_select and bound is not None:
+        owner = bound.account_id
+        opts = [
             with_loader_criteria(
-                Event,
-                lambda c: or_(
-                    ~c.type.startswith("agent.connection_"), c.subject_id == connection_me
-                ),
-                include_aliases=True,
+                View, lambda c: or_(c.shared.is_(True), c.owner_id == owner), include_aliases=True
+            ),
+            with_loader_criteria(Event, lambda c: _view_events(c, owner), include_aliases=True),
+        ]
+        if not bound.is_admin:
+            opts.append(
+                with_loader_criteria(Event, lambda c: _owned(c, owner), include_aliases=True)
             )
-        )
+        state.statement = state.statement.options(*opts)
     access: Access | None = state.session.info.get(ACCESS_KEY)
     if access is None or access.lists is None or not state.is_select:
         return
@@ -611,6 +726,16 @@ def read_criteria(state: ORMExecuteState) -> None:
                 ),
                 c.subject_id.in_(docs),
                 c.subject_id == me,
+                # Workspace-wide news, as the live gate passes it (personal ones are filtered
+                # for every caller above).
+                and_(
+                    ws,
+                    or_(
+                        c.type.startswith("tag."),
+                        c.type.startswith("account."),
+                        c.type.startswith("capacity."),
+                    ),
+                ),
                 and_(
                     c.type.startswith("share."),
                     or_(
@@ -1217,11 +1342,6 @@ class EventGate:
         previous = self.access
         account = session.get(Account, self.account_id)
         token = session.get(Token, self.token_id) if self.token_id else None
-        self._connection_manager = bool(
-            account
-            and account.role in (Role.owner, Role.admin)
-            and (token is None or (not token.limit_json and "admin" in token.scopes.split()))
-        )
         self.denied = bool(
             account is None
             or account.disabled_at
@@ -1238,10 +1358,12 @@ class EventGate:
             self.access = Access(
                 self.account_id, Role.guest, VIEW, lists={}, sections={}, general=False
             )
+            self._admin = False
         else:
             with unrestricted(session):
                 found = compute(session, account, token)
             self.access = None if found.unrestricted else found
+            self._admin = found.is_admin
         now = self.access
         self.narrowed = bool(
             self._loaded
@@ -1407,8 +1529,11 @@ class EventGate:
     def _allows_outer(self, session: Session, payload: dict[str, Any]) -> bool:
         if self.denied:
             return False
-        if str(payload.get("type", "")).startswith("agent.connection_"):
-            return self._connection_manager or payload.get("subject_id") == self.account_id
+        type_ = str(payload.get("type", ""))
+        if is_personal(type_) and not self._admin:
+            return self._owns(session, payload)
+        if type_.startswith("view.") and not self._sees_view(session, payload.get("subject_id")):
+            return False
         a = self.access
         if a is None or a.lists is None:
             return True
@@ -1473,8 +1598,33 @@ class EventGate:
         if type_.startswith("tag."):
             return a.general
         if type_.startswith("account."):
-            return a.general and type_ != "account.prefs_changed"
+            return a.general
         return False
+
+    def _sees_view(self, session: Session, view_id: Any) -> bool:
+        """A saved view that is not shared is its owner's alone."""
+        if not view_id:
+            return True
+        t = View.__table__
+        row = session.execute(select(t.c.shared, t.c.owner_id).where(t.c.id == view_id)).first()
+        return row is None or bool(row.shared) or row.owner_id == self.account_id
+
+    def _owns(self, session: Session, payload: dict[str, Any]) -> bool:
+        """A personal event is this caller's: about its account, or its token, device, hook."""
+        me = self.account_id
+        subject = payload.get("subject_id")
+        if subject == me:
+            return True
+        for key in ("after", "before"):
+            snap = payload.get(key)
+            if isinstance(snap, dict) and snap.get("account_id") == me:
+                return True
+        if not subject:
+            return False
+        return any(
+            session.execute(select(t.c.account_id).where(t.c.id == subject)).scalar() == me
+            for t in _owner_tables()
+        )
 
 
 def _parse_at(value: Any) -> datetime | None:
@@ -1574,13 +1724,13 @@ def require_list_level(session: Session, list_id: str | None, need: int, what: s
 
 
 def require_admin(session: Session, what: str = "do this") -> None:
-    access = current(session)
-    if access is not None and not access.is_admin:
+    if not is_admin(session):
         raise Forbidden(f"only an owner or admin can {what}")
 
 
 __all__ = [
     "ACCESS_KEY",
+    "CALLER_KEY",
     "COMMENT",
     "EDIT",
     "VIEW",

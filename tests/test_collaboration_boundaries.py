@@ -332,7 +332,6 @@ def test_throttled_new_addresses_do_not_grow_limiter_without_bound():
         except HTTPException as exc:
             assert exc.status_code == 429
     assert len(limiter.clients) <= 1024
-    assert len(limiter.all) <= 100
 
 
 def test_acceptance_limiter_is_bounded(client, monkeypatch):

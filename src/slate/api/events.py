@@ -238,14 +238,9 @@ def stream_auth(
     else:
         plaintext = request.cookies.get("slate_session", "")
     with db.SessionLocal() as session:
-        principal = accounts.resolve_token(session, plaintext)
-        if (
-            principal
-            and not authorization
-            and not token
-            and not session.get(Token, principal.token_id).browser_session
-        ):
-            principal = None
+        principal = accounts.authenticate(
+            session, plaintext, cookie=not authorization and not token
+        )
         if principal is None:
             raise _unauthorized("invalid or revoked token")
         if not principal.has("read"):

@@ -75,6 +75,13 @@ class Principal:
     def has(self, scope: str) -> bool:
         return has_scope(self.scopes, scope)
 
+    @property
+    def is_admin(self) -> bool:
+        """`access.grants_admin`: `_lookup` already drops `admin` from a limited token."""
+        from slate.service.access import grants_admin
+
+        return grants_admin(self.account.role, self.scopes)
+
 
 def has_scope(held: frozenset[str] | set[str], required: str) -> bool:
     return max((SCOPE_RANK[s] for s in held), default=0) >= SCOPE_RANK[required]
@@ -92,8 +99,12 @@ def _normalize_scopes(scopes: list[str] | tuple[str, ...] | set[str]) -> str:
 
 
 def _validate_account(handle: str, display_name: str, kind: str) -> AccountKind:
+    from slate.service.due import SYSTEM_HANDLE
+
     if not HANDLE_RE.match(handle):
         raise Invalid("handle must be 2-32 chars: lowercase letter, then a-z 0-9 _ -")
+    if handle == SYSTEM_HANDLE:
+        raise Invalid(f"`{SYSTEM_HANDLE}` is Slate's own account; choose another handle")
     if not display_name.strip():
         raise Invalid("display_name is required")
     try:
@@ -131,7 +142,7 @@ def list_tokens(session: Session, account_id: str, *, include_revoked: bool = Fa
 
 
 def require_self_or_admin(by: Principal, account_id: str) -> None:
-    if not by.has("admin") and by.account.id != account_id:
+    if not by.is_admin and by.account.id != account_id:
         raise Forbidden("only an admin or the account itself can see this")
 
 
@@ -187,6 +198,16 @@ def account_count(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(Account)) or 0
 
 
+def _bootstrapped(session: Session) -> bool:
+    """Someone besides Slate's own account exists (which a scheduler alarm can create first)."""
+    from slate.service.due import SYSTEM_HANDLE
+
+    return (
+        session.scalar(select(Account.id).where(Account.handle != SYSTEM_HANDLE).limit(1))
+        is not None
+    )
+
+
 def resolve_token(session: Session, plaintext: str, *, touch: bool = True) -> Principal | None:
     """Bearer token -> Principal, or None if malformed, unknown, revoked or disabled.
 
@@ -197,6 +218,20 @@ def resolve_token(session: Session, plaintext: str, *, touch: bool = True) -> Pr
     principal = _lookup(session, plaintext)
     if principal is not None and touch and needs_touch(session, principal.token_id):
         touch_token(session, principal.token_id)
+    return principal
+
+
+def authenticate(
+    session: Session, plaintext: str, *, cookie: bool = False, touch: bool = True
+) -> Principal | None:
+    """The one token check every door uses (REST, the live stream, MCP): `resolve_token`, and
+    a credential read from the browser cookie must be a browser session, not a pasted API
+    token. The caller then checks the scope it needs and binds the caller's access."""
+    principal = resolve_token(session, (plaintext or "").strip(), touch=touch)
+    if principal is not None and cookie:
+        token = session.get(Token, principal.token_id)
+        if token is None or not token.browser_session:
+            return None
     return principal
 
 
@@ -334,10 +369,14 @@ def create_token(
     `{"list_ids": [...], "section_ids": [...], "level": "view|comment|edit"}`. A limited token
     is never an admin token. `by` is the caller: only the owner mints tokens for the owner
     account (an admin holding an owner token would be the owner)."""
+    from slate.service.due import SYSTEM_HANDLE
+
     scope_str = _normalize_scopes(scopes)
     account = get_account(session, account_id)
+    if account.handle == SYSTEM_HANDLE:
+        raise Invalid("`slate` is Slate's own account: it takes no tokens")
     if by is not None:
-        _require_owner_for_owner(by, account, "issue tokens for")
+        _require_outranks(by, account, "issue tokens for")
     if account.disabled_at is not None:
         raise Invalid("account is disabled")
     limit_json = _normalize_limit(session, limit)
@@ -361,11 +400,14 @@ def create_token(
     return token, plaintext
 
 
-def _require_owner_for_owner(by: Principal, account: Account, what: str) -> None:
-    """The owner outranks admins: only the owner (or the account itself) may `what` the
-    owner account. Otherwise an admin could mint an owner token, or lock the owner out."""
-    if account.role == Role.owner and by.account.id != account.id:
-        raise Forbidden(f"only the owner can {what} the owner account")
+def _require_outranks(by: Principal, account: Account, what: str) -> None:
+    """The owner outranks admins: only the owner (or the account itself) may `what` an admin
+    or the owner account. Otherwise one admin could act as another (a token on its account),
+    lock it out, or do the same to the owner."""
+    if by.account.id == account.id or account.role not in (Role.owner, Role.admin):
+        return
+    if account.role == Role.owner or by.account.role != Role.owner:
+        raise Forbidden(f"only the owner can {what} an admin or the owner account")
 
 
 def revoke_token(session: Session, actor: Actor, *, token_id: str, by: Principal) -> Token:
@@ -374,12 +416,12 @@ def revoke_token(session: Session, actor: Actor, *, token_id: str, by: Principal
     token = session.get(Token, token_id)
     if token is None:
         raise NotFound(f"token {token_id} not found")
-    if not by.has("admin") and token.account_id != by.account.id:
+    if not by.is_admin and token.account_id != by.account.id:
         raise Forbidden("only an admin or the token's own account can revoke it")
     caller = session.get(Token, by.token_id)
     if caller is not None and caller.limit_json and token.id != caller.id:
         raise Forbidden("a scoped credential can revoke only itself")
-    _require_owner_for_owner(by, get_account(session, token.account_id), "revoke tokens of")
+    _require_outranks(by, get_account(session, token.account_id), "revoke tokens of")
     if token.revoked_at is None:
         with apply_change(session, actor) as cx:
             cx.set(token, "revoked_at", utcnow(), "token.revoked")
@@ -400,7 +442,7 @@ def update_account(
     account's tokens stop working at once and it drops off the roster; its history and
     assignments stay. You cannot disable your own account (that is how an admin locks
     themselves out)."""
-    if not by.has("admin"):
+    if not by.is_admin:
         raise Forbidden("only an admin can change an account")
     account = get_account(session, account_id)
     from slate.service.due import SYSTEM_HANDLE
@@ -414,8 +456,7 @@ def update_account(
         raise Invalid("display_name is required")
     if disabled and account.id == by.account.id:
         raise Invalid("you cannot disable your own account")
-    if disabled is not None:
-        _require_owner_for_owner(by, account, "disable or enable")
+    _require_outranks(by, account, "rename, disable or enable")
     with apply_change(session, actor) as cx:
         if display_name is not None:
             cx.set(account, "display_name", display_name.strip(), "account.updated")
@@ -435,7 +476,7 @@ def bootstrap(session: Session, *, handle: str, display_name: str) -> tuple[Acco
     Raises `Gone` once any account exists.
     """
     _validate_account(handle, display_name, "person")
-    if account_count(session):
+    if _bootstrapped(session):
         raise Gone("Slate is already bootstrapped")
     account = Account(
         id=new_id(),
@@ -447,7 +488,7 @@ def bootstrap(session: Session, *, handle: str, display_name: str) -> tuple[Acco
     actor = Actor(account_id=account.id, source=Source.api)
     with apply_change(session, actor) as cx:
         # Checked again under the write lock: two first requests at once must not both win.
-        if account_count(session):
+        if _bootstrapped(session):
             raise Gone("Slate is already bootstrapped")
         cx.create(account, "account.created")
         token, plaintext = create_token(
