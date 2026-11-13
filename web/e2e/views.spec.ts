@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, seed } from './seed';
 
 // The views board. Runs after board.spec.ts against the same seeded server.

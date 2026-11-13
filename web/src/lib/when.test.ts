@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, dayLabel, joinWhen, quickPicks, splitWhen, timeLabel } from './when';
+import { addDays, longDay, joinWhen, quickPicks, splitWhen, timeLabel } from './when';
 
 describe('splitWhen / joinWhen', () => {
   it('17:00 Chicago is a date with no time (CDT and CST)', () => {
@@ -54,7 +54,7 @@ describe('quickPicks', () => {
 describe('labels', () => {
   it('formats', () => {
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
-    expect(dayLabel('2026-10-28')).toBe('Wed, Oct 28');
+    expect(longDay('2026-10-28')).toBe('Wed, Oct 28');
     expect(timeLabel('09:05')).toBe('9:05 AM');
     expect(timeLabel('00:00')).toBe('12:00 AM');
     expect(timeLabel('17:30')).toBe('5:30 PM');

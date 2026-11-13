@@ -9,7 +9,7 @@
   import { agents, isOnline, STATE_LABEL } from '../lib/agents.svelte';
   import { get } from '../lib/api';
   import { shownProgress } from '../lib/conversation';
-  import { ago } from '../lib/format';
+  import { ago, fullStamp } from '../lib/format';
   import { verb } from '../lib/history';
   import { heldFor, movesPlan, planWhen, REASON_LABEL, type AgentPlan, type PlanOut } from '../lib/plan';
   import { board } from '../lib/store.svelte';
@@ -317,7 +317,7 @@
           {#each feed as ev (ev.id)}
             {@const t = itemTitle(ev)}
             <li class="ev type-{ev.type.replace('.', '-')}">
-              <span class="when muted" title={new Date(ev.at).toLocaleString()}>{ago(ev.at, board.now)}</span>
+              <span class="when muted" title={fullStamp(ev.at)}>{ago(ev.at, board.now)}</span>
               <span class="text">
                 <b>{who(ev.actor_id)}</b>
                 {verb(ev, { ...ctx, now: board.now })}

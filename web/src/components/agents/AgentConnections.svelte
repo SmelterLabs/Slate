@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fullStamp } from '../../lib/format';
   import { untrack } from 'svelte';
   import { connections } from '../../lib/connection-data.svelte';
   import { connectionStatus } from '../../lib/connections';
@@ -50,8 +51,8 @@
           <li>
             <b>{row.label}</b> · <span>{status.label}</span>
             <p class="muted">{status.detail}</p>
-            {#if row.last_seen_at}<p class="muted">Last check: {new Date(row.last_seen_at).toLocaleString()}</p>{/if}
-            {#if row.verified_at}<p class="muted">Last successful agent test: {new Date(row.verified_at).toLocaleString()}</p>{/if}
+            {#if row.last_seen_at}<p class="muted">Last check: {fullStamp(row.last_seen_at)}</p>{/if}
+            {#if row.verified_at}<p class="muted">Last successful agent test: {fullStamp(row.verified_at)}</p>{/if}
             {#if admin && row.state !== 'revoked'}
               {#if confirm === row.id}
                 <p>Revoke this connection’s Slate access? This does not stop its process or revoke other connections.</p>

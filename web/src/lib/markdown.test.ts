@@ -37,7 +37,7 @@ describe('renderMarkdown: bare URLs', () => {
     );
     expect(renderMarkdown('- https://x.y/z\n\n| a |\n|---|\n| https://x.y/t |')).toBe(
       '<ul><li><a href="https://x.y/z" target="_blank" rel="noopener noreferrer">https://x.y/z</a></li></ul>' +
-        '<div class="table-wrap"><table><thead><tr><th>a</th></tr></thead><tbody><tr><td><a href="https://x.y/t" target="_blank" rel="noopener noreferrer">https://x.y/t</a></td></tr></tbody></table></div>',
+        '<div class="md-table-wrap"><table><thead><tr><th>a</th></tr></thead><tbody><tr><td><a href="https://x.y/t" target="_blank" rel="noopener noreferrer">https://x.y/t</a></td></tr></tbody></table></div>',
     );
   });
 
@@ -56,7 +56,7 @@ describe('renderMarkdown: richer blocks', () => {
   it('renders a pipe table with alignment, escaped pipes and short rows', () => {
     const src = '| Order | Work | Done |\n|---|:---:|---:|\n| M1 | Draft a plan \\| contract | yes |\n| M2 | Final pass |';
     expect(renderMarkdown(src)).toBe(
-      '<div class="table-wrap"><table><thead><tr><th>Order</th><th style="text-align:center">Work</th><th style="text-align:right">Done</th></tr></thead>' +
+      '<div class="md-table-wrap"><table><thead><tr><th>Order</th><th style="text-align:center">Work</th><th style="text-align:right">Done</th></tr></thead>' +
         '<tbody><tr><td>M1</td><td style="text-align:center">Draft a plan | contract</td><td style="text-align:right">yes</td></tr>' +
         '<tr><td>M2</td><td style="text-align:center">Final pass</td><td style="text-align:right"></td></tr></tbody></table></div>',
     );

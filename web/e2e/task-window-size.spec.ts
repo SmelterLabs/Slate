@@ -107,6 +107,15 @@ test('the dock button parks the window on the right third or quarter, with the b
   await page.locator('.card', { hasText: 'Beside the dock' }).first().click();
   await expect(win.locator('.title')).toHaveValue('Beside the dock');
   expect(other.id).toBeTruthy();
+  // Docked, the window is not modal: tabbing on from its controls reaches the board.
+  await win.locator('.title').focus();
+  const outside = () => page.evaluate(() => !document.querySelector('.tw')!.contains(document.activeElement));
+  let left = false;
+  for (let i = 0; i < 120 && !left; i++) {
+    await page.keyboard.press('Tab');
+    left = await outside();
+  }
+  expect(left).toBe(true);
 
   await page.reload();
   await expect(page.locator('.tw .title')).toBeVisible();

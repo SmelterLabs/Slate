@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, seed } from './seed';
 
 // The ClickUp-style board: folded empty days, + Add Task per column, the Done column, clickable

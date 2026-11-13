@@ -726,7 +726,7 @@ h3.hot {
   vertical-align: -2px;
   margin: 0 4px 0 0;
 }
-.md .table-wrap {
+.md .md-table-wrap {
   overflow-x: auto;
   margin: 0 0 10px;
   border: 1px solid var(--line);
@@ -1326,11 +1326,6 @@ a.nav-heading.active {
 .bb-scroll {
   max-height: 320px;
   overflow-y: auto;
-}
-.bb-ellipsis {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .bb-dot {
   width: 9px;
@@ -2175,10 +2170,6 @@ kbd {
 .inline-swatches {
   flex-basis: auto;
   padding-left: 0;
-}
-.tiny-wide {
-  width: 140px;
-  padding: 2px 6px;
 }
 
 /* table layout */

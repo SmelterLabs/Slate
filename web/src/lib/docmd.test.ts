@@ -69,6 +69,21 @@ describe('inline', () => {
     expect(inline('![x](http://insecure.example/a.png)', ctx)).toBe('x');
   });
 
+  it('never lets a bare URL swallow the link, image or page link glued after it', () => {
+    const glued = [
+      'See https://a.example.com/[x](https://b.example.com/x/onmouseover=document.title=/pwned/.source//)',
+      'See https://a.example.com/[x](https://b.example.com/x/style=a)',
+      'See https://a.example.com/![p](https://b.example.com/p.png)',
+      'See https://a.example.com/[[doc:BBBBBBBBBBBB]]',
+    ];
+    for (const src of glued) {
+      const out = inline(src, ctx);
+      for (const tag of out.match(/<a\b[^>]*>/g) ?? []) expect(tag.match(/href=/g)).toHaveLength(1);
+      expect(out).not.toMatch(/href="[^"]*</);
+      expect(out).not.toMatch(/\sonmouseover=|\sstyle=/);
+    }
+  });
+
   it('links bare URLs and strikes through', () => {
     expect(inline('go https://example.com/a.', ctx)).toBe(
       'go <a href="https://example.com/a" target="_blank" rel="noopener noreferrer">https://example.com/a</a>.',

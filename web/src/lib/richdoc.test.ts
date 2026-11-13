@@ -99,7 +99,7 @@ describe('editorMarkdown', () => {
     const root = document.createElement('div');
     root.innerHTML =
       '<h2>Title</h2><ul><li>a<ul><li>b</li></ul></li></ul><ol><li>x</li><li>y</li></ol>' +
-      '<blockquote>said</blockquote><div class="table-wrap"><table><tr><th>A</th><th>B|C</th></tr><tr><td>1</td><td></td></tr></table></div><hr>';
+      '<blockquote>said</blockquote><div class="md-table-wrap"><table><tr><th>A</th><th>B|C</th></tr><tr><td>1</td><td></td></tr></table></div><hr>';
     expect(blocksMd(root)).toBe('## Title\n\n- a\n  - b\n\n1. x\n2. y\n\n> said\n\n| A | B\\|C |\n| --- | --- |\n| 1 |  |\n\n---');
   });
 

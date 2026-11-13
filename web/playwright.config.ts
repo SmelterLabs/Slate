@@ -56,6 +56,11 @@ export default defineConfig({
       SLATE_DATABASE_PATH: dbPath,
       SLATE_STATIC_DIR: join(here, 'dist'),
       SLATE_SCHEDULER_ENABLED: 'false',
+      // The whole suite signs in with one token, one test after another, so it reads far more
+      // per minute than one person's board does. Five times the default still stops a board
+      // that starts asking in a loop.
+      SLATE_RATE_LIMIT_READS_PER_MINUTE: '6000',
+      SLATE_RATE_LIMIT_WRITES_PER_MINUTE: '1500',
       SLATE_TIMEZONE: process.env.SLATE_TIMEZONE ?? 'America/Chicago',
       // A fixed test-only key, so rows that keep secrets (automation webhooks) work in the e2e.
       SLATE_SECRET_KEY: process.env.SLATE_SECRET_KEY ?? '00'.repeat(16) + '22'.repeat(16),

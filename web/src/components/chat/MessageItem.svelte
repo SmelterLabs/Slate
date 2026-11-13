@@ -11,7 +11,8 @@
   import { exposure } from '../../lib/exposure';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { saveDraft } from '../../lib/drafts.svelte';
-  import { ago, dueLabel, isOverdue } from '../../lib/format';
+  import { ago, dueLabel, fullStamp, isOverdue } from '../../lib/format';
+  import { isSendKey } from '../../lib/mentions.svelte';
   import { liveRefs } from '../../lib/refs.svelte';
   import { board } from '../../lib/store.svelte';
   import Avatars from '../Avatars.svelte';
@@ -114,7 +115,7 @@
   }
 
   function editKeys(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (isSendKey(e)) {
       e.preventDefault();
       void saveEdit();
     } else if (e.key === 'Escape') {
@@ -176,7 +177,7 @@
     {#if head}
       {#if author}<Avatars people={[author]} />{:else}<span class="avatar">?</span>{/if}
     {:else}
-      <span class="chat-time-hover muted" title={new Date(m.created_at).toLocaleString()}
+      <span class="chat-time-hover muted" title={fullStamp(m.created_at)}
         >{stamp(m.created_at, board.now).replace(/^.* at /, '')}</span
       >
     {/if}
@@ -186,7 +187,7 @@
       <div class="chat-meta">
         <span class="chat-author">{name}</span>
         {#if author?.kind === 'agent'}<span class="chat-agent"><Icon name="robot" size={11} />Agent</span>{/if}
-        <span class="muted small" title={new Date(m.created_at).toLocaleString()}>{stamp(m.created_at, board.now)}</span>
+        <span class="muted small" title={fullStamp(m.created_at)}>{stamp(m.created_at, board.now)}</span>
       </div>
     {/if}
     {#if m.deleted_at}

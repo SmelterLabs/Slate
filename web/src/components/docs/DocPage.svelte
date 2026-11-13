@@ -405,7 +405,7 @@
       {#if doc.children.length}
         <ul>
           {#each doc.children as c (c.id)}
-            <li><a href="#/docs/{c.id}"><span class="sp-icon">{c.icon ?? docGlyph(c)}</span>{c.title}{#if c.kind === 'file' && c.file}<span class="muted small"> rev {c.file.revision_no}</span>{/if}<span class="muted">{ago(c.updated_at, board.now)}</span></a></li>
+            <li><a href="#/docs/{c.id}"><span class="doc-sub-icon">{c.icon ?? docGlyph(c)}</span>{c.title}{#if c.kind === 'file' && c.file}<span class="muted small"> rev {c.file.revision_no}</span>{/if}<span class="muted">{ago(c.updated_at, board.now)}</span></a></li>
           {/each}
         </ul>
       {/if}
@@ -416,7 +416,7 @@
         <header><h3>Linked from</h3></header>
         <ul>
           {#each doc.backlinks as b (b.id)}
-            <li><a href="#/docs/{b.id}"><span class="sp-icon">{b.icon ?? '📄'}</span>{b.title}</a></li>
+            <li><a href="#/docs/{b.id}"><span class="doc-sub-icon">{b.icon ?? '📄'}</span>{b.title}</a></li>
           {/each}
         </ul>
       </section>

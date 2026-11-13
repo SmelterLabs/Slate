@@ -23,7 +23,7 @@
   } from '../lib/rrule';
   import { board } from '../lib/store.svelte';
   import type { Assignee, ItemDetail, MissedPolicy, RecurTrigger, Recurrence, RulePreview } from '../lib/types';
-  import { dayLabel } from '../lib/when';
+  import { longDay } from '../lib/when';
   import AssigneePicker from './AssigneePicker.svelte';
 
   let { item, rule }: { item: ItemDetail; rule: Recurrence | undefined } = $props();
@@ -480,15 +480,15 @@
         {#if trigger === 'on_done'}
           <p class="muted small">If you finish it today, the next ones are due:</p>
         {:else if !rule && itemDay}
-          <p class="muted small">This item stays the current one (due {dayLabel(itemDay)}). Next:</p>
+          <p class="muted small">This item stays the current one (due {longDay(itemDay)}). Next:</p>
         {:else if becomes}
-          <p class="muted small">This item becomes the first one, due {dayLabel(becomes)}. Next:</p>
+          <p class="muted small">This item becomes the first one, due {longDay(becomes)}. Next:</p>
         {:else}
           <p class="muted small">Next:</p>
         {/if}
         {#if upcoming.length}
           <ol class="preview-dates">
-            {#each upcoming as d (d)}<li>{dayLabel(d)}{d.slice(0, 4) !== anchor.slice(0, 4) ? `, ${d.slice(0, 4)}` : ''}</li>{/each}
+            {#each upcoming as d (d)}<li>{longDay(d)}{d.slice(0, 4) !== anchor.slice(0, 4) ? `, ${d.slice(0, 4)}` : ''}</li>{/each}
           </ol>
         {:else}
           <p class="muted small">No more dates: the rule ends before then.</p>

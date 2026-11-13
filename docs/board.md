@@ -104,6 +104,12 @@ Unit tests: `src/lib/store.test.ts` (happy-dom; `fetch` and `EventSource` faked,
 - List settings: one `PUT /lists/{id}/statuses` (with `fallback` when removed statuses hold items), then `PATCH /lists/{id} {default_status}` if needed.
 - Field editors: each change is one `PATCH /items/{id}`; move to list is `POST /items/bulk {ids: [id], changes: {list_id}}`; Complete moves to the list's first `done` status (and back to the default status). The recurrence editor previews with `GET /recurrences/preview` (debounced 250 ms, latest answer wins) and saves with `POST /recurrences {..., adopt_item_id}` or `PATCH /recurrences/{id}`; Pause/Resume/End are the rule endpoints.
 
+Status and tag colours end up in CSS, so the server accepts only a hex colour (`#rgb`, `#rgba`,
+`#rrggbb`, `#rrggbbaa`) or a colour name (`service/colors.py`, used by the status and tag write
+paths; anything else is a 400). The board checks again wherever it builds a `style` value
+(`safeColor` in `lib/mdcore.ts`, through `statusColor` in `lib/activity.ts`): a stored value from
+before the check is ignored and the status kind's theme colour shows instead.
+
 ## Comment dots
 
 `Card.svelte` shows one dot in the bottom-right corner (`.card-dot`, `board.css`) when a comment is

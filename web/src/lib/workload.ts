@@ -4,7 +4,7 @@
 
 import type { Account, Capacity } from './types';
 
-export const DEFAULT_CAPACITY: Record<'person' | 'agent', Omit<Capacity, 'account_id'>> = {
+const DEFAULT_CAPACITY: Record<'person' | 'agent', Omit<Capacity, 'account_id'>> = {
   person: { custom: false, hours_per_day: 8, tasks_per_day: null, work_days: [0, 1, 2, 3, 4] },
   agent: { custom: false, hours_per_day: 8, tasks_per_day: null, work_days: [0, 1, 2, 3, 4, 5, 6] },
 };

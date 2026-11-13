@@ -4,6 +4,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sharedClasses } from './globalcss';
 
 const RESERVED = ['row', 'card'];
 const root = join(__dirname, '..', 'components');
@@ -25,5 +26,26 @@ describe('component styles', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// The global sheets load in one order (main.ts), so when two of them style the same class on its
+// own, the later one restyles the other's elements everywhere. A class name belongs to one
+// feature; a sheet that restyles another's element on purpose is listed here with the reason.
+const LAYERED: Record<string, string> = {
+  pill: 'board.css restyles the card pills app.css defines',
+  'status-pill': 'board.css restyles the status pill app.css defines',
+  'chip-btn': 'design.css restyles the board.css chip button',
+  topbar: 'chat.css restyles the app top bar on a phone',
+};
+
+describe('global stylesheets', () => {
+  it('do not style one class name for two features', () => {
+    const clashes = [...sharedClasses()]
+      .filter(([name]) => !(name in LAYERED))
+      // app.css and design.css still restate each other's rules; they are one layer.
+      .filter(([, files]) => files.some((f) => f !== 'app.css' && f !== 'design.css'))
+      .map(([name, files]) => `.${name}: ${files.join(', ')}`);
+    expect(clashes).toEqual([]);
   });
 });

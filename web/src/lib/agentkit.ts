@@ -164,7 +164,7 @@ export function bars(days: Usage['days']): { day: string; events: number; h: num
 }
 
 /** "Mon 20" for a YYYY-MM-DD (already a local date: no timezone shift). */
-export function dayLabel(day: string): string {
+export function shortDay(day: string): string {
   const [y, m, d] = day.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return `${dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })} ${d}`;

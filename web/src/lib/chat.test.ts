@@ -7,7 +7,7 @@ import {
   channelKey,
   chatChannelOf,
   chatHref,
-  dayLabel,
+  chatDay,
   exposureBatches,
   hashPicks,
   insertHashPick,
@@ -105,7 +105,7 @@ describe('message lists', () => {
       '4*',
       '5*',
     ]);
-    expect(dayLabel('2026-10-20T15:00:00Z', now)).toBe('Tuesday, October 20');
+    expect(chatDay('2026-10-20T15:00:00Z', now)).toBe('Tuesday, October 20');
   });
 });
 

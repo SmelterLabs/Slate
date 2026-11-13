@@ -5,7 +5,7 @@
   // Files (FileView). Light on any background, like paper; scrolls inside itself.
   import { fileSize } from '../../lib/activity';
   import { parseTable } from '../../lib/docs';
-  import { columnLetter, OFFICE_LIMIT, readWorkbook, renderDocx, type Sheet } from '../../lib/office';
+  import { columnLetter, OFFICE_LIMIT, readWorkbook, renderDocx, TooLargeToPreview, type Sheet } from '../../lib/office';
   import Icon from '../Icon.svelte';
 
   let {
@@ -42,7 +42,7 @@
     const fail = (e: unknown) => {
       if (!live) return;
       console.warn(`preview of ${filename} failed`, e);
-      failed = 'This file could not be read.';
+      failed = e instanceof TooLargeToPreview ? 'too large to show here' : 'This file could not be read.';
     };
     if (k === 'docx') {
       renderDocx(b).then((r) => {
@@ -116,6 +116,7 @@
           </tbody>
         </table>
         {#if sheet.truncated}<p class="muted small docprev-more">{sheet.truncated.toLocaleString()} more rows; download the file to see them all.</p>{/if}
+        {#if sheet.truncatedCols}<p class="muted small docprev-more">{sheet.truncatedCols.toLocaleString()} more columns; download the file to see them all.</p>{/if}
       </div>
     {/if}
   {:else if kind === 'table'}

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from slate.models import Doc, DocTag, Event, Item, ItemTag, Recurrence, Tag
 from slate.service import access
+from slate.service.colors import clean_color
 from slate.service.core import Actor, Change, apply_change
 from slate.service.errors import Conflict, Invalid, NotFound
 
@@ -85,6 +86,7 @@ def get_tag(session: Session, ref: str) -> Tag:
 
 def create_tag(session: Session, actor: Actor, *, name: str, color: str | None = None) -> Tag:
     name = normalize(name)
+    color = clean_color(color)
     if session.scalar(select(Tag.id).where(Tag.name == name)):
         raise Conflict(f"tag '{name}' already exists")
     with apply_change(session, actor) as cx:
@@ -118,7 +120,7 @@ def update_tag(
             if cx.set(tag, "name", new, "tag.updated"):
                 _rename_in_rules(cx, old, new)
         if color is not None:
-            cx.set(tag, "color", color or None, "tag.updated")  # "" clears
+            cx.set(tag, "color", clean_color(color), "tag.updated")  # "" clears
     return tag
 
 

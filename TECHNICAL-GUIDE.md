@@ -299,6 +299,14 @@ request/response models to `api/schemas.py`; (4) add the route to the resource's
   its own events). After that: 410.
 - `DELETE /tokens/{id}`: admins revoke any token; any account revokes its own (needs only `read`).
   Revoking twice is a no-op 204.
+- **The board keeps a pasted token in `localStorage`.** The browser has to hold the credential
+  somewhere, and the live stream can only send it as a query parameter (EventSource sends no
+  headers; the server redacts `token=` from the access log). Guests are different: an accepted
+  invitation mints a browser session held in an HttpOnly cookie (`docs/collaboration.md`). A
+  pasted token is not exchanged for one, so it stays readable by any script on the origin until
+  **Sign out**. The board never writes it to a URL it builds, a link or a log line; the only
+  exception is the connect-an-agent dialog, which shows a new token once, on purpose, so it can
+  be copied into the agent.
 - **The owner outranks admins.** Only the owner (or the account itself) mints or revokes tokens on
   an admin or the owner account, or renames, disables or enables it (`accounts._require_outranks`:
   an admin who could mint another admin's token would act as them, and one who could disable them

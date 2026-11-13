@@ -3,7 +3,7 @@
   // sent as YYYY-MM-DD (stored as 17:00 workspace time, flagged date-only), and its time is not
   // shown.
   import { board } from '../lib/store.svelte';
-  import { dayLabel, joinWhen, quickPicks, splitWhen, timeLabel } from '../lib/when';
+  import { longDay, joinWhen, quickPicks, splitWhen, timeLabel } from '../lib/when';
 
   let {
     label,
@@ -24,7 +24,7 @@
   const picks = $derived(quickPicks(board.now, value));
 
   const shown = $derived(
-    parts.date ? `${dayLabel(parts.date)}${parts.time ? ` · ${timeLabel(parts.time)}` : ''}` : '',
+    parts.date ? `${longDay(parts.date)}${parts.time ? ` · ${timeLabel(parts.time)}` : ''}` : '',
   );
 
   function set(date: string, time: string) {

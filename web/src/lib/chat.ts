@@ -4,6 +4,7 @@
 
 import { workspaceFormatter } from './timezone';
 import { MENTION_RE, highlightMentions } from './activity';
+import { escape } from './mdcore';
 import { renderMarkdown, type RefResolvers } from './markdown';
 
 export interface Channel {
@@ -209,7 +210,7 @@ const dayFmt = workspaceFormatter('en-US', {
 const dayKeyFmt = workspaceFormatter('en-CA', {});
 
 /** "Today", "Yesterday", or "Wednesday, October 21" (workspace days). */
-export function dayLabel(iso: string, now: Date = new Date()): string {
+export function chatDay(iso: string, now: Date = new Date()): string {
   const day = dayKeyFmt.format(new Date(iso));
   if (day === dayKeyFmt.format(now)) return 'Today';
   if (day === dayKeyFmt.format(new Date(now.getTime() - 86_400_000))) return 'Yesterday';
@@ -232,7 +233,7 @@ export function rows(messages: ChatMessage[], now: Date = new Date()): ChatRow[]
   for (const m of messages) {
     const day = dayKeyFmt.format(new Date(m.created_at));
     if (day !== lastDay) {
-      out.push({ kind: 'day', key: `day-${day}`, label: dayLabel(m.created_at, now) });
+      out.push({ kind: 'day', key: `day-${day}`, label: chatDay(m.created_at, now) });
       lastDay = day;
       prev = null;
     }
@@ -267,7 +268,7 @@ export function renderBody(
         : part.replace(/(^|[^\w/#&])#([0-9A-Za-z]{12})(?![0-9A-Za-z])/g, (all, pre: string, id: string) => {
             const title = titleOf(id);
             if (!title) return all;
-            const safe = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safe = escape(title);
             return `${pre}<a class="task-ref" href="#/everything?task=${id}" data-task="${id}">#${safe}</a>`;
           }),
     )

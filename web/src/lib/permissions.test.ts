@@ -125,18 +125,18 @@ describe('audit helpers', () => {
     expect(activeFilters({ ...NO_FILTERS, actor: 'x', kind: 'person' })).toBe(2);
   });
 
-  it('groups by local day with Today and Yesterday', () => {
-    const now = new Date(2026, 9, 24, 12);
+  it('groups by workspace day with Today and Yesterday, even when the device is a day away', () => {
+    const now = new Date('2026-10-24T06:00:00Z'); // 1 am in Chicago; the previous calendar day in UTC
     const groups = byDay(
       [
-        entry(new Date(2026, 9, 24, 9).toISOString()),
-        entry(new Date(2026, 9, 24, 8).toISOString()),
-        entry(new Date(2026, 9, 23, 22).toISOString()),
-        entry(new Date(2026, 9, 20, 10).toISOString()),
+        entry('2026-10-24T03:00:00Z'), // 10 pm the day before, Chicago time
+        entry('2026-10-23T18:00:00Z'),
+        entry('2026-10-23T04:00:00Z'),
+        entry('2026-10-20T15:00:00Z'),
       ],
       now,
     );
-    expect(groups.map((g) => g.label.split(',')[0])).toEqual(['Today', 'Yesterday', groups[2].label.split(',')[0]]);
+    expect(groups.map((g) => g.label.split(',')[0])).toEqual(['Yesterday', 'Thursday', 'Tuesday']);
     expect(groups[0].entries).toHaveLength(2);
     expect(groups).toHaveLength(3);
   });

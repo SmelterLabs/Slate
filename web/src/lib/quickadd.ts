@@ -30,8 +30,8 @@ export interface QuickAdd {
   rrule: string | null;
 }
 
-export { TZ } from './timezone';
 import { workspaceFormatter } from './timezone';
+import { addDays, weekday } from './when';
 
 const PRIORITIES: Record<string, Priority> = {
   urgent: 'urgent',
@@ -78,22 +78,12 @@ export function workspaceDay(at: Date): string {
   return ymdFmt.format(at);
 }
 
-function addDays(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 function addMonths(ymd: string, months: number): string {
   const [y, m, d] = ymd.split('-').map(Number);
   const first = new Date(Date.UTC(y, m - 1 + months, 1, 12));
   const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 12)).getUTCDate();
   first.setUTCDate(Math.min(d, last));
   return first.toISOString().slice(0, 10);
-}
-
-function weekday(ymd: string): number {
-  return new Date(`${ymd}T12:00:00Z`).getUTCDay();
 }
 
 function validYmd(y: number, m: number, d: number): string | null {

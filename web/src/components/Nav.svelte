@@ -40,8 +40,13 @@
   const moreKey = $derived(`slate.nav.more.${board.me?.account.id ?? ''}`);
   let moreOpen = $state(false);
   $effect(() => {
+    // The key gains the account id a moment after the page opens. With nothing stored under
+    // it, keep what is showing: a click on More in that moment must not be undone.
     const key = moreKey;
-    try { moreOpen = localStorage.getItem(key) === 'true' || moreDestination(page); } catch { /* optional preference */ }
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored !== null) moreOpen = stored === 'true';
+    } catch { /* optional preference */ }
   });
   const secondary = $derived(moreDestination(page));
   $effect(() => { if (secondary) moreOpen = true; });

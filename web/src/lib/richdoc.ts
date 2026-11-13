@@ -21,7 +21,7 @@ const boxesOf = (li: Element): HTMLInputElement[] =>
 
 export function isBlockNode(n: Node): boolean {
   if (!isEl(n)) return false;
-  return BLOCK_TAGS.has(n.tagName) || n.classList.contains('embed-row') || n.classList.contains('table-wrap');
+  return BLOCK_TAGS.has(n.tagName) || n.classList.contains('embed-row') || n.classList.contains('md-table-wrap');
 }
 
 /** Move spaces outside a mark: `** bold **` is not bold in Markdown. */
@@ -194,7 +194,7 @@ export function blockMd(el: Node): string {
   // The browser sometimes puts a list or table inside a paragraph (a list started on an empty
   // line): write each part as its own block.
   if (/^(P|H[1-6])$/.test(tag) && Array.from(el.childNodes).some(isBlockNode)) return blocksMd(el);
-  if (el.classList.contains('table-wrap')) {
+  if (el.classList.contains('md-table-wrap')) {
     const t = el.querySelector('table');
     return t ? tableMd(t) : '';
   }

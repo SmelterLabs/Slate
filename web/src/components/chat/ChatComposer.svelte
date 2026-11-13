@@ -11,6 +11,7 @@
   import { untrack } from 'svelte';
   import { draftKey } from '../../lib/drafts';
   import { persisted } from '../../lib/drafts.svelte';
+  import { isSendKey, mentionCandidates, pickerKey } from '../../lib/mentions.svelte';
   import { chat } from '../../lib/chat.svelte';
   import { docs } from '../../lib/docs.svelte';
   import { board } from '../../lib/store.svelte';
@@ -89,17 +90,7 @@
     void attach([...(e.dataTransfer?.files ?? [])]);
   }
 
-  const people = $derived.by(() => {
-    if (!mention) return [] as Account[];
-    const q = mention.query;
-    return board.pickable
-      .filter((a) => (!q || a.handle.startsWith(q) || a.display_name.toLowerCase().includes(q)))
-      .sort(
-        (a, b) =>
-          Number(!a.handle.startsWith(q)) - Number(!b.handle.startsWith(q)) || a.display_name.localeCompare(b.display_name),
-      )
-      .slice(0, 6);
-  });
+  const people = $derived(mention ? mentionCandidates(board.pickable, mention.query) : []);
 
   // `#`: tasks, pages and lists, grouped (lib/chat.ts hashPicks); `picks` is the flat list the
   // arrow keys walk.
@@ -182,26 +173,21 @@
   }
 
   function keys(e: KeyboardEvent) {
-    if (picking) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        active = (active + (e.key === 'ArrowDown' ? 1 : count - 1)) % count;
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        if (picking === 'people') pickPerson(people[active]);
-        else pickRef(picks[active]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        mention = null;
-        taskRef = null;
-        return;
-      }
+    const k = picking ? pickerKey(e, active, count) : null;
+    if (k === 'close') {
+      e.stopPropagation();
+      mention = null;
+      taskRef = null;
+      return;
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (k) {
+      e.preventDefault();
+      if (k !== 'pick') active = k.active;
+      else if (picking === 'people') pickPerson(people[active]);
+      else pickRef(picks[active]);
+      return;
+    }
+    if (isSendKey(e)) {
       e.preventDefault();
       void send();
     } else if (e.key === 'Escape') {

@@ -2,6 +2,7 @@
 // lines are small and gray; runs of the same edit by the same actor within a few minutes fold
 // into one line (an autosaving description would otherwise fill the column).
 
+import { safeColor } from './mdcore';
 import { workspaceFormatter } from './timezone';
 import type { ActivityEntry, Comment, Me, SlateEvent, Status } from './types';
 
@@ -177,7 +178,7 @@ export function fileSize(bytes: number): string {
 
 /** A status's color, or its kind's theme color when the list gave it none. */
 export function statusColor(s: Pick<Status, 'color' | 'kind'> | null | undefined): string {
-  return s?.color || `var(--kind-${s?.kind ?? 'open'})`;
+  return safeColor(s?.color, `var(--kind-${s?.kind ?? 'open'})`);
 }
 
 /** The line a comment carries for each file sent with it (the comment box writes these). */
@@ -210,6 +211,6 @@ export function canDeleteComment(c: Comment, me: Me | null | undefined): boolean
 
 /** The question asked before a comment is deleted. */
 export function deleteCommentQuestion(c: Comment, me: string, authorName: string | undefined): string {
-  const whose = c.author_id === me ? 'your comment' : `${authorName ?? 'this person'}’s comment`;
+  const whose = c.author_id === me ? 'your comment' : `${authorName ?? (c.author_handle ? `@${c.author_handle}` : 'this person')}’s comment`;
   return `Delete ${whose}? It goes for good; the history keeps a record that it was deleted.`;
 }

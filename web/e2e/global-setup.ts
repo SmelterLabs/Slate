@@ -2,7 +2,8 @@
 // the tokens and ids to .e2e/seed.json for the specs.
 import { writeFileSync } from 'node:fs';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays, workspaceInstant } from '../src/lib/views';
+import { workspaceInstant } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, SEED_FILE, type Seed } from './seed';
 
 async function call<T>(method: string, path: string, token: string | null, body?: unknown) {

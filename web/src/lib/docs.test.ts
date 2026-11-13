@@ -6,13 +6,10 @@ import {
   docEventLine,
   docGlyph,
   feedRows,
-  indent,
-  insertBlock,
   matchCommands,
   occurrenceAt,
   parseTable,
   pathOf,
-  setPrefix,
   taskIdFromLink,
   threadsOf,
   titleFrom,
@@ -80,27 +77,10 @@ describe('the page tree', () => {
   });
 });
 
-describe('editing', () => {
-  it('sets, swaps and toggles block prefixes', () => {
-    expect(setPrefix('one\ntwo', 0, 6, '- [ ] ').text).toBe('- [ ] one\n- [ ] two');
-    expect(setPrefix('- one', 2, 2, '## ').text).toBe('## one');
-    expect(setPrefix('## one', 3, 3, '## ').text).toBe('one');
-    expect(setPrefix('a\nb\nc', 0, 5, '1. ').text).toBe('1. a\n2. b\n3. c');
-  });
-
-  it('inserts blocks on their own lines', () => {
-    expect(insertBlock('para', 4, '---').text).toBe('para\n\n---');
-    expect(insertBlock('a\n\nb', 3, '---')).toEqual({ text: 'a\n\n---\n\nb', start: 6, end: 6 });
-  });
-
+describe('slash commands', () => {
   it('matches slash commands', () => {
     expect(matchCommands('tab')[0].id).toBe('table');
     expect(matchCommands('todo')[0].id).toBe('check');
-  });
-
-  it('indents and outdents lines', () => {
-    expect(indent('- a\n- b', 0, 7, false).text).toBe('  - a\n  - b');
-    expect(indent('  - a', 4, 4, true)).toEqual({ text: '- a', start: 2, end: 2 });
   });
 });
 

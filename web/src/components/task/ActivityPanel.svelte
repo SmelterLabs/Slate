@@ -21,7 +21,9 @@
   import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shownProgress, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
+  import { fullStamp } from '../../lib/format';
   import { verb } from '../../lib/history';
+  import { isSendKey } from '../../lib/mentions.svelte';
   import { renderMarkdown } from '../../lib/markdown';
   import { liveRefs } from '../../lib/refs.svelte';
   import { ApiError } from '../../lib/api';
@@ -145,6 +147,8 @@
     title: (id: string) => board.items[id]?.title,
   };
 
+  const authorName = (c: Comment) => board.accountName(c.author_id) ?? (c.author_handle ? '@' + c.author_handle : undefined);
+
   function statusName(id: string): string | undefined {
     for (const l of Object.values(board.lists)) {
       const s = l.statuses.find((x) => x.id === id);
@@ -209,7 +213,7 @@
   }
 
   async function removeComment(c: Comment) {
-    if (!window.confirm(deleteCommentQuestion(c, task.me, board.accountName(c.author_id)))) return;
+    if (!window.confirm(deleteCommentQuestion(c, task.me, authorName(c)))) return;
     if (await task.deleteComment(c.id)) saveDraft(draftKey.editComment(c.id), '');
   }
 
@@ -286,7 +290,7 @@
           title="Show the whole message"
           onclick={() => (opened[c.id] = true)}
         >
-          <strong>{board.accountName(c.author_id) ?? 'Someone'}</strong>
+          <strong>{authorName(c)}</strong>
           <span class="chat-line">{firstLine(c.body_md)}</span>
           <time datetime={c.created_at}>{stamp(c.created_at, board.now)}</time>
         </button>
@@ -304,9 +308,9 @@
         >
           <div class="who">
             <Avatars people={person(c.author_id)} />
-            <strong>{board.accountName(c.author_id) ?? 'Someone'}</strong>
-            <time class="muted" datetime={c.created_at} title={new Date(c.created_at).toLocaleString()}>{stamp(c.created_at, board.now)}</time>
-            {#if c.edited_at}<span class="muted" title="Edited {new Date(c.edited_at).toLocaleString()}">(edited)</span>{/if}
+            <strong>{authorName(c)}</strong>
+            <time class="muted" datetime={c.created_at} title={fullStamp(c.created_at)}>{stamp(c.created_at, board.now)}</time>
+            {#if c.edited_at}<span class="muted" title="Edited {fullStamp(c.edited_at)}">(edited)</span>{/if}
             {#if c.assignee_id}
               <span class="ask-pill" class:resolved={!!c.resolved_at} data-ask={c.resolved_at ? 'resolved' : 'open'}>
                 <Avatars people={person(c.assignee_id)} />
@@ -321,7 +325,7 @@
               rows="3"
               bind:value={() => editText, (v) => setEditText(c, v)}
               onkeydown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (isSendKey(e)) {
                   e.preventDefault();
                   void saveEdit(c);
                 }
@@ -396,7 +400,7 @@
           </div>
         </article>
       {:else}
-        <div class="ev" title="{new Date(r.at).toLocaleString()}{r.event.session_ref ? ` · session ${r.event.session_ref}` : ''}">
+        <div class="ev" title="{fullStamp(r.at)}{r.event.session_ref ? ` · session ${r.event.session_ref}` : ''}">
           <span class="line">
             {#if r.event.type === 'item.status_changed'}
               {@const from = statusOf(r.event.before)}

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dateFormatter, setWorkspaceTimezone, workspaceFormatter, workspaceTimezone } from './timezone';
 import { workspaceDay, parseQuickAdd } from './quickadd';
 import { dateInput, dueLabel, shortDate } from './format';
-import { dayLabel } from './chat';
+import { chatDay } from './chat';
 import { splitWhen } from './when';
 import { cardDue } from './cards';
 import { stamp } from './activity';
@@ -31,7 +31,7 @@ describe('workspace timezone', () => {
     expect(splitWhen(boundary.toISOString(), false)).toEqual({ date: '2030-01-02', time: '08:30' });
     expect(cardDue(boundary.toISOString(), boundary).text).toContain('8:30 am');
     expect(stamp(boundary.toISOString(), boundary)).toBe('8:30 AM');
-    expect(dayLabel('2030-01-01T00:30:00Z', boundary)).toBe('Yesterday');
+    expect(chatDay('2030-01-01T00:30:00Z', boundary)).toBe('Yesterday');
     setWorkspaceTimezone('America/Chicago');
     expect(workspaceDay(boundary)).toBe('2030-01-01');
     expect(dueLabel(boundary.toISOString(), boundary, false)).toBe('Today 5:30 PM');

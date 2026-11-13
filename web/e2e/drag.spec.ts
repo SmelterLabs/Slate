@@ -4,7 +4,7 @@
 // A column that can't take a card says why when you let go, instead of snapping back silently.
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, seed } from './seed';
 
 async function api<T>(method: string, path: string, body?: unknown): Promise<T> {

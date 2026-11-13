@@ -213,68 +213,7 @@ export function descendants(id: string, docs: DocSummary[]): Set<string> {
   return out;
 }
 
-// --- editing ---------------------------------------------------------------------------------
-
-export interface Edit {
-  text: string;
-  /** The selection to restore after the edit. */
-  start: number;
-  end: number;
-}
-
-function lineBounds(text: string, at: number): [number, number] {
-  const s = text.lastIndexOf('\n', at - 1) + 1;
-  const e = text.indexOf('\n', at);
-  return [s, e < 0 ? text.length : e];
-}
-
-const PREFIX = /^(\s*)(#{1,6}\s+|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+|>\s?)?/;
-
-/** Give the lines under the selection a block prefix ("## ", "- ", "- [ ] ", "1. ", "> "),
- * replacing any other one; the same prefix again turns it off. */
-export function setPrefix(text: string, start: number, end: number, prefix: string): Edit {
-  const [s] = lineBounds(text, start);
-  const [, e] = lineBounds(text, Math.max(start, end));
-  const lines = text.slice(s, e).split('\n');
-  const norm = (p: string) => p.replace(/\[[xX]\]/, '[ ]').replace(/^\d+([.)])/, '1.').trimEnd();
-  const all = lines.every((l) => norm(PREFIX.exec(l)?.[2] ?? '') === norm(prefix));
-  let n = 1;
-  const next = lines.map((l) => {
-    const m = PREFIX.exec(l)!;
-    const rest = l.slice(m[0].length);
-    if (all) return m[1] + rest;
-    const p = /^\d+\. $/.test(prefix) ? `${n++}. ` : prefix;
-    return m[1] + p + rest;
-  });
-  const out = next.join('\n');
-  const delta = out.length - (e - s);
-  return {
-    text: text.slice(0, s) + out + text.slice(e),
-    start: lines.length === 1 ? s + next[0].length : s,
-    end: lines.length === 1 ? s + next[0].length : e + delta,
-  };
-}
-
-/** Wrap the selection (or a placeholder word) in `before`/`after`, e.g. "**". */
-export function wrap(text: string, start: number, end: number, before: string, after = before, placeholder = 'text'): Edit {
-  const inner = text.slice(start, end) || placeholder;
-  return {
-    text: text.slice(0, start) + before + inner + after + text.slice(end),
-    start: start + before.length,
-    end: start + before.length + inner.length,
-  };
-}
-
-/** Put `block` on lines of its own at the cursor (a blank line around it), cursor after it, or
- * at `cursor` inside the block when given. */
-export function insertBlock(text: string, at: number, block: string, cursor?: number): Edit {
-  const before = text.slice(0, at);
-  const after = text.slice(at);
-  const lead = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
-  const trail = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
-  const pos = before.length + lead.length + (cursor ?? block.length);
-  return { text: before + lead + block + trail + after, start: pos, end: pos };
-}
+// --- slash commands --------------------------------------------------------------------------
 
 export const TABLE_BLOCK = '| Column | Column | Column |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 
@@ -319,25 +258,6 @@ export function matchCommands(query: string, cmds: SlashCommand[] = SLASH_COMMAN
     })
     .filter((x): x is { c: SlashCommand; score: number } => x !== null);
   return scored.sort((a, b) => a.score - b.score).map((x) => x.c);
-}
-
-/** Indent (Tab) or outdent (Shift+Tab) the lines under the selection by two spaces. */
-export function indent(text: string, start: number, end: number, out: boolean): Edit {
-  const [s] = lineBounds(text, start);
-  const [, e] = lineBounds(text, Math.max(start, end));
-  const lines = text.slice(s, e).split('\n');
-  let firstDelta = 0;
-  const next = lines.map((l, k) => {
-    const changed = out ? l.replace(/^ {1,2}/, '') : `  ${l}`;
-    if (k === 0) firstDelta = changed.length - l.length;
-    return changed;
-  });
-  const body = next.join('\n');
-  return {
-    text: text.slice(0, s) + body + text.slice(e),
-    start: Math.max(s, start + firstDelta),
-    end: end + (body.length - (e - s)),
-  };
 }
 
 /** Which appearance (from 0) of `needle` begins at `at`; matches the server's search. */
@@ -779,10 +699,6 @@ export interface HubNeed {
   doc: DocRef & { kind: DocKind };
   comment: DocComment;
   url: string;
-}
-
-export interface HubActivity extends DocEvent {
-  doc: DocRef & { kind: DocKind };
 }
 
 export interface DrawerCounts {
