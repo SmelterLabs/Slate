@@ -62,7 +62,6 @@
         run: () => board.setConfig({ layout: board.active.config.layout === 'board' ? 'list' : 'board' }),
       },
       { kind: 'action', id: 'go-agents', label: 'Go to Agents', keywords: 'bots ai connect token presence activity', run: () => go('#/agents') },
-      { kind: 'action', id: 'go-automations', label: 'Go to Automations', keywords: 'rules when then webhook', run: () => go('#/automations') },
       { kind: 'action', id: 'go-members', label: 'Go to Members', keywords: 'people roles guests admins invite share permissions', run: () => go('#/members') },
       { kind: 'action', id: 'go-audit', label: 'Go to Audit log', keywords: 'history who changed log events', run: () => go('#/audit') },
       { kind: 'action', id: 'go-health', label: 'Go to Health', keywords: 'status errors slow broken pollers latency uptime disk monitor', run: () => go('#/health') },

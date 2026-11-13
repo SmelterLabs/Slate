@@ -112,9 +112,6 @@
       <button class="icon" aria-label="List settings" title="List settings" onclick={() => openSettings.call(board, id)}
         ><Icon name="gear" size={16} /></button
       >
-      <a class="icon" href="#/automations?list={id}" aria-label="List automations" title="Automations for this list"
-        ><Icon name="sparkle" size={16} /></a
-      >
     {/if}
   </div>
   <!-- A private section is a project with its own membership: it gets the project home. Open

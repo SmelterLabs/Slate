@@ -259,7 +259,7 @@
           {#each report.automations.recent as run (run.id)}
             <li>
               <span class="health-code" class:server={run.status === 'failed'}>{run.status === 'failed' ? 'Failed' : 'Partly'}</span>
-              <a href="#/automations">{run.name}</a>
+              <span>{run.name}</span>
               {#if run.item_id}
                 <button class="link small" onclick={() => run.item_id && void board.open(run.item_id)}>{run.item_title ?? 'a task'}</button>
               {/if}

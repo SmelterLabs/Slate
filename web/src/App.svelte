@@ -24,7 +24,6 @@
   import ScopePage from './components/ScopePage.svelte';
   import AgentsPage from './components/AgentsPage.svelte';
   import ArchivePage from './components/ArchivePage.svelte';
-  import AutomationsPage from './components/automations/AutomationsPage.svelte';
   import DocsPage from './components/docs/DocsPage.svelte';
   import MembersPage from './components/members/MembersPage.svelte';
   import AuditPage from './components/audit/AuditPage.svelte';
@@ -52,7 +51,6 @@
   /** My Work or Inbox, when the hash names one; otherwise the scope page. */
   let page = $state<Page | null>(pageOf(location.hash));
   const kiosk = isKiosk(location.search, location.hash);
-  let automationsList = $state<string | null>(null);
   let docId = $state<string | null>(docOf(location.hash));
   let chatChannel = $state<string | null>(chatChannelOf(location.hash));
   let chatThread = $state<string | null>(threadOf(location.hash));
@@ -72,7 +70,6 @@
     const r = parseRoute(location.hash);
     page = pageOf(location.hash);
     navOpen = false;
-    automationsList = new URLSearchParams(location.hash.split('?')[1] ?? '').get('list');
     docId = docOf(location.hash);
     chatChannel = chatChannelOf(location.hash);
     chatThread = threadOf(location.hash);
@@ -95,7 +92,6 @@
     }
     if (
       page === 'agents' ||
-      page === 'automations' ||
       page === 'archive' ||
       page === 'members' ||
       page === 'audit' ||
@@ -378,7 +374,7 @@
       <header class="topbar">
         <button class="icon menu" aria-label="Menu" onclick={() => (navOpen = !navOpen)}><Icon name="menu" size={18} /></button>
         <span class="brand">Slate</span>
-        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'automations' ? 'Automations' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : where}</span>
+        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : where}</span>
         <button class="icon top-search" aria-label="Search" onclick={() => (palette = true)}><Icon name="search" size={18} /></button>
         <NeedsBadge mode="top" />
         <AgentChatButton cls="top-agent" />
@@ -408,8 +404,6 @@
         <Skeleton />
       {:else if page === 'agents'}
         <AgentsPage />
-      {:else if page === 'automations'}
-        <AutomationsPage listId={automationsList} />
       {:else if page === 'docs' && !kiosk}
         <DocsPage id={docId} />
       {:else if page === 'archive' && !kiosk}
