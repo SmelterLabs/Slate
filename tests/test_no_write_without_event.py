@@ -126,6 +126,7 @@ READS = {
     },
     "slate.service.comments": {
         "get_comment",
+        "clean_emoji",
         "mentions_in",
         "not_about_deleted_comment",
         "reactions_of",
@@ -135,7 +136,6 @@ READS = {
         "reply_target",
     },
     "slate.service.chat": {
-        "channel_key",
         "members_only_post",
         "place",
         "parse_channel",

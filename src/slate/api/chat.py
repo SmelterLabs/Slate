@@ -146,7 +146,7 @@ class ReadIn(BaseModel):
     through: str | None = Field(default=None, description="Message id; default the newest")
     message_ids: list[str] | None = Field(
         default=None,
-        max_length=200,
+        max_length=chat.MAX_PAGE,
         description="Exact exposed messages only; empty means no change. Exclusive with through.",
     )
 

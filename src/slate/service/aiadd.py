@@ -43,6 +43,7 @@ from slate.models import Account, Item, Status
 from slate.service import access, guests, items
 from slate.service import tags as tags_svc
 from slate.service.core import Actor, Source
+from slate.service.due import SYSTEM_HANDLE
 from slate.service.errors import Invalid
 from slate.settings import settings
 
@@ -131,7 +132,7 @@ def ask(session: Session, actor: Actor, item: Item, text: str) -> Ask:
     """The fill's context, read now under the caller's access (people they can see)."""
     me = session.get(Account, actor.account_id)
     visible = access.participant_ids(session)
-    q = select(Account).where(Account.disabled_at.is_(None), Account.handle != "slate")
+    q = select(Account).where(Account.disabled_at.is_(None), Account.handle != SYSTEM_HANDLE)
     if visible is not None:
         q = q.where(Account.id.in_(visible))
     # The fill writes as Slate's own account, so the caller's own limits are applied here: a

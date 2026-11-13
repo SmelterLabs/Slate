@@ -23,6 +23,7 @@ from slate.models import Account, AccountKind, Watcher
 from slate.service import access
 from slate.service.accounts import AUTO_WATCH as AUTO_WATCH
 from slate.service.core import Actor, Change, apply_change
+from slate.service.due import SYSTEM_HANDLE  # Slate's own account never watches anything
 from slate.service.items import get_item, resolve_account
 
 
@@ -39,9 +40,6 @@ def watchers_of(session: Session, item_id: str) -> list[Account]:
 
 def watcher_ids(session: Session, item_id: str) -> set[str]:
     return set(session.scalars(select(Watcher.account_id).where(Watcher.item_id == item_id)))
-
-
-SYSTEM_HANDLE = "slate"  # Slate's own account (service/due.py) never watches anything
 
 
 def auto_watches(account: Account, why: str) -> bool:

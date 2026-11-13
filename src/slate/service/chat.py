@@ -68,21 +68,24 @@ from slate.models import (
 )
 from slate.service import access, attachments, chat_files, guests
 from slate.service import items as items_svc
-from slate.service.comments import mentions_in
+from slate.service.comments import clean_emoji, mentions_in
 from slate.service.core import Actor, apply_change, snapshot
+from slate.service.due import SYSTEM_HANDLE  # Slate's own account: nobody chats with it
 from slate.service.errors import Forbidden, Invalid, NotFound
 
 GENERAL = "general"
 AGENT = "agent"
-SYSTEM_HANDLE = "slate"  # Slate's own account (service/due.py): not an agent anyone talks to
 MAX_BODY = 20_000
-MAX_EMOJI = 32
 PAGE = 50
 MAX_PAGE = 200
 # Exact exposures kept beyond the read cursor. Past this, the oldest become the cursor: a
 # message skipped while this many later ones were read counts as read.
 EXPOSED_KEEP = 500
-ITEM_REF_RE = re.compile(r"(?:[?&]task=|(?<![\w/#&])#)([0-9A-Za-z]{12})(?![0-9A-Za-z])")
+# `#<id>` not inside a word, a path or a fragment; the item reference adds `?task=<id>` links.
+_HASH_REF = r"(?<![\w/#&])#"
+_REF_ID = r"([0-9A-Za-z]{12})(?![0-9A-Za-z])"
+ITEM_REF_RE = re.compile(rf"(?:[?&]task=|{_HASH_REF}){_REF_ID}")
+HASH_REF_RE = re.compile(_HASH_REF + _REF_ID)
 
 
 @dataclass(frozen=True)
@@ -95,10 +98,6 @@ class Channel:
     archived: bool = False
     account_id: str | None = None  # the agent, for an agent's chat
     mention_required: bool = True
-
-
-def channel_key(kind: str, target_id: str | None = None) -> str:
-    return GENERAL if kind == GENERAL else f"{kind}:{target_id}"
 
 
 def place(key: str | None, name: str | None) -> str:
@@ -166,13 +165,6 @@ def _body(value: str | None, *, files: bool = False) -> str:
     return body
 
 
-def _emoji(value: str) -> str:
-    emoji = (value or "").strip()
-    if not emoji or len(emoji) > MAX_EMOJI or any(c.isspace() for c in emoji):
-        raise Invalid(f"emoji must be 1-{MAX_EMOJI} characters with no spaces")
-    return emoji
-
-
 def get_message(session: Session, message_id: str) -> Message:
     msg = session.get(Message, message_id)
     if msg is None:
@@ -188,7 +180,6 @@ def item_refs(body_md: str) -> list[str]:
     return list(dict.fromkeys(ITEM_REF_RE.findall(body_md or "")))
 
 
-HASH_REF_RE = re.compile(r"(?<![\w/#&])#([0-9A-Za-z]{12})(?![0-9A-Za-z])")
 # `[[doc:<id>]]` / `[[list:<id>]]`: the board's `#` picker links pages and lists with these.
 TOKEN_RE = re.compile(r"\[\[(doc|list):[0-9A-Za-z]{12}\]\]")
 TOKEN_WORDS = {"doc": "a page", "list": "a list"}
@@ -778,7 +769,7 @@ def delete(session: Session, actor: Actor, message_id: str) -> Message:
 def react(session: Session, actor: Actor, message_id: str, *, emoji: str) -> Message:
     """Add the caller's emoji. Twice is the same as once (nothing recorded)."""
     msg = get_message(session, message_id)
-    emoji = _emoji(emoji)
+    emoji = clean_emoji(emoji)
     if msg.deleted_at is not None:
         raise Invalid("that message was deleted")
     if session.get(MessageReaction, (msg.id, actor.account_id, emoji)) is not None:
@@ -798,7 +789,7 @@ def react(session: Session, actor: Actor, message_id: str, *, emoji: str) -> Mes
 def unreact(session: Session, actor: Actor, message_id: str, *, emoji: str) -> Message:
     """Take back the caller's emoji. Absent is fine (nothing recorded)."""
     msg = get_message(session, message_id)
-    reaction = session.get(MessageReaction, (msg.id, actor.account_id, _emoji(emoji)))
+    reaction = session.get(MessageReaction, (msg.id, actor.account_id, clean_emoji(emoji)))
     if reaction is None:
         return msg
     with apply_change(session, actor) as cx:
@@ -947,7 +938,7 @@ def mark_read(
             raise Invalid("message_ids and through are exclusive")
         ids = set(message_ids)
         if len(ids) > MAX_PAGE:
-            raise Invalid("at most 200 exposed messages per request")
+            raise Invalid(f"at most {MAX_PAGE} exposed messages per request")
         found = set(
             session.scalars(
                 select(Message.id).where(Message.channel == ch.key, Message.id.in_(ids))

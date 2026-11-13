@@ -404,7 +404,7 @@ def unread_count(session: Session, account: Account) -> int:
     return len(entries(session, account, limit=MAX_ENTRIES, unread_only=True))
 
 
-def _known(session: Session, account: Account, event_ids: Iterable[str]) -> list[str]:
+def _known(session: Session, event_ids: Iterable[str]) -> list[str]:
     ids = sorted(set(event_ids))
     if not ids:
         return []
@@ -460,7 +460,7 @@ def mark(
             cx.record(kind, subject_id=account.id, after={"through": through}, covers=[state])
             return {"through": through}
         ids = list(event_ids) if event_ids else _item_event_ids(session, account, item_id or "")
-        ids = _known(session, account, ids)
+        ids = _known(session, ids)
         # One query for the marks already there: a `session.get` per id would autoflush the
         # marks added so far before their event is recorded, which the write guard refuses.
         existing = {
