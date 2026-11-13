@@ -213,7 +213,8 @@ def compose(notes: list[dict[str, Any]]) -> tuple[str, str, str]:
         f'<p style="margin-top:18px"><a href="{html.escape(inbox_link)}">Open your inbox</a></p>'
         f'<p style="color:#888;font-size:12px">{html.escape(foot)}</p></div>'
     )
-    return subject[:150], text, body
+    # A title or display name may hold a line break; a mail header may not.
+    return " ".join(subject.split())[:150], text, body
 
 
 def _drain(session: Session, send: Sender, now: datetime) -> int:
@@ -250,7 +251,10 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
         if not notes or to is None:
             continue
         subject, text, body = compose(notes)
-        error = send(to, subject, text, body)
+        try:
+            error = send(to, subject, text, body)
+        except Exception as exc:  # noqa: BLE001  # one account's failure is that account's only
+            error = f"{type(exc).__name__}: {exc}"[:300]
         for row in sending:
             row.attempts += 1
             if error is None:
