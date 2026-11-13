@@ -25,8 +25,10 @@ class InviteIn(BaseModel):
     section_id: str = Field(min_length=12, max_length=12)
     handle: str = Field(pattern=accounts.HANDLE_RE.pattern)
     display_name: str = Field(min_length=1, max_length=100)
-    role: Literal["guest"] = "guest"
-    level: Literal["edit"] = "edit"
+    # The only values there are: an invitation makes a guest with edit on the section. Kept as
+    # fields so a client that states them (the board does) is checked, not refused.
+    role: Literal["guest"] = Field(default="guest", description="Always `guest`")
+    level: Literal["edit"] = Field(default="edit", description="Always `edit`")
 
 
 class AcceptIn(BaseModel):
