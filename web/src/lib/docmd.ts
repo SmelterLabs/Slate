@@ -86,7 +86,7 @@ export function inline(src: string, ctx: DocCtx): string {
         `<a href="${escape(url)}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${text}</a>`,
       );
     })
-    .replace(/(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g, (_, pre: string, url: string) =>
+    .replace(/(^|[\s(])(https?:\/\/[^\s<\u0000]+[^\s<\u0000.,;:!?)\]])/g, (_, pre: string, url: string) =>
       pre + keep(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
     )
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
