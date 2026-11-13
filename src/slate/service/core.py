@@ -50,6 +50,7 @@ from slate.models import (
     AutomationRun,
     ChatWake,
     Delivery,
+    DocLink,
     DocWake,
     EmailDelivery,
     EngineCursor,
@@ -84,8 +85,9 @@ BOOKKEEPING: frozenset[tuple[type, str]] = frozenset(
     }
 )
 # Tables whose rows are operational logs, not changes to anything a person or an agent owns.
+# `doc_links` is an index of what a page's body embeds; the body's event is the record.
 BOOKKEEPING_MODELS: frozenset[type] = frozenset(
-    {Delivery, PushDelivery, EmailDelivery, AutomationRun, EngineCursor, WorkLease}
+    {Delivery, PushDelivery, EmailDelivery, AutomationRun, EngineCursor, WorkLease, DocLink}
 )
 
 # Columns never copied into an event payload.

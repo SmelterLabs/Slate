@@ -244,8 +244,6 @@ EVENT_DOCS: dict[str, str] = {
     "inbox.read": "Inbox entries were marked read.",
     "inbox.cleared": "Inbox entries were cleared.",
     "doc.created": "A doc page was created (or duplicated); `after` is the page.",
-    "doc.links_updated": "The tasks and pages a doc embeds changed (`before`/`after`: "
-    "the `kind:id` sets); recorded with the save that changed the body.",
     "doc.updated": "A doc's `title`, `icon`, `tags` or `body_md` changed (field, before, "
     "after); for `body_md`, before/after are `{version_no, chars}`: the page-history version "
     "holding the text (`GET /docs/{id}/versions/{n}`) and its length, not the text. Field "

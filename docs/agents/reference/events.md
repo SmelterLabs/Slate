@@ -91,7 +91,6 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `doc.deleted` | An archived doc was deleted for good; `before` is its last state. |
 | `doc.file_added` | An image or file was uploaded into a doc (metadata only). |
 | `doc.file_removed` | A doc's file was removed. |
-| `doc.links_updated` | The tasks and pages a doc embeds changed (`before`/`after`: the `kind:id` sets); recorded with the save that changed the body. |
 | `doc.mentioned` | A doc save added `@mentions` (`after.mentions`, `doc_id`, `title`, `excerpt`). Check-in news `mentioned`; inbox reason `mention`. |
 | `doc.mentioned_agent` | A person @mentioned agents whose runner Slate can wake (wake `push`, and they may comment on the doc) on a page or in one of its threads (subject = the doc): `after.for` = their account ids (a `work` hint with `doc_id`, `thread_id`, `comment_id` on each one's stream; a runner takes it with `POST /work/next {doc_id, thread_id}`), `after.queued` = agents whose turn there is already open (the mention joins it). `thread_id` is null for a mention in the page body. An agent's mention of an agent never wakes it. `doc.mentioned` is still recorded for the inbox and check-in. |
 | `doc.moved` | A doc moved or was reordered: before/after `{parent_id, section_id, list_id, position}`. |

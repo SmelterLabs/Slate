@@ -28,9 +28,10 @@ EMBED_RE = re.compile(r"\[\[(task|doc):([0-9A-Za-z]{12})\]\]")
 
 
 def sync_links(cx: Change, doc: Doc) -> None:
-    """Make `doc_links` say exactly which tasks and pages this page embeds, covering the rows
-    that change with `doc.links_updated` (one event, `before`/`after` = the two sets). No-op
-    when the set is unchanged, and for a folder (folders have no body to embed in)."""
+    """Make `doc_links` say exactly which tasks and pages this page embeds. The table is an
+    index of the body, kept in the change that saves it: the body's own event is the record,
+    so the rows have none (`core.BOOKKEEPING_MODELS`). No-op when the set is unchanged, and
+    for a folder (folders have no body to embed in)."""
     session = cx.session
     with session.no_autoflush:
         rows = list(session.scalars(select(DocLink).where(DocLink.doc_id == doc.id)))
@@ -52,13 +53,6 @@ def sync_links(cx: Change, doc: Doc) -> None:
         session.delete(r)
     for r in added:
         session.add(r)
-    cx.record(
-        "doc.links_updated",
-        subject_id=doc.id,
-        before=sorted(f"{k}:{v}" for k, v in have),
-        after=sorted(f"{k}:{v}" for k, v in wanted),
-        covers=[*removed, *added],
-    )
 
 
 def backlinks(session: Session, doc_id: str, docs: list[Doc] | None = None) -> list[dict[str, Any]]:
