@@ -18,7 +18,8 @@ list. The same tree also holds **file docs**.
   metadata only), `restore_revision` (a new revision with the old bytes, never a rewrite),
   `revisions_of`, `get_revision`, `current_revisions` (one query for the index),
   `promote_attachment` (a task attachment becomes a file doc's revision 1, the attachment is
-  removed, the task gets a comment `[[doc:ID]]`; three changes in sequence, each its own event). A
+  removed, the task gets a comment `[[doc:ID]]`; one change with an event per step, the file read
+  before the write lock, so a step the caller may not take leaves nothing done). A
   revision is never removed (`remove_file` refuses one); archive the doc. `add_revision` reads
   the file before the write lock and picks the number under it, so two uploads at once get
   consecutive numbers. `duplicate_doc` reads only the docs it copies and copies each current
@@ -71,7 +72,7 @@ list. The same tree also holds **file docs**.
   `docs.drawer_listing(list_id, folder)` is `GET /lists/{id}/drawer` (entries in tree order with
   `children_count`, the folder path, counts); `docs.to_drawer(page)` is `POST /docs/{id}/to-drawer`
   (a new drawer list named after a top-level page in a section; the page's subpages then the page
-  itself move to its top, each an ordinary `doc.moved`). The hub (`service/doc_hub.py`) is
+  itself move to its top, each an ordinary `doc.moved`, all in one change). The hub (`service/doc_hub.py`) is
   `drawers` (each with counts and how many `needs_you` entries are in it), `pages` (top-level,
   outside any drawer), `needs_you`, `counts`; it has no recent list or activity feed. MCP:
   `slate_doc drawer | to_drawer | pin_revision | unpin_revision`, `kind` on `slate_list create |

@@ -1765,12 +1765,13 @@ def to_drawer(session: Session, actor: Actor, doc_id: str) -> List:
         raise Invalid("a workspace page has no section to hold a drawer; move it first")
     docs = _all(session)
     children = _tree_order([d for d in docs if d.parent_id == doc.id and d.archived_at is None])
-    drawer = lists_svc.create_list(
-        session, actor, section_id=section_id, name=doc.title, kind="drawer"
-    )
-    move_doc(session, actor, doc.id, {"list_id": drawer.id})
-    for child in children:
-        move_doc(session, actor, child.id, {"list_id": drawer.id})
+    with apply_change(session, actor):  # one change: a refused move leaves no empty drawer
+        drawer = lists_svc.create_list(
+            session, actor, section_id=section_id, name=doc.title, kind="drawer"
+        )
+        move_doc(session, actor, doc.id, {"list_id": drawer.id})
+        for child in children:
+            move_doc(session, actor, child.id, {"list_id": drawer.id})
     return drawer
 
 
@@ -1792,9 +1793,15 @@ def add_revision(
     doc = _file_doc(session, doc_id)
     text = _note(note)
     rev = _revision_row(actor, doc.id, filename, data, content_type, 0, text, restored_from)
+    _store_revision(session, actor, doc, rev)
+    return rev
+
+
+def _store_revision(session: Session, actor: Actor, doc: Doc, rev: DocFile) -> None:
+    """Add `rev` (built by `_revision_row`, outside the lock) as the doc's next revision."""
     now = rev.created_at
     with apply_change(session, actor) as cx:
-        # Nothing is dirty yet, so this read flushes nothing.
+        # Any row already dirty here is covered by an event, so this read may flush safely.
         latest = session.scalar(
             select(DocFile)
             .options(load_only(*_FILE_COLUMNS))
@@ -1812,7 +1819,6 @@ def add_revision(
         doc.updated_at = now
         session.add(rev)
         cx.record("doc.revision_added", subject_id=doc.id, after=revision_out(rev), covers=covers)
-    return rev
 
 
 def restore_revision(session: Session, actor: Actor, doc_id: str, revision_no: int) -> DocFile:
@@ -1919,30 +1925,29 @@ def promote_attachment(
 
     att, data = attachments_svc.read_bytes(session, attachment_id)
     item = session.get(Item, att.item_id)
-    doc = create_doc(
-        session,
-        actor,
-        kind="file",
-        title=title or att.filename,
-        parent_id=parent_id,
-        list_id=list_id,
-        section_id=section_id if parent_id is None and list_id is None else None,
-    )
-    add_revision(
-        session,
-        actor,
-        doc.id,
-        filename=att.filename,
-        data=data,
-        note=note or (f"From task {item.title}" if item else "From a task"),
-        content_type=att.content_type,
-    )
-    attachments_svc.remove_attachment(session, actor, att.id)
-    add_comment(
-        session,
-        actor,
-        att.item_id,
-        body_md=f"Moved **{att.filename}** to Docs & Files: [[doc:{doc.id}]]",
-        keep_open=True,
-    )
+    text = _note(note or (f"From task {item.title}" if item else "From a task"))
+    # The file is read before the write lock; the four steps are then one change, so a step
+    # the caller may not take (removing the attachment needs edit on the task's list) leaves
+    # nothing behind.
+    rev = _revision_row(actor, "", att.filename, data, att.content_type, 1, text)
+    with apply_change(session, actor):
+        doc = create_doc(
+            session,
+            actor,
+            kind="file",
+            title=title or att.filename,
+            parent_id=parent_id,
+            list_id=list_id,
+            section_id=section_id if parent_id is None and list_id is None else None,
+        )
+        rev.doc_id = doc.id
+        _store_revision(session, actor, doc, rev)
+        attachments_svc.remove_attachment(session, actor, att.id)
+        add_comment(
+            session,
+            actor,
+            att.item_id,
+            body_md=f"Moved **{att.filename}** to Docs & Files: [[doc:{doc.id}]]",
+            keep_open=True,
+        )
     return get_doc(session, doc.id)

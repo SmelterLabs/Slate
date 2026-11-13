@@ -367,6 +367,92 @@ def test_reading_or_saving_a_page_walks_the_tree_once(client, alex, todo):
         assert len(r.json()["children"]) == 4
 
 
+# --- several steps, one change ----------------------------------------------------------------
+
+
+def _guest(client, alex, handle="alex-guest"):
+    acct = client.post(
+        f"{API}/accounts",
+        json={"handle": handle, "display_name": "Guest", "kind": "person", "role": "guest"},
+        headers=alex,
+    ).json()
+    tok = client.post(
+        f"{API}/accounts/{acct['id']}/tokens", json={"scopes": ["write"]}, headers=alex
+    ).json()
+    return acct, {"Authorization": f"Bearer {tok['token']}"}
+
+
+def _share(client, alex, account_id, kind, scope_id, level):
+    r = client.put(
+        f"{API}/shares",
+        json={"account_id": account_id, "scope_kind": kind, "scope_id": scope_id, "level": level},
+        headers=alex,
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_a_refused_promote_leaves_nothing_half_done(client, alex, todo):
+    guest, gh = _guest(client, alex)
+    _share(client, alex, guest["id"], "list", todo["id"], "comment")
+    drawer = client.post(
+        f"{API}/lists",
+        json={"section_id": todo["section_id"], "name": "Files", "kind": "drawer"},
+        headers=alex,
+    ).json()
+    _share(client, alex, guest["id"], "list", drawer["id"], "edit")
+    item = client.post(
+        f"{API}/items", json={"list_id": todo["id"], "title": "Quote"}, headers=alex
+    ).json()
+    att = client.post(
+        f"{API}/items/{item['id']}/attachments",
+        params={"filename": "q.csv"},
+        content=b"a,b\n1,2\n",
+        headers={**alex, "Content-Type": "text/csv"},
+    ).json()
+
+    r = client.post(
+        f"{API}/attachments/{att['id']}/promote", json={"list_id": drawer["id"]}, headers=gh
+    )
+    assert r.status_code == 403, r.text
+    assert client.get(f"{API}/docs", params={"list_id": drawer["id"]}, headers=alex).json() == []
+    still = client.get(f"{API}/items/{item['id']}/attachments", headers=alex).json()
+    assert [a["filename"] for a in still] == ["q.csv"]
+
+    r = client.post(
+        f"{API}/attachments/{att['id']}/promote", json={"list_id": drawer["id"]}, headers=alex
+    )
+    assert r.status_code in (200, 201), r.text
+    assert [
+        d["title"]
+        for d in client.get(f"{API}/docs", params={"list_id": drawer["id"]}, headers=alex).json()
+    ] == ["q.csv"]
+    assert client.get(f"{API}/items/{item['id']}/attachments", headers=alex).json() == []
+
+
+def test_a_refused_step_of_to_drawer_undoes_the_new_drawer(client, alex, todo, monkeypatch):
+    from slate.service import docs as docs_svc
+    from slate.service.errors import Invalid
+
+    page = _doc(client, alex, title="Contracts", list_id=todo["id"])
+    _doc(client, alex, title="Lease", parent_id=page["id"])
+    lists_before = client.get(f"{API}/lists", headers=alex).json()
+    real = docs_svc.move_doc
+    calls = []
+
+    def failing(session, actor, doc_id, to):
+        calls.append(doc_id)
+        if len(calls) == 2:
+            raise Invalid("refused")
+        return real(session, actor, doc_id, to)
+
+    monkeypatch.setattr(docs_svc, "move_doc", failing)
+    r = client.post(f"{API}/docs/{page['id']}/to-drawer", headers=alex)
+    assert r.status_code == 422, r.text
+    assert client.get(f"{API}/lists", headers=alex).json() == lists_before
+    got = client.get(f"{API}/docs/{page['id']}", headers=alex).json()
+    assert got["list_id"] == todo["id"] and len(got["children"]) == 1
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 
