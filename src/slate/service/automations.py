@@ -333,7 +333,14 @@ def clean_actions(session: Session, raw: Any) -> list[dict[str, Any]]:
         kind = act["type"]
         if kind not in ACTIONS:
             raise Invalid(f"unknown action '{kind}'; one of {', '.join(ACTIONS)}")
-        out.append({"type": kind, **_clean_params(session, ACTIONS[kind][1], act, kind)})
+        params = _clean_params(session, ACTIONS[kind][1], act, kind)
+        if kind == "move_list":
+            # The engine moves as Slate's own account: the author must be allowed to put tasks
+            # into the target list themselves.
+            access.require_list_level(
+                session, params["list_id"], access.EDIT, "move tasks into this list"
+            )
+        out.append({"type": kind, **params})
     return out
 
 
