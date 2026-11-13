@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
-import { BASE_URL, seed } from './seed';
+import { api, seed, signedIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shots = process.env.SLATE_SCREENSHOTS
@@ -17,22 +17,7 @@ async function shot(page: Page, name: string) {
   await page.emulateMedia({ colorScheme: null });
 }
 
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
-
 /** Skip the token screen: put the token where the board keeps it. */
-async function signedIn(page: Page, path = '/') {
-  const { alex } = seed();
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
-  await page.goto(path);
-}
 
 async function openList(page: Page) {
   await signedIn(page, `/#/list/${seed().listId}`);
@@ -84,7 +69,7 @@ test('dragging a card to another column changes its status', async ({ page }) =>
 
   const { alex, dragId } = seed();
   await expect
-    .poll(async () => (await api<{ status: { name: string } }>('GET', `/items/${dragId}`, alex)).status.name)
+    .poll(async () => (await api<{ status: { name: string } }>('GET', `/items/${dragId}`)).status.name)
     .toBe('Ready');
 });
 
@@ -92,7 +77,7 @@ test('a change made through the API appears without a reload within 2 s', async 
   await openList(page);
   await page.evaluate(() => ((window as unknown as { marker: number }).marker = 42));
   const { agent, liveId } = seed();
-  await api('PATCH', `/items/${liveId}`, agent, { title: 'Agent renamed this', priority: 'high' });
+  await api('PATCH', `/items/${liveId}`, { title: 'Agent renamed this', priority: 'high' }, agent);
 
   await expect(page.locator('.card', { hasText: 'Agent renamed this' })).toBeVisible({
     timeout: 2000,
@@ -131,7 +116,7 @@ test('quick add parses #tag !high due:tomorrow into one item', async ({ page }) 
       due_at: string;
       assignees: { handle: string }[];
     }[]
-  >('GET', `/items?list_id=${listId}&q=gutter`, alex);
+  >('GET', `/items?list_id=${listId}&q=gutter`);
   expect(found).toHaveLength(1);
   const item = found[0];
   expect(item.title).toBe('Buy gutter guards');
@@ -190,12 +175,12 @@ test('a dropped stream shows the banner, then catches up what it missed', async 
   await openList(page);
   // Let the stream deliver one event first, so the board holds a cursor.
   const { agent, dragId } = seed();
-  await api('PATCH', `/items/${dragId}`, agent, { title: 'Before the outage' });
+  await api('PATCH', `/items/${dragId}`, { title: 'Before the outage' }, agent);
   await expect(page.locator('.card', { hasText: 'Before the outage' })).toBeVisible();
 
   await context.setOffline(true);
   await expect(page.getByRole('status')).toContainText("You're offline");
-  await api('PATCH', `/items/${dragId}`, agent, { title: 'Changed while offline' });
+  await api('PATCH', `/items/${dragId}`, { title: 'Changed while offline' }, agent);
   await context.setOffline(false);
 
   await expect(page.locator('.card', { hasText: 'Changed while offline' })).toBeVisible({

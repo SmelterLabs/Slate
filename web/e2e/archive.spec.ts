@@ -2,32 +2,22 @@
 // back), find it in the trash, restore it, delete another for good, see done and archived
 // tasks, and download an export.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, BASE_URL, seed, signIn } from './support';
 
 test('trash, restore and the archive page', async ({ page }) => {
   const { alex } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Chores', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'House' });
-  const make = (title: string) => api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Chores', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'House' });
+  const make = (title: string) => api<{ id: string }>('POST', '/items', { list_id: list.id, title });
   const bin = await make('Clean the gutters');
   const gone = await make('Old idea');
   const done = await make('Fix the tap');
   const shelved = await make('Paint the fence');
-  await api('PATCH', `/items/${done.id}`, alex, { status: 'Done' });
-  await api('POST', `/items/${shelved.id}/archive`, alex);
-  await api('POST', `/items/${gone.id}/trash`, alex);
+  await api('PATCH', `/items/${done.id}`, { status: 'Done' });
+  await api('POST', `/items/${shelved.id}/archive`);
+  await api('POST', `/items/${gone.id}/trash`);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}`);
   const card = page.locator(`[data-item="${bin.id}"]`).first();
   await expect(card).toBeVisible();
@@ -42,7 +32,7 @@ test('trash, restore and the archive page', async ({ page }) => {
   await expect(page.locator(`[data-item="${bin.id}"]`).first()).toBeVisible();
 
   // Trash it for real (from another client: the board follows live).
-  await api('POST', `/items/${bin.id}/trash`, alex);
+  await api('POST', `/items/${bin.id}/trash`);
   await expect(page.locator(`[data-item="${bin.id}"]`)).toHaveCount(0);
 
   // The Archive page: Done first.
@@ -66,7 +56,7 @@ test('trash, restore and the archive page', async ({ page }) => {
   // Restore one.
   await binned.getByRole('button', { name: 'Restore' }).click();
   await expect(binned).toHaveCount(0);
-  const back = await api<{ trashed_at: string | null }>('GET', `/items/${bin.id}`, alex);
+  const back = await api<{ trashed_at: string | null }>('GET', `/items/${bin.id}`);
   expect(back.trashed_at).toBeNull();
 
   // Delete the other for good (asks first).
@@ -87,12 +77,12 @@ test('trash, restore and the archive page', async ({ page }) => {
 
 test('a trashed task opens with a restore banner', async ({ page }) => {
   const { alex } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Misc', audience: 'personal' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Stuff' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Binned thing' });
-  await api('POST', `/items/${item.id}/trash`, alex);
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Misc', audience: 'personal' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Stuff' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Binned thing' });
+  await api('POST', `/items/${item.id}/trash`);
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const modal = page.getByRole('dialog', { name: /Binned thing/ });
   await expect(modal.locator('.banner.trashed')).toContainText('in the trash');

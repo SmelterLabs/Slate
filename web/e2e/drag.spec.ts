@@ -5,17 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${seed().alex}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return (await res.json()) as T;
-}
+import { api, signedIn } from './support';
 
 interface Lab {
   sectionId: string;
@@ -52,11 +42,6 @@ async function lab(cards: { title: string; due_at?: string; tags?: string[] }[],
   const ids: Record<string, string> = {};
   for (const c of cards) ids[c.title] = (await api<{ id: string }>('POST', '/items', { list_id: listId, ...c })).id;
   return { sectionId, listId, ids };
-}
-
-async function signedIn(page: Page, path: string) {
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), seed().alex);
-  await page.goto(path);
 }
 
 const column = (page: Page, key: string) => page.locator(`.column[data-group="${key}"]`);

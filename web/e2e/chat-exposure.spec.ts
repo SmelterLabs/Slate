@@ -1,24 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
+import { api, BASE_URL, seed, signIn } from './support';
 
-async function api(path: string, body?: unknown, token = seed().alex) {
-  const r = await fetch(`${BASE_URL}/api/v1${path}`, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  expect(r.ok).toBe(true);
-  return r.json();
-}
 async function login(page: Page, token: string, path: string) {
-  await page.addInitScript(t => localStorage.setItem('slate.token', t), token);
+  await signIn(page, token);
   await page.goto(path);
 }
 
 test('background mount preserves unread; focused viewport excludes unopened replies and old messages across devices', async ({ browser }) => {
-  const section = await api('/sections', { name: 'Workshop', audience: 'work' });
+  const section = await api('POST', '/sections', { name: 'Workshop', audience: 'work' });
   const key = `section:${section.id}`;
-  const account = await api('/accounts', { handle: 'exposure-reader', display_name: 'Reader', kind: 'person' });
-  const { token } = await api(`/accounts/${account.id}/tokens`, { scopes: ['read', 'write'], label: 'isolated test' });
-  const root = await api(`/channels/${key}/messages`, { body_md: 'Earlier root' });
-  const reply = await api(`/channels/${key}/messages`, { body_md: 'Reply stays unread', parent_id: root.id });
-  for (let i = 0; i < 52; i++) await api(`/channels/${key}/messages`, { body_md: `Workshop update ${i}` });
+  const account = await api('POST', '/accounts', { handle: 'exposure-reader', display_name: 'Reader', kind: 'person' });
+  const { token } = await api('POST', `/accounts/${account.id}/tokens`, { scopes: ['read', 'write'], label: 'isolated test' });
+  const root = await api('POST', `/channels/${key}/messages`, { body_md: 'Earlier root' });
+  const reply = await api('POST', `/channels/${key}/messages`, { body_md: 'Reply stays unread', parent_id: root.id });
+  for (let i = 0; i < 52; i++) await api('POST', `/channels/${key}/messages`, { body_md: `Workshop update ${i}` });
   const context = await browser.newContext();
   const page = await context.newPage();
   // Browser lifecycle is deterministic in headless mode; model a hidden, unfocused window.
@@ -29,28 +24,28 @@ test('background mount preserves unread; focused viewport excludes unopened repl
   await login(page, token, `/#/section/${section.id}/chat`);
   await expect(page.getByText('Workshop update 51', { exact: true })).toBeVisible();
   await page.waitForTimeout(900);
-  expect((await api(`/channels/${key}`, undefined, token)).unread).toBe(54);
+  expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(54);
   // Either condition by itself must block both old and newly arriving messages.
   await page.evaluate(() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); });
   await page.waitForTimeout(650);
-  expect((await api(`/channels/${key}`, undefined, token)).unread).toBe(54);
+  expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(54);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     document.hasFocus = () => false;
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await api(`/channels/${key}/messages`, { body_md: 'Arrived while unfocused' });
+  await api('POST', `/channels/${key}/messages`, { body_md: 'Arrived while unfocused' });
   await expect(page.getByText('Arrived while unfocused', { exact: true })).toBeVisible();
   await page.waitForTimeout(650);
-  expect((await api(`/channels/${key}`, undefined, token)).unread).toBe(55);
+  expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBe(55);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     document.hasFocus = () => true;
     window.dispatchEvent(new Event('focus'));
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect.poll(async () => (await api(`/channels/${key}`, undefined, token)).unread).toBeLessThan(54);
-  const state = await api(`/channels/${key}`, undefined, token);
+  await expect.poll(async () => (await api('GET', `/channels/${key}`, undefined, token)).unread).toBeLessThan(54);
+  const state = await api('GET', `/channels/${key}`, undefined, token);
   expect(state.unread).toBeGreaterThan(1);
   expect(state.first_unread_id).toBe(root.id);
   expect(state.unread_threads).toEqual({ [root.id]: 1 });
@@ -63,33 +58,33 @@ test('background mount preserves unread; focused viewport excludes unopened repl
   await expect(mobile.locator('.chat-main [data-message="' + root.id + '"]')).toBeInViewport();
   await mobile.getByRole('button', { name: /1 unread repl/ }).click();
   await expect(mobile.getByRole('complementary', { name: 'Thread' }).getByText('Reply stays unread')).toBeVisible();
-  await expect.poll(async () => (await api(`/channels/${key}`, undefined, token)).unread_threads).toEqual({});
-  expect((await api(`/channels/${key}`, undefined, token)).unread).toBeGreaterThan(0);
+  await expect.poll(async () => (await api('GET', `/channels/${key}`, undefined, token)).unread_threads).toEqual({});
+  expect((await api('GET', `/channels/${key}`, undefined, token)).unread).toBeGreaterThan(0);
   expect(reply.id).toBeTruthy();
   await phone.close(); await context.close();
 });
 
 test('First unread opens the earliest unread reply, not the bottom of a long thread', async ({ page }) => {
-  const section = await api('/sections', { name: 'Thread review', audience: 'work' });
+  const section = await api('POST', '/sections', { name: 'Thread review', audience: 'work' });
   const key = `section:${section.id}`;
-  const root = await api(`/channels/${key}/messages`, { body_md: 'Review discussion' }, seed().agent);
-  const first = await api(`/channels/${key}/messages`, { body_md: 'Earliest pending reply', parent_id: root.id }, seed().agent);
-  for (let i = 0; i < 24; i++) await api(`/channels/${key}/messages`, { body_md: `Later reply ${i}`, parent_id: root.id }, seed().agent);
-  await api(`/channels/${key}/read`, { message_ids: [root.id] });
+  const root = await api('POST', `/channels/${key}/messages`, { body_md: 'Review discussion' }, seed().agent);
+  const first = await api('POST', `/channels/${key}/messages`, { body_md: 'Earliest pending reply', parent_id: root.id }, seed().agent);
+  for (let i = 0; i < 24; i++) await api('POST', `/channels/${key}/messages`, { body_md: `Later reply ${i}`, parent_id: root.id }, seed().agent);
+  await api('POST', `/channels/${key}/read`, { message_ids: [root.id] });
   await login(page, seed().alex, `/#/section/${section.id}/chat`);
   await page.getByRole('button', { name: /First unread/ }).click();
   await expect(page.getByRole('complementary', { name: 'Thread' }).locator(`[data-message="${first.id}"]`)).toBeInViewport();
 });
 
 test('project attention is owned and scoped; drawers stay in docs and mention reach is qualified', async ({ page }) => {
-  const me = await api('/me');
-  const section = await api('/sections', { name: 'Design project', audience: 'work' });
+  const me = await api('GET', '/me');
+  const section = await api('POST', '/sections', { name: 'Design project', audience: 'work' });
   const privateResult = await fetch(`${BASE_URL}/api/v1/sections/${section.id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${seed().alex}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ private: true }) });
   expect(privateResult.ok).toBe(true);
-  const list = await api('/lists', { name: 'Commitments', section_id: section.id });
-  await api('/lists', { name: 'Reference drawer', section_id: section.id, kind: 'drawer' });
-  await api('/items', { title: 'Owned commitment', list_id: list.id, assignees: [me.account.id] });
-  await api('/items', { title: 'Exploratory idea', list_id: list.id });
+  const list = await api('POST', '/lists', { name: 'Commitments', section_id: section.id });
+  await api('POST', '/lists', { name: 'Reference drawer', section_id: section.id, kind: 'drawer' });
+  await api('POST', '/items', { title: 'Owned commitment', list_id: list.id, assignees: [me.account.id] });
+  await api('POST', '/items', { title: 'Exploratory idea', list_id: list.id });
   await login(page, seed().alex, `/#/section/${section.id}`);
   const attention = page.getByRole('region', { name: 'Your project attention' });
   await expect(attention.getByText('Owned commitment')).toBeVisible();

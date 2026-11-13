@@ -2,26 +2,16 @@
 // reaches its check-in as `asked`); the agent asks Alex back (a "?" badge on the card), and
 // Alex's reply leaves it open until Resolve.
 import { expect, test } from '@playwright/test';
-import { BASE_URL, seed } from './seed';
-
-async function api<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}/api/v1${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  expect(res.ok, `${method} ${path} -> ${res.status}`).toBe(true);
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
-}
+import { api, seed, signIn } from './support';
 
 test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', async ({ page }) => {
   const { alex, agent } = seed();
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Asks', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Questions' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Pick a caterer' });
-  const since = (await api<{ next_since: string }>('GET', '/checkin?limit=1', agent)).next_since;
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Asks', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Questions' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Pick a caterer' });
+  const since = (await api<{ next_since: string }>('GET', '/checkin?limit=1', undefined, agent)).next_since;
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   await tw.getByLabel('Add comment').fill('Which caterer has the best price?');
@@ -31,14 +21,14 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
   await expect(tw.locator('[data-agent-pending]')).toContainText('Agent is typing');
 
-  const news = await api<{ news: { why: string }[] }>('GET', `/checkin?since=${since}`, agent);
+  const news = await api<{ news: { why: string }[] }>('GET', `/checkin?since=${since}`, undefined, agent);
   expect(news.news.map((n) => n.why)).toContain('asked');
   await page.keyboard.press('Escape');
 
   // Asked-only finish explicitly answers its taken Ask, then it asks Alex back.
-  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', agent, { item_id: item.id });
-  await api('POST', `/work/${item.id}/finish`, agent, { run_id: taken.lease.run_id, outcome: 'done', reply: 'Lakeside, $20 a head.' });
-  await api('POST', `/items/${item.id}/comments`, agent, { body_md: 'Book it for Friday?', assignee: 'alex' });
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'done', reply: 'Lakeside, $20 a head.' }, agent);
+  await api('POST', `/items/${item.id}/comments`, { body_md: 'Book it for Friday?', assignee: 'alex' }, agent);
   const card = page.locator('.card', { hasText: 'Pick a caterer' });
   await expect(card.locator('[data-asks]')).toHaveText(/1/);
 
@@ -60,7 +50,7 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
   await page.keyboard.press('Escape');
   await expect(card.locator('[data-asks]')).toHaveCount(0);
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
 // A comment that @mentions only a person is a plain comment, even on a
@@ -68,12 +58,12 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
 test('@mentioning a person turns the default agent Ask into a plain comment', async ({ page }) => {
   const { alex } = seed();
   const handle = `member-${Date.now().toString(36)}`;
-  await api('POST', '/accounts', alex, { handle, display_name: 'Member', kind: 'person' });
-  const section = await api<{ id: string }>('POST', '/sections', alex, { name: 'Mentions', audience: 'ai' });
-  const list = await api<{ id: string }>('POST', '/lists', alex, { section_id: section.id, name: 'Talk' });
-  const item = await api<{ id: string }>('POST', '/items', alex, { list_id: list.id, title: 'Audit', assignees: ['agent'] });
+  await api('POST', '/accounts', { handle, display_name: 'Member', kind: 'person' });
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Mentions', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Talk' });
+  const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Audit', assignees: ['agent'] });
 
-  await page.addInitScript((t) => localStorage.setItem('slate.token', t), alex);
+  await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
   const picker = tw.getByLabel('Ask', { exact: true });
@@ -86,5 +76,5 @@ test('@mentioning a person turns the default agent Ask into a plain comment', as
   // Back to no mention: the picker follows the card again.
   await expect(picker).toHaveValue('agent');
 
-  await api('PATCH', `/sections/${section.id}`, alex, { archived: true });
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
