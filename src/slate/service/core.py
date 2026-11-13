@@ -424,6 +424,11 @@ def _is_bookkeeping(obj: Any) -> bool:
 
 
 def guard_flush(session: Session, _flush_context: Any, _instances: Any) -> None:
+    _check_flush(session)
+    session.info[_FLUSH_KEY] = True  # checked object by object; guard_cursor lets it by
+
+
+def _check_flush(session: Session) -> None:
     change: Change | None = session.info.get(_SCOPE_KEY)
     dirty = [o for o in session.dirty if session.is_modified(o)]
 
@@ -450,6 +455,38 @@ def guard_flush(session: Session, _flush_context: Any, _instances: Any) -> None:
     if uncovered:
         names = sorted({type(o).__name__ for o in uncovered})
         raise WriteWithoutEvent(f"write to {', '.join(names)} recorded no event")
+
+
+_WRITE_VERBS = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+# Set while a flush that guard_flush checked runs (SQLAlchemy's own `_flushing` is also set by
+# `bulk_insert_mappings`, which no guard sees).
+_FLUSH_KEY = "slate.flush_checked"
+
+
+@event.listens_for(Session, "after_flush_postexec")
+def _flush_done(session: Session, _flush_context: Any) -> None:  # noqa: ANN401
+    session.info.pop(_FLUSH_KEY, None)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _flush_aborted(session: Session, _previous: Any) -> None:  # noqa: ANN401
+    session.info.pop(_FLUSH_KEY, None)
+
+
+def guard_cursor(session: Session, statement: str) -> None:
+    """The last line of the guard: every SQL write a session sends outside its flush.
+
+    The flush and ORM statements are checked above with their objects; this catches what
+    reaches the database another way (`text()`, `session.connection().execute`,
+    `exec_driver_sql`, `bulk_insert_mappings`): refused outside a change, and inside one it
+    must be covered by an event like any bulk write.
+    """
+    if session.info.get(_FLUSH_KEY) or not statement.lstrip()[:7].upper().startswith(_WRITE_VERBS):
+        return
+    change: Change | None = session.info.get(_SCOPE_KEY)
+    if change is None:
+        raise WriteOutsideChange("raw SQL write outside apply_change()")
+    change._bulk = True
 
 
 def guard_bulk(state: ORMExecuteState) -> None:

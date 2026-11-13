@@ -146,20 +146,24 @@ blocks join the outer one (same actor required), so service functions can call e
 commit once. Event payloads never include `token_hash`, `secret_hash` or `secret_enc`
 (`core.SECRET_COLUMNS`).
 
-**The guard** (`core.guard_flush`/`guard_bulk`, hooked onto every `Session` in `db.py` so import
-order cannot skip it):
+**The guard** (`core.guard_flush`/`guard_bulk`/`guard_cursor`, hooked onto every `Session` and
+the engine in `db.py` so import order cannot skip it):
 
 - any insert/update/delete flushed with no `apply_change()` open → `WriteOutsideChange`;
 - inside a block, any written object not passed through `create`/`set`/`delete`/`record(covers=...)`
   → `WriteWithoutEvent`;
 - ORM bulk `insert()/update()/delete()` outside a block → `WriteOutsideChange`; inside a block it
   must record at least one event;
+- any other SQL write a session sends (`text()`, `session.connection().execute`,
+  `exec_driver_sql`, `bulk_insert_mappings`), seen at the cursor by `guard_cursor`: the same
+  rule as an ORM bulk write;
 - an `Event` modified or deleted → refused (and the database triggers refuse it too).
 
 The exemptions: `core.BOOKKEEPING` (`Token.last_used_at`, refreshed by `resolve_token()` at most
 once a minute) and `core.BOOKKEEPING_MODELS` (`Delivery` rows: the deliveries table is itself the
 webhook delivery log; logging each attempt as an event would flood the log and loop back into
-webhooks). Raw `engine.connect()` SQL is not guarded; only tests use it.
+webhooks). SQL on a bare `engine.connect()` connection, outside any session, is not guarded;
+only migrations and tests use it (tests seed old rows with `conftest.raw_write`).
 
 **How to add a mutation:** write a function in `slate/service/<area>.py` taking `(session, actor,
 ...)`, validate, then do every write through `cx.*` inside `apply_change()`. Then classify it in

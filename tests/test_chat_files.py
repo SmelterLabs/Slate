@@ -6,9 +6,9 @@ from __future__ import annotations
 import base64
 from datetime import timedelta
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
-from conftest import API
+from conftest import API, raw_write
 from slate.models import Event, MessageFile, utcnow
 from slate.service import chat_files
 
@@ -244,11 +244,11 @@ def test_files_never_sent_are_swept_on_the_next_upload(client, alex, todo, db):
     assert post(client, alex, key, "x", file_ids=[sent["id"]]).status_code == 201
     old = utcnow() - chat_files.UNSENT_KEEP - timedelta(minutes=1)
     # Age the rows behind the ORM (the service never rewrites `created_at`).
-    db.connection().execute(
-        text("UPDATE message_files SET created_at = :at WHERE id IN (:a, :b)"),
+    db.commit()
+    raw_write(
+        "UPDATE message_files SET created_at = :at WHERE id IN (:a, :b)",
         {"at": old.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), "a": stale["id"], "b": sent["id"]},
     )
-    db.commit()
 
     upload(client, alex, key, name="next.png")
     db.expire_all()

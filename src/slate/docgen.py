@@ -280,6 +280,8 @@ _EVENT_RE = re.compile(r"^[a-z]+(_[a-z]+)*\.[a-z]+(_[a-z]+)*$")
 # `noun.verb`-shaped literals that are not event types.
 _NOT_EVENTS = {
     "slate.change",
+    "slate.flush_checked",  # core._FLUSH_KEY, a session.info key
+    "http.request",  # an ASGI message type
     "uvicorn.access",
     "alembic.ini",
     "index.html",

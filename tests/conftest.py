@@ -41,6 +41,17 @@ def fresh_schema():
         conn.commit()
 
 
+def raw_write(sql: str, params: dict | None = None) -> None:
+    """Write a row behind the service layer, as an older version or another process left it.
+
+    It goes through the engine, not a session: every session write is checked by the change
+    guard (slate.service.core), raw SQL included."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text(sql), params or {})
+
+
 @pytest.fixture
 def db():
     with SessionLocal() as session:

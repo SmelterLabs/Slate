@@ -126,11 +126,10 @@ def test_backfill_extracts_text_for_old_revisions(client, alex, db):
 
     d = _doc(client, alex, title="Old", kind="file")
     rev = _upload(client, alex, d["id"], b"hello world", "notes.txt", "first", "text/plain")
-    from sqlalchemy import text as sql
+    from conftest import raw_write
 
     # As a revision stored without its text (raw SQL: the ORM guard refuses a bare write).
-    db.execute(sql("UPDATE doc_files SET text = NULL WHERE id = :id"), {"id": rev["id"]})
-    db.commit()
+    raw_write("UPDATE doc_files SET text = NULL WHERE id = :id", {"id": rev["id"]})
     db.expire_all()
     done = doc_compare.backfill_text(db)
     assert done == 1

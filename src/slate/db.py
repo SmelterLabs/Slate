@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import weakref
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from sqlalchemy import ColumnElement, Engine, create_engine, event, func
+from sqlalchemy import ColumnElement, Connection, Engine, create_engine, event, func
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -135,7 +136,28 @@ def make_engine(url: str | None = None) -> Engine:
     engine = create_engine(url, **kwargs)
     event.listen(engine, "connect", _configure_sqlite)
     event.listen(engine, "first_connect", _seed_event_clock)
+    event.listen(engine, "before_cursor_execute", _guard_cursor)
     return engine
+
+
+# The session each open connection works for, so the cursor-level guard can find its change.
+_session_of: weakref.WeakKeyDictionary[Connection, weakref.ref[Session]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+@event.listens_for(Session, "after_begin")
+def _remember_session(session, _transaction, connection) -> None:  # noqa: ANN001
+    _session_of[connection] = weakref.ref(session)
+
+
+def _guard_cursor(conn, _cursor, statement, *_rest) -> None:  # noqa: ANN001, ANN002
+    ref = _session_of.get(conn)
+    session = ref() if ref is not None else None
+    if session is not None:
+        from slate.service.core import guard_cursor
+
+        guard_cursor(session, statement)
 
 
 def _seed_event_clock(dbapi_connection, _record) -> None:  # noqa: ANN001

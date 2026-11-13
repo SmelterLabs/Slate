@@ -6,9 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
-from sqlalchemy import text
 
-from conftest import API
+from conftest import API, raw_write
 
 
 def _item(client, h, list_id, title="Thing", **fields):
@@ -79,16 +78,13 @@ def test_subtasks_nest_four_deep(client, alex, todo, db):
     assert "depth exceeds 4" in r.json()["detail"]
     with pytest.raises(Exception, match="item depth exceeds 4"):
         # Straight SQL, under the service layer: the database holds the rule on its own.
-        db.execute(
-            text(
-                "INSERT INTO items (id, list_id, parent_id, kind, title, body_md, due_date_only,"
-                " position, created_by, created_at, updated_at) VALUES ('deep12345678', :l, :p,"
-                " 'task', 'too deep', '', 0, 9, :a, '2026-01-01T00:00:00Z',"
-                " '2026-01-01T00:00:00Z')"
-            ),
+        raw_write(
+            "INSERT INTO items (id, list_id, parent_id, kind, title, body_md, due_date_only,"
+            " position, created_by, created_at, updated_at) VALUES ('deep12345678', :l, :p,"
+            " 'task', 'too deep', '', 0, 9, :a, '2026-01-01T00:00:00Z',"
+            " '2026-01-01T00:00:00Z')",
             {"l": todo["id"], "p": chain[4]["id"], "a": chain[0]["created_by"]},
         )
-    db.rollback()
     detail = client.get(f"{API}/items/{chain[1]['id']}", headers=alex).json()
     assert [s["id"] for s in detail["subtasks"]] == [chain[2]["id"]]
     assert detail["subtasks"][0]["subtask_count"] == 1

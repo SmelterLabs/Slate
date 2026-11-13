@@ -379,6 +379,7 @@ INFRASTRUCTURE = {
         "event_payload",
         "guard_flush",
         "guard_bulk",
+        "guard_cursor",
         "write_lock_stats",
         "in_change",
     },
@@ -501,15 +502,14 @@ def _doc_comment(db, actor, **kw):
 
 
 def _backfill(db, actor):
-    from sqlalchemy import text as sql
-
+    from conftest import raw_write
     from slate.models import DocFile
 
     doc = _doc(db, actor, kind="file", title="Old")
     rev = docs.add_revision(db, actor, doc.id, filename="a.txt", data=b"hello", note="first")
     # As a revision stored without its text: raw SQL, since the ORM guard refuses a bare write.
-    db.execute(sql("UPDATE doc_files SET text = NULL WHERE id = :id"), {"id": rev.id})
     db.commit()
+    raw_write("UPDATE doc_files SET text = NULL WHERE id = :id", {"id": rev.id})
     db.expire_all()
     assert db.get(DocFile, rev.id).text is None
     return doc_compare.backfill_text(db)
