@@ -411,7 +411,7 @@ def test_a_public_name_that_resolves_to_a_private_address_is_refused_at_send_tim
     from slate import automator
     from slate.service import webhooks
 
-    monkeypatch.setattr(webhooks, "lookup", lambda host: ["127.0.0.1"])
+    monkeypatch.setattr(webhooks, "_lookup", lambda host: ["127.0.0.1"])
     row = _one_attempt(db, monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("sent")))
     assert row.state == "failed" and "private address" in row.error  # final: no retry
     ok, detail = automator.send("https://rx.example.com/x", {"automation": {"id": "a"}}, "s")

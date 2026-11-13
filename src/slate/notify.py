@@ -20,7 +20,6 @@ records the outcome (`record_attempt`) which schedules any retry.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -29,11 +28,10 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
 
-from slate import __version__, crypto, outbound
+from slate import __version__, crypto, engine, outbound
 from slate import db as slate_db
 from slate.models import Delivery, utcnow
 from slate.service import deliveries, due, reminders
-from slate.service.bus import bus
 from slate.service.errors import Invalid
 from slate.settings import settings
 
@@ -141,37 +139,22 @@ class Dispatcher:
 
     # The loop.
 
+    async def step(self) -> None:
+        """Fan out, start attempts up to the free concurrency, prune when due."""
+        await asyncio.to_thread(self.fan_out_once)
+        free = settings.webhook_concurrency - len(self._inflight)
+        if free > 0:
+            for delivery_id in await asyncio.to_thread(self.claim, free):
+                task = asyncio.create_task(
+                    asyncio.to_thread(attempt, delivery_id, clock=self.clock)
+                )
+                self._inflight.add(task)
+                task.add_done_callback(self._done)
+        if self._prune_due():
+            await asyncio.to_thread(self.prune_once)
+
     async def run(self) -> None:
-        wake = asyncio.Event()
-        async with bus.subscribe() as sub:
-            await asyncio.to_thread(self.start)
-
-            async def doorbell() -> None:
-                async for _ in sub:
-                    wake.set()
-
-            bell = asyncio.create_task(doorbell())
-            try:
-                while True:
-                    try:
-                        await asyncio.to_thread(self.fan_out_once)
-                        free = settings.webhook_concurrency - len(self._inflight)
-                        if free > 0:
-                            for delivery_id in await asyncio.to_thread(self.claim, free):
-                                task = asyncio.create_task(
-                                    asyncio.to_thread(attempt, delivery_id, clock=self.clock)
-                                )
-                                self._inflight.add(task)
-                                task.add_done_callback(self._done)
-                        if self._prune_due():
-                            await asyncio.to_thread(self.prune_once)
-                    except Exception:
-                        log.exception("webhook dispatcher step failed; retrying next tick")
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(wake.wait(), self.poll_seconds)
-                    wake.clear()
-            finally:
-                bell.cancel()
+        await engine.run("webhooks", self.step, poll_seconds=self.poll_seconds, start=self.start)
 
     def _done(self, task: asyncio.Task) -> None:
         self._inflight.discard(task)

@@ -22,7 +22,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from slate.models import (
@@ -30,21 +31,19 @@ from slate.models import (
     AccountKind,
     ChannelRead,
     EmailDelivery,
-    EngineCursor,
     Event,
     InboxMark,
     InboxState,
     ItemRead,
     utcnow,
 )
-from slate.service import access, inbox, push
+from slate.service import access, cursors, inbox, push
 from slate.service.core import event_payload
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
 
 CURSOR = "email"
-PAGE = 500
 UNSEEN_DELAY = timedelta(minutes=5)
 DELIVERY_WINDOW = timedelta(days=1)
 MAX_ATTEMPTS = 4
@@ -72,17 +71,6 @@ def _recipients(session: Session) -> dict[str, Account]:
         for a in session.scalars(select(Account).where(Account.disabled_at.is_(None)))
         if a.kind == AccountKind.person and address(a) and reasons_for(a)
     }
-
-
-def _cursor(session: Session) -> EngineCursor:
-    row = session.get(EngineCursor, CURSOR)
-    if row is None:
-        row = EngineCursor(
-            name=CURSOR, event_id=session.scalar(select(func.max(Event.id))), updated_at=utcnow()
-        )
-        session.add(row)
-        session.commit()
-    return row
 
 
 def _reason(session: Session, ev: Event, account: Account, f: inbox.Follows) -> str | None:
@@ -122,49 +110,42 @@ def process(session: Session, send: Sender | None, now: datetime | None = None) 
     """Queue new events for the accounts that chose them, then send what is due."""
     session.expire_all()
     now = now or utcnow()
-    cursor = _cursor(session)
-    top = session.scalar(select(func.max(Event.id)))
     recipients = _recipients(session)
-    if recipients and top:
-        gates = {aid: access.EventGate(aid) for aid in recipients}
-        for gate in gates.values():
-            gate.load(session)
-        follows = {aid: inbox.follows(session, aid) for aid in recipients}
-        while True:
-            q = select(Event).where(Event.id <= top, Event.at >= now - DELIVERY_WINDOW)
-            if cursor.event_id:
-                q = q.where(Event.id > cursor.event_id)
-            page = list(session.scalars(q.order_by(Event.id).limit(PAGE)))
-            if not page:
-                break
-            for ev in page:
-                if ev.type == "item.watched" and ev.after_json in follows:
-                    follows[ev.after_json] = inbox.follows(session, ev.after_json)
-                if push._repeat_edit(session, ev):
-                    continue
-                for aid, account in recipients.items():
-                    if gates[aid].project(session, event_payload(ev)) is None:
-                        continue
-                    if _reason(session, ev, account, follows[aid]) is None:
-                        continue
-                    if session.get(EmailDelivery, (aid, ev.id)) is None:
-                        session.add(
-                            EmailDelivery(
-                                account_id=aid,
-                                event_id=ev.id,
-                                attempts=0,
-                                state="pending",
-                                send_after=max(ev.at, now - UNSEEN_DELAY) + UNSEEN_DELAY,
-                                expires_at=ev.at + DELIVERY_WINDOW,
-                            )
-                        )
-            cursor.event_id, cursor.updated_at = page[-1].id, now
-            session.commit()
-            if len(page) < PAGE:
-                break
-    if top and cursor.event_id != top:
-        cursor.event_id, cursor.updated_at = top, now
-        session.commit()
+    gates = {aid: access.EventGate(aid) for aid in recipients}
+    for gate in gates.values():
+        gate.load(session)
+    follows = {aid: inbox.follows(session, aid) for aid in recipients}
+
+    def handle(ev: Event) -> list[EmailDelivery]:
+        rows = []
+        for aid, account in recipients.items():
+            if gates[aid].project(session, event_payload(ev)) is None:
+                continue
+            if _reason(session, ev, account, follows[aid]) is None:
+                continue
+            if session.get(EmailDelivery, (aid, ev.id)) is None:
+                rows.append(
+                    EmailDelivery(
+                        account_id=aid,
+                        event_id=ev.id,
+                        attempts=0,
+                        state="pending",
+                        send_after=max(ev.at, now - UNSEEN_DELAY) + UNSEEN_DELAY,
+                        expires_at=ev.at + DELIVERY_WINDOW,
+                    )
+                )
+        return rows
+
+    cursors.follow(
+        session,
+        CURSOR,
+        now=now,
+        window=DELIVERY_WINDOW,
+        handle=handle,
+        follows=follows,
+        refresh=lambda aid: inbox.follows(session, aid),
+        active=bool(recipients),
+    )
     return _drain(session, send, now) if send is not None else 0
 
 
@@ -238,10 +219,18 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
         notes, sending = [], []
         for row in group:
             ev = session.get(Event, row.event_id)
-            reason = _reason(session, ev, account, f) if ev and f is not None else None
-            note = None
-            if reason and now < row.expires_at and not seen(session, account, ev):
-                note = _render(session, account, ev, reason)
+            try:
+                reason = _reason(session, ev, account, f) if ev and f is not None else None
+                note = None
+                if reason and now < row.expires_at and not seen(session, account, ev):
+                    note = _render(session, account, ev, reason)
+            except SQLAlchemyError:
+                raise  # the database, not this row: the engine retries the step
+            except Exception:
+                # A note that cannot be built never will be: fail this row, keep the others.
+                log.exception("email: event %s could not be rendered", row.event_id)
+                row.state, row.send_after = "failed", None
+                continue
             if note is None:
                 row.state, row.send_after = "dropped", None
                 continue

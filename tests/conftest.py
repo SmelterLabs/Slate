@@ -48,9 +48,9 @@ PUBLIC_TEST_ADDRESS = "93.184.215.14"
 
 @pytest.fixture(autouse=True)
 def no_dns(monkeypatch):
-    """Outbound senders resolve a target's name once (service.webhooks.lookup); tests never
+    """Outbound senders resolve a target's name once (service.webhooks._lookup); tests never
     ask a real resolver. An IP literal resolves to itself; a test that needs another answer
-    patches `webhooks.lookup` itself."""
+    patches `webhooks._lookup` itself."""
     import ipaddress
 
     from slate.service import webhooks
@@ -61,7 +61,7 @@ def no_dns(monkeypatch):
         except ValueError:
             return [PUBLIC_TEST_ADDRESS]
 
-    monkeypatch.setattr(webhooks, "lookup", lookup)
+    monkeypatch.setattr(webhooks, "_lookup", lookup)
 
 
 @pytest.fixture

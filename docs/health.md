@@ -30,10 +30,16 @@ auth) is `summary()`: status and per-check status, no details, HTTP 503 when the
   the stream gate hides them from guests and limited tokens; `item_cache` treats `health.` as not
   touching items.
 - **Engines.** `app.lifespan` registers each asyncio task with `monitor.track` (scheduler, webhooks,
-  automations, push); a done task shows as stopped with its exception. Webhooks off for want of
-  `SLATE_SECRET_KEY` is a warning; off by setting is just off.
+  automations, push, email); a done task shows as stopped with its exception. Webhooks off for want
+  of `SLATE_SECRET_KEY` is a warning; off by setting is just off. The four event-log engines run one
+  loop (`slate/engine.py`), which reports every step to `monitor.engines`: a running engine whose
+  last step failed is a warning, and one that failed `SLATE_HEALTH_ALERT_AFTER` steps in a row is
+  failing and records `health.alert` with check `engine:<name>` (then `health.recovered`), like a
+  poller. One event or one delivery that cannot be handled is skipped or marked failed inside the
+  step and logged, so it never stops the engine.
 - **From the database:** failed/partial `automation_runs` in the last day, webhook deliveries
-  pending and failed today, engine lag (events after each `engine_cursors` row, counted up to
+  pending and failed today, push and email deliveries pending (`push_pending`, `email_pending`;
+  200 or more is a warning, like webhooks), engine lag (events after each `engine_cursors` row, counted up to
   10,000), database + WAL size, free disk (warn under 1 GB, fail under 200 MB).
 - **Latency**: `fastlane.stats.overall()` merges the kept samples of every route (the same
   1,000-per-route samples `/stats` uses).

@@ -1,6 +1,6 @@
 """What the Health page watches, counted in memory: agent calls, background pollers, engines.
 
-Three process-local recorders, all reset when the process restarts (Slate is one process, and
+Four process-local recorders, all reset when the process restarts (Slate is one process, and
 a restart is itself a health event: the first scheduler tick runs at once):
 
 - `calls`: every authenticated REST request (`slate.fastlane.Timing`, from the token that
@@ -15,8 +15,11 @@ a restart is itself a health event: the first scheduler tick runs at once):
   `finish()` says when the failure streak reaches `settings.health_alert_after`, and when a
   poller that alerted works again, so the scheduler can record `health.alert` /
   `health.recovered` (service/health.py).
+- `engines`: the same record per event-log engine step (`slate.engine.run` reports each step
+  of the automations, push, email and webhook engines), so an engine whose every step fails is
+  visible and alerts like a poller.
 - `tasks`: the long-running asyncio engines started by `slate.app.lifespan` (scheduler,
-  webhook dispatcher, automations, push), so a crashed engine is visible.
+  webhook dispatcher, automations, push, email), so a crashed engine is visible.
 
 Nothing here touches the database; service/health.py turns it into the report.
 """
@@ -257,6 +260,7 @@ class Pollers:
 
 
 pollers = Pollers()
+engines = Pollers()
 
 
 def outcome(result: Any) -> tuple[bool, str | None]:

@@ -114,7 +114,7 @@ class LookupFailed(OSError):
     """The target's name did not resolve: a network error, retried like one."""
 
 
-def lookup(host: str) -> list[str]:
+def _lookup(host: str) -> list[str]:
     """Every address `host` resolves to, in the resolver's order (an IP literal is itself)."""
     infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     return list(dict.fromkeys(str(info[4][0]) for info in infos))
@@ -132,7 +132,7 @@ def check_target(url: str) -> list[str]:
     if not settings.webhook_private_targets and _private_host(host):
         raise Invalid(_PRIVATE_REFUSED)
     try:
-        addresses = lookup(host)
+        addresses = _lookup(host)
     except (OSError, UnicodeError) as exc:  # UnicodeError: a name IDNA cannot encode
         raise LookupFailed(f"could not resolve {host}: {exc}") from None
     if not addresses:

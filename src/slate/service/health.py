@@ -7,20 +7,23 @@
   details are `summary()`, served unauthenticated at `GET /health` for agents and uptime checks.
 - `pollers`: each scheduler hook (slate.monitor.pollers): last run, last success, the error,
   failures in a row, and whether a run is stuck (`STUCK_AFTER`) or overdue.
-- `engines`: the asyncio engines (scheduler, webhooks, automations, push).
+- `engines`: the asyncio engines (scheduler, webhooks, automations, push, email): whether each
+  runs, and for the event-log engines whether their steps fail (slate.monitor.engines).
 - `agents`: calls per token over the last hour: errors, error rate, slow calls, average and
   worst time; `recent_errors` and `slow_calls` are examples.
 - `latency`: request percentiles over the kept samples of every route (slate.fastlane), and
   the slowest routes by p95.
 - `automations`: failed and partial runs in the last day (the run log).
-- `queues`: webhook deliveries waiting or failed, how far each event-log engine is behind.
+- `queues`: webhook, push and email deliveries waiting, webhook deliveries failed, and how far
+  each event-log engine is behind.
 - `db`: the database and WAL size, free disk, row counts.
 
 Counters live in memory (slate.monitor) and start over on restart; the run log, deliveries and
 engine cursors are read from the database. No new tables.
 
 Alerts: when a poller fails `settings.health_alert_after` runs in a row the scheduler calls
-`record_change()`, which records one `health.alert` event (actor `slate`, source `system`);
+`record_change()` (for an engine whose steps fail, `slate.engine` does, check
+`engine:<name>`), which records one `health.alert` event (actor `slate`, source `system`);
 when it works again, one `health.recovered`. Owners and admins get both in their inbox
 (service/inbox.py) and as a push notification.
 """
@@ -44,10 +47,12 @@ from slate.models import (
     AutomationRun,
     Delivery,
     DocFile,
+    EmailDelivery,
     EngineCursor,
     Event,
     Item,
     MessageFile,
+    PushDelivery,
     Role,
     Token,
     utcnow,
@@ -176,11 +181,18 @@ def _pollers(session: Session, now: datetime, uptime: float) -> list[dict[str, A
 
 def _engines() -> list[dict[str, Any]]:
     states = monitor.task_states()
+    steps = monitor.engines.snapshot()
     out = []
     for key, label in ENGINES.items():
         st = states.get(key)
+        failing = (steps.get(key) or {}).get("consecutive_failures", 0)
+        error = (steps.get(key) or {}).get("last_error")
         if st is None:
             status, detail = "off", "Not started in this process"
+        elif st["state"] == "running" and failing >= max(1, settings.health_alert_after):
+            status, detail = "fail", f"Failed {failing} steps in a row: {error}"
+        elif st["state"] == "running" and failing:
+            status, detail = "warn", f"Last step failed: {error}"
         elif st["state"] == "running":
             status, detail = "ok", "Running"
         elif st["state"] == "off":
@@ -327,9 +339,17 @@ def _queues(session: Session, now: datetime) -> dict[str, Any]:
         )
         or 0
     )
+    waiting = {
+        name: session.scalar(
+            select(func.count()).select_from(model).where(model.state == "pending")
+        )
+        or 0
+        for name, model in (("push_pending", PushDelivery), ("email_pending", EmailDelivery))
+    }
     return {
         "webhooks_pending": pending,
         "webhooks_failed_24h": failed,
+        **waiting,
         "engine_lag": {name: _lag(session, cur) for name, cur in CURSORS.items()},
     }
 
@@ -462,6 +482,9 @@ def _checks(r: dict[str, Any], uptime: float) -> list[dict[str, Any]]:
     bits = []
     if q["webhooks_pending"] >= WEBHOOKS_PENDING_WARN:
         bits.append(f"{q['webhooks_pending']} webhook deliveries waiting")
+    for key, what in (("push_pending", "push notifications"), ("email_pending", "emails")):
+        if q[key] >= WEBHOOKS_PENDING_WARN:
+            bits.append(f"{q[key]} {what} waiting")
     if q["webhooks_failed_24h"]:
         bits.append(f"{q['webhooks_failed_24h']} webhook deliveries failed today")
     bits += [f"{ENGINES.get(k, k)} {v} events behind" for k, v in behind.items()]
@@ -523,15 +546,26 @@ def summary(session: Session) -> dict[str, Any]:
 
 
 def record_change(
-    session: Session, key: str, change: str, error: str | None, now: datetime
+    session: Session,
+    key: str,
+    change: str,
+    error: str | None,
+    now: datetime,
+    *,
+    kind: str = "poller",
 ) -> None:
-    """One `health.alert` (a poller failed `alert_after` runs in a row) or `health.recovered`."""
+    """One `health.alert` (a poller, or an engine's steps with `kind="engine"`, failed
+    `alert_after` times in a row) or `health.recovered`."""
     from slate.service.due import system_actor
 
-    state = monitor.pollers.snapshot().get(key, {})
-    label = POLLERS.get(key, (key, None))[0]
+    if kind == "engine":
+        state = monitor.engines.snapshot().get(key, {})
+        label = ENGINES.get(key, key)
+    else:
+        state = monitor.pollers.snapshot().get(key, {})
+        label = POLLERS.get(key, (key, None))[0]
     after = {
-        "check": f"poller:{key}",
+        "check": f"{kind}:{key}",
         "label": label,
         "failures": state.get("consecutive_failures", 0),
         "error": (error or state.get("last_error") or None),

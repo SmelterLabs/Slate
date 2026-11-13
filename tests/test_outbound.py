@@ -24,7 +24,7 @@ from slate.service.core import Actor
 from slate.service.errors import Invalid
 from slate.settings import settings
 
-REAL_LOOKUP = getattr(webhooks, "lookup", None)
+REAL_LOOKUP = getattr(webhooks, "_lookup", None)
 REAL_GETADDRINFO = socket.getaddrinfo
 REAL_CREATE_CONNECTION = socket.create_connection
 PUBLIC = "93.184.215.14"
@@ -133,7 +133,7 @@ class Net:
 def net(monkeypatch) -> Net:
     fake = Net()
     if REAL_LOOKUP is not None:
-        monkeypatch.setattr(webhooks, "lookup", REAL_LOOKUP)
+        monkeypatch.setattr(webhooks, "_lookup", REAL_LOOKUP)
     monkeypatch.setattr(socket, "getaddrinfo", fake.getaddrinfo)
     monkeypatch.setattr(socket, "create_connection", fake.create_connection)
     return fake

@@ -1,4 +1,4 @@
-"""The automations engine loop: one asyncio task, woken by the event bus.
+"""The automations engine: one asyncio task running `slate.engine.run`, woken by the event bus.
 
 Each step runs `service.automations.process()` in a worker thread: it reads every event after
 its stored cursor, runs the rules they fire and moves the cursor, so a restart resumes where it
@@ -12,17 +12,15 @@ The `webhook` action's signed HTTP POST happens here (`send`), outside any write
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 from typing import Any
 
 import httpx
 
-from slate import __version__, outbound
+from slate import __version__, engine, outbound
 from slate import db as slate_db
 from slate.service import automations
-from slate.service.bus import bus
 
 log = logging.getLogger(__name__)
 
@@ -56,28 +54,13 @@ def step() -> int:
         return automations.process(session, send=send)
 
 
+def _start() -> None:
+    with slate_db.SessionLocal() as session:
+        automations.start(session)
+
+
 async def run(poll_seconds: float = 5.0) -> None:
-    wake = asyncio.Event()
-    async with bus.subscribe() as sub:
-        with slate_db.SessionLocal() as session:
-            await asyncio.to_thread(automations.start, session)
-
-        async def doorbell() -> None:
-            async for _ in sub:
-                wake.set()
-
-        bell = asyncio.create_task(doorbell())
-        try:
-            while True:
-                wake.clear()
-                try:
-                    await asyncio.to_thread(step)
-                except Exception:
-                    log.exception("automations step failed; retrying")
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(wake.wait(), poll_seconds)
-        finally:
-            bell.cancel()
+    await engine.run("automations", step, poll_seconds=poll_seconds, start=_start)
 
 
 def start() -> asyncio.Task:

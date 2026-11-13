@@ -17,7 +17,10 @@ ClickUp-style "when this happens, if these hold, do that" rules.
 - **Engine**: `automations.process(session, send=)` reads every event after the `engine_cursors` row
   `automations` (first start = newest event, so history is never replayed), runs the rules each one
   fires, and moves the cursor past every event, committing right after each run and once per page
-  otherwise, so a restart never runs a rule twice.
+  otherwise. A rule that already has a run logged for an event is not run for it again, so a
+  restart between a run and the cursor's commit repeats nothing; a crash in the middle of a rule's
+  actions, before its run is logged, can run that rule once more after the restart (each action
+  is its own change). An event that cannot be handled at all is logged and skipped.
   `slate/automator.py` runs it in a worker thread, woken by the bus (a change usually reaches its
   rule in well under a second) with a 5 s poll as a backstop. It runs when
   `SLATE_AUTOMATIONS_ENABLED` (default on; off in pytest; on in the board e2e, which keeps the
