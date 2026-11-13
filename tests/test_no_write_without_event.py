@@ -397,6 +397,9 @@ INFRASTRUCTURE = {
     # Called inside a share change or an invitation cancel (it takes the `cx`); each link it
     # retires records its own `invitation.revoked` (tests/test_invitation_links.py).
     "slate.service.permissions": {"retire_links"},
+    # A pure check on a status or tag colour, called by those write paths before their change:
+    # it touches no row, so it records nothing itself.
+    "slate.service.colors": {"clean_color"},
     "slate.service.core": {
         "apply_change",
         "jsonable",
