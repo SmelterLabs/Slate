@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
+from sqlalchemy import text
 
 from slate.models import View
 
@@ -259,3 +262,79 @@ def test_bulk_status_kind_across_lists_in_one_transaction(client, alex, todo, db
         headers=alex,
     )
     assert bad.status_code == 422
+
+
+# --- layouts: only board and list ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("layout", ["table", "calendar", "timeline", "box"])
+def test_a_removed_layout_is_refused_on_write(client, alex, todo, layout):
+    old = {"name": "Old", "scope_kind": "list", "scope_id": todo["id"]}
+    old["config"] = {"layout": layout}
+    made = client.post(f"{API}/views", json=old, headers=alex)
+    assert made.status_code == 422
+    assert "board" in made.text and "list" in made.text and layout in made.text
+
+    view = client.post(
+        f"{API}/views",
+        json={"name": "Kept", "scope_kind": "list", "scope_id": todo["id"], "config": BOARD},
+        headers=alex,
+    ).json()
+    patched = client.patch(
+        f"{API}/views/{view['id']}", json={"config": {**BOARD, "layout": layout}}, headers=alex
+    )
+    assert patched.status_code == 422
+    kept = client.get(f"{API}/views/{view['id']}", headers=alex).json()
+    assert kept["config"]["layout"] == "board"
+
+
+def test_a_stored_removed_layout_reads_as_list(client, alex, todo, db):
+    view = client.post(
+        f"{API}/views",
+        json={"name": "Plan", "scope_kind": "list", "scope_id": todo["id"], "config": BOARD},
+        headers=alex,
+    ).json()
+    # A view saved while the timeline layout existed still holds it, with its settings.
+    stored = {
+        **db.get(View, view["id"]).config_json,
+        "layout": "timeline",
+        "calendar_span": "week",
+        "timeline_zoom": "month",
+    }
+    db.execute(
+        text("UPDATE views SET config_json = :c WHERE id = :id"),
+        {"c": json.dumps(stored), "id": view["id"]},
+    )
+    db.commit()
+    db.expire_all()
+
+    for got in (
+        client.get(f"{API}/views/{view['id']}", headers=alex).json(),
+        next(v for v in client.get(f"{API}/views", headers=alex).json() if v["id"] == view["id"]),
+    ):
+        assert got["config"]["layout"] == "list"
+        assert "calendar_span" not in got["config"] and "timeline_zoom" not in got["config"]
+        assert got["config"]["group_by"] == "due"
+
+    # What the read returns saves back as it is.
+    config = client.get(f"{API}/views/{view['id']}", headers=alex).json()["config"]
+    saved = client.patch(f"{API}/views/{view['id']}", json={"config": config}, headers=alex)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["config"]["layout"] == "list"
+
+
+def test_old_layout_settings_are_accepted_and_dropped(client, alex, todo):
+    # A board page opened before an upgrade still sends these two keys with every save.
+    made = client.post(
+        f"{API}/views",
+        json={
+            "name": "Old tab",
+            "scope_kind": "list",
+            "scope_id": todo["id"],
+            "config": {**BOARD, "calendar_span": "week", "timeline_zoom": "day"},
+        },
+        headers=alex,
+    )
+    assert made.status_code == 201, made.text
+    assert "calendar_span" not in made.json()["config"]
+    assert "timeline_zoom" not in made.json()["config"]
