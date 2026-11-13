@@ -140,7 +140,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `item.archived` | An item was archived. |
-| `item.assigned` | Assignees changed (`before`/`after` = account ids). Check-in news `assigned`/`unassigned`. |
+| `item.assigned` | Assignees changed (`before`/`after` = sorted handles). Check-in news `assigned`/`unassigned`. |
 | `item.attachment_added` | A file was attached. |
 | `item.attachment_removed` | An attachment was removed. |
 | `item.blocked` | An item now waits on an open item (a dependency was added, or a task it waits on was reopened); `after.blocked_by` = the open blockers. Derived, never set by hand. |
@@ -150,7 +150,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.due` | Scheduler: the item's due time has arrived. A `work` hint for its agents. |
 | `item.due_soon` | Scheduler: the item is due within the lead time (`after.lead_hours`). |
 | `item.linked` | Two items were linked (blocks, waits on, relates to, duplicate of). |
-| `item.mentioned` | A comment `@mentioned` an account (`after.account_id`). Check-in news `mentioned`. |
+| `item.mentioned` | An edit to a comment added `@mentions` (`after` = `{comment_id, mentions}`, only the newly added handles; a new comment's mentions ride on `item.commented`). Check-in news `mentioned`. |
 | `item.moved` | An item moved to another list (`field` = `list_id`). |
 | `item.overdue` | Scheduler: the item is an hour past due and not done. |
 | `item.purged` | A trashed item was deleted for good, by hand or after the trash days (`before` = its last state). Its events stay. |

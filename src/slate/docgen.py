@@ -91,7 +91,7 @@ EVENT_DOCS: dict[str, str] = {
     "item.updated": "One item field changed (`field` = title, priority, due_at, tags, "
     "waiting_on, body...; `before`/`after`).",
     "item.status_changed": "An item moved to another status (`before`/`after` = status ids).",
-    "item.assigned": "Assignees changed (`before`/`after` = account ids). Check-in news "
+    "item.assigned": "Assignees changed (`before`/`after` = sorted handles). Check-in news "
     "`assigned`/`unassigned`.",
     "item.moved": "An item moved to another list (`field` = `list_id`).",
     "item.split": "Subtasks were made from an item (`after` = the new ids).",
@@ -106,8 +106,9 @@ EVENT_DOCS: dict[str, str] = {
     "item.commented": "A comment was posted (`after` = the comment, mentions, reply_to). "
     "reply_to contains earlier discussion participants' account ids, excluding the author "
     "and an Ask's target (who gets comment.assigned instead). A reply never resolves an Ask.",
-    "item.mentioned": "A comment `@mentioned` an account (`after.account_id`). Check-in news "
-    "`mentioned`.",
+    "item.mentioned": "An edit to a comment added `@mentions` (`after` = `{comment_id, "
+    "mentions}`, only the newly added handles; a new comment's mentions ride on "
+    "`item.commented`). Check-in news `mentioned`.",
     "item.reported": "An agent reported on an item: working, blocked, review, done or idle "
     "(`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
