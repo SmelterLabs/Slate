@@ -143,7 +143,10 @@ branch.
   on stdin (below). `queued: true` on the hint means a turn is already running there for this
   agent and the new mention joins it: no second run. Only mentions by people wake an agent (an
   agent mentioning an agent does not), only agents with wake mode `push`, and only where the
-  agent may post. See "A chat turn" below.
+  agent may post. See "A chat turn" below. A turn whose lease ran out (the runner lost it)
+  waits for this runner's reconcile; a person's new mention there, or their Clear
+  (`message.agent_turn` released and reconciled, with `pending`), hints the waiting mention
+  again as a fresh turn. Page mentions (`doc_id`) work the same way.
 - **A message in the agent's own chat** (`agent:<agent id>`): a person talking to the agent
   outside any card. For a workspace agent (non-guest role), every message a person posts there
   mentions the agent without typing `@handle`. A guest-role project agent is tagged-only:

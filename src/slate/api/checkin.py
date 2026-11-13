@@ -178,6 +178,33 @@ def _judge(
             news = {**payload, "why": reason, "item_title": item.title if item else None}
             out.append(_message("news", news))
         after = payload.get("after") if isinstance(payload.get("after"), dict) else {}
+        # A person's Clear of the agent's expired chat or doc turn, with a mention that waited
+        # in it: that mention is a turn to take now, and nothing else would tell the runner.
+        cleared = (
+            not own
+            and payload["type"] in (work.CHAT_TURN_TYPE, work.DOC_TURN_TYPE)
+            and after.get("agent") == me.id
+            and after.get("reconciled") is True
+            and after.get("pending") is True
+        )
+        if cleared:
+            place = (
+                {"channel": after.get("channel"), "message_id": after.get("message_id")}
+                if payload["type"] == work.CHAT_TURN_TYPE
+                else {"doc_id": after.get("doc_id"), "comment_id": after.get("comment_id")}
+            )
+            out.append(
+                _message(
+                    "work",
+                    {
+                        "id": payload["id"],
+                        "type": payload["type"],
+                        **place,
+                        "thread_id": after.get("thread_id"),
+                        "queued": False,
+                    },
+                )
+            )
         if payload["type"] == work.CHAT_WAKE_TYPE and (
             me.id in (after.get("for") or []) or me.id in (after.get("queued") or [])
         ):

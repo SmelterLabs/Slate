@@ -1176,6 +1176,9 @@ WAKE_TYPES = frozenset({"item.run_requested", "item.due", "comment.assigned"})
 CHAT_WAKE_TYPE = "message.mentioned_agent"
 # A doc mention of the agent (service/docwake.py): a `work` hint with doc_id and thread_id.
 DOC_WAKE_TYPE = "doc.mentioned_agent"
+# The end of a chat or doc turn: a person's Clear that leaves a mention waiting is a hint too.
+CHAT_TURN_TYPE = "message.agent_turn"
+DOC_TURN_TYPE = "doc.agent_turn"
 
 
 def may_free_work(event_type: str) -> bool:

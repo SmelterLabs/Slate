@@ -13,10 +13,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import httpx
+
 from conftest import API
 from run_proofs import remember
 from slate.models import ChatWake, DocWake, utcnow
 from slate.service import chatwake, docwake
+from test_api_events import live  # noqa: F401 (a fixture)
 from test_chat_wake import _agent, _events, _post
 
 
@@ -312,3 +315,48 @@ async def test_a_person_clears_expired_turns_through_mcp(client, alex, todo, db)
             await call(mcp, "slate_work", "doc_clear", doc_id=page["id"], agent_id=agent["id"])
         )
         assert got == {"cleared": True, "pending": False}
+
+
+# --- the agent's stream -----------------------------------------------------------------------
+
+
+async def test_a_clear_that_leaves_a_mention_waiting_wakes_the_runner(live):  # noqa: F811
+    """The mention that waited in a dead turn reaches the runner as a `work` hint when a person
+    clears the turn: nothing else would tell it."""
+    from contextlib import AsyncExitStack
+
+    from test_agent_stream import _agent as _stream_agent
+    from test_agent_stream import _setup
+    from test_api_events import _bearer, _open
+
+    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+        todo = await _setup(client, live.admin_token)
+        agent, tok = await _stream_agent(client, live.admin_token, "agent")
+        admin = _bearer(live.admin_token)
+        key = f"list:{todo['id']}"
+        url = f"{API}/channels/{key}/messages"
+        await client.post(url, json={"body_md": "@agent first"}, headers=admin)
+        r = await client.post(
+            f"{API}/work/next", json={"channel": key, "lease_seconds": 60}, headers=_bearer(tok)
+        )
+        assert r.json()["chat"] is not None
+        late = (await client.post(url, json={"body_md": "@agent second"}, headers=admin)).json()
+        with live.Session() as s:
+            assert chatwake.expire(s, utcnow() + timedelta(hours=1)) == 1
+
+        stream = await _open(client, stack, f"{API}/checkin/stream", headers=_bearer(tok))
+        await stream.ready()
+        r = await client.post(
+            f"{API}/work/chat/clear", json={"channel": key, "agent_id": agent["id"]}, headers=admin
+        )
+        assert r.status_code == 200 and r.json()["pending"] is True
+        hint = None
+        for _ in range(4):
+            msg = await stream.event(timeout=1)
+            if msg.event == "work":
+                hint = msg
+                break
+        assert hint is not None
+        assert hint.data == {**hint.data, "channel": key, "thread_id": None, "queued": False}
+        r = await client.post(f"{API}/work/next", json={"channel": key}, headers=_bearer(tok))
+        assert r.json()["chat"]["message_id"] == late["id"]
