@@ -2339,6 +2339,7 @@ export const EVENT_TYPES = [
   'doc.version_restored',
   'doc.file_added',
   'doc.file_removed',
+  'doc.links_updated',
   'doc.revision_added',
   'doc.commented',
   'doc.comment_edited',
