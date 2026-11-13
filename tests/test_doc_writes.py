@@ -570,6 +570,42 @@ def test_every_upload_route_cleans_name_and_type_the_same_way(client, alex, todo
         assert "a_b_c.png" in r.headers["content-disposition"], kind
 
 
+# --- search -----------------------------------------------------------------------------------
+
+
+def test_search_matches_the_current_revision_only_and_always_quotes_it(client, alex):
+    d = _file_doc(client, alex, "Quote", b"item,price\nwalnut,9\n", filename="old.csv")
+    r = client.post(
+        f"{API}/docs/{d['id']}/revisions",
+        params={"filename": "new.csv", "note": "second"},
+        content=b"item,price\nmaple,7\n",
+        headers={**alex, "Content-Type": "text/csv"},
+    )
+    assert r.status_code == 201, r.text
+
+    def hits(q):
+        return client.get(f"{API}/docs", params={"q": q}, headers=alex).json()
+
+    assert hits("walnut") == [] and hits("old.csv") == []
+    [hit] = hits("maple")
+    assert hit["id"] == d["id"] and "maple" in hit["snippet"]
+    assert [h["id"] for h in hits("new.csv")] == [d["id"]]
+
+
+def test_search_treats_percent_and_underscore_as_plain_characters(client, alex, todo):
+    plain = _doc(client, alex, title="Budget", list_id=todo["id"], body_md="spend 50 now")
+    pct = _doc(client, alex, title="Rates", list_id=todo["id"], body_md="rate is 50% today")
+    under = _doc(client, alex, title="snake_case", list_id=todo["id"])
+
+    def ids(q):
+        return {h["id"] for h in client.get(f"{API}/docs", params={"q": q}, headers=alex).json()}
+
+    assert ids("50%") == {pct["id"]}
+    assert ids("e_c") == {under["id"]}
+    assert ids("%") == {pct["id"]}
+    assert plain["id"] in ids("50")
+
+
 # --- revisions --------------------------------------------------------------------------------
 
 

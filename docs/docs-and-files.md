@@ -26,7 +26,8 @@ list. The same tree also holds **file docs**.
   the file before the write lock and picks the number under it, so two uploads at once get
   consecutive numbers. `duplicate_doc` reads only the docs it copies and copies each current
   revision (bytes, text and tables, never re-extracted) as the copy's revision 1. `GET /docs?q=` also matches a current revision's
-  filename. Summaries carry `kind` and `file` (the current revision); `GET /docs/{id}` adds
+  filename and text, and only the current revision's (older ones are history, not hits); `%` and `_`
+  in `q` are plain characters (`search.like_pattern`). Summaries carry `kind` and `file` (the current revision); `GET /docs/{id}` adds
   `revisions`, newest first. REST: `POST /docs {kind: "file"}`, `GET|POST /docs/{id}/revisions` (raw
   body with `?filename=&note=`), `POST /docs/{id}/revisions/base64`, `POST
   /docs/{id}/revisions/{n}/restore`, `POST /attachments/{id}/promote`. MCP `slate_doc`

@@ -39,7 +39,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, load_only, undefer
 
 from slate.ids import new_id
@@ -280,22 +280,34 @@ def list_docs(
     if q or embeds:
         stmt = select(Doc.id)
         if q:
-            like = f"%{q.lower()}%"
+            from slate.service.search import like_pattern  # search imports this module
+
+            like = like_pattern(q)  # the caller's % and _ are plain characters
+            # A file matches on its current revision's name and text, the ones a hit quotes.
+            newest = (
+                select(DocFile.doc_id, func.max(DocFile.revision_no).label("no"))
+                .where(DocFile.revision_no.is_not(None))
+                .group_by(DocFile.doc_id)
+                .subquery()
+            )
             named = (
                 select(DocFile.doc_id)
+                .join(
+                    newest,
+                    and_(DocFile.doc_id == newest.c.doc_id, DocFile.revision_no == newest.c.no),
+                )
                 .where(
-                    DocFile.revision_no.is_not(None),
                     or_(
-                        func.lower(DocFile.filename).like(like),
-                        func.lower(DocFile.text).like(like),
+                        func.lower(DocFile.filename).like(like, escape="\\"),
+                        func.lower(DocFile.text).like(like, escape="\\"),
                     ),
                 )
                 .scalar_subquery()
             )
             stmt = stmt.where(
                 or_(
-                    func.lower(Doc.title).like(like),
-                    func.lower(Doc.body_md).like(like),
+                    func.lower(Doc.title).like(like, escape="\\"),
+                    func.lower(Doc.body_md).like(like, escape="\\"),
                     Doc.id.in_(named),
                 )
             )
