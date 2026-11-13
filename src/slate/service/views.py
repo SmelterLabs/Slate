@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from slate.models import ScopeKind, View, utcnow
 from slate.service.core import Actor, apply_change
-from slate.service.errors import Invalid, NotFound
+from slate.service.errors import Forbidden, Invalid, NotFound
 
 MAX_FILTER_DEPTH = 3
 
@@ -348,11 +348,26 @@ def create_view(
     return view
 
 
+def _require_may_change(session: Session, actor: Actor, view: View) -> None:
+    """A saved view is changed or archived by its owner or an admin; Slate's own landing
+    views, which everyone shares, by an admin only."""
+    from slate.service import access
+
+    seed = view.id in {spec["id"] for spec in SEED_VIEWS}
+    if not seed and view.owner_id == actor.account_id:
+        return
+    if not access.is_admin(session, actor.account_id):
+        if seed:
+            raise Forbidden("only an owner or admin can change Slate's landing views")
+        raise Forbidden("only the view's owner or an admin can change it")
+
+
 def update_view(session: Session, actor: Actor, view_id: str, changes: dict[str, Any]) -> View:
     unknown = set(changes) - {"name", "config", "position", "shared"}
     if unknown:
         raise Invalid(f"unknown field(s): {', '.join(sorted(unknown))}")
     view = get_view(session, view_id)
+    _require_may_change(session, actor, view)
     config = None
     if "config" in changes:
         config = validate_config(changes["config"], scope_kind=view.scope_kind.value)
@@ -376,6 +391,7 @@ def update_view(session: Session, actor: Actor, view_id: str, changes: dict[str,
 
 def set_archived(session: Session, actor: Actor, view_id: str, *, archived: bool) -> View:
     view = get_view(session, view_id)
+    _require_may_change(session, actor, view)
     with apply_change(session, actor) as cx:
         if archived and view.archived_at is None:
             cx.set(view, "archived_at", utcnow(), "view.archived")

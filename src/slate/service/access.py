@@ -407,6 +407,13 @@ def _owner_tables() -> list[Any]:
     return [Token.__table__, Webhook.__table__, Favorite.__table__, PushSubscription.__table__]
 
 
+def _view_events(c: Any, me: str) -> Any:
+    """SQL: the event is not about a saved view someone else keeps unshared."""
+    t = View.__table__
+    hidden = select(t.c.id).where(t.c.shared.is_(False), t.c.owner_id != me)
+    return or_(~c.type.startswith("view."), c.subject_id.not_in(hidden))
+
+
 def _owned(c: Any, me: str) -> Any:
     """SQL: the event is not personal, or it is `me`'s (subject, payload or owning row)."""
     personal = or_(c.type.in_(PERSONAL_TYPES), *(c.type.startswith(p) for p in PERSONAL_PREFIXES))
@@ -499,13 +506,22 @@ def _chat_visible(
 
 
 def read_criteria(state: ORMExecuteState) -> None:
-    # Personal events are private even for members with unrestricted project access.
+    # Personal events are private even for members with unrestricted project access, and a
+    # saved view that is not shared (and its history) is its owner's alone, admins included.
     bound: Access | None = state.session.info.get(CALLER_KEY)
-    if state.is_select and bound is not None and not bound.is_admin:
+    if state.is_select and bound is not None:
         owner = bound.account_id
-        state.statement = state.statement.options(
-            with_loader_criteria(Event, lambda c: _owned(c, owner), include_aliases=True)
-        )
+        opts = [
+            with_loader_criteria(
+                View, lambda c: or_(c.shared.is_(True), c.owner_id == owner), include_aliases=True
+            ),
+            with_loader_criteria(Event, lambda c: _view_events(c, owner), include_aliases=True),
+        ]
+        if not bound.is_admin:
+            opts.append(
+                with_loader_criteria(Event, lambda c: _owned(c, owner), include_aliases=True)
+            )
+        state.statement = state.statement.options(*opts)
     access: Access | None = state.session.info.get(ACCESS_KEY)
     if access is None or access.lists is None or not state.is_select:
         return
@@ -1275,8 +1291,11 @@ class EventGate:
     def _allows_outer(self, session: Session, payload: dict[str, Any]) -> bool:
         if self.denied:
             return False
-        if is_personal(str(payload.get("type", ""))) and not self._admin:
+        type_ = str(payload.get("type", ""))
+        if is_personal(type_) and not self._admin:
             return self._owns(session, payload)
+        if type_.startswith("view.") and not self._sees_view(session, payload.get("subject_id")):
+            return False
         a = self.access
         if a is None or a.lists is None:
             return True
@@ -1343,6 +1362,14 @@ class EventGate:
         if type_.startswith("account."):
             return a.general
         return False
+
+    def _sees_view(self, session: Session, view_id: Any) -> bool:
+        """A saved view that is not shared is its owner's alone."""
+        if not view_id:
+            return True
+        t = View.__table__
+        row = session.execute(select(t.c.shared, t.c.owner_id).where(t.c.id == view_id)).first()
+        return row is None or bool(row.shared) or row.owner_id == self.account_id
 
     def _owns(self, session: Session, payload: dict[str, Any]) -> bool:
         """A personal event is this caller's: about its account, or its token, device, hook."""
