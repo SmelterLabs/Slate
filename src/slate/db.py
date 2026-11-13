@@ -13,6 +13,7 @@ big read never holds up a small one for more than a chunk.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 import weakref
@@ -44,6 +45,13 @@ class SerialCursor(sqlite3.Cursor):
     _pos = 0
 
     def execute(self, sql, parameters=(), /):  # noqa: ANN001, ANN201
+        turn = getattr(self.connection, "turn", None)
+        if turn is None:
+            return self._execute(sql, parameters)
+        with turn:
+            return self._execute(sql, parameters)
+
+    def _execute(self, sql, parameters):  # noqa: ANN001, ANN202
         # The statement runs (up to its first row) without the lock: a long aggregate or sort
         # steps once, without the GIL, and must not hold up anyone else. Only the row-by-row
         # fetch, where the convoy happens, takes turns.
@@ -60,9 +68,16 @@ class SerialCursor(sqlite3.Cursor):
         return self
 
     def executemany(self, sql, seq_of_parameters, /):  # noqa: ANN001, ANN201
-        super().executemany(sql, seq_of_parameters)
+        turn = getattr(self.connection, "turn", None)
+        with turn if turn is not None else contextlib.nullcontext():
+            super().executemany(sql, seq_of_parameters)
         self._rows, self._pos = [], 0
         return self
+
+    def close(self) -> None:
+        turn = getattr(self.connection, "turn", None)
+        with turn if turn is not None else contextlib.nullcontext():
+            super().close()
 
     def fetchone(self):  # noqa: ANN201
         if self._rows is None:
@@ -101,6 +116,34 @@ class SerialConnection(sqlite3.Connection):
         return super().cursor(factory)
 
 
+class SharedConnection(SerialConnection):
+    """The in-memory database's one connection, which every session and thread shares
+    (`StaticPool`, so all of them see one database). sqlite3 does not make one connection safe
+    for two threads at once: a statement stepped while another thread runs, fetches, closes or
+    commits on the same connection can return the other's rows, raise, or crash the process.
+    So every use takes the connection's `turn`: a statement runs and reads all its rows (the
+    cursor buffers them), and a cursor close, commit, rollback or close happens, one at a time.
+    A file database never needs this: its pool hands each connection to one holder at a time
+    (docs/PERFORMANCE.md)."""
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        super().__init__(*args, **kwargs)
+        self.turn = threading.RLock()
+
+    # A transaction's end and the connection's close touch every statement on it: in turn too.
+    def commit(self) -> None:
+        with self.turn:
+            super().commit()
+
+    def rollback(self) -> None:
+        with self.turn:
+            super().rollback()
+
+    def close(self) -> None:
+        with self.turn:
+            super().close()
+
+
 def _ulower(value: str | None) -> str | None:
     return value.lower() if isinstance(value, str) else value
 
@@ -130,6 +173,7 @@ def make_engine(url: str | None = None) -> Engine:
     kwargs: dict = {"connect_args": {"check_same_thread": False, "factory": SerialConnection}}
     if url.endswith(":memory:"):
         kwargs["poolclass"] = StaticPool
+        kwargs["connect_args"]["factory"] = SharedConnection
     else:
         kwargs.update(pool_size=POOL_SIZE, max_overflow=-1)
         Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)

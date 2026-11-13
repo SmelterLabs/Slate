@@ -82,6 +82,11 @@ class AccountKind(enum.StrEnum):
     agent = "agent"
 
 
+# Slate's own agent account (scheduler, automations, housekeeping; `service/due.py` makes it).
+# Nobody signs in as it, chats with it or assigns work to it.
+SYSTEM_HANDLE = "slate"
+
+
 class Role(enum.StrEnum):
     """Workspace role (service/access.py). Owner and admin see and manage everything; a member
     sees every section and list that is not private; a guest sees only what is shared with them."""

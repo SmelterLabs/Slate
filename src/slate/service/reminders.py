@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from slate.dates import LOCAL, local_day_bounds, parse_when
 from slate.ids import new_id
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     Event,
@@ -354,7 +355,7 @@ def _sent_on(session: Session, account_id: str, date: str) -> bool:
 
 def send_digests(session: Session, *, now: datetime | None = None) -> int:
     """Scheduler hook: one `account.digest` per account per day, at its digest hour."""
-    from slate.service.due import SYSTEM_HANDLE, system_actor
+    from slate.service.due import system_actor
 
     now = now or utcnow()
     local = now.astimezone(LOCAL)

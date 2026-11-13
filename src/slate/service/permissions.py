@@ -91,6 +91,8 @@ def set_role(
         raise Invalid("you cannot change your own role")
     if mine != Role.owner and (new in (Role.owner, Role.admin) or old in (Role.owner, Role.admin)):
         raise Forbidden("only the owner can make or unmake admins")
+    if new == Role.guest and account.kind == AccountKind.agent:
+        _one_project_for_guest_role(session, account)
     with apply_change(session, actor) as cx:
         cx.set(account, "role", new, "account.role_changed")
         if new == Role.owner:
@@ -192,6 +194,22 @@ def _one_project(session: Session, account: Account, scope_kind: str, scope_id: 
             "works in one project only (its chat is that project's). Remove it there first, or "
             "add another agent for this project"
         )
+
+
+def _one_project_for_guest_role(session: Session, account: Account) -> None:
+    """An agent made a guest becomes a project's agent, so it may hold shares in one project
+    only (`_one_project`)."""
+    projects = access.agent_projects(session, account.id)
+    if len(projects) < 2:
+        return
+    names = sorted(
+        session.scalars(select(Section.name).where(Section.id.in_(projects))), key=str.lower
+    )
+    raise Invalid(
+        f"{account.display_name} is shared into {len(projects)} projects "
+        f"({', '.join(names)}); a guest agent works in one project only (its chat is that "
+        "project's). Remove its shares in the other projects first"
+    )
 
 
 def revoke_share(session: Session, actor: Actor, *, by: Principal, share_id: str) -> None:
