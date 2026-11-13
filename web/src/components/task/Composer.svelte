@@ -174,7 +174,8 @@
     <ul class="mentions" role="listbox" aria-label="Mention someone">
       {#each picker.people as a, i (a.id)}
         <li role="option" aria-selected={i === picker.active}>
-          <button onmousedown={(e) => e.preventDefault()} onclick={() => pick(a)}>
+          <!-- Arrow keys or the mouse, not Tab: the list closes a moment after the box loses focus. -->
+          <button tabindex="-1" onmousedown={(e) => e.preventDefault()} onclick={() => pick(a)}>
             <Avatars people={[a]} />
             <span>{a.display_name}</span>
             <span class="muted small">@{a.handle}{a.kind === 'agent' ? ' · agent' : ''}</span>

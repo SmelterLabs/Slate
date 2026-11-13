@@ -113,6 +113,93 @@ describe('trapFocus', () => {
     trap.destroy();
   });
 
+  // A tag suggestion list closes a moment after its input loses focus: a suggestion Tab had
+  // reached went with it, and focus fell back to the page behind the dialog.
+  it('a control removed while it has focus: the dialog takes focus, and Tab carries on from there', async () => {
+    const dialog = el(
+      '<div role="dialog"><button id="a">A</button><span id="tags"><input id="q" /><span id="list"></span></span><button id="c">C</button></div>',
+    );
+    const list = dialog.querySelector('#list') as HTMLElement;
+    const trap = trapFocus(dialog);
+    for (const shift of [false, true]) {
+      list.innerHTML = '<button id="s1">#one</button><button id="s2">#two</button>';
+      (dialog.querySelector('#s2') as HTMLElement).focus();
+      list.innerHTML = '';
+      await Promise.resolve();
+      expect(document.activeElement).toBe(dialog);
+      expect(tab(shift)).toBe(true);
+      expect(document.activeElement?.id).toBe(shift ? 'q' : 'c');
+    }
+    // Once it has moved on, Tab is the ordinary cycle again.
+    expect(tab()).toBe(false);
+    trap.destroy();
+  });
+
+  it('a lost list item: Tab carries on at the item after it', async () => {
+    const dialog = el(
+      '<div role="dialog"><button id="a">A</button><ul><li id="one"><button id="s1">1</button></li><li><button id="s2">2</button></li></ul><button id="c">C</button></div>',
+    );
+    const trap = trapFocus(dialog);
+    document.getElementById('s1')!.focus();
+    document.getElementById('one')!.remove();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(dialog);
+    expect(tab()).toBe(true);
+    expect(document.activeElement?.id).toBe('s2');
+    trap.destroy();
+  });
+
+  it('controls that are not Tab stops: wrapping skips them, and Tab from one stays inside', () => {
+    const dialog = el(
+      '<div role="dialog"><button id="a">A</button><button id="b">B</button><button id="x" tabindex="-1">X</button></div>',
+    );
+    const trap = trapFocus(dialog);
+    document.getElementById('b')!.focus();
+    expect(tab()).toBe(true); // b is the last stop: around to a, not on to x
+    expect(document.activeElement?.id).toBe('a');
+    document.getElementById('x')!.focus();
+    expect(tab()).toBe(true); // nothing to Tab to after x inside: around to a
+    expect(document.activeElement?.id).toBe('a');
+    document.getElementById('x')!.focus();
+    expect(tab(true)).toBe(false); // b is before it: the browser's own move
+    trap.destroy();
+  });
+
+  it('focus that falls back to the page while the dialog is open comes back to it', async () => {
+    const dialog = el('<div role="dialog"><button id="a">A</button><button id="b">B</button></div>');
+    const trap = trapFocus(dialog);
+    const b = document.getElementById('b')!;
+    b.focus();
+    b.blur();
+    expect(document.activeElement).toBe(document.body);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement).toBe(dialog);
+    expect(tab()).toBe(true);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    trap.destroy();
+  });
+
+  it('a window that is not modal, or a dialog under another, leaves lost focus alone', async () => {
+    const docked = el('<div role="dialog"><span id="d"><button id="x">X</button></span></div>');
+    const a = trapFocus(docked, { enabled: false });
+    document.getElementById('x')!.focus();
+    document.getElementById('d')!.innerHTML = '';
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement).toBe(document.body);
+    a.destroy();
+
+    const under = el('<div role="dialog"><span id="u"><button id="y">Y</button></span></div>');
+    const b = trapFocus(under);
+    document.getElementById('y')!.focus();
+    const over = el('<div role="dialog"><button id="z">Z</button></div>');
+    const c = trapFocus(over);
+    document.getElementById('u')!.innerHTML = '';
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement).toBe(over);
+    c.destroy();
+    b.destroy();
+  });
+
   it('without onescape, Escape is left to the page; disabled, Tab is left alone', () => {
     const behind = vi.fn((e: KeyboardEvent) => e.key);
     window.addEventListener('keydown', behind);

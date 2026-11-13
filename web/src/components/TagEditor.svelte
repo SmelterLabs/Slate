@@ -1,7 +1,9 @@
 <script lang="ts">
   // Tags: chips plus an input that autocompletes from /tags. Enter adds the highlighted
   // suggestion, or creates the typed tag (Slate creates unknown tags on PATCH). Backspace on an
-  // empty input removes the last tag. Every change is one PATCH of the whole set.
+  // empty input removes the last tag. Every change is one PATCH of the whole set. The
+  // suggestions are picked with the arrow keys or the mouse, never Tab stops: the list closes
+  // a moment after the input loses focus, and a suggestion holding focus would vanish under it.
   import { board } from '../lib/store.svelte';
   import TagPill from './TagPill.svelte';
 
@@ -81,12 +83,12 @@
       <ul class="suggest" role="listbox" aria-label="Tag suggestions">
         {#each suggestions as s, i (s)}
           <li role="option" aria-selected={picked && i === active}>
-            <button onmousedown={(e) => e.preventDefault()} onclick={() => add(s)}>#{s}</button>
+            <button tabindex="-1" onmousedown={(e) => e.preventDefault()} onclick={() => add(s)}>#{s}</button>
           </li>
         {/each}
         {#if typed && !suggestions.includes(typed) && !tags.includes(typed)}
           <li role="option" aria-selected={false}>
-            <button onmousedown={(e) => e.preventDefault()} onclick={() => add(typed)}
+            <button tabindex="-1" onmousedown={(e) => e.preventDefault()} onclick={() => add(typed)}
               >Create #{typed}</button
             >
           </li>

@@ -65,7 +65,14 @@ async function checkDialog(page: Page, dialog: Locator, open: () => Promise<void
     await page.keyboard.press('Tab');
     expect(await holdsFocus(dialog), `Tab ${i + 1} of ${n} left the dialog`).toBe(true);
   }
-  for (let i = 0; i < 3; i++) {
+  // A text box keeps Escape for itself (it leaves the box; lib/focustrap.ts), so go on back to
+  // a control that does not before pressing it.
+  const inTextBox = () =>
+    page.evaluate(() => {
+      const a = document.activeElement as HTMLElement;
+      return /^(INPUT|TEXTAREA)$/.test(a.tagName) || a.isContentEditable;
+    });
+  for (let i = 0; i < 3 || (i < n + 3 && (await inTextBox())); i++) {
     await page.keyboard.press('Shift+Tab');
     expect(await holdsFocus(dialog), `Shift+Tab ${i + 1} left the dialog`).toBe(true);
   }
