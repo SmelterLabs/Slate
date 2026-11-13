@@ -34,14 +34,14 @@ def _denylist(tmp_path, monkeypatch, *words):
     return mod, path
 
 
-def test_denylist_is_never_tracked():
+def test_denylist_is_never_tracked(git_checkout):
     """Hashes of short words are guessable, so a committed list would publish the words."""
     mod = _load()
     tracked = [p.relative_to(ROOT).as_posix() for p in mod.tracked_files()]
     assert not [name for name in tracked if name.endswith(".sha256")]
 
 
-def test_default_denylist_lives_in_the_git_directory(monkeypatch):
+def test_default_denylist_lives_in_the_git_directory(git_checkout, monkeypatch):
     mod = _load()
     monkeypatch.delenv(mod.ENV_FILE, raising=False)
     path = mod.denylist_path()
@@ -72,7 +72,7 @@ def test_scanner_catches_a_denied_word():
     assert mod.scan_text(f"nothing {word} split", hashes) == []  # hyphen splits the token
 
 
-def test_no_private_terms_in_tracked_files():
+def test_no_private_terms_in_tracked_files(git_checkout):
     mod = _load()
     hashes = mod.load_hashes()
     if hashes is None:

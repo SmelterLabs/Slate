@@ -120,7 +120,7 @@ def test_server_sdist_is_minimal(installed_server):
     assert not any("static" in parts or "__pycache__" in parts for parts in members)
 
 
-def test_archive_build_metadata_and_git_identity(tmp_path):
+def test_archive_build_metadata_and_git_identity(tmp_path, request):
     import shutil
 
     script = ROOT / "scripts" / "build_metadata.py"
@@ -148,6 +148,7 @@ def test_archive_build_metadata_and_git_identity(tmp_path):
         cwd=tmp_path,
     )
     assert json.loads(output.read_text()) == {"rev": "42", "commit": "abc1234"}
+    request.getfixturevalue("git_checkout")  # the rest reads this checkout's own identity
     checked(
         sys.executable, str(script), "--source", str(ROOT), "--output", str(output), cwd=tmp_path
     )
