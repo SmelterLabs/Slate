@@ -15,6 +15,13 @@ const timeFmt = workspaceFormatter('en-US', {
   minute: '2-digit',
 });
 
+const fullStampFmt = workspaceFormatter('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+
+/** The exact moment, in the workspace timezone: the title on a relative stamp. */
+export function fullStamp(iso: string): string {
+  return fullStampFmt.format(new Date(iso));
+}
+
 /** "Nov 11", or "Nov 11, 2027" outside the current year. */
 export function shortDate(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);

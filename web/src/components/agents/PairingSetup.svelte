@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fullStamp } from '../../lib/format';
   import { onMount, untrack } from 'svelte';
   import { connections } from '../../lib/connection-data.svelte';
   import { connectionCommand, connectionStatus, pairingExpired, type Pairing } from '../../lib/connections';
@@ -63,7 +64,7 @@
           <button class="secondary" aria-pressed={show} onclick={() => (show = !show)}>{show ? 'Hide code' : 'Show code'}</button>
           <button class="secondary" onclick={() => void copy(initial.code)}>Copy code</button>
         </div>
-        <p class="muted">Expires at {new Date(initial.expires_at).toLocaleTimeString()} ({Math.max(0, Math.ceil((Date.parse(initial.expires_at) - now.getTime()) / 1000))} seconds left).</p>
+        <p class="muted">Expires at {fullStamp(initial.expires_at)} ({Math.max(0, Math.ceil((Date.parse(initial.expires_at) - now.getTime()) / 1000))} seconds left).</p>
         <p class="muted">Code refused or already used? Check that you copied the whole code and used this Slate address. If it still fails, create a new code below. Never paste provider keys here.</p>
       </li>
       <li><b>Finish the terminal setup and run its agent test</b><p>Choose your runtime, profile and project folder there. A token alone is not a successful agent test. Keep the connection running to receive tasks.</p></li>

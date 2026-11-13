@@ -21,6 +21,7 @@
   import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shownProgress, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
+  import { fullStamp } from '../../lib/format';
   import { verb } from '../../lib/history';
   import { isSendKey } from '../../lib/mentions.svelte';
   import { renderMarkdown } from '../../lib/markdown';
@@ -306,8 +307,8 @@
           <div class="who">
             <Avatars people={person(c.author_id)} />
             <strong>{board.accountName(c.author_id) ?? 'Someone'}</strong>
-            <time class="muted" datetime={c.created_at} title={new Date(c.created_at).toLocaleString()}>{stamp(c.created_at, board.now)}</time>
-            {#if c.edited_at}<span class="muted" title="Edited {new Date(c.edited_at).toLocaleString()}">(edited)</span>{/if}
+            <time class="muted" datetime={c.created_at} title={fullStamp(c.created_at)}>{stamp(c.created_at, board.now)}</time>
+            {#if c.edited_at}<span class="muted" title="Edited {fullStamp(c.edited_at)}">(edited)</span>{/if}
             {#if c.assignee_id}
               <span class="ask-pill" class:resolved={!!c.resolved_at} data-ask={c.resolved_at ? 'resolved' : 'open'}>
                 <Avatars people={person(c.assignee_id)} />
@@ -397,7 +398,7 @@
           </div>
         </article>
       {:else}
-        <div class="ev" title="{new Date(r.at).toLocaleString()}{r.event.session_ref ? ` · session ${r.event.session_ref}` : ''}">
+        <div class="ev" title="{fullStamp(r.at)}{r.event.session_ref ? ` · session ${r.event.session_ref}` : ''}">
           <span class="line">
             {#if r.event.type === 'item.status_changed'}
               {@const from = statusOf(r.event.before)}

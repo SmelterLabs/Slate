@@ -41,7 +41,7 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from './Icon.svelte';
-  import { formatEstimate, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { formatEstimate, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
   import { waitingQuestion } from '../../lib/conversation';
   import PriorityPicker from './PriorityPicker.svelte';
@@ -422,7 +422,7 @@
     </nav>
     <div class="top-actions">
       {#if d}
-        <span class="meta muted" title={new Date(d.created_at).toLocaleString()}>
+        <span class="meta muted" title={fullStamp(d.created_at)}>
           Created {stamp(d.created_at, board.now)}{#if d.created_by} by {d.created_by === task.me ? 'you' : (board.accountName(d.created_by) ?? 'someone')}{/if}
         </span>
         <button

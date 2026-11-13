@@ -1,6 +1,7 @@
 // Roles, sharing levels and the audit log, as the board shows them. Pure helpers: the server
 // (service/access.py) decides what anyone can do; these only decide what the board offers.
 
+import { workspaceDate, workspaceFormatter } from './timezone';
 import type { AuditEntry, Level, Me, MyAccess, Role, SlateEvent } from './types';
 
 export const ROLES: Role[] = ['owner', 'admin', 'member', 'guest'];
@@ -116,13 +117,13 @@ export function activeFilters(f: AuditFilters): number {
   return (Object.keys(f) as (keyof AuditFilters)[]).filter((k) => f[k] !== '').length;
 }
 
-/** Entries grouped by local day, newest first (entries arrive newest first). */
+/** Entries grouped by workspace day, newest first (entries arrive newest first). */
 export function byDay(entries: AuditEntry[], now = new Date()): { day: string; label: string; entries: AuditEntry[] }[] {
   const out: { day: string; label: string; entries: AuditEntry[] }[] = [];
-  const key = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  const key = (d: Date) => workspaceDate(d);
   const today = key(now);
-  const yesterday = key(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
-  const fmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const yesterday = key(new Date(now.getTime() - 86_400_000));
+  const fmt = workspaceFormatter(undefined as unknown as string, { weekday: 'long', month: 'short', day: 'numeric' });
   for (const e of entries) {
     const d = new Date(e.at);
     const k = key(d);

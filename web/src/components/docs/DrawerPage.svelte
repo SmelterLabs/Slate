@@ -10,7 +10,7 @@
   import { fileSize } from '../../lib/activity';
   import { docGlyph, fileGroup, filterEntries, tagCounts, type Drawer, type DrawerEntry, type FileGroup } from '../../lib/docs';
   import { docs } from '../../lib/docs.svelte';
-  import { ago, shortDate } from '../../lib/format';
+  import { ago, fullStamp, shortDate } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
   import Icon from '../Icon.svelte';
   import DocPage from './DocPage.svelte';
@@ -294,7 +294,7 @@
                   <button class="row-link" onclick={() => setHash({ doc: e.id })}><span class="glyph">{e.icon ?? docGlyph(e)}</span>{e.title}</button>
                 {/if}
               </td>
-              <td class="c-created"><span class="muted" title={new Date(e.created_at).toLocaleString()} data-created>{e.kind === 'folder' ? '' : shortDate(e.created_at, board.now)}</span></td>
+              <td class="c-created"><span class="muted" title={fullStamp(e.created_at)} data-created>{e.kind === 'folder' ? '' : shortDate(e.created_at, board.now)}</span></td>
               <td>
                 {#if e.kind === 'file' && e.file}
                   <span class="rev-strip" title="{e.file.filename} · {fileSize(e.file.size)}">

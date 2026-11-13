@@ -10,7 +10,8 @@
   import '../../health.css'; // loads with this page (lib/lazy.svelte.ts)
   import { onDestroy } from 'svelte';
   import { get } from '../../lib/api';
-  import { ago } from '../../lib/format';
+  import { workspaceFormatter } from '../../lib/timezone';
+  import { ago, fullStamp } from '../../lib/format';
   import {
     STATUS_LABEL,
     VERDICT,
@@ -69,8 +70,8 @@
 
   const checks = $derived(report ? byUrgency(report.checks.filter((c) => c.status !== 'off')) : []);
   const offChecks = $derived(report ? report.checks.filter((c) => c.status === 'off') : []);
-  const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
-  const full = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+  const time = workspaceFormatter('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const full = workspaceFormatter('en-US', { dateStyle: 'medium', timeStyle: 'medium' });
   const when = (iso: string | null) => (iso ? ago(iso, board.now) : 'never');
 </script>
 
