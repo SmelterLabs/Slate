@@ -385,8 +385,9 @@ def test_the_channel_lists_its_open_agent_turns(client, alex, todo, db):
     _finish(client, ch, channel=key, thread_id=root["id"], outcome="release")
     assert _turns(client, alex, key) == []
 
-    # A lease that ran out is not working any more (expire ended it).
+    # A lease that ran out is not working any more (expire ended it): it shows as expired
+    # until it is reconciled or cleared (tests/test_turn_recovery.py).
     _post(client, alex, key, "@agent slow one")
     _next(client, ch, channel=key, lease_seconds=60)
     chatwake.expire(db, utcnow() + timedelta(hours=1))
-    assert _turns(client, alex, key) == []
+    assert _turns(client, alex, key) == [(agent["id"], None, "expired")]

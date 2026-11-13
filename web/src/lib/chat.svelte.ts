@@ -363,6 +363,18 @@ class Chat {
     }
   }
 
+  /** A person's Clear of an agent's expired turn here (its runner lost the run): the turn ends,
+   * and a mention that waited in it goes back to the agent. The event updates the line. */
+  async clearTurn(channel: string, threadId: string | null, agentId: string): Promise<boolean> {
+    try {
+      await post('/work/chat/clear', { channel, thread_id: threadId, agent_id: agentId });
+      return true;
+    } catch (e) {
+      board.flash(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }
+
   /** Turn a message into a task; opens it so it can be finished off. */
   async makeTask(
     m: ChatMessage,

@@ -28,11 +28,12 @@ export interface Channel {
 }
 
 /** An agent's open chat turn in a channel or one of its threads: `waiting` between the mention
- * and the runner's take, `working` from the take until it ends. */
+ * and the runner's take, `working` from the take until it ends, `expired` when its lease ran out
+ * and the turn waits for its runner to reconcile or for a person's Clear. */
 export interface AgentTurn {
   agent_id: string;
   thread_id: string | null;
-  state: 'waiting' | 'working';
+  state: 'waiting' | 'working' | 'expired';
   since?: string;
 }
 
@@ -42,8 +43,9 @@ export const TURN_EVENTS = ['message.mentioned_agent', 'message.agent_turn'] as 
 /** A channel's open agent turns after one `message.mentioned_agent` / `message.agent_turn`
  * event. Pure and idempotent (set-to-value per agent and thread): applying an event twice gives
  * the same list. `mentioned_agent`: each agent in `for` is waiting, one in `queued` already has
- * its turn open (working). `agent_turn`: `started` is working; any end (`done`, `released`,
- * `expired`) removes it, unless a mention arrived meanwhile (`pending`), which waits again. */
+ * its turn open (working). `agent_turn`: `started` is working; `expired` stays as expired until
+ * it is settled; any end (`done`, `released`, `dropped`) removes it, unless a mention arrived
+ * meanwhile (`pending`), which waits again. */
 export function applyTurnEvent(turns: AgentTurn[], ev: { type: string; after: unknown; at?: string }): AgentTurn[] {
   const a = (ev.after ?? {}) as {
     thread_id?: string | null;
@@ -69,7 +71,10 @@ export function applyTurnEvent(turns: AgentTurn[], ev: { type: string; after: un
     for (const id of a.for ?? []) set(id, 'waiting');
     for (const id of a.queued ?? []) set(id, 'working');
   } else if (ev.type === 'message.agent_turn' && a.agent) {
-    set(a.agent, a.state === 'started' ? 'working' : a.pending ? 'waiting' : null);
+    set(
+      a.agent,
+      a.state === 'started' ? 'working' : a.state === 'expired' ? 'expired' : a.pending ? 'waiting' : null,
+    );
   }
   return out;
 }

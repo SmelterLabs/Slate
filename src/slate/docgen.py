@@ -177,8 +177,11 @@ EVENT_DOCS: dict[str, str] = {
     "mention of an agent never wakes it.",
     "message.agent_turn": "An agent's chat turn (`after.agent`): `state` started (taken with "
     "/work/next), done (`reply_id` = its message, or none), released (given up, nothing "
-    "posted) or expired (the lease ran out; actor `slate`); `pending` true when a mention "
-    "arrived during the turn and waits for the next take.",
+    "posted; `reconciled` when an expired turn was settled by its run proof, a person's "
+    "`/work/chat/clear` or a person's new mention, the person as actor), expired (the lease "
+    "ran out; actor `slate`) or dropped (never taken, or expired, and the agent can no longer "
+    "answer there: `reason` no_access or gone); `pending` true when a mention arrived during "
+    "the turn and waits for the next take.",
     "doc.mentioned_agent": "A person @mentioned agents whose runner Slate can wake (wake "
     "`push`, and they may comment on the doc) on a page or in one of its threads (subject = the "
     "doc): `after.for` = their account ids (a `work` hint with `doc_id`, `thread_id`, "
@@ -188,8 +191,10 @@ EVENT_DOCS: dict[str, str] = {
     "agent never wakes it. `doc.mentioned` is still recorded for the inbox and check-in.",
     "doc.agent_turn": "An agent's doc turn (`after.agent`, subject = the doc): `state` started "
     "(taken with /work/next), done (`reply_id` = its comment, or none), released (given up, "
-    "nothing posted) or expired (the lease ran out; actor `slate`, `reconciliation_required`); "
-    "`pending` true when a mention arrived during the turn and waits for the next take.",
+    "nothing posted; `reconciled` as for chat, with `/work/doc/clear`), expired (the lease ran "
+    "out; actor `slate`, `reconciliation_required`) or dropped (the agent can no longer answer "
+    "there: `reason`); `pending` true when a mention arrived during the turn and waits for the "
+    "next take.",
     "channel.read": "An account updated its chat read state (subject = the account). "
     "Intentional cursor: `after` = {channel, through}; exact exposure: {channel}, plus "
     "`through` when the exposures folded into the cursor. Refetch channel counts; this is "

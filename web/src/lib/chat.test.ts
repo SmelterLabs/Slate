@@ -210,9 +210,18 @@ describe('agent turns (applyTurnEvent)', () => {
     expect(states(t)).toEqual(['A1/-/waiting']);
     t = applyTurnEvent(t, turn('started'));
     expect(states(t)).toEqual(['A1/-/working']);
-    for (const end of ['done', 'released', 'expired']) {
+    for (const end of ['done', 'released', 'dropped']) {
       expect(applyTurnEvent(t, turn(end))).toEqual([]);
     }
+  });
+
+  it('an expired turn stays until it is settled', () => {
+    let t = applyTurnEvent([{ agent_id: 'A1', thread_id: null, state: 'working' }], turn('expired'));
+    expect(states(t)).toEqual(['A1/-/expired']);
+    // A person's Clear (or a new mention) settles it: released, and waiting when a mention waited.
+    expect(applyTurnEvent(t, turn('released', { reconciled: true }))).toEqual([]);
+    t = applyTurnEvent(t, turn('released', { reconciled: true, pending: true }));
+    expect(states(t)).toEqual(['A1/-/waiting']);
   });
 
   it('a mention that arrived during the turn waits again after it ends', () => {

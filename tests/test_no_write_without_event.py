@@ -183,8 +183,9 @@ READS = {
     },
     "slate.service.agents": {"roster", "plan"},
     "slate.service.search": {"search", "like_pattern"},
-    "slate.service.chatwake": {"lease_view", "turn_view", "remaining"},
-    "slate.service.docwake": {"lease_view", "turn_view", "remaining", "section_around"},
+    "slate.service.chatwake": {"turn_view", "remaining"},
+    "slate.service.docwake": {"turn_view", "remaining", "section_around"},
+    "slate.service.turns": {"key", "live", "lease_view", "remaining"},
     "slate.service.brief": {"brief", "closing_line", "default_ask", "files_note"},
     "slate.service.checkin": {"checkin", "queue", "why"},
     "slate.service.activity": {"activity"},
@@ -357,6 +358,19 @@ INFRASTRUCTURE = {
         "on_mentioned",
         # Moves the lease only (`DocWake.until` is bookkeeping): never an event.
         "heartbeat",
+    },
+    # The lease half of chat and doc turns, parameterised by a `Kind`: reached only through
+    # chatwake and docwake, whose public functions are classified (and walked) here. `end` and
+    # `fold` run inside the caller's change (they take the `cx`).
+    "slate.service.turns": {
+        "take",
+        "heartbeat",
+        "end",
+        "finish",
+        "reconcile",
+        "clear",
+        "fold",
+        "expire",
     },
     # Called inside a comment or item change (it takes the `cx`); each file records its own
     # `item.attachment_added` (tests/test_inline_media.py).
@@ -941,6 +955,8 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "finish": None,
         "reconcile": None,  # audited in tests/test_run_safety.py
         "expire": None,
+        # A person's Clear of an expired turn: tests/test_turn_recovery.py.
+        "clear": None,
     },
     "slate.service.docwake": {
         # The same shape as chatwake: each writes `doc.agent_turn` by the agent (or `slate` for
@@ -949,6 +965,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "finish": None,
         "reconcile": None,
         "expire": None,
+        "clear": None,  # tests/test_turn_recovery.py
     },
     "slate.service.checklists": {
         "create_checklist": lambda db, a, p: _checklist(db, a),

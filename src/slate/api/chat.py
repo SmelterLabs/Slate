@@ -29,9 +29,11 @@ KEY_DOC = "`general`, `list:<list id>`, `section:<section id>` or `agent:<agent 
 class AgentTurnOut(BaseModel):
     agent_id: str = Field(description="The agent account answering")
     thread_id: str | None = Field(description="The thread's first message; null for the channel")
-    state: Literal["waiting", "working"] = Field(
+    state: Literal["waiting", "working", "expired"] = Field(
         description="`waiting`: mentioned, its runner has not taken the turn yet; `working`: "
-        "taken (`message.agent_turn` started) and its lease is live"
+        "taken (`message.agent_turn` started) and its lease is live; `expired`: the lease ran "
+        "out and the turn waits for its runner to reconcile, or for a person's "
+        "`POST /work/chat/clear`"
     )
     since: datetime = Field(description="When the mention woke it, or when the turn was taken")
 

@@ -74,7 +74,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py` | Agent badges, the work loop and leases, the roster and plan, chat-mention wakes (`docs/agents-work-loop.md`). |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the work loop and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events and the run stage; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
@@ -565,9 +565,10 @@ Design choices and the reason for each, with the alternatives that were rejected
 - **A doc @mention is a turn.** A doc @mention of a push agent (page body, review or discussion
   thread, or a doc Ask) is a turn like a chat mention: `doc.mentioned_agent`, a `DocWake` lease,
   `doc` from `/work/next`, `POST /work/doc/finish` posts the reply as a comment; no task or item
-  run starts (rule 7). The chat machinery is mirrored, not generalised into one
-  table, so a runner author learns one shape (`docs/agents-work-loop.md` "Doc mentions wake an
-  agent").
+  run starts (rule 7). Two tables with the same shape, so a runner author learns one contract;
+  the lease code (take, heartbeat, finish, expire, reconcile, clear) is one module,
+  `service/turns.py`, parameterised by the table, so a fix to turns lands once
+  (`docs/agents-work-loop.md` "Doc mentions wake an agent").
 
 ### The board and notifications
 

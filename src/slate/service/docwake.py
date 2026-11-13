@@ -23,7 +23,12 @@ on that page.
   that arrived while the turn was open makes the row pending again (`after.pending` true).
 - `heartbeat` moves the lease without an event (`until` is bookkeeping, core.BOOKKEEPING);
   `expire` (scheduler hook) ends a turn whose lease ran out (`state: expired`, actor `slate`,
-  `reconciliation_required`); `reconcile` unlocks it with run proof and runtime evidence.
+  `reconciliation_required`); `reconcile` unlocks it with run proof and runtime evidence, a
+  person who may comment on the doc clears it (`clear`), and a person's new mention there
+  settles it and starts a new turn.
+
+The lease half is shared with chat turns in service/turns.py; this module keeps the doc side:
+who is woken, what the runner is handed, how the answer is posted.
 
 A doc Ask starts no task and no item run: the work is the answer on the page (AGENTS.md rule 7).
 """
@@ -31,19 +36,18 @@ A doc Ask starts no task and no item run: the work is the answer on the page (AG
 from __future__ import annotations
 
 import re
-import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from slate.models import Account, AccountKind, Doc, DocComment, DocWake, utcnow
-from slate.service import access, guests, work
-from slate.service.core import Actor, Change, apply_change
-from slate.service.errors import Conflict, Forbidden, Invalid
+from slate.service import access, guests, turns
+from slate.service.core import Actor, Change
+from slate.service.errors import Forbidden
 
-OUTCOMES = ("done", "release")
+OUTCOMES = turns.OUTCOMES
 WAKE_EVENT = "doc.mentioned_agent"
 TURN_EVENT = "doc.agent_turn"
 # The page text handed to the agent: the section around the mention, at most this long.
@@ -51,8 +55,7 @@ SECTION_MAX = 8000
 _HEADING = re.compile(r"^(#{1,6})\s")
 
 
-def _key(thread_id: str | None) -> str:
-    return thread_id or ""
+_key = turns.key
 
 
 def _level(session: Session, agent: Account, doc: Doc | str) -> int:
@@ -133,15 +136,14 @@ def on_mentioned(
             session.add(row)
             woken.append(a.id)
         else:
+            # A live turn there: the mention joins it, and the next take answers it if the run
+            # ends without having seen it. Pending, or its run is gone (settled by fold): one
+            # turn answers the mentions.
+            joins = turns.fold(KIND, cx, row, doc.title, now, poster.handle)
             for k, v in mention.items():
                 setattr(row, k, v)
             row.mention_no = (row.mention_no or 0) + 1
-            if row.claimed_at is not None:
-                # A turn is open there: the mention joins it; the next take answers it if the
-                # run ends without having seen it.
-                queued.append(a.id)
-            else:
-                woken.append(a.id)
+            (queued if joins else woken).append(a.id)
         covers.append(row)
     cx.record(
         WAKE_EVENT,
@@ -203,15 +205,6 @@ def _path(session: Session, doc: Doc) -> list[dict[str, Any]]:
     return list(reversed(out))
 
 
-def lease_view(row: DocWake) -> dict[str, Any]:
-    return {
-        "account_id": row.account_id,
-        "claimed_at": row.claimed_at,
-        "until": row.until,
-        "run_id": row.run_id,
-    }
-
-
 def turn_view(session: Session, row: DocWake) -> dict[str, Any]:
     """What the runner hands the agent: the page, where on it, which mention, the thread's
     comments (oldest first) and what the agent may do there."""
@@ -263,26 +256,51 @@ def turn_view(session: Session, row: DocWake) -> dict[str, Any]:
     }
 
 
-def _mine(account_id: str, doc_id: str | None, thread_id: str | None) -> Any:
-    q = select(DocWake).where(DocWake.account_id == account_id)
-    if doc_id:
-        q = q.where(DocWake.doc_id == doc_id, DocWake.thread_id == _key(thread_id))
-    return q
+def _title(session: Session, doc_id: str) -> str | None:
+    return session.scalar(select(Doc.title).where(Doc.id == doc_id))
 
 
-def _pending(q: Any) -> Any:
-    return q.where(DocWake.claimed_at.is_(None)).order_by(DocWake.created_at, DocWake.doc_id)
+def _require_comment(session: Session, doc_id: str) -> None:
+    from slate.service import docs as docs_svc  # noqa: PLC0415
+
+    doc = docs_svc.get_doc(session, doc_id)
+    a = access.current(session)
+    if a is not None and a.doc_level(access.doc_place(session, doc)) < access.COMMENT:
+        raise Forbidden("comment access required")
+
+
+def _where(doc_id: str, thread_id: str | None) -> str:
+    return f"on doc {doc_id}" + (f" thread {thread_id}" if thread_id else "")
+
+
+KIND = turns.Kind(
+    noun="doc",
+    model=DocWake,
+    place="doc_id",
+    turn_event=TURN_EVENT,
+    latest="mention_no",
+    taken="taken_no",
+    order=("created_at", "doc_id"),
+    name=_title,
+    after=lambda row, title: {
+        "doc_id": row.doc_id,
+        "title": title,
+        "comment_id": row.comment_id,
+    },
+    subject=lambda row: row.doc_id,
+    view=lambda session, row: turn_view(session, row),
+    level=lambda session, a, doc_id: a.doc_level(access.doc_place(session, doc_id)),
+    where=_where,
+    require=_require_comment,
+    reply_key="comment",
+)
+
+lease_view = turns.lease_view
 
 
 def remaining(session: Session, account_id: str) -> int:
     """How many doc turns the account could take now."""
-    sub = (
-        _pending(_mine(account_id, None, None))
-        .order_by(None)
-        .with_only_columns(DocWake.account_id)
-        .subquery()
-    )
-    return session.scalar(select(func.count()).select_from(sub)) or 0
+    return turns.remaining(KIND, session, account_id)
 
 
 def next_turn(
@@ -297,72 +315,19 @@ def next_turn(
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Take the agent's next doc turn (on that doc and thread, when given): `{doc, resumed}`,
-    or None. With `run_id` and `resume`, the turn it already holds comes back, lease renewed."""
-    if thread_id and not doc_id:
-        raise Invalid("thread_id goes with doc_id")
-    seconds = work.lease_seconds(lease)
-    now = now or utcnow()
-    with apply_change(session, actor) as cx:
-        if run_id:
-            if not resume or not doc_id:
-                raise Invalid("run_id resume requires resume=true and doc_id")
-            held = _held(session, actor, doc_id, thread_id, now, run_id)
-            held.until = now + timedelta(seconds=seconds)
-            return {"doc": turn_view(session, held), "resumed": True}
-        base = _mine(actor.account_id, doc_id, thread_id)
-        for row in session.scalars(_pending(base).execution_options(populate_existing=True)).all():
-            doc = session.get(Doc, row.doc_id)
-            if doc is None:
-                continue  # out of the caller's sight now
-            access.check_object(session, row)
-            row.run_id = secrets.token_urlsafe(32)
-            row.claimed_at = now
-            row.until = now + timedelta(seconds=seconds)
-            row.taken_no = row.mention_no
-            cx.record(
-                TURN_EVENT,
-                subject_id=row.doc_id,
-                after=_turn_after(row, doc.title, "started"),
-                covers=[row],
-            )
-            return {"doc": turn_view(session, row), "resumed": False}
-    return None
-
-
-def _turn_after(row: DocWake, title: str | None, state: str, **extra: Any) -> dict[str, Any]:
-    return {
-        "doc_id": row.doc_id,
-        "title": title,
-        "thread_id": row.thread_id or None,
-        "comment_id": row.comment_id,
-        "agent": row.account_id,
-        "state": state,
-        "pending": False,
-        **extra,
-    }
-
-
-def _title(session: Session, doc_id: str) -> str | None:
-    with access.unrestricted(session):
-        return session.scalar(select(Doc.title).where(Doc.id == doc_id))
-
-
-def _held(
-    session: Session,
-    actor: Actor,
-    doc_id: str,
-    thread_id: str | None,
-    now: datetime,
-    run_id: str | None = None,
-) -> DocWake:
-    row = session.get(DocWake, (actor.account_id, doc_id, _key(thread_id)), populate_existing=True)
-    if row is None or row.claimed_at is None or row.until is None or row.until < now:
-        where = f"doc {doc_id}" + (f" thread {thread_id}" if thread_id else "")
-        raise Conflict(f"you hold no open turn on {where}: take it with /work/next first")
-    if not run_id or not row.run_id or not secrets.compare_digest(run_id, row.run_id):
-        raise Conflict("current run_id proof required for doc turn")
-    access.check_object(session, row)
-    return row
+    or None. With `run_id` and `resume`, the turn it already holds comes back, lease renewed.
+    A pending turn the agent can no longer answer is dropped, not an error."""
+    return turns.take(
+        KIND,
+        session,
+        actor,
+        lease=lease,
+        place=doc_id,
+        thread_id=thread_id,
+        resume=resume,
+        run_id=run_id,
+        now=now,
+    )
 
 
 def heartbeat(
@@ -376,39 +341,9 @@ def heartbeat(
     run_id: str | None = None,
 ) -> DocWake:
     """Keep the turn: the lease runs `lease` seconds from now. No event (bookkeeping)."""
-    seconds = work.lease_seconds(lease)
-    now = now or utcnow()
-    with apply_change(session, actor):
-        row = _held(session, actor, doc_id, thread_id, now, run_id)
-        row.until = now + timedelta(seconds=seconds)
-    return row
-
-
-def _end(cx: Change, session: Session, row: DocWake, state: str, **extra: Any) -> bool:
-    """End the turn: the row goes, unless a mention arrived while it was open (then it is
-    pending again, `after.pending` true, and the next take answers it). One event."""
-    title = _title(session, row.doc_id)  # read before the row changes
-    pending = row.taken_no is not None and row.mention_no > row.taken_no
-    after = _turn_after(row, title, state, **extra)
-    after["pending"] = pending
-    if pending:
-        row.claimed_at = None
-        row.until = None
-        row.taken_no = None
-        row.run_id = None
-    else:
-        session.delete(row)
-    cx.record(TURN_EVENT, subject_id=row.doc_id, after=after, covers=[row])
-    return pending
-
-
-def _require_comment(session: Session, doc_id: str) -> None:
-    from slate.service import docs as docs_svc  # noqa: PLC0415
-
-    doc = docs_svc.get_doc(session, doc_id)
-    a = access.current(session)
-    if a is not None and a.doc_level(access.doc_place(session, doc)) < access.COMMENT:
-        raise Forbidden("comment access required")
+    return turns.heartbeat(
+        KIND, session, actor, doc_id, thread_id, lease=lease, now=now, run_id=run_id
+    )
 
 
 def finish(
@@ -426,76 +361,34 @@ def finish(
     """End the turn: `done` with `reply` posts it as the agent's comment in the thread (a new
     discussion thread on the page for a body mention); `done` without one, or `release`, ends
     it with nothing posted. Returns `{comment, pending}`."""
-    from fastapi.encoders import jsonable_encoder  # noqa: PLC0415
-
     from slate.service import doc_threads  # noqa: PLC0415
 
-    if outcome not in OUTCOMES:
-        raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
-    now = now or utcnow()
-    note = (note or "").strip() or None
-    payload = dict(doc_id=doc_id, thread_id=thread_id, outcome=outcome, reply=reply, note=note)
-    posted = None
-    with apply_change(session, actor) as cx:
-        _require_comment(session, doc_id)
-        receipt = work._receipt(session, actor, TURN_EVENT, run_id, payload)
-        if receipt is not None:
-            return receipt["result"]
-        row = _held(session, actor, doc_id, thread_id, now, run_id)
-        if outcome == "done" and reply and reply.strip():
-            posted = doc_threads.add_comment(
-                session, actor, doc_id, body_md=reply, parent_id=row.thread_id or None
-            )
-        view = doc_threads.view(session, posted) if posted is not None else None
-        # The receipt is the same event that settles this turn; it survives row removal.
-        result = jsonable_encoder({"comment": view, "pending": row.mention_no > row.taken_no})
-        _end(
-            cx,
-            session,
-            row,
-            "done" if outcome == "done" else "released",
-            note=note,
-            reply_id=posted.id if posted else None,
-            run_digest=work._digest(run_id),
-            request_digest=work._digest(payload),
-            result=result,
+    def post(row: DocWake, text: str) -> tuple[DocComment, dict[str, Any]]:
+        posted = doc_threads.add_comment(
+            session, actor, doc_id, body_md=text, parent_id=row.thread_id or None
         )
-    return result
+        return posted, doc_threads.view(session, posted)
+
+    return turns.finish(
+        KIND,
+        session,
+        actor,
+        doc_id,
+        thread_id,
+        outcome=outcome,
+        run_id=run_id,
+        reply=reply,
+        note=note,
+        now=now,
+        post=post,
+    )
 
 
 def expire(session: Session, now: datetime) -> int:
     """Scheduler hook: end every turn whose lease ran out (`state: expired`, actor `slate`).
-    The row stays claimed until a `reconcile`: the run may still be writing somewhere."""
-    from slate.service.due import system_actor  # noqa: PLC0415
-
-    rows = session.scalars(
-        select(DocWake).where(DocWake.claimed_at.is_not(None), DocWake.until < now)
-    ).all()
-    if not rows:
-        return 0
-    actor = system_actor(session)
-    ended = 0
-    for row in rows:
-        with apply_change(session, actor) as cx:
-            fresh = session.get(
-                DocWake, (row.account_id, row.doc_id, row.thread_id), populate_existing=True
-            )
-            if fresh is None or fresh.until is None or fresh.until >= now:
-                continue
-            fresh.until = None
-            cx.record(
-                TURN_EVENT,
-                subject_id=fresh.doc_id,
-                after=_turn_after(
-                    fresh,
-                    _title(session, fresh.doc_id),
-                    "expired",
-                    reconciliation_required=True,
-                ),
-                covers=[fresh],
-            )
-        ended += 1
-    return ended
+    The row stays claimed until a `reconcile` or a person's `clear`: the run may still be
+    writing somewhere. Turns the agent can no longer answer are dropped (`state: dropped`)."""
+    return turns.expire(KIND, session, now)
 
 
 def reconcile(
@@ -509,30 +402,19 @@ def reconcile(
     evidence: str,
 ) -> dict[str, Any]:
     """Unlock a quarantined doc turn only after the caller confirms remote terminal state."""
-    if state not in ("stopped", "completed") or not evidence.strip():
-        raise Invalid("terminal runtime state and evidence required")
-    payload = dict(
-        doc_id=doc_id, thread_id=thread_id, state=state, evidence=evidence, reconcile=True
+    return turns.reconcile(
+        KIND, session, actor, doc_id, thread_id, run_id=run_id, state=state, evidence=evidence
     )
-    with apply_change(session, actor) as cx:
-        _require_comment(session, doc_id)
-        if work._receipt(session, actor, TURN_EVENT, run_id, payload):
-            return {"reconciled": True}
-        row = session.get(
-            DocWake, (actor.account_id, doc_id, _key(thread_id)), populate_existing=True
-        )
-        if row is None or not row.run_id or not secrets.compare_digest(row.run_id, run_id):
-            raise Conflict("current run proof required for reconciliation")
-        access.check_object(session, row)
-        _end(
-            cx,
-            session,
-            row,
-            "released",
-            reconciled=True,
-            runtime_state=state,
-            evidence=evidence,
-            run_digest=work._digest(run_id),
-            request_digest=work._digest(payload),
-        )
-    return {"reconciled": True}
+
+
+def clear(
+    session: Session,
+    actor: Actor,
+    doc_id: str,
+    thread_id: str | None = None,
+    *,
+    agent_id: str,
+) -> dict[str, Any]:
+    """A person who may comment on the doc confirms an agent's expired turn there is over:
+    `{cleared, pending}` (service/turns.py `clear`)."""
+    return turns.clear(KIND, session, actor, doc_id, thread_id, agent_id=agent_id)
