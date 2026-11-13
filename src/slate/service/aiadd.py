@@ -41,12 +41,15 @@ from sqlalchemy.orm import Session
 
 from slate.models import Account, Item, Status
 from slate.service import access, guests, items
+from slate.service import tags as tags_svc
 from slate.service.core import Actor, Source
+from slate.service.errors import Invalid
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
 
 SESSION_REF = "ai-add"
+MAX_KNOWN_TAGS = 100
 # Fills waiting or running, process-wide; more are dropped (the card stays as typed).
 MAX_QUEUED = 16
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -76,6 +79,7 @@ week" the following Friday; "morning" is 09:00, "afternoon" 15:00, "evening" 18:
 The person filing it is @{me} ("me", "I", "my" mean them).
 People you may assign (handle: name): {people}
 The list's statuses: {statuses}
+Tags in use: {tags}
 Fields (leave a field out unless their words decide it):
 - title: a short, clear imperative title; no dates or names that are already fields
 - body_md: every detail and step they gave, as tidy Markdown; steps as "- [ ] step" lines
@@ -83,7 +87,7 @@ Fields (leave a field out unless their words decide it):
 - due_at / start_at: "YYYY-MM-DD" (means 5pm) or "YYYY-MM-DDTHH:MM", local time
 - priority: urgent, high, normal or low, only if they said how important or urgent it is
 - status: one of the statuses, only if they said
-- tags: only if they named a tag"""
+- tags: only if they named a tag; prefer the tags in use"""
 
 
 def enabled() -> bool:
@@ -112,6 +116,7 @@ class Ask:
     people: dict[str, str]  # handle -> display name
     statuses: list[str]
     filed: dict[str, Any] = field(default_factory=dict)  # field -> value as filed
+    known_tags: list[str] = field(default_factory=list)  # tags the caller can see
 
 
 def file(session: Session, actor: Actor, list_id: str, text: str, extra: dict[str, Any]) -> Item:
@@ -152,7 +157,9 @@ def ask(session: Session, actor: Actor, item: Item, text: str) -> Ask:
         "status": (view.get("status") or {}).get("name"),
         "tags": sorted(view["tags"]),
     }
-    return Ask(item.id, text.strip(), me.handle if me else "me", people, statuses, filed)
+    known_tags = [t.name for t in tags_svc.list_tags(session)][:MAX_KNOWN_TAGS]
+    me_handle = me.handle if me else "me"
+    return Ask(item.id, text.strip(), me_handle, people, statuses, filed, known_tags)
 
 
 def prompt(a: Ask, now: datetime | None = None) -> str:
@@ -170,6 +177,7 @@ def prompt(a: Ask, now: datetime | None = None) -> str:
         me=a.me,
         people=", ".join(f"{h}: {n}" for h, n in sorted(a.people.items())) or "(only them)",
         statuses=", ".join(a.statuses) or "(any)",
+        tags=", ".join(a.known_tags) or "(none yet)",
     )
 
 
@@ -234,10 +242,23 @@ def clean(a: Ask, raw: dict[str, Any]) -> dict[str, Any]:
             out["status"] = match
     tags = raw.get("tags")
     if isinstance(tags, list):
-        names = [str(t).strip().lstrip("#") for t in tags if str(t).strip().lstrip("#")]
+        names = [n for n in (_tag(a, t) for t in tags) if n]
         if names:
-            out["tags"] = names[:10]
+            out["tags"] = list(dict.fromkeys(names))[:10]
     return out
+
+
+def _tag(a: Ask, raw: Any) -> str | None:
+    """A tag the model may set: well-formed, and either one already in use or one the
+    person's words name. Anything else is dropped on its own, never the whole list."""
+    try:
+        name = tags_svc.normalize(str(raw).strip().lstrip("#"))
+    except Invalid:
+        return None
+    if name in a.known_tags:
+        return name
+    words = " ".join(a.text.lower().split())
+    return name if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", words) else None
 
 
 def _still_as_filed(view: dict[str, Any], a: Ask) -> set[str]:

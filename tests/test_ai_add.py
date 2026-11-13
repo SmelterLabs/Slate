@@ -194,7 +194,9 @@ def test_a_tag_column_keeps_its_tag_and_the_model_adds_its_own(client, alex, tod
         "body_md": "About phase 2.",
         "tags": ["example"],
     }
-    item = _add(client, alex, todo["id"], text="call the supplier about phase 2", tags=["work"])
+    item = _add(
+        client, alex, todo["id"], text="call the supplier about phase 2, example", tags=["work"]
+    )
     assert item["tags"] == ["work"]
     got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
     # The column's tag stays and the model's is added.
@@ -274,3 +276,24 @@ def test_an_oversized_model_answer_is_refused(monkeypatch):
         aiadd, "transport", httpx.MockTransport(lambda r: httpx.Response(200, content=ok))
     )
     assert aiadd.call_model("system", "words") == {"title": "Water the plants"}
+
+
+def test_one_bad_tag_does_not_drop_the_good_ones(client, alex, todo, model):
+    client.post(f"{API}/tags", json={"name": "errands"}, headers=alex)
+    model["answer"] = {
+        "title": "Buy stamps",
+        "body_md": "At the post office.",
+        "tags": ["Errands", "x" * 300, "  ", "#postal"],
+    }
+    item = _add(client, alex, todo["id"], text="buy stamps at the post office, tag it postal")
+    got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert got["title"] == "Buy stamps"
+    assert sorted(got["tags"]) == ["errands", "postal"]
+
+
+def test_the_model_does_not_invent_tags_the_words_never_named(client, alex, todo, model):
+    model["answer"] = {"title": "Buy stamps", "body_md": "x", "tags": ["shopping", "misc"]}
+    item = _add(client, alex, todo["id"], text="buy stamps, file it under shopping")
+    got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert got["tags"] == ["shopping"]  # named in the words; `misc` exists nowhere
+    assert [t["name"] for t in client.get(f"{API}/tags", headers=alex).json()] == ["shopping"]
