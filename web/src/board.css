@@ -2,20 +2,6 @@
    Loaded after app.css (main.ts), so these rules win over the base board styles they refine.
    Colours come from the :root tokens, so light, dark and the theme switch all apply. */
 
-:root {
-  --col-bg: color-mix(in srgb, var(--text) 5%, var(--bg));
-  --col-today: color-mix(in srgb, var(--warning) 9%, var(--col-bg));
-  --col-overdue: color-mix(in srgb, var(--overdue) 9%, var(--col-bg));
-  --today-ink: var(--warning);
-  --done-ink: var(--success);
-  --flag-urgent: #e5484d;
-  --flag-high: #f5b400;
-  --flag-normal: #4466ff;
-  --flag-low: #8b929c;
-  --card-shadow: var(--shadow-sm);
-  --card-shadow-hover: var(--shadow-md);
-}
-
 /* --- page: the board fills the window and each column scrolls on its own --- */
 .list-page.board-mode {
   height: 100%;
@@ -44,6 +30,9 @@
   /* A flex item's min-width defaults to its content's widest line, so one long unbreakable
      line (a "Subtask of …" label) would push the column past 248px. */
   min-width: 0;
+  transition:
+    background-color var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
 }
 .cu-board .column.over {
   outline: 2px dashed var(--accent);
@@ -235,10 +224,16 @@
   border-radius: 8px;
   box-shadow: var(--card-shadow);
   font-size: 0.86rem;
+  transition:
+    box-shadow var(--dur-2) var(--ease),
+    border-color var(--dur-2) var(--ease),
+    opacity var(--dur-2) var(--ease),
+    scale var(--dur-2) var(--ease);
 }
 .card.cu:hover {
   background: var(--card);
   box-shadow: var(--card-shadow-hover);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 .card.cu:focus-visible {
   outline: 2px solid var(--accent);
@@ -746,13 +741,11 @@
     z-index: 60;
   }
 }
-.card-menu button {
-  justify-content: flex-start;
-}
 .card-menu {
   min-width: 200px;
 }
 .card-menu button {
+  justify-content: flex-start;
   width: 100%;
 }
 .menu button .ic:last-child:not(:first-child) {
@@ -1108,3 +1101,98 @@ input[type='checkbox'][role='switch']:checked::after {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+
+.chip-btn,
+.dd-btn.chip-btn {
+  border-color: var(--line);
+  background: var(--bg);
+}
+.chip-btn:hover,
+.dd-btn.chip-btn:hover {
+  border-color: var(--line-strong);
+  background: var(--card-hover);
+}
+.chip-btn.active,
+.dd-btn.chip-btn.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* --- cards: lift on hover, feel picked up on drag --- */
+.card.cu:active:not(:has(button:active, input:active)) {
+  scale: 0.99;
+}
+.card.cu.dragging,
+.card.dragging {
+  opacity: 0.35;
+  scale: 0.98;
+  box-shadow: none;
+  border-style: dashed;
+}
+.cu-board .column.over:not(.nodrop) {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 9%, var(--col-bg));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.cu-board .column.over:not(.nodrop) .column-head {
+  color: var(--accent-ink);
+}
+
+/* Fresh cards (filed here or arriving live) settle in. Keyed blocks re-mount only new items. */
+.cu-board .column .card.cu {
+  animation: rise-in var(--dur-3) var(--ease);
+}
+
+/* --- view bar: one compact row at desktop widths --- */
+.toolbar.cu-bar {
+  gap: 4px;
+  row-gap: 6px;
+}
+.toolbar.cu-bar .seg button {
+  padding: 3px 10px;
+  font-size: var(--fs-sm);
+}
+.toolbar.cu-bar .chip-btn,
+.toolbar.cu-bar .dd-btn.chip-btn {
+  padding: 4px 8px;
+  gap: 5px;
+  height: 30px;
+}
+.toolbar.cu-bar .seg {
+  margin-right: 4px;
+}
+.toolbar.cu-bar .search-box {
+  height: 30px;
+  flex: 0 1 180px;
+  min-width: 110px;
+  background: var(--bg);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease),
+    flex-basis var(--dur-2) var(--ease);
+}
+.toolbar.cu-bar .search-box:focus-within {
+  flex-basis: 240px;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.toolbar.cu-bar .search-box .search:focus {
+  box-shadow: none;
+}
+.toolbar.cu-bar .add-task {
+  height: 30px;
+  margin-left: 4px;
+}
+
+/* --- phone: same look, bigger targets --- */
+@media (max-width: 760px) {
+  .toolbar.cu-bar .chip-btn,
+  .toolbar.cu-bar .dd-btn.chip-btn,
+  .toolbar.cu-bar .search-box,
+  .toolbar.cu-bar .add-task {
+    height: auto;
+    min-height: 40px;
+  }
+}
+

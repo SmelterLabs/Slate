@@ -473,8 +473,6 @@ a.work-tile:hover {
   gap: 6px;
   color: var(--muted);
   font-size: 0.85rem;
-}
-.inbox-line {
   align-items: center;
 }
 .inbox-icon {
