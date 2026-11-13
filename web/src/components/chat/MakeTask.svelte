@@ -6,6 +6,7 @@
   import type { ChatMessage } from '../../lib/chat';
   import { chat } from '../../lib/chat.svelte';
   import { board } from '../../lib/store.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   let { m, onclose }: { m: ChatMessage; onclose: () => void } = $props();
 
@@ -56,6 +57,8 @@
   }
 </script>
 
+<!-- Escape closes it through trapFocus; a click on the scrim around the form closes it too. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="chat-dialog-scrim"
   role="dialog"
@@ -63,12 +66,7 @@
   aria-label="Turn into task"
   tabindex="-1"
   onclick={(e) => e.target === e.currentTarget && onclose()}
-  onkeydown={(e) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onclose();
-    }
-  }}
+  use:trapFocus={{ onescape: onclose }}
 >
   <form class="chat-dialog" aria-label="Turn into task" onsubmit={save}>
     <h3>Turn into task</h3>

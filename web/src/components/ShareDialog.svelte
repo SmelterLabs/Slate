@@ -10,6 +10,7 @@
   import type { AccessRow, Account, Level, Member } from '../lib/types';
   import Icon from './Icon.svelte';
   import InvitationPanel from './InvitationPanel.svelte';
+  import { trapFocus } from '../lib/focustrap';
 
   let { kind, id }: { kind: 'section' | 'list'; id: string } = $props();
 
@@ -107,10 +108,8 @@
   const close = () => board.closeShare();
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && close()} />
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={close}></button>
-<div class="settings share-dialog" role="dialog" aria-label="Share {target?.name ?? kind}" aria-modal="true">
+<div class="settings share-dialog" role="dialog" aria-label="Share {target?.name ?? kind}" aria-modal="true" use:trapFocus={{ onescape: close }}>
   <div class="drawer-top">
     <h2><Icon name="share" size={16} /> Share {target?.name ?? ''}</h2>
     <button class="icon" aria-label="Close" onclick={close}>✕</button>

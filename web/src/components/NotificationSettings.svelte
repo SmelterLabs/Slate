@@ -26,6 +26,7 @@
   import { board } from '../lib/store.svelte';
   import { ago } from '../lib/format';
   import Icon from './Icon.svelte';
+  import { trapFocus } from '../lib/focustrap';
 
   let pstate = $state<PushState | null>(null);
   let devices = $state<PushDevice[]>([]);
@@ -150,14 +151,8 @@
   }
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape') close();
-  }}
-/>
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={close}></button>
-<div class="settings notify-settings" role="dialog" aria-label="Notifications" aria-modal="true">
+<div class="settings notify-settings" role="dialog" aria-label="Notifications" aria-modal="true" use:trapFocus={{ onescape: close }}>
   <div class="drawer-top">
     <h2>Notifications</h2>
     <button class="icon" aria-label="Close" onclick={close}><Icon name="x" size={16} /></button>

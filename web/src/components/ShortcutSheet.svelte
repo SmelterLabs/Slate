@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { trapFocus } from '../lib/focustrap';
   let { onclose }: { onclose: () => void } = $props();
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
   const keys: [string, string][] = [
@@ -25,7 +26,7 @@
 </script>
 
 <button class="drawer-scrim" aria-label="Close shortcuts" onclick={onclose}></button>
-<div class="sheet" role="dialog" aria-label="Keyboard shortcuts">
+<div class="sheet" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" use:trapFocus={{ onescape: onclose }}>
   <h3>Keyboard shortcuts</h3>
   <dl class="keys">
     {#each keys as [k, what] (k)}<dt><kbd>{k}</kbd></dt><dd>{what}</dd>{/each}

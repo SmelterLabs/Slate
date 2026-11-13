@@ -11,7 +11,7 @@
   // On a card an agent is on, the conversation is the action: the reference fields (assignees,
   // dates, tags, list, repeats, estimate, dependencies) fold into one Details line once any is
   // set, and on the phone the thread comes straight after the title instead of under them.
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { api } from '../../lib/api';
   import { stamp } from '../../lib/activity';
   import { purgeLabel } from '../../lib/archive';
@@ -47,6 +47,7 @@
   import PriorityPicker from './PriorityPicker.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import Subtasks from './Subtasks.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   const d = $derived(board.detail);
   // Blocked follows the board's row (item.blocked / item.unblocked land there live).
@@ -276,41 +277,11 @@
     location.hash = board.href({ kind: 'list', id: list.id });
   }
 
-  // A modal dialog: focus moves into the window when it opens, Tab cycles inside it, and the
-  // control that opened it (a card, a favorite chip) gets focus back when it closes.
+  // A modal dialog (lib/focustrap): focus moves into the window when it opens, Tab cycles
+  // inside it, and the control that opened it (a card, a favorite chip) gets focus back when it
+  // closes. Docked, the window is not modal: Tab moves on to the board beside it. Escape stays
+  // with App, which closes whatever is on top of the window first.
   let dialog = $state<HTMLDivElement>();
-  onMount(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    if (dialog && !dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true });
-    return () => {
-      if (previous && previous !== document.body && document.contains(previous)) previous.focus({ preventScroll: true });
-    };
-  });
-  const FOCUSABLE =
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
-  function trapTab(e: KeyboardEvent) {
-    // Docked, the window is not modal: Tab moves on to the board beside it.
-    if (e.key !== 'Tab' || !dialog || docked) return;
-    const active = document.activeElement;
-    // Something over the window (the viewer, the palette, a floated menu) has focus: its turn.
-    if (active && active !== document.body && !dialog.contains(active)) return;
-    const controls = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length);
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (!first || !last) {
-      e.preventDefault();
-      dialog.focus();
-    } else if (!controls.includes(active as HTMLElement)) {
-      e.preventDefault();
-      (e.shiftKey ? last : first).focus();
-    } else if (e.shiftKey && active === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
 
   // Size and place. `innerWidth` is bound so a dock's share and the stacking decision follow
   // the screen; the phone layout (<= 760px) is the same stacked body as a narrow dock.
@@ -383,13 +354,14 @@
   let activityWidth = $derived(clampActivity(taskWindow.activity, shown));
 </script>
 
-<svelte:window onkeydown={trapTab} bind:innerWidth />
+<svelte:window bind:innerWidth />
 
 {#if !docked}
   <button class="tw-scrim" aria-label="Close task" tabindex="-1" onclick={() => board.close()}></button>
 {/if}
 <div
   bind:this={dialog}
+  use:trapFocus={{ enabled: !docked }}
   class="tw"
   class:docked
   class:stacked

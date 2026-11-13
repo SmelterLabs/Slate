@@ -12,6 +12,7 @@
     type StatusDraft,
   } from '../lib/structure';
   import type { List, StatusKind } from '../lib/types';
+  import { trapFocus } from '../lib/focustrap';
 
   let { list }: { list: List } = $props();
 
@@ -98,15 +99,9 @@
   }
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape') board.closeListSettings();
-  }}
-/>
-
 <button class="drawer-scrim" aria-label="Close" tabindex="-1" onclick={() => board.closeListSettings()}
 ></button>
-<div class="settings" role="dialog" aria-label="List settings" aria-modal="true">
+<div class="settings" role="dialog" aria-label="List settings" aria-modal="true" use:trapFocus={{ onescape: () => board.closeListSettings() }}>
   <div class="drawer-top">
     <h2>List settings</h2>
     <button class="icon" aria-label="Close" onclick={() => board.closeListSettings()}>✕</button>

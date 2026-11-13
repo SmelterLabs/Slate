@@ -9,6 +9,7 @@
   import { task } from '../../lib/task.svelte';
   import DocumentPreview from '../files/DocumentPreview.svelte';
   import Icon from './Icon.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   const view = $derived(task.viewing);
   const all = $derived(task.media());
@@ -53,6 +54,7 @@
     aria-label="Viewing {view.a.filename}"
     tabindex="-1"
     onkeydown={onKey}
+    use:trapFocus={{ onescape: () => task.closeViewer() }}
   >
     <header>
       <span class="name" title={view.a.filename}>{view.a.filename}</span>

@@ -4,6 +4,7 @@
   // doc (the note defaults to "First upload") and for the next revision of one.
   import { fileSize } from '../../lib/activity';
   import Icon from '../Icon.svelte';
+  import { trapFocus } from '../../lib/focustrap';
 
   let {
     title,
@@ -33,7 +34,7 @@
 </script>
 
 <div class="picker-scrim" role="presentation" onclick={onclose}></div>
-<div class="picker upload-sheet" role="dialog" aria-label={title}>
+<div class="picker upload-sheet" role="dialog" aria-modal="true" aria-label={title} use:trapFocus={{ onescape: onclose }}>
   <header>{title}</header>
   <form
     class="upload-form"
