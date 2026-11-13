@@ -77,6 +77,13 @@ describe('the page tree', () => {
   });
 });
 
+describe('slash commands', () => {
+  it('matches slash commands', () => {
+    expect(matchCommands('tab')[0].id).toBe('table');
+    expect(matchCommands('todo')[0].id).toBe('check');
+  });
+});
+
 describe('selection helpers', () => {
   it('counts which appearance a selection is', () => {
     expect(occurrenceAt('call Bob, call Bob', 'call Bob', 10)).toBe(1);

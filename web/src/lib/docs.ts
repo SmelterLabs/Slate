@@ -213,6 +213,53 @@ export function descendants(id: string, docs: DocSummary[]): Set<string> {
   return out;
 }
 
+// --- slash commands --------------------------------------------------------------------------
+
+export const TABLE_BLOCK = '| Column | Column | Column |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
+
+export interface SlashCommand {
+  id: string;
+  label: string;
+  hint: string;
+  keywords: string;
+  icon: string;
+}
+
+export const SLASH_COMMANDS: SlashCommand[] = [
+  { id: 'h1', label: 'Heading 1', hint: '#', keywords: 'title big h1', icon: 'H1' },
+  { id: 'h2', label: 'Heading 2', hint: '##', keywords: 'subtitle h2', icon: 'H2' },
+  { id: 'h3', label: 'Heading 3', hint: '###', keywords: 'h3 small', icon: 'H3' },
+  { id: 'check', label: 'Checklist', hint: '- [ ]', keywords: 'todo task box tick', icon: '☑' },
+  { id: 'bullet', label: 'Bulleted list', hint: '-', keywords: 'ul unordered', icon: '•' },
+  { id: 'number', label: 'Numbered list', hint: '1.', keywords: 'ol ordered', icon: '1.' },
+  { id: 'table', label: 'Table', hint: '| |', keywords: 'grid columns rows', icon: '⊞' },
+  { id: 'quote', label: 'Quote', hint: '>', keywords: 'blockquote callout', icon: '❝' },
+  { id: 'callout', label: 'Callout', hint: '> 💡', keywords: 'note tip info highlight', icon: '💡' },
+  { id: 'code', label: 'Code block', hint: '```', keywords: 'snippet pre', icon: '</>' },
+  { id: 'divider', label: 'Divider', hint: '---', keywords: 'hr line rule separator', icon: '—' },
+  { id: 'image', label: 'Image', hint: 'Upload', keywords: 'picture photo file upload screenshot', icon: '🖼' },
+  { id: 'task', label: 'Embed a task', hint: 'Live card', keywords: 'card link existing', icon: '◉' },
+  { id: 'newtask', label: 'New task', hint: 'Files a task here', keywords: 'create add todo', icon: '＋' },
+  { id: 'page', label: 'Link to page', hint: 'Another doc', keywords: 'doc mention reference', icon: '📄' },
+  { id: 'subpage', label: 'New subpage', hint: 'Nested page', keywords: 'child nested page', icon: '↳' },
+  { id: 'date', label: 'Today’s date', hint: 'Oct 24', keywords: 'now time stamp', icon: '📅' },
+];
+
+export function matchCommands(query: string, cmds: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return cmds;
+  const words = q.split(/\s+/);
+  const scored = cmds
+    .map((c) => {
+      const label = c.label.toLowerCase();
+      const hay = `${label} ${c.keywords}`;
+      if (!words.every((w) => hay.includes(w))) return null;
+      return { c, score: label.startsWith(q) ? 0 : label.includes(q) ? 1 : 2 };
+    })
+    .filter((x): x is { c: SlashCommand; score: number } => x !== null);
+  return scored.sort((a, b) => a.score - b.score).map((x) => x.c);
+}
+
 /** Which appearance (from 0) of `needle` begins at `at`; matches the server's search. */
 export function occurrenceAt(text: string, needle: string, at: number): number {
   let n = 0;

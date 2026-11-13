@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, seed } from './seed';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.

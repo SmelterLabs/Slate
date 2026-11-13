@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceDay } from '../src/lib/quickadd';
-import { addDays } from '../src/lib/views';
+import { addDays } from '../src/lib/when';
 import { BASE_URL, seed } from './seed';
 
 const shots = process.env.SLATE_RECUR_SHOTS ?? null;

@@ -4,7 +4,8 @@
   import { dateInput } from '../lib/format';
   import { board } from '../lib/store.svelte';
   import type { Item } from '../lib/types';
-  import { addDays, quickDays, weekday } from '../lib/views';
+  import { quickDays } from '../lib/views';
+  import { addDays, weekday } from '../lib/when';
   import Dropdown from './Dropdown.svelte';
 
   let { item, children, cls = 'pill pill-btn' }: { item: Item; children: Snippet; cls?: string } = $props();
