@@ -1223,7 +1223,7 @@ Request latency per route (time to first byte, last 1,000 requests of each route
 
 Scope: `read` · MCP: `slate_batch run`
 
-Up to 100 operations in one round trip. Each op is an MCP call: `{tool, action, params, ref?}` (tool `item`, `comment`, `list`...; see docs/agents/reference/mcp.md); a string param `$ref.field` uses an earlier op's result. `atomic` (default) commits all or nothing: on a failure the answer is that op's error status with `failed_op` (its index) and nothing is written. `atomic: false` runs each op on its own and reports each slot. Each op needs its own scope (a read token can batch reads).
+Up to 100 operations in one round trip. Each op is an MCP call: `{tool, action, params, ref?}` (tool `item`, `comment`, `list`...; see docs/agents/reference/mcp.md); a string param `$ref.field` uses an earlier op's result. `atomic` (default) commits all or nothing: on a failure the answer is that op's error status with `failed_op` (its index) and nothing is written. `atomic: false` runs each op on its own and reports each slot. Each op needs its own scope (a read token can batch reads). An op that long-polls (`wait` above 0) is refused: a batch never waits.
 
 - Body: `BatchIn`: `ops`\*, `atomic`, `views`
 - Returns: `200` [BatchOut](#batchout)

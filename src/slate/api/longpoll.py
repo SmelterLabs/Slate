@@ -20,11 +20,20 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from slate.service.bus import bus
+from slate.service.core import in_change
 
 MAX_WAIT = 60  # seconds; below the usual 60-100 s proxy and MCP client timeouts
 
 
+def _not_in_change(session: Session, wait: float) -> None:
+    # A wait inside apply_change() would sleep holding the write lock, and the rollback
+    # between attempts would throw away the change's earlier writes.
+    if wait > 0 and in_change(session):
+        raise RuntimeError("a long-poll cannot wait inside a change (apply_change)")
+
+
 async def wait_async[T](attempt: Callable[[], T | None], wait: float, session: Session) -> T | None:
+    _not_in_change(session, wait)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + max(0.0, wait)
     async with bus.subscribe() as sub:
@@ -41,6 +50,7 @@ async def wait_async[T](attempt: Callable[[], T | None], wait: float, session: S
 
 
 def wait_sync[T](attempt: Callable[[], T | None], wait: float, session: Session) -> T | None:
+    _not_in_change(session, wait)
     deadline = time.monotonic() + max(0.0, wait)
     while True:
         seq = bus.seq
