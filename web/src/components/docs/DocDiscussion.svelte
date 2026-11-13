@@ -9,13 +9,14 @@
   // The gesture picks the surface: select text or click the file to start a review thread;
   // type in the box at the bottom for discussion.
   import { tick } from 'svelte';
-  import { highlightMentions, insertMention, mentionAt, stamp } from '../../lib/activity';
+  import { highlightMentions, stamp } from '../../lib/activity';
   import { anchorLabel, docEventLine, feedRows, threadsOf, type Anchor, type DocComment, type Thread } from '../../lib/docs';
   import { docs } from '../../lib/docs.svelte';
   import { DRAFT_MAX_CHARS, draftKey, readDraft } from '../../lib/drafts';
   import { persisted } from '../../lib/drafts.svelte';
   import { ago } from '../../lib/format';
   import { renderMarkdown } from '../../lib/markdown';
+  import { isSendKey, MentionPicker } from '../../lib/mentions.svelte';
   import { board } from '../../lib/store.svelte';
   import type { Account } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
@@ -75,50 +76,23 @@
   const ask = persisted(() => key('discussion-ask'));
   let sending = $state(false);
   let area = $state<HTMLTextAreaElement>();
-  let mention = $state<{ start: number; query: string } | null>(null);
-  let active = $state(0);
+  const picker = new MentionPicker(() => board.pickable);
   const askable = $derived(board.pickable.filter((a) => a.id !== me));
-  const people = $derived.by(() => {
-    if (!mention) return [] as Account[];
-    const q = mention.query;
-    return board.pickable
-      .filter((a) => !q || a.handle.startsWith(q) || a.display_name.toLowerCase().includes(q))
-      .sort((a, b) => Number(!a.handle.startsWith(q)) - Number(!b.handle.startsWith(q)) || a.display_name.localeCompare(b.display_name))
-      .slice(0, 6);
-  });
   function track() {
-    if (!area) return;
-    mention = mentionAt(body.value, area.selectionStart);
-    active = 0;
+    if (area) picker.track(body.value, area.selectionStart);
   }
   function pickPerson(a: Account) {
-    if (!mention || !area) return;
-    const out = insertMention(body.value, mention.start, area.selectionStart, a.handle);
+    const out = area && picker.insert(body.value, area.selectionStart, a);
+    if (!out) return;
     body.value = out.text;
-    mention = null;
     queueMicrotask(() => {
       area?.focus();
       area?.setSelectionRange(out.caret, out.caret);
     });
   }
   function keys(e: KeyboardEvent) {
-    if (mention && people.length) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        active = (active + (e.key === 'ArrowDown' ? 1 : -1) + people.length) % people.length;
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        pickPerson(people[active]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        mention = null;
-        return;
-      }
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (picker.keydown(e, pickPerson)) return;
+    if (isSendKey(e)) {
       e.preventDefault();
       void send();
     }
@@ -134,7 +108,7 @@
     if (c && owner === key('discussion') && body.value === sent && unchangedStored(owner, sent)) {
       body.value = '';
       ask.value = '';
-      mention = null;
+      picker.close();
       await tick();
       feed?.scrollTo({ top: feed.scrollHeight });
     }
@@ -240,10 +214,10 @@
       {/each}
     </div>
     <div class="dd-compose">
-      {#if mention && people.length}
+      {#if picker.open}
         <ul class="dd-people" role="listbox">
-          {#each people as a, i (a.id)}
-            <li><button role="option" aria-selected={i === active} class:active={i === active} onmousedown={(e) => e.preventDefault()} onclick={() => pickPerson(a)}>@{a.handle} <span class="muted">{a.display_name}</span></button></li>
+          {#each picker.people as a, i (a.id)}
+            <li><button role="option" aria-selected={i === picker.active} class:active={i === picker.active} onmousedown={(e) => e.preventDefault()} onclick={() => pickPerson(a)}>@{a.handle} <span class="muted">{a.display_name}</span></button></li>
           {/each}
         </ul>
       {/if}
@@ -341,7 +315,7 @@
       {/if}
     </div>
     {#if editing === c.id}
-      <textarea class="dd-edit-box" bind:value={editText} rows="3" aria-label="Edit comment" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void saveEdit(c); } if (e.key === 'Escape') editing = null; }}></textarea>
+      <textarea class="dd-edit-box" bind:value={editText} rows="3" aria-label="Edit comment" onkeydown={(e) => { if (isSendKey(e)) { e.preventDefault(); void saveEdit(c); } if (e.key === 'Escape') editing = null; }}></textarea>
       <div class="dd-compose-row"><button class="secondary" onclick={() => (editing = null)}>Cancel</button><button class="primary" onclick={() => void saveEdit(c)}>Save</button></div>
     {:else}
       <div class="md dd-body">{@html html(c)}</div>
@@ -375,7 +349,7 @@
     <div class="dd-thread-tools">
       {#if replyTo === t.root.id}
         <!-- svelte-ignore a11y_autofocus -->
-        <textarea bind:value={replyText.value} rows="2" placeholder="Reply…" aria-label="Reply" autofocus onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendReply(t.root); } if (e.key === 'Escape') replyTo = null; }}></textarea>
+        <textarea bind:value={replyText.value} rows="2" placeholder="Reply…" aria-label="Reply" autofocus onkeydown={(e) => { if (isSendKey(e)) { e.preventDefault(); void sendReply(t.root); } if (e.key === 'Escape') replyTo = null; }}></textarea>
         <div class="dd-compose-row"><button class="secondary" onclick={() => { replyText.value = ''; replyTo = null; }}>Cancel</button><button class="primary" disabled={!replyText.value.trim() || sending} onclick={() => void sendReply(t.root)}>Reply</button></div>
       {:else}
         <button class="link small" onclick={() => { replyTo = t.root.id; }}><Icon name="reply" size={12} /> Reply</button>

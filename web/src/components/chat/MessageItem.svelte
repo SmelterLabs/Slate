@@ -12,6 +12,7 @@
   import { draftKey, readDraft } from '../../lib/drafts';
   import { saveDraft } from '../../lib/drafts.svelte';
   import { ago, dueLabel, isOverdue } from '../../lib/format';
+  import { isSendKey } from '../../lib/mentions.svelte';
   import { liveRefs } from '../../lib/refs.svelte';
   import { board } from '../../lib/store.svelte';
   import Avatars from '../Avatars.svelte';
@@ -114,7 +115,7 @@
   }
 
   function editKeys(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (isSendKey(e)) {
       e.preventDefault();
       void saveEdit();
     } else if (e.key === 'Escape') {

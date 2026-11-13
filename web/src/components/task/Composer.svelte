@@ -6,10 +6,11 @@
   // the comment, which the activity column shows as the picture (lib/activity `commentFiles`)
   // and an agent reads as the name of the file meant.
   import { untrack } from 'svelte';
-  import { fileLine, fileSize, insertMention, mentionAt } from '../../lib/activity';
+  import { fileLine, fileSize } from '../../lib/activity';
   import { askFor } from '../../lib/conversation';
   import { draftKey } from '../../lib/drafts';
   import { persisted } from '../../lib/drafts.svelte';
+  import { isSendKey, MentionPicker } from '../../lib/mentions.svelte';
   import { board } from '../../lib/store.svelte';
   import { task } from '../../lib/task.svelte';
   import type { Account, Attachment } from '../../lib/types';
@@ -25,8 +26,7 @@
   const draft = persisted(() => draftKey.comment(itemId));
   let area = $state<HTMLTextAreaElement>();
   let sending = $state(false);
-  let mention = $state<{ start: number; query: string } | null>(null);
-  let active = $state(0);
+  const picker = new MentionPicker(() => board.pickable);
   /** Ask: the handle this comment is addressed to ('' = a plain comment). */
   let ask = $state('');
   /** The viewer picked someone (or "no one") by hand: the default stops following the card. */
@@ -44,15 +44,6 @@
   // Asking yourself is never what you mean: the picker lists everyone else.
   const askable = $derived(board.pickable.filter((a) => a.id !== board.me?.account.id));
   const askName = $derived(board.pickable.find((a) => a.handle === ask)?.display_name ?? ask);
-
-  const people = $derived.by(() => {
-    if (!mention) return [] as Account[];
-    const q = mention.query;
-    return board.pickable
-      .filter((a) => (!q || a.handle.startsWith(q) || a.display_name.toLowerCase().includes(q)))
-      .sort((a, b) => Number(!a.handle.startsWith(q)) - Number(!b.handle.startsWith(q)) || a.display_name.localeCompare(b.display_name))
-      .slice(0, 6);
-  });
 
   /** Put "@handle " in the box (Reply on a comment uses this). */
   export function mentionPerson(handle: string) {
@@ -82,16 +73,13 @@
   }
 
   function track() {
-    if (!area) return;
-    mention = mentionAt(draft.value, area.selectionStart);
-    active = 0;
+    if (area) picker.track(draft.value, area.selectionStart);
   }
 
   function pick(a: Account) {
-    if (!mention || !area) return;
-    const out = insertMention(draft.value, mention.start, area.selectionStart, a.handle);
+    const out = area && picker.insert(draft.value, area.selectionStart, a);
+    if (!out) return;
     draft.value = out.text;
-    mention = null;
     queueMicrotask(() => {
       area?.focus();
       area?.setSelectionRange(out.caret, out.caret);
@@ -170,24 +158,8 @@
   }
 
   function keys(e: KeyboardEvent) {
-    if (mention && people.length) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        active = (active + (e.key === 'ArrowDown' ? 1 : people.length - 1)) % people.length;
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        pick(people[active]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        mention = null;
-        return;
-      }
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (picker.keydown(e, pick)) return;
+    if (isSendKey(e)) {
       e.preventDefault();
       void send();
     } else if (e.key === 'Escape') {
@@ -198,10 +170,10 @@
 </script>
 
 <div class="composer">
-  {#if mention && people.length}
+  {#if picker.open}
     <ul class="mentions" role="listbox" aria-label="Mention someone">
-      {#each people as a, i (a.id)}
-        <li role="option" aria-selected={i === active}>
+      {#each picker.people as a, i (a.id)}
+        <li role="option" aria-selected={i === picker.active}>
           <button onmousedown={(e) => e.preventDefault()} onclick={() => pick(a)}>
             <Avatars people={[a]} />
             <span>{a.display_name}</span>
@@ -245,7 +217,7 @@
     onpaste={paste}
     ondrop={drop}
     onkeyup={(e) => (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && track()}
-    onblur={() => setTimeout(() => (mention = null), 150)}
+    onblur={() => setTimeout(() => picker.close(), 150)}
   ></textarea>
   <div class="bar">
     <button class="icon" type="button" title="Mention someone" aria-label="Mention someone" onclick={() => {

@@ -22,6 +22,7 @@
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
   import { verb } from '../../lib/history';
+  import { isSendKey } from '../../lib/mentions.svelte';
   import { renderMarkdown } from '../../lib/markdown';
   import { liveRefs } from '../../lib/refs.svelte';
   import { ApiError } from '../../lib/api';
@@ -321,7 +322,7 @@
               rows="3"
               bind:value={() => editText, (v) => setEditText(c, v)}
               onkeydown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (isSendKey(e)) {
                   e.preventDefault();
                   void saveEdit(c);
                 }
