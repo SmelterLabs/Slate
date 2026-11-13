@@ -4,28 +4,18 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { api, BASE_URL, seed, signIn } from './support';
+import { api, signIn, upload } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-async function upload(token: string, itemId: string, name: string, type: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/items/${itemId}/attachments?filename=${name}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': type },
-    body: readFileSync(join(here, 'fixtures', name)),
-  });
-  expect(res.status).toBe(201);
-}
-
 test('a Word file and a workbook open in the viewer, full size', async ({ page }) => {
-  const { alex } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Events', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Quotes' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Project scope review' });
-  await upload(alex, item.id, 'scope.docx', DOCX);
-  await upload(alex, item.id, 'quote.xlsx', XLSX);
+  await upload(`/items/${item.id}/attachments?filename=scope.docx`, readFileSync(join(here, 'fixtures', 'scope.docx')), DOCX);
+  await upload(`/items/${item.id}/attachments?filename=quote.xlsx`, readFileSync(join(here, 'fixtures', 'quote.xlsx')), XLSX);
 
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
@@ -58,11 +48,10 @@ test('a Word file and a workbook open in the viewer, full size', async ({ page }
 });
 
 test('a Word file longer than the screen stays on its white page to the last line', async ({ page }) => {
-  const { alex } = seed();
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Long docs', audience: 'personal' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Quotes' });
   const item = await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Questions for the quote' });
-  await upload(alex, item.id, 'long.docx', DOCX);
+  await upload(`/items/${item.id}/attachments?filename=long.docx`, readFileSync(join(here, 'fixtures', 'long.docx')), DOCX);
 
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);

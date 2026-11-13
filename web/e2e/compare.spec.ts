@@ -1,22 +1,13 @@
 // Compare revisions: a CSV's changed cell is painted old → new with the added row marked; a
 // text file shows a side-by-side diff; a page's history has a side-by-side tab.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
-
-async function upload(docId: string, token: string, name: string, type: string, note: string, body: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': type, Authorization: `Bearer ${token}` },
-    body,
-  });
-  expect(res.ok, `upload -> ${res.status}`).toBe(true);
-}
+import { addRevision, api, seed, signIn } from './support';
 
 test('a spreadsheet compare paints the changed cell and the added row', async ({ page }) => {
   const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Price sheet', list_id: listId }, agent);
-  await upload(doc.id, agent, 'quote.csv', 'text/csv', 'First quote', 'item,price\ntickets,120\n');
-  await upload(doc.id, agent, 'quote.csv', 'text/csv', 'Price up, flyers added', 'item,price\ntickets,135\nflyers,1\n');
+  await addRevision(doc.id, 'quote.csv', 'item,price\ntickets,120\n', { note: 'First quote', type: 'text/csv', token: agent });
+  await addRevision(doc.id, 'quote.csv', 'item,price\ntickets,135\nflyers,1\n', { note: 'Price up, flyers added', type: 'text/csv', token: agent });
 
   await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
@@ -38,8 +29,8 @@ test('a spreadsheet compare paints the changed cell and the added row', async ({
 test('a text file compares side by side, and a page history has the same view', async ({ page }) => {
   const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Schedule', list_id: listId }, agent);
-  await upload(doc.id, agent, 'notes.txt', 'text/plain', 'first', 'Doors 6 pm\nDinner 7 pm\n');
-  await upload(doc.id, agent, 'notes.txt', 'text/plain', 'music added', 'Doors 6 pm\nDinner 8 pm\nMusic 9 pm\n');
+  await addRevision(doc.id, 'notes.txt', 'Doors 6 pm\nDinner 7 pm\n', { note: 'first', token: agent });
+  await addRevision(doc.id, 'notes.txt', 'Doors 6 pm\nDinner 8 pm\nMusic 9 pm\n', { note: 'music added', token: agent });
 
   await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);

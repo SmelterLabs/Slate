@@ -3,16 +3,7 @@
 // revision upload that appears as a folded activity line, and a thread that reads as outdated
 // once the file moves on. The panel follows live changes from an agent.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
-
-async function upload(docId: string, token: string, note: string, body: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent('venue.png')}&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${token}` },
-    body,
-  });
-  expect(res.ok, `upload -> ${res.status}`).toBe(true);
-}
+import { addRevision, api, seed, signIn } from './support';
 
 // A 1x1 PNG, enough for the image viewer.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64').toString('binary');
@@ -81,7 +72,7 @@ test('discussion, a review thread from a selection, and Accept on a page', async
 test('a pin on an image, and a thread reads as outdated after the next revision', async ({ page }) => {
   const { agent, listId } = seed();
   const doc = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Venue photo', list_id: listId });
-  await upload(doc.id, agent, 'First shot', PNG);
+  await addRevision(doc.id, 'venue.png', PNG, { note: 'First shot', type: 'image/png', token: agent });
 
   await signIn(page);
   await page.goto(`/#/docs/${doc.id}`);
@@ -100,7 +91,7 @@ test('a pin on an image, and a thread reads as outdated after the next revision'
 
   // The next revision: the thread folds as outdated, the pin turns stale, and the upload is an
   // activity line in the discussion.
-  await upload(doc.id, agent, 'Re-shot in daylight', PNG);
+  await addRevision(doc.id, 'venue.png', PNG, { note: 'Re-shot in daylight', type: 'image/png', token: agent });
   await expect(page.getByTestId('file-meta')).toContainText('Revision 2');
   await expect(panel.locator('[data-thread-folded]')).toContainText('Outdated · on rev 1');
   await page.getByRole('tab', { name: /Discussion/ }).click();

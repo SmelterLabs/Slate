@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workspaceDay } from '../src/lib/quickadd';
-import { api, BASE_URL, seed, signedIn } from './support';
+import { api, signedIn } from './support';
 
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
@@ -314,11 +314,7 @@ test('assignee picker: each tick saves at once, rows sit on one line, Escape and
   expect(await handles()).toEqual(['agent', 'alex']);
 
   // Off the boards again, so the Everything specs' No due date column keeps its count.
-  const del = await fetch(`${BASE_URL}/api/v1/items/${item.id}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${seed().alex}` },
-  });
-  expect(del.ok).toBe(true);
+  await api('DELETE', `/items/${item.id}`);
 });
 
 test('make an item recurring on the 2nd and 4th Wednesday with a live preview', async ({

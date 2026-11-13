@@ -2,16 +2,7 @@
 // into it, read it with the rail and discussion, pin a revision as the one in use, see the
 // drawer on the project home, and turn a page with subpages into a drawer.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
-
-async function upload(docId: string, token: string, name: string, note: string, body: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Authorization: `Bearer ${token}` },
-    body,
-  });
-  expect(res.ok).toBe(true);
-}
+import { addRevision, api, BASE_URL, seed, signIn } from './support';
 
 test('a drawer from the sidebar: folder, upload, reading state, pin, move', async ({ page }) => {
   const { alex, agent } = seed();
@@ -76,7 +67,7 @@ test('a drawer from the sidebar: folder, upload, reading state, pin, move', asyn
   await expect(page.getByRole('complementary', { name: 'Discussion' })).toBeVisible();
   await expect(page.getByTestId('file-meta')).toContainText('Revision 1');
   const docId = new URLSearchParams(page.url().split('?')[1]).get('doc')!;
-  await upload(docId, agent, 'notes.txt', 'Updated text', 'Hello again\n');
+  await addRevision(docId, 'notes.txt', 'Hello again\n', { note: 'Updated text', token: agent });
   await expect(page.getByTestId('file-meta')).toContainText('Revision 2');
   await page.getByRole('button', { name: 'Revisions' }).click();
   const rev1 = page.getByRole('complementary', { name: 'Revisions' }).locator('.rev-item[data-revision="1"]');

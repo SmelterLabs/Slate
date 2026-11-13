@@ -1,19 +1,9 @@
 // The Docs & Files tree sort reorders the rows as soon as it changes, without a reload. The hub
 // spec only checks that a row stays visible after a sort; this one checks the order itself.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
-
-async function upload(docId: string, token: string, note: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=a.txt&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Authorization: 'Bearer ' + token },
-    body: note,
-  });
-  expect(res.ok).toBe(true);
-}
+import { addRevision, api, signIn } from './support';
 
 test('changing the sort reorders the tree at once', async ({ page }) => {
-  const { alex } = seed();
   const stamp = Date.now();
   const sec = await api<{ id: string }>('POST', '/sections', { name: `Sort ${stamp}`, audience: 'work' });
   await api('PATCH', `/sections/${sec.id}`, { private: true });
@@ -21,7 +11,7 @@ test('changing the sort reorders the tree at once', async ({ page }) => {
   // Created in tree order Charlie, Alpha, Bravo; Bravo is changed last.
   for (const t of ['Charlie', 'Alpha', 'Bravo']) {
     const d = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: `${t} ${stamp}`, section_id: sec.id });
-    await upload(d.id, alex, `${t} v1`);
+    await addRevision(d.id, 'a.txt', `${t} v1`, { note: `${t} v1` });
     ids.push(d.id);
   }
 

@@ -1,16 +1,7 @@
 // The documents hub on a project home (drawers, pages, Needs you), the tree's kind
 // filter and sort, and tags on a doc.
 import { expect, test } from '@playwright/test';
-import { api, BASE_URL, seed, signIn } from './support';
-
-async function upload(docId: string, token: string, note: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/docs/${docId}/revisions?filename=spec.txt&note=${encodeURIComponent(note)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Authorization: `Bearer ${token}` },
-    body: 'hello',
-  });
-  expect(res.ok).toBe(true);
-}
+import { addRevision, api, seed, signIn } from './support';
 
 test('the project home shows drawers, pages and what needs you', async ({ page }) => {
   const { agent } = seed();
@@ -21,7 +12,7 @@ test('the project home shows drawers, pages and what needs you', async ({ page }
   await api('PUT', '/shares', { account_id: me.account.id, scope_kind: 'section', scope_id: section.id, level: 'edit' });
   const drawer = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Hub contracts', kind: 'drawer' });
   const spec = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: 'Hub spec', list_id: drawer.id }, agent);
-  await upload(spec.id, agent, 'First draft for Alex');
+  await addRevision(spec.id, 'spec.txt', 'hello', { note: 'First draft for Alex', token: agent });
   const plan = await api<{ id: string }>('POST', '/docs', { title: 'Hub plan', section_id: section.id, body_md: 'Seat 12 guests.' });
   await api('POST', `/docs/${spec.id}/comments`, { body_md: 'Is this the rev the venue signed?', assignee: 'alex' }, agent);
   await api('POST', `/docs/${plan.id}/comments`, { body_md: 'Should be 14', anchor: { quote: 'Seat 12 guests.' } }, agent);
@@ -44,11 +35,11 @@ test('the project home shows drawers, pages and what needs you', async ({ page }
 });
 
 test('the tree filters by kind and sorts, and a doc takes tags', async ({ page }) => {
-  const { alex, listId } = seed();
+  const { listId } = seed();
   const stamp = Date.now();
   const pg = await api<{ id: string }>('POST', '/docs', { title: `Filter page ${stamp}`, list_id: listId });
   const file = await api<{ id: string }>('POST', '/docs', { kind: 'file', title: `Filter file ${stamp}`, list_id: listId });
-  await upload(file.id, alex, 'first');
+  await addRevision(file.id, 'spec.txt', 'hello', { note: 'first' });
 
   await signIn(page);
   await page.goto('/#/docs');

@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { api, BASE_URL, seed, signIn } from './support';
+import { api, seed, signIn, upload } from './support';
 
 const shots = process.env.SLATE_SCREENSHOTS
   ? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'img')
@@ -46,12 +46,7 @@ test('the task window: link, checklists, tick boxes, files, reactions, watching,
   await api('POST', `/items/${item.id}/comments`, {
     body_md: 'Found two models under budget. @alex which do you prefer?',
   }, agent);
-  const up = await fetch(`${BASE_URL}/api/v1/items/${item.id}/attachments?filename=opener.png`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${agent}`, 'Content-Type': 'image/png' },
-    body: PNG,
-  });
-  expect(up.status).toBe(201);
+  await upload(`/items/${item.id}/attachments?filename=opener.png`, PNG, 'image/png', agent);
   await api('PATCH', `/items/${item.id}`, { status: 'In progress' }, agent);
 
   // A link with ?task= opens the window.
