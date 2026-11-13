@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session, aliased
 
 from slate.models import Item, ItemLink, LinkKind, Status, StatusKind, utcnow
 from slate.service.core import Actor, Change, apply_change
-from slate.service.errors import Invalid, NotFound
+from slate.service.errors import Invalid
 
 KINDS = ("blocks", "blocked_by", "relates", "duplicate_of", "duplicated_by")
 # The link fields of an item view (and of `GET /items/{id}/links`).
@@ -48,10 +48,9 @@ _MIRROR = {
 
 
 def _get(session: Session, item_id: str) -> Item:
-    item = session.get(Item, item_id)
-    if item is None:
-        raise NotFound(f"item {item_id} not found")
-    return item
+    from slate.service.items import get_item  # items imports this module
+
+    return get_item(session, item_id)
 
 
 def _normal(item_id: str, kind: str, other_id: str) -> tuple[str, str, LinkKind]:
