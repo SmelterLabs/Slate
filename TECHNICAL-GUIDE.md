@@ -51,7 +51,8 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `crypto.py` | AES-GCM for webhook and automation secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
 | `scheduler.py` | The asyncio tick loop and `hooks`/`POLLERS` (`docs/recurrence.md`). |
-| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `post_capped`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
+| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
+| `outbound.py` | The one outbound POST (webhooks, automation webhooks, Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
 | `automator.py`, `pusher.py`, `emailer.py` | Bus-woken engine loops for automations, Web Push and email notifications (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
 | `webpush.py` | Web Push protocol: VAPID, ES256 JWT, aes128gcm. |
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |

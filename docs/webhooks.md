@@ -32,10 +32,13 @@ How Slate tells agents about changes without them holding a stream open. Code: `
   `nas` or a docker service name; a Tailscale MagicDNS name; a name ending `.local`, `.internal`, `.lan`,
   `.home.arpa`) are refused unless the server runs with `SLATE_WEBHOOK_PRIVATE_TARGETS=true`, and
   then plain `http://` is allowed to them too. The name is judged as written when saved and resolved
-  again before every send: a public name that resolves to a private address fails the delivery for
-  good. Delivery errors carry the HTTP status, never the receiver's response body.
-  `webhooks.validate_url` is the check at save and `check_target()` the one at send; automation
-  `webhook` actions use the same two.
+  once before every send: a public name that resolves to a private address fails the delivery for
+  good, and a name that does not resolve is a network error (retried), never a pass. The
+  connection goes to exactly the addresses that were checked (`slate/outbound.py`), keeping the
+  URL's name as the Host header and the TLS server name, so a name that answers differently the
+  second time (DNS rebinding) cannot reach another host. Delivery errors carry the HTTP status,
+  never the receiver's response body. `webhooks.validate_url` is the check at save and
+  `check_target()` the one at send; automation `webhook` actions and Web Push use the same.
 - **`slate check-targets`** (`cli.check_targets`, `webhooks.private_targets`): lists every live
   webhook and enabled automation `webhook` action whose URL names a private address and exits 1 if
   any, so a deploy can stop and decide (`deploy/server/RUNBOOK.md`, "Before a deploy that changes
@@ -74,13 +77,19 @@ apply_change() commits ──► bus.publish ──(doorbell)──► Dispatche
   shape of their own. Built once per event at fan-out and stored in
   `deliveries.body`, so retries send identical bytes.
 - **Headers:** `Content-Type: application/json`, `X-Slate-Event: <type>`, `X-Slate-Delivery:
-  <attempt row id>` (new per attempt; dedupe on the body's `id` = event id), `X-Slate-Signature:
-  sha256=<hex HMAC-SHA256(secret, raw body)>`, `User-Agent: Slate/<version>`.
-- **Timeout** `SLATE_WEBHOOK_TIMEOUT_SECONDS` (10). Redirects are not followed (a 3xx is a final
-  failure).
-- **Responses are drained, never kept** (`notify.post_capped`; `automator.send` does the same):
-  streamed, at most 64 KB, abandoned at a wall-clock deadline of the timeout (httpx's timeout is per
-  operation, so a dripping body would never end), and the delivery error carries the status only
+  <attempt row id>` (new per attempt; dedupe on the body's `id` = event id), `X-Slate-Timestamp:
+  <Unix seconds>`, `X-Slate-Signature-V2: sha256=<hex HMAC-SHA256(secret, "<timestamp>." + raw
+  body)>` (preferred: reject a timestamp more than five minutes old and a captured delivery
+  cannot be replayed later), `X-Slate-Signature: sha256=<hex HMAC-SHA256(secret, raw body)>`
+  (body only, still sent for receivers that check it), `User-Agent: Slate/<version>`.
+  `outbound.signed_headers` makes the three signature headers for every sender.
+- **Timeout** `SLATE_WEBHOOK_TIMEOUT_SECONDS` (10), one wall-clock deadline for the whole exchange:
+  connecting, TLS, the response headers and the body (`outbound.post` gives every socket read and
+  write only what is left of it, so a receiver that drips one byte at a time is cut off at the
+  deadline and the attempt is a network error, retried). Redirects are not followed (a 3xx is a
+  final failure).
+- **Responses are drained, never kept** (`outbound.post`, shared by webhooks, automation webhooks
+  and Web Push): streamed, at most 64 KB, and the delivery error carries the status only
   (echoing the body would let a subscriber read whatever its URL points at). `attempt()` records
   *any* exception as the attempt's error, not only `httpx.HTTPError`, so an unexpected failure (an
   IDNA error in the host name, say) cannot leave a row `sending` for ever.
@@ -114,18 +123,27 @@ apply_change() commits ──► bus.publish ──(doorbell)──► Dispatche
 
 ## Verifying a signature (copy for receivers)
 
-Compute HMAC-SHA256 over the **raw request bytes** (before any JSON parsing), keyed by the
-`whsec_...` secret as UTF-8, and compare in constant time.
+Check `X-Slate-Signature-V2`: compute HMAC-SHA256 over the `X-Slate-Timestamp` value, a `.`,
+and the **raw request bytes** (before any JSON parsing), keyed by the `whsec_...` secret as UTF-8;
+compare in constant time, and reject a timestamp more than five minutes from your clock. The
+older `X-Slate-Signature` (HMAC of the raw body alone) is still sent, but it cannot tell a
+replayed delivery from a new one.
 
 Python:
 
 ```python
-import hashlib, hmac
+import hashlib, hmac, time
 
 
-def verify(secret: str, raw_body: bytes, header: str) -> bool:
-    expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+def verify(secret: str, raw_body: bytes, timestamp: str, header: str) -> bool:
+    if not timestamp.isdigit() or abs(time.time() - int(timestamp)) > 300:
+        return False
+    signed = timestamp.encode() + b"." + raw_body
+    expected = "sha256=" + hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header or "")
+
+
+# verify(secret, body, headers["X-Slate-Timestamp"], headers["X-Slate-Signature-V2"])
 ```
 
 Node (Express; use the raw body, not `express.json()`):
@@ -133,14 +151,19 @@ Node (Express; use the raw body, not `express.json()`):
 ```js
 const crypto = require("crypto");
 
-function verify(secret, rawBody, header) {
-  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+function verify(secret, rawBody, timestamp, header) {
+  if (!/^\d+$/.test(timestamp || "") || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) {
+    return false;
+  }
+  const signed = Buffer.concat([Buffer.from(timestamp + "."), rawBody]);
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(signed).digest("hex");
   const a = Buffer.from(expected), b = Buffer.from(header || "");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 app.post("/slate", express.raw({ type: "application/json" }), (req, res) => {
-  if (!verify(process.env.SLATE_WEBHOOK_SECRET, req.body, req.get("X-Slate-Signature"))) {
+  const secret = process.env.SLATE_WEBHOOK_SECRET;
+  if (!verify(secret, req.body, req.get("X-Slate-Timestamp"), req.get("X-Slate-Signature-V2"))) {
     return res.sendStatus(401);
   }
   const event = JSON.parse(req.body);

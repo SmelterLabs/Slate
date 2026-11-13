@@ -65,7 +65,7 @@ _PRIVATE_REFUSED = (
 def validate_url(url: str) -> str:
     """https to any public host. Private targets (a private IP, localhost, a bare name, a
     tailnet or .local name) only with `SLATE_WEBHOOK_PRIVATE_TARGETS`, and then over plain
-    http too. Judged by the name here; `check_target()` resolves it again at send time."""
+    http too. Judged by the name here; `check_target()` resolves it at send time."""
     url = (url or "").strip()
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -110,23 +110,41 @@ def private_targets(session: Session) -> list[dict[str, Any]]:
     return out
 
 
-def check_target(url: str) -> None:
-    """Send-time check of a validated URL: with private targets off, the host must still be
-    public *and* resolve only to public addresses (a name can be pointed at 127.0.0.1 after it
-    was saved). Raises `Invalid`; a lookup failure is left for the HTTP client to report."""
-    if settings.webhook_private_targets:
-        return
+class LookupFailed(OSError):
+    """The target's name did not resolve: a network error, retried like one."""
+
+
+def lookup(host: str) -> list[str]:
+    """Every address `host` resolves to, in the resolver's order (an IP literal is itself)."""
+    infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+def check_target(url: str) -> list[str]:
+    """Send-time check of a validated URL; returns the addresses to connect to.
+
+    The name is resolved here, once, and the sender connects to exactly these addresses
+    (`slate.outbound`), so a name that answers differently a second time cannot reach another
+    host. With private targets off, the host must still be public *and* every address it
+    resolves to must be public (a name can be pointed at 127.0.0.1 after it was saved):
+    `Invalid` otherwise. A lookup that fails raises `LookupFailed` (fail closed)."""
     host = urlsplit(url).hostname or ""
-    if _private_host(host):
+    if not settings.webhook_private_targets and _private_host(host):
         raise Invalid(_PRIVATE_REFUSED)
     try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
-        return
-    for info in infos:
-        address = str(info[4][0]).split("%")[0]  # a link-local IPv6 answer carries %scope
-        if not ipaddress.ip_address(address).is_global:
-            raise Invalid(f"{host} resolves to a private address, which this Slate does not allow")
+        addresses = lookup(host)
+    except (OSError, UnicodeError) as exc:  # UnicodeError: a name IDNA cannot encode
+        raise LookupFailed(f"could not resolve {host}: {exc}") from None
+    if not addresses:
+        raise LookupFailed(f"could not resolve {host}")
+    if not settings.webhook_private_targets:
+        for address in addresses:
+            # A link-local IPv6 answer carries %scope.
+            if not ipaddress.ip_address(address.split("%")[0]).is_global:
+                raise Invalid(
+                    f"{host} resolves to a private address, which this Slate does not allow"
+                )
+    return addresses
 
 
 def _events(value: Any) -> list[str]:

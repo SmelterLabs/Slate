@@ -35,8 +35,10 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   bulk DELETE outside a change). `GET /automations` adds `run_count`, `last_run_at`, `last_status`,
   so it is **not** in fastlane's `CACHEABLE`.
 - **`webhook` action**: a JSON POST `{automation, event, item}` with `X-Slate-Automation` and
-  `X-Slate-Signature: sha256=<HMAC-SHA256 of the raw body>` (same scheme as webhook deliveries,
-  `notify.sign`), keyed by the rule's own secret. The secret (`whsec_…`) is made when a rule first
+  the signature headers of webhook deliveries (`X-Slate-Timestamp`, `X-Slate-Signature-V2` over
+  `<timestamp>.<body>`, the body-only `X-Slate-Signature`; `outbound.signed_headers`), keyed by
+  the rule's own secret. It goes through `outbound.post` like a delivery: the address checked is
+  the address connected to, and one deadline covers the whole exchange. The secret (`whsec_…`) is made when a rule first
   gets a webhook action (create or update), stored encrypted in `automations.secret_enc` (in
   `core.SECRET_COLUMNS`' `secret_enc`, so never in an event), returned once as `webhook_secret`, and
   replaced by `POST /automations/{id}/secret` (`automation.secret_rotated`, no secret material).

@@ -10,17 +10,17 @@ The dispatcher is one asyncio task started in the app lifespan. Its loop:
 4. sleep until the doorbell rings or `poll_seconds` passes (retries come due on the poll).
 
 Each attempt POSTs the stored body with `X-Slate-Event`, `X-Slate-Delivery` (the attempt's row
-id), `X-Slate-Signature: sha256=<hex HMAC-SHA256 of the raw body, keyed by the secret>` and
-`User-Agent: Slate/<version>`, times out after `webhook_timeout_seconds`, does not follow
-redirects, and records the outcome (`record_attempt`) which schedules any retry.
+id), the signature headers (`outbound.signed_headers`: `X-Slate-Timestamp`,
+`X-Slate-Signature-V2` over `<timestamp>.<body>`, and the body-only `X-Slate-Signature`) and
+`User-Agent: Slate/<version>` through `outbound.post` (one wall-clock deadline of
+`webhook_timeout_seconds`, no redirects, connected to the address that was checked), and
+records the outcome (`record_attempt`) which schedules any retry.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
-import hmac
 import logging
 import time
 from collections.abc import Callable
@@ -29,10 +29,10 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
 
-from slate import __version__, crypto
+from slate import __version__, crypto, outbound
 from slate import db as slate_db
 from slate.models import Delivery, utcnow
-from slate.service import deliveries, due, reminders, webhooks
+from slate.service import deliveries, due, reminders
 from slate.service.bus import bus
 from slate.service.errors import Invalid
 from slate.settings import settings
@@ -48,35 +48,6 @@ transport: httpx.BaseTransport | None = None
 PRUNE_EVERY = timedelta(hours=1)
 
 
-def sign(secret: str, body: bytes) -> str:
-    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-
-
-# A subscriber's answer is read for its status and a short error text, never kept: a
-# response that never ends (or is huge) must not hold memory or a dispatcher slot.
-RESPONSE_CAP_BYTES = 64 * 1024
-
-
-def post_capped(url: str, body: bytes, headers: dict[str, str], *, timeout: float) -> int:
-    """POST once, no redirects; returns the status. The body is drained up to
-    `RESPONSE_CAP_BYTES` and abandoned after `timeout` seconds of wall-clock time (httpx's
-    timeout is per operation, so a dripping body would otherwise never end), and never kept:
-    echoing a receiver's answer into the delivery log would let a subscriber read the first
-    bytes of whatever its URL points at."""
-    webhooks.check_target(url)
-    deadline = time.monotonic() + timeout
-    with (
-        httpx.Client(transport=transport, timeout=timeout, follow_redirects=False) as client,
-        client.stream("POST", url, content=body, headers=headers) as response,
-    ):
-        got = 0
-        for chunk in response.iter_bytes():
-            got += len(chunk)
-            if got >= RESPONSE_CAP_BYTES or time.monotonic() > deadline:
-                break
-        return response.status_code
-
-
 def attempt(delivery_id: str, *, clock: Clock = utcnow, retry: bool = True) -> Delivery | None:
     """Send one claimed delivery and record the result. Blocking; run it in a worker thread."""
     with slate_db.SessionLocal() as session:
@@ -89,14 +60,16 @@ def attempt(delivery_id: str, *, clock: Clock = utcnow, retry: bool = True) -> D
         "User-Agent": f"Slate/{__version__}",
         "X-Slate-Event": job.event_type,
         "X-Slate-Delivery": job.delivery_id,
-        "X-Slate-Signature": sign(job.secret, raw),
+        **outbound.signed_headers(job.secret, raw),
     }
     status_code: int | None = None
     error: str | None = None
     started = time.perf_counter()
     final = False
     try:
-        status_code = post_capped(job.url, raw, headers, timeout=settings.webhook_timeout_seconds)
+        status_code = outbound.post(
+            job.url, raw, headers, timeout=settings.webhook_timeout_seconds, transport=transport
+        ).status
         if not 200 <= status_code < 300:
             error = f"HTTP {status_code}"
     except Invalid as exc:  # the target is refused (private address): no retry will help

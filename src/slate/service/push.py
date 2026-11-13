@@ -30,6 +30,7 @@ writes no event.
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import logging
 import math
@@ -55,7 +56,7 @@ from slate.models import (
     Source,
     utcnow,
 )
-from slate.service import access, chat, inbox
+from slate.service import access, chat, inbox, webhooks
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Forbidden, Invalid, NotFound
 from slate.settings import settings
@@ -157,6 +158,11 @@ def subscribe(
             f"{parts.hostname} is not a known push service; an admin can add it with "
             "SLATE_PUSH_ENDPOINT_HOSTS"
         )
+    # The allowlist names hosts; the address must still be public (unless private targets
+    # are on), so a wildcard allowlist cannot aim Slate at this network. A name that does
+    # not resolve now is judged again at send time, which fails closed.
+    with contextlib.suppress(webhooks.LookupFailed):
+        webhooks.check_target(endpoint)
     _check_keys(p256dh, auth)
     label = (label or "").strip()[:100] or None
     existing = session.scalar(select(PushSubscription).where(PushSubscription.endpoint == endpoint))

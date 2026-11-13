@@ -30,7 +30,7 @@ Rules of the engine:
 - A run is logged in `automation_runs` (bookkeeping, not an event), with one result per
   action. Runs older than `RUN_KEEP` are pruned as the engine goes.
 - The `webhook` action is the one that leaves Slate: a JSON POST (`{automation, event, item}`)
-  signed like webhook deliveries (`X-Slate-Signature: sha256=<HMAC of the body>`) with the
+  signed like webhook deliveries (`outbound.signed_headers`) with the
   rule's own secret (made when the rule first gets a webhook action, shown once, rotatable),
   sent outside any write transaction, one attempt, logged in the run.
 """

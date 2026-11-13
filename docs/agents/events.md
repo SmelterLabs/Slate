@@ -78,7 +78,8 @@ Answers `{"events": [...], "next_since": "...", "has_more": false}`, oldest firs
 `POST /webhooks {"url": "https://...", "events": ["item.assigned", "item.due"], "filter":
 {"assignee_me": true}}` (needs `write`; the server must have `SLATE_SECRET_KEY`). The answer
 holds the signing secret (`whsec_...`) once. Each delivery is the event JSON plus `item` and
-`actor` summaries, signed `X-Slate-Signature: sha256=<HMAC>`, retried with backoff on errors,
+`actor` summaries, signed `X-Slate-Signature-V2: sha256=<HMAC of "<X-Slate-Timestamp>.<body>">`
+(and the older body-only `X-Slate-Signature`), retried with backoff on errors,
 and deduplicated by the event `id`. Filters: `assignee_me`, `list_ids`, `section_ids`, `tags`,
 `due_lead_hours`. Everything a receiver needs (signature check in Python and Node, retry
 schedule, due events) is in [../webhooks.md](../webhooks.md).
