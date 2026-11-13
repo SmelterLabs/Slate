@@ -19,7 +19,12 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   Cursor/read-all calls are intentional prefix reads. `chat.unread_messages()` is the
   shared read predicate: callers such as push re-nudges must honor exact exposures, not just the
   cursor. Channels return `first_unread_id`, `first_unread_thread_id` and persistent
-  `unread_threads` counts. Own/deleted messages are never unread.
+  `unread_threads` counts. Own/deleted messages are never unread. `chat.unread()` gives the
+  same answer as counting `unread_messages()`, but in SQL: one `GROUP BY channel, parent_id`
+  past the cursor (mentions through `json_each`), then one small query per channel with exposed
+  ids to take those back out, so `GET /channels` loads no message rows. `GET /channels/{key}`
+  (`channel_view`) counts only its own channel (`list_channels(only=key)`), keeping the position
+  the full list gives it.
 - **Exposure is not mounting.** `exposure.ts` requires 99% intersection, an uncovered message,
   visible document and focused window continuously for 500ms. The chat store rechecks lifecycle
   before an exact write; opening a channel never clears its Inbox wholesale. Oversized messages

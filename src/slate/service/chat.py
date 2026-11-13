@@ -46,7 +46,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_event_id
@@ -368,28 +368,90 @@ def unread_messages(session: Session, account: Account) -> list[Message]:
     ]
 
 
-def unread(session: Session, account: Account) -> dict[str, dict[str, Any]]:
-    """{channel: {unread, mentions}} for channels with something the account has not read.
-    Unread is every live message by someone else after the read cursor, replies included;
-    mentions are the unread ones that `@mention` the account."""
+def unread(
+    session: Session, account: Account, channels: Sequence[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    """{channel: {unread, mentions}} for channels with something the account has not read
+    (only `channels`, when given). Unread is every live message by someone else after the read
+    cursor and not exactly exposed, replies included; mentions are the unread ones that
+    `@mention` the account.
+
+    Counted in SQL, per channel and thread, so no message row is loaded; the exposed ids past
+    a cursor (at most `EXPOSED_KEEP` a channel) are then taken back out with one small query
+    per channel that has any.
+    """
+    each = func.json_each(Message.mentions_json).table_valued("value")
+    mentioned = select(each.c.value).where(each.c.value == account.handle).exists()
+    live = (
+        Message.author_id != account.id,
+        Message.deleted_at.is_(None),
+        (ChannelRead.read_through.is_(None)) | (Message.id > ChannelRead.read_through),
+    )
+    joined = (ChannelRead.account_id == account.id) & (ChannelRead.channel == Message.channel)
+    q = (
+        select(
+            Message.channel,
+            Message.parent_id,
+            func.count(),
+            func.min(Message.id),
+            func.sum(case((mentioned, 1), else_=0)),
+        )
+        .outerjoin(ChannelRead, joined)
+        .where(*live)
+        .group_by(Message.channel, Message.parent_id)
+    )
+    if channels is not None:
+        q = q.where(Message.channel.in_(list(channels)))
     out: dict[str, dict[str, Any]] = {}
-    for m in unread_messages(session, account):
+    for channel, parent, n, first, mentions in session.execute(q):
         c = out.setdefault(
-            m.channel,
+            channel,
             {
                 "unread": 0,
                 "mentions": 0,
-                "first_unread_id": m.id,
-                "first_unread_thread_id": m.parent_id,
+                "first_unread_id": first,
+                "first_unread_thread_id": parent,
                 "unread_threads": {},
             },
         )
-        c["unread"] += 1
-        if m.parent_id:
-            threads = c["unread_threads"]
-            threads[m.parent_id] = threads.get(m.parent_id, 0) + 1
-        if account.handle in (m.mentions_json or []):
-            c["mentions"] += 1
+        c["unread"] += n
+        c["mentions"] += mentions or 0
+        if parent:
+            c["unread_threads"][parent] = n
+        if first < c["first_unread_id"]:
+            c["first_unread_id"], c["first_unread_thread_id"] = first, parent
+    reads = session.scalars(
+        select(ChannelRead).where(
+            ChannelRead.account_id == account.id, ChannelRead.channel.in_(list(out))
+        )
+    ).all()
+    for r in reads:
+        exposed = [i for i in (r.exposed_ids or []) if i > r.read_through]
+        if not exposed:
+            continue
+        c = out[r.channel]
+        hits = session.execute(
+            select(Message.id, Message.parent_id, mentioned)
+            .outerjoin(ChannelRead, joined)
+            .where(Message.channel == r.channel, Message.id.in_(exposed), *live)
+        ).all()
+        for _, parent, was_mentioned in hits:
+            c["unread"] -= 1
+            c["mentions"] -= 1 if was_mentioned else 0
+            if parent:
+                c["unread_threads"][parent] -= 1
+                if not c["unread_threads"][parent]:
+                    del c["unread_threads"][parent]
+        if c["unread"] <= 0:
+            del out[r.channel]
+        elif c["first_unread_id"] in {h[0] for h in hits}:
+            c["first_unread_id"], c["first_unread_thread_id"] = session.execute(
+                select(Message.id, Message.parent_id)
+                .outerjoin(ChannelRead, joined)
+                .where(Message.channel == r.channel, Message.id.not_in(exposed), *live)
+                .order_by(Message.id)
+                .limit(1)
+            ).one()
     return out
 
 
@@ -420,17 +482,23 @@ def agent_turns(session: Session) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
-def list_channels(session: Session, account: Account) -> list[dict[str, Any]]:
+def list_channels(
+    session: Session, account: Account, only: str | None = None
+) -> list[dict[str, Any]]:
     """Every channel the board shows: General, then each live section and its lists in board
     order, each with the account's unread and mention counts, the newest message and the agent
-    turns open there."""
-    counts = unread(session, account)
+    turns open there. `only` keeps just that channel (its position still counts the rest),
+    and counts messages only there."""
+    channels = _listed_channels(session)
+    if only is not None:
+        channels = [(ch, n) for ch, n in channels if ch.key == only]
+    keys = [ch.key for ch, _ in channels] if only is not None else None
+    counts = unread(session, account, keys)
     turns = agent_turns(session)
-    latest = dict(
-        session.execute(
-            select(Message.channel, func.max(Message.id)).group_by(Message.channel)
-        ).all()
-    )
+    newest = select(Message.channel, func.max(Message.id)).group_by(Message.channel)
+    if keys is not None:
+        newest = newest.where(Message.channel.in_(keys))
+    latest = dict(session.execute(newest).all())
     latest_at = dict(
         session.execute(
             select(Message.id, Message.created_at).where(Message.id.in_(list(latest.values())))
@@ -459,8 +527,13 @@ def list_channels(session: Session, account: Account) -> list[dict[str, Any]]:
             "agent_turns": turns.get(ch.key, []),
         }
 
+    return [row(ch, n) for ch, n in channels]
+
+
+def _listed_channels(session: Session) -> list[tuple[Channel, int]]:
+    """The channels the board lists for the caller, with their positions, in board order."""
     gate = access.current(session)
-    out = [row(Channel(GENERAL, GENERAL, "General"), 0)]
+    out = [(Channel(GENERAL, GENERAL, "General"), 0)]
     # Each enabled agent's own chat, read like General.
     agents = session.scalars(
         select(Account)
@@ -478,7 +551,7 @@ def list_channels(session: Session, account: Account) -> list[dict[str, Any]]:
         # A guest sees the chats of the agents shared into its projects (service/access.py).
         if gate is None or gate.channel_level(key):
             out.append(
-                row(
+                (
                     Channel(
                         key,
                         AGENT,
@@ -501,19 +574,18 @@ def list_channels(session: Session, account: Account) -> list[dict[str, Any]]:
     for sec in sections:
         # A section seen only through one of its lists has no channel for this caller.
         if gate is None or gate.channel_level(f"section:{sec.id}"):
-            out.append(row(Channel(f"section:{sec.id}", "section", sec.name, None, sec.id), n))
+            out.append((Channel(f"section:{sec.id}", "section", sec.name, None, sec.id), n))
         n += 1
         for lst in lists_by.get(sec.id, []):
-            out.append(row(Channel(f"list:{lst.id}", "list", lst.name, lst.id, sec.id), n))
+            out.append((Channel(f"list:{lst.id}", "list", lst.name, lst.id, sec.id), n))
             n += 1
     return out
 
 
 def channel_view(session: Session, account: Account, key: str) -> dict[str, Any]:
     ch = parse_channel(session, key)
-    for row in list_channels(session, account):
-        if row["key"] == ch.key:
-            return row
+    for row in list_channels(session, account, only=ch.key):
+        return row
     # An archived list or section: still readable, never listed.
     return {
         "key": ch.key,
