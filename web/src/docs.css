@@ -777,7 +777,8 @@ textarea.doc-title {
   box-shadow: -8px 0 8px var(--bg);
 }
 /* .doc-rendered carries .md too (DocBody), so every .md rule in app.css applies here and the
-   rules below are only the deltas. A change to the .md look changes the doc page with it. */
+   rules below are only the deltas: a page is larger and airier than a card's description. A
+   change to the .md look changes the doc page with it. */
 .doc-rendered {
   display: block;
   width: 100%;
@@ -787,8 +788,6 @@ textarea.doc-title {
   background: transparent;
   font-size: 1.02rem;
   line-height: 1.7;
-}
-.doc-rendered {
   cursor: text;
   outline: none;
 }
@@ -1144,8 +1143,6 @@ textarea.doc-title {
   position: absolute;
   z-index: 31;
   animation: pop-in var(--dur-1) var(--ease);
-}
-.doc-bubble {
   display: flex;
   gap: 2px;
   padding: 3px;
