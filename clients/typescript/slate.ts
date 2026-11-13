@@ -43,7 +43,7 @@ export type ReportOptions = {
   assign_me?: boolean;
   claim?: boolean;
 };
-export type Lease = { run_id: string | null; item_id: string; account_id: string; claimed_at: string; until: string; from_pool: boolean };
+export type Lease = { run_id: string | null; item_id: string; account_id: string; claimed_at: string; until: string };
 export type NextOptions = {
   kinds?: ('task' | 'chat')[];
   run_id?: string;
@@ -61,7 +61,7 @@ export type NextOptions = {
   context?: boolean;
 };
 export type Task = {
-  chat?: {channel: string; thread_id: string | null; message_id: string; lease: Omit<Lease, 'item_id' | 'from_pool'>} | null;
+  chat?: {channel: string; thread_id: string | null; message_id: string; lease: Omit<Lease, 'item_id'>} | null;
   item: Item | null;
   lease: Lease | null;
   resumed: boolean;

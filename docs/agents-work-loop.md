@@ -68,7 +68,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   reports back, `GET /work` lists what the caller holds. A take is an ordinary claim
   (`reports.report(state="working", claim=True, comment=False)`), so the board needs nothing extra:
   `item.reported` + `item.assigned` events. On top of it sits a **lease** in `work_leases`
-  (migration `5b7d2e9a4c18`; one row per held item: account, `until`, `from_pool`). The lease is
+  (migration `5b7d2e9a4c18`; one row per held item: account, `until`, `run_id`). The lease is
   bookkeeping (`core.BOOKKEEPING_MODELS`, like token `last_used_at`): a bare heartbeat moves `until`
   with no event, so an agent beating every minute does not flood the history; a heartbeat with
   `note`/`progress` is a real `working` report, unless it repeats the note and progress the badge
@@ -230,7 +230,7 @@ item's assignees and `waiting_on`.
   you" (client side, `mywork.askedOfMe`).
 - **Agents**: `comment.assigned` is a `work.WAKE_TYPES` hint. `work.eligible()` includes pending,
   unconsumed Ask assignments (why `asked`), even on done cards. Taking an asked-only item does not
-  assign the agent (`reports.report(no_assign=True)`, lease `from_pool` false); `finish done`
+  assign the agent (`reports.report(no_assign=True)`, lease `asked_only`); `finish done`
   answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
   pending `asks` within that take; new/reassigned Asks wait for the next turn.

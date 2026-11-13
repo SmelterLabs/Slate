@@ -103,10 +103,9 @@ class LeaseOut(BaseModel):
     item_id: str
     account_id: str
     claimed_at: datetime
-    until: datetime = Field(description="Heartbeat before this, or the task goes back")
-    from_pool: bool = Field(
-        description="The take assigned you (the task had no assignee); an expired lease "
-        "un-assigns you again"
+    until: datetime = Field(
+        description="Heartbeat before this. A lease that runs out holds the task, quarantined "
+        "(you stay assigned), until you reconcile with your run_id or a person clears its badge"
     )
 
 

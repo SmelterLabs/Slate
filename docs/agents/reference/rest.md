@@ -2345,7 +2345,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### LeaseOut
 
-`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `from_pool`: boolean
+`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time
 
 ### ClearOut
 

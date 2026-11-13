@@ -8,8 +8,9 @@ A take is an ordinary claim (`reports.report(state="working", claim=True)`): one
 `item.reported` event, the card's live badge, the agent added to the assignees. On top of it
 the agent holds a `WorkLease` (models.WorkLease): until `until` nobody else can take the task;
 `heartbeat` moves `until` without an event (bookkeeping, like a token's `last_used_at`); the
-scheduler hook `expire_leases` gives an abandoned task back with an `item.reported` idle event by
-`system` (and un-assigns the agent when the take had assigned it from the pool).
+scheduler hook `expire_leases` quarantines a lease that ran out: the run may still be going, so
+the task stays held (the badge turns `blocked`, assignees unchanged) until the agent reconciles
+with its run proof (`reconcile`) or a person clears the badge (`_person_clears_expired`).
 
 Which task: `eligible()` in SQL, best first.
 
@@ -411,7 +412,6 @@ def lease_view(lease: WorkLease) -> dict[str, Any]:
         "account_id": lease.account_id,
         "claimed_at": lease.claimed_at,
         "until": lease.until,
-        "from_pool": lease.from_pool,
     }
 
 
@@ -469,13 +469,12 @@ def take(
             item.run_requested_at = None  # this take is the run that was asked for
         row = session.get(WorkLease, item.id)
         if row is None:
-            row = WorkLease(item_id=item.id, account_id=actor.account_id, from_pool=False)
+            row = WorkLease(item_id=item.id, account_id=actor.account_id)
             session.add(row)
             row.claimed_at = now
         elif row.account_id != actor.account_id or row.until < now:
-            row.account_id, row.from_pool, row.claimed_at = actor.account_id, False, now
+            row.account_id, row.claimed_at = actor.account_id, now
         row.until = now + timedelta(seconds=seconds)
-        row.from_pool = (row.from_pool or not was_assigned) and not asked
         if new_turn:
             row.run_id = secrets.token_urlsafe(32)
             row.asked_only = asked or item.completed_at is not None
@@ -1001,7 +1000,8 @@ def _for_how_long(spent: timedelta) -> str:
 
 
 def held_by(session: Session, account_id: str) -> list[dict[str, Any]]:
-    """The account's live leases, soonest to expire first."""
+    """The account's leases, soonest to expire first: live ones and quarantined ones (expired,
+    waiting for `reconcile` or a person's Clear). `run_id` is never shown."""
     rows = session.scalars(
         select(WorkLease).where(WorkLease.account_id == account_id).order_by(WorkLease.until)
     )
@@ -1009,10 +1009,11 @@ def held_by(session: Session, account_id: str) -> list[dict[str, Any]]:
 
 
 def expire_leases(session: Session, now: datetime) -> int:
-    """Scheduler hook: give back every task whose lease ran out. The agent's badge is cleared
-    with an `item.reported` idle event by `system` (`after.by` = the agent, `reason`
-    `lease_expired`), and a task the take had assigned from the pool is un-assigned. A lease
-    whose badge is gone already (the task was finished or taken over) is just forgotten."""
+    """Scheduler hook: quarantine every lease that ran out. Elapsed time does not prove the
+    remote run stopped, so the task stays held and its assignees are unchanged; a `working`
+    badge turns `blocked` (an `item.reported` by `system`, `reason` `lease_expired`,
+    `reconciliation_required`). The agent's `reconcile` with its run proof, or a person's Clear
+    on the badge, settles it."""
     from slate.service.due import system_actor
 
     expired = list(session.scalars(select(WorkLease).where(WorkLease.until < now)))
