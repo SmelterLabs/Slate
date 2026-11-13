@@ -63,22 +63,22 @@
 <style>
   .need-waiting,
   .need-blocked {
-    --tone: var(--danger);
+    --tone: var(--need-waiting);
   }
   .need-asked {
-    --tone: var(--accent);
+    --tone: var(--need-asked);
   }
   .need-review {
-    --tone: var(--prio-high);
+    --tone: var(--need-review);
   }
   .tone-hot {
-    --lead: var(--danger);
+    --lead: var(--need-waiting);
   }
   .tone-ask {
-    --lead: var(--accent);
+    --lead: var(--need-asked);
   }
   .tone-review {
-    --lead: var(--prio-high);
+    --lead: var(--need-review);
   }
   i {
     display: inline-block;
