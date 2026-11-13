@@ -1,103 +1,33 @@
 // @vitest-environment happy-dom
 // The store's stream lifecycle (docs/board.md "Live stream and catch-up"): the stream opens
 // first and buffers, the REST load follows, a failed start retries, and reloads coalesce.
-// `fetch` and `EventSource` are the only things faked; the api layer and the reducer are real.
+// `fetch` and `EventSource` are the only things faked (board/testkit.ts); the api layer and the
+// reducer are real.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LIST, ev, item } from './fixtures';
-import type { Item, Me, SlateEvent } from './types';
+import { ev, item } from './fixtures';
+import type { Item, SlateEvent } from './types';
+import {
+  FakeEventSource,
+  ME,
+  calls,
+  deferred,
+  freshBoard,
+  routes,
+  settle,
+  startLive as live,
+  tearDown,
+  type Board,
+  type Failure,
+} from './board/testkit';
 
-class FakeEventSource {
-  static all: FakeEventSource[] = [];
-  static get last() {
-    return FakeEventSource.all.at(-1)!;
-  }
-  onopen: ((e: Event) => void) | null = null;
-  onmessage: ((m: MessageEvent) => void) | null = null;
-  onerror: ((e: Event) => void) | null = null;
-  closed = false;
-  #listeners = new Map<string, Set<(m: MessageEvent) => void>>();
-  constructor(public url: string) {
-    FakeEventSource.all.push(this);
-  }
-  addEventListener(type: string, fn: (m: MessageEvent) => void) {
-    (this.#listeners.get(type) ?? this.#listeners.set(type, new Set()).get(type)!).add(fn);
-  }
-  close() {
-    this.closed = true;
-  }
-  open() {
-    this.onopen?.(new Event('open'));
-  }
-  fail() {
-    this.onerror?.(new Event('error'));
-  }
-  emit(e: SlateEvent) {
-    for (const fn of this.#listeners.get(e.type) ?? []) fn({ data: JSON.stringify(e) } as MessageEvent);
-  }
-}
-
-const ME: Me = {
-  account: { id: 'A_alex', handle: 'alex', display_name: 'Alex', kind: 'person' },
-  scopes: ['read', 'write'],
-  token_id: 'T1',
-  prefs: {},
-  timezone: 'America/Chicago',
-};
-
-/** A route's answer: the JSON body (or a promise of it), or `{status, body}` for an error. */
-type Answer = unknown;
-type Failure = { status: number; body?: unknown };
-const failed = (a: Answer): a is Failure => !!a && typeof a === 'object' && typeof (a as Failure).status === 'number';
-/** Answers per `/api/v1` path (the newest wins); anything else is an empty list. */
-const routes = new Map<string, () => Answer>();
-const calls: string[] = [];
-async function fetchStub(url: string): Promise<Response> {
-  const path = url.replace(/^\/api\/v1/, '').split('?')[0];
-  calls.push(path);
-  const answer = routes.get(path)?.() ?? [];
-  const status = failed(answer) ? answer.status : 200;
-  const body = await (failed(answer) ? answer.body : answer);
-  return { ok: status < 300, status, statusText: '', json: async () => body } as unknown as Response;
-}
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((yes) => (resolve = yes));
-  return { promise, resolve };
-}
-/** Enough microtask turns for a chain of fetches to settle; no real time passes. */
-async function settle() {
-  for (let i = 0; i < 80; i++) await Promise.resolve();
-}
-
-let board: typeof import('./store.svelte').board;
+let board: Board;
 
 beforeEach(async () => {
-  vi.resetModules();
-  vi.useFakeTimers();
-  FakeEventSource.all = [];
-  routes.clear();
-  calls.length = 0;
-  routes.set('/me', () => ME);
-  routes.set('/lists', () => [LIST]);
-  routes.set('/items', () => [item()]);
-  localStorage.setItem('slate.token', 'tok');
-  vi.stubGlobal('EventSource', FakeEventSource);
-  vi.stubGlobal('fetch', fetchStub);
-  ({ board } = await import('./store.svelte'));
+  board = await freshBoard();
 });
-afterEach(() => {
-  board.signOut();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  localStorage.clear();
-});
+afterEach(() => tearDown(board));
 
-/** start(), with the stream opening at once, as the server does. */
-async function startLive() {
-  const started = board.start();
-  FakeEventSource.last.open();
-  await started;
-}
+const startLive = () => live(board);
 
 describe('start', () => {
   it('waits for the stream to open before reading anything over REST', async () => {
