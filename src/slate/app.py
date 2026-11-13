@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import logging
 import re
 import threading
+import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -105,7 +110,6 @@ def board_bundle() -> str | None:
     return _board_seen[1]
 
 
-@asynccontextmanager
 def _warm_items() -> None:
     from slate.api.items import _ITEM_ADAPTER
     from slate.service import item_cache, items
@@ -120,7 +124,8 @@ def _warm_items() -> None:
         log.exception("item cache warm-up failed")
 
 
-async def lifespan(app: FastAPI):
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Start order: MCP task group, scheduler (recurrence + due events are hooks on its tick),
     # webhook dispatcher (its own ~1 s loop; refuses to start, logged, without a valid
     # SLATE_SECRET_KEY), automations engine (bus-woken). Stopped in reverse.
@@ -141,10 +146,15 @@ async def lifespan(app: FastAPI):
         if settings.automations_enabled:
             engine_task = automator.start()
         push_task = pusher.start() if settings.push_enabled else None
-        email_task = emailer.start() if settings.push_enabled else None
+        # Email has its own switch: the SMTP settings (slate.mailer.enabled).
+        email_task = emailer.start()
         # The Health page shows each engine as running, off, or stopped (slate.monitor).
         monitor.track("automations", engine_task, "SLATE_AUTOMATIONS_ENABLED=false")
-        monitor.track("push", push_task, "SLATE_PUSH_ENABLED=false or no SLATE_SECRET_KEY")
+        monitor.track(
+            "push",
+            push_task,
+            "SLATE_SECRET_KEY is not set" if settings.push_enabled else "SLATE_PUSH_ENABLED=false",
+        )
         monitor.track("email", email_task, "SLATE_SMTP_HOST / SLATE_SMTP_FROM not set")
         # The first board to open after a restart finds its items built (docs/PERFORMANCE.md).
         threading.Thread(target=_warm_items, name="slate-warm", daemon=True).start()
@@ -170,8 +180,89 @@ async def lifespan(app: FastAPI):
             await scheduler.stop()
 
 
+# The interactive API page (`/docs`) loads Swagger UI from a CDN, pinned to one release and
+# checked by Subresource Integrity, under its own policy: a changed or hijacked file does not
+# run, and nothing else may load, so the page can never read the board's stored token.
+SWAGGER_VERSION = "5.34.1"
+_SWAGGER = f"https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_VERSION}"
+SWAGGER_FILES = {
+    f"{_SWAGGER}/swagger-ui-bundle.js": (
+        "sha384-XFYN47VzPiDY6qPtxYKg0nqUeW/upo20xf1j2SUE7gT/i35FJB4cuS/71Iegzk8Z"
+    ),
+    f"{_SWAGGER}/swagger-ui.css": (
+        "sha384-4c3vsE5f+trhFyHrFrLM1fFGUn531NIaC7dcqEWIJdoRQJ5CkJbSuSCwXLpaS1KF"
+    ),
+}
+_INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.S)
+
+
+def api_docs_page(openapi_url: str) -> HTMLResponse:
+    html = get_swagger_ui_html(
+        openapi_url=openapi_url,
+        title="Slate API",
+        swagger_js_url=f"{_SWAGGER}/swagger-ui-bundle.js",
+        swagger_css_url=f"{_SWAGGER}/swagger-ui.css",
+        swagger_favicon_url="/icons/icon.svg",
+    ).body.decode()
+    for url, digest in SWAGGER_FILES.items():
+        html = html.replace(f'"{url}"', f'"{url}" integrity="{digest}" crossorigin="anonymous"', 1)
+    inline = [
+        "'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'"
+        for body in _INLINE_SCRIPT.findall(html)
+    ]
+    csp = "; ".join(
+        [
+            "default-src 'none'",
+            f"script-src {' '.join(inline)} {_SWAGGER}/",
+            f"style-src {_SWAGGER}/ 'unsafe-inline'",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ]
+    )
+    return HTMLResponse(
+        html,
+        headers={
+            "Content-Security-Policy": csp,
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "same-origin",
+        },
+    )
+
+
+# `/health` has no token and builds the whole report (counts and sums over big tables), so
+# its answer is kept for a few seconds: a status page, not a load generator.
+HEALTH_CACHE_SECONDS = 10.0
+_health_lock = threading.Lock()
+_health_cached: tuple[float, dict] | None = None
+
+
+def _health_body() -> dict:
+    global _health_cached
+    with _health_lock:
+        now = time.monotonic()
+        if _health_cached is None or now - _health_cached[0] >= HEALTH_CACHE_SECONDS:
+            with SessionLocal() as session:
+                _health_cached = (now, jsonable_encoder(health.summary(session)))
+        return _health_cached[1]
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Slate", version=__version__, lifespan=lifespan)
+    global _health_cached
+    _health_cached = None
+    app = FastAPI(
+        title="Slate",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,  # served below, pinned; the ReDoc page is not served
+        redoc_url=None,
+    )
+
+    @app.get("/docs", include_in_schema=False)
+    def api_docs() -> HTMLResponse:
+        return api_docs_page(app.openapi_url or "/openapi.json")
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict:
@@ -198,11 +289,8 @@ def create_app() -> FastAPI:
     @app.get("/health", include_in_schema=False)
     def health_summary() -> JSONResponse:
         # The Health page's verdict without details, for agents and uptime checks: 503 on fail.
-        with SessionLocal() as session:
-            body = health.summary(session)
-        return JSONResponse(
-            jsonable_encoder(body), status_code=503 if body["status"] == "fail" else 200
-        )
+        body = _health_body()
+        return JSONResponse(body, status_code=503 if body["status"] == "fail" else 200)
 
     api.install(app)
     events_api.install(app)

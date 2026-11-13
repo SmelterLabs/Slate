@@ -169,6 +169,9 @@ def test_members_do_not_get_health_alerts(client, alex, make_account, monkeypatc
 
 
 def test_public_health_is_the_verdict_without_details(client, alex, monkeypatch):
+    from slate import app as app_module
+
+    monkeypatch.setattr(app_module, "HEALTH_CACHE_SECONDS", 0)  # see each answer fresh
     r = client.get("/health")
     assert r.status_code == 200
     body = r.json()

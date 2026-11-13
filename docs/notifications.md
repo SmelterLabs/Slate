@@ -122,6 +122,6 @@ and `tests/test_push_retry.py`.
   rechecked at send time and text is `push.notification_for` under the recipient's read filter.
   Failed sends retry every 5 min up to 4 times within a day. Receipts are bookkeeping (no
   events). `slate/emailer.py` runs it when `SLATE_SMTP_HOST` and `SLATE_SMTP_FROM` are set
-  (and `SLATE_PUSH_ENABLED`); the Health page tracks it as "Email notifications" with a cursor.
+  (`SLATE_PUSH_ENABLED` is Web Push only); the Health page tracks it as "Email notifications" with a cursor.
   `GET /me` says `email: true` so the board shows the column; `POST /email/test` sends a test.
   `SLATE_PUBLIC_URL` makes the links absolute. Agents (kind `agent`) are never emailed.
