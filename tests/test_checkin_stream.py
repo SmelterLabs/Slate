@@ -29,17 +29,21 @@ class Reader:
             msg = await stream.event(timeout=3600)
             await self.queue.put(msg)
 
-    async def drain(self, quiet: float = 0.5, expect: int = 0, patience: float = 10.0) -> list:
+    async def drain(
+        self, quiet: float = 0.5, expect: int = 0, patience: float = 10.0, until=None
+    ) -> list:
         """Every event message until the stream is quiet for `quiet` seconds.
 
         With `expect`, first wait up to `patience` seconds for that many messages: a busy
         server (CI at full load) can take longer than the quiet window to deliver the first
-        one, and a drain that gives up early reads as "nothing arrived".
+        one, and a drain that gives up early reads as "nothing arrived". With `until` (a test
+        on the messages so far), wait the same way until it holds: one event can bring more
+        than one message, so a count can be met before a later event's messages arrive.
         """
         got = []
         loop = asyncio.get_running_loop()
         deadline = loop.time() + patience
-        while len(got) < expect:
+        while len(got) < expect or (until is not None and not until(got)):
             remaining = deadline - loop.time()
             if remaining <= 0:
                 break
@@ -81,7 +85,8 @@ async def test_due_and_run_requested_are_work_hints(live):  # noqa: F811
         # The scheduler reaches its due time: the run stage and item.due both hint.
         with live.Session() as s:
             due.emit_due_events(s, now=datetime.now(UTC))
-        msgs = await stream.drain(expect=2)
+        # Each of the two events brings news and a hint: wait for both hints, not two messages.
+        msgs = await stream.drain(until=lambda got: len(_hints(got)) >= 2)
         hints = _hints(msgs)
         assert sorted(t for _, t in hints) == ["item.due", "item.run_requested"]
         assert {i for i, _ in hints} == {late["id"]}
