@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_event_id
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     ChannelRead,
@@ -70,7 +71,6 @@ from slate.service import access, attachments, chat_files, guests
 from slate.service import items as items_svc
 from slate.service.comments import clean_emoji, mentions_in
 from slate.service.core import Actor, apply_change, snapshot
-from slate.service.due import SYSTEM_HANDLE  # Slate's own account: nobody chats with it
 from slate.service.errors import Forbidden, Invalid, NotFound
 
 GENERAL = "general"
@@ -599,10 +599,6 @@ def channel_view(session: Session, account: Account, key: str) -> dict[str, Any]
 # --- Writing ---------------------------------------------------------------------------------
 
 
-# Any non-guest agent: the workspace's own (service/guests.py).
-workspace_agent = guests.workspace_agent
-
-
 def members_only_post(
     session: Session, author_id: str, mentions: list[str], root: Message | None
 ) -> bool:
@@ -615,13 +611,13 @@ def members_only_post(
     author = session.get(Account, author_id)
     if author is None or author.role == Role.guest:
         return False
-    if workspace_agent(author):
+    if guests.workspace_agent(author):
         return True
     if not mentions:
         return False
     with access.unrestricted(session):
         named = session.scalars(select(Account).where(Account.handle.in_(mentions))).all()
-    return any(workspace_agent(a) for a in named)
+    return any(guests.workspace_agent(a) for a in named)
 
 
 def post(
@@ -665,7 +661,7 @@ def post(
         # Workspace agents retain direct-chat addressing. A guest-role project agent shares
         # its chat with people talking to each other: only an explicit mention addresses it.
         agent = session.get(Account, ch.account_id)
-        if agent is not None and agent.role != Role.guest and agent.handle not in mentions:
+        if guests.workspace_agent(agent) and agent.handle not in mentions:
             mentions = [agent.handle, *mentions]
     hidden = members_only_post(session, actor.account_id, mentions, root)
     with apply_change(session, actor) as cx:

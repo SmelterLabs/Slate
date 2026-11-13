@@ -41,7 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from slate.models import Account, AccountKind, ChatWake, Message, Role, utcnow
-from slate.service import access, chat, turns
+from slate.service import access, chat, guests, turns
 from slate.service.core import Actor
 from slate.service.errors import Conflict, Forbidden, Invalid, NotFound
 
@@ -68,7 +68,7 @@ def _reaches(poster: Account, agent: Account, msg: Message) -> bool:
     """A project's guests talk with the project's own agent, never a workspace agent (a guest's
     `@my-agent` wakes nothing); a members-only message never wakes a guest agent, which could not
     read it."""
-    if poster.role == Role.guest and chat.workspace_agent(agent):
+    if poster.role == Role.guest and guests.workspace_agent(agent):
         return False
     return not (msg.members_only and agent.role == Role.guest)
 

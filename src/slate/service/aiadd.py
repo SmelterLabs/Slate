@@ -39,11 +39,10 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from slate.models import Account, Item, Status
+from slate.models import SYSTEM_HANDLE, Account, Item, Status
 from slate.service import access, guests, items
 from slate.service import tags as tags_svc
 from slate.service.core import Actor, Source
-from slate.service.due import SYSTEM_HANDLE
 from slate.service.errors import Invalid
 from slate.settings import settings
 
