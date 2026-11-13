@@ -29,13 +29,15 @@ services:
       - path: ${SLATE_HOME:-/opt/slate}/.env
         required: true
     environment:
-      # The reverse proxy reaches the container over the Docker bridge (Docker's 172.16.0.0/12
-      # networks) or loopback, so uvicorn trusts X-Forwarded-Proto/For from those peers only:
+      # The reverse proxy reaches the container over the Docker bridge or loopback, so uvicorn
+      # trusts X-Forwarded-Proto/For from those peers only. Docker hands a compose network a
+      # subnet from 172.16.0.0/12 and, once those are taken, from 192.168.0.0/16; the port is
+      # published on the host's loopback, so nothing on a LAN that uses 192.168 reaches it:
       # browser-session cookies are Secure and same-origin checks see the https address. With a
       # list, not "*", uvicorn takes the right-most address no trusted hop added, so a client
       # cannot pick the address the pairing and invitation rate limits key on by sending its own
       # X-Forwarded-For. A proxy on another network: add its subnet (RUNBOOK.md, section 3).
-      FORWARDED_ALLOW_IPS: "127.0.0.1,172.16.0.0/12"
+      FORWARDED_ALLOW_IPS: "127.0.0.1,172.16.0.0/12,192.168.0.0/16"
     healthcheck:              # same probe as the Dockerfile HEALTHCHECK
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 30s

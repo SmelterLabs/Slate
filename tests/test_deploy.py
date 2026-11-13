@@ -120,7 +120,8 @@ def test_forwarded_for_comes_from_the_proxy_not_the_client():
 
     async def run():
         mw = ProxyHeadersMiddleware(app, trusted_hosts=trusted)
-        for peer in ("172.18.0.1", "127.0.0.1"):  # a proxy over the Docker bridge or loopback
+        # A proxy over the Docker bridge (either of Docker's default pools) or loopback.
+        for peer in ("172.18.0.1", "192.168.64.1", "127.0.0.1"):
             for forged in ("198.51.100.1", "198.51.100.2", "10.0.0.9"):
                 xff = f"{forged}, 203.0.113.7".encode()
                 scope = {
@@ -131,7 +132,7 @@ def test_forwarded_for_comes_from_the_proxy_not_the_client():
                 await mw(scope, None, None)
 
     asyncio.run(run())
-    assert seen == ["203.0.113.7"] * 6
+    assert seen == ["203.0.113.7"] * 9
 
 
 def test_backup_units():
