@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from slate.models import Checklist, ChecklistItem, utcnow
+from slate.service import access
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Invalid, NotFound
 from slate.service.items import get_item, resolve_account
@@ -57,28 +58,32 @@ def checklists_of(session: Session, item_id: str) -> list[dict[str, Any]]:
         .order_by(ChecklistItem.position, ChecklistItem.created_at)
     ):
         entries[e.checklist_id].append(e)
-    return [
-        {
-            "id": cl.id,
-            "item_id": cl.item_id,
-            "name": cl.name,
-            "position": cl.position,
-            "created_at": cl.created_at,
-            "items": [
-                {
-                    "id": e.id,
-                    "checklist_id": e.checklist_id,
-                    "title": e.title,
-                    "done": e.done_at is not None,
-                    "done_at": e.done_at,
-                    "assignee_id": e.assignee_id,
-                    "position": e.position,
-                }
-                for e in entries[cl.id]
-            ],
-        }
-        for cl in lists
-    ]
+    # A guest's copy names no workspace agent as an entry's assignee.
+    return access.scrub(
+        session,
+        [
+            {
+                "id": cl.id,
+                "item_id": cl.item_id,
+                "name": cl.name,
+                "position": cl.position,
+                "created_at": cl.created_at,
+                "items": [
+                    {
+                        "id": e.id,
+                        "checklist_id": e.checklist_id,
+                        "title": e.title,
+                        "done": e.done_at is not None,
+                        "done_at": e.done_at,
+                        "assignee_id": e.assignee_id,
+                        "position": e.position,
+                    }
+                    for e in entries[cl.id]
+                ],
+            }
+            for cl in lists
+        ],
+    )
 
 
 def _next_position(session: Session, model: Any, column: Any, value: str) -> int:

@@ -20,8 +20,8 @@ from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.lists import list_out
 from slate.api.schemas import ChildIn, ItemOut, ListOut
 from slate.api.uploads import read_body
+from slate.service import access, docs
 from slate.service import attachments as attachments_svc
-from slate.service import docs
 
 router = APIRouter(tags=["docs"])
 
@@ -119,7 +119,9 @@ class DocRevisionOut(BaseModel):
     content_type: str
     size: int
     note: str = Field(description="What changed in this revision")
-    uploaded_by: str
+    uploaded_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
     superseded_at: datetime | None = Field(description="When a later revision replaced it")
     restored_from: int | None = Field(description="The revision a restore copied")
@@ -163,9 +165,13 @@ class DocSummaryOut(BaseModel):
     position: int
     revision: int = Field(description="Goes up on every title or body change")
     version_no: int = Field(description="The newest page-history version")
-    created_by: str
+    created_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
-    updated_by: str
+    updated_by: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     updated_at: datetime
     archived_at: datetime | None
     comment_count: int = Field(default=0, description="Comments on the doc (both surfaces)")
@@ -222,7 +228,9 @@ class VersionOut(BaseModel):
     doc_id: str
     version_no: int
     title: str
-    author_id: str
+    author_id: str | None = Field(
+        description="Null to a project's guest when a workspace agent did it"
+    )
     created_at: datetime
     updated_at: datetime = Field(description="Its last save (autosaves fold into one version)")
     note: str | None
@@ -481,12 +489,13 @@ def duplicate_doc(doc_id: str, body: DocDuplicateIn, auth: WriteAuth, session: D
 @router.get("/docs/{doc_id}/versions", response_model=list[VersionOut])
 def versions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """Page history, newest first, without bodies (one version per sitting of edits)."""
-    return [docs.version_out(v, body=False) for v in docs.versions_of(session, doc_id)]
+    rows = [docs.version_out(v, body=False) for v in docs.versions_of(session, doc_id)]
+    return access.scrub(session, rows)
 
 
 @router.get("/docs/{doc_id}/versions/{version_no}", response_model=VersionOut)
 def version(doc_id: str, version_no: int, _: ReadAuth, session: DbSession) -> dict:
-    return docs.version_out(docs.get_version(session, doc_id, version_no))
+    return access.scrub(session, docs.version_out(docs.get_version(session, doc_id, version_no)))
 
 
 @router.post("/docs/{doc_id}/versions/{version_no}/restore", response_model=DocOut)
@@ -628,7 +637,7 @@ def unpin_from_top(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
 @router.get("/docs/{doc_id}/revisions", response_model=list[DocRevisionOut])
 def revisions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """A file doc's revisions, newest first (metadata; the bytes are at each `url`)."""
-    return [docs.revision_out(f) for f in docs.revisions_of(session, doc_id)]
+    return access.scrub(session, [docs.revision_out(f) for f in docs.revisions_of(session, doc_id)])
 
 
 @router.get(

@@ -63,13 +63,24 @@ rule and its write-side refusals (Ask, reassign, assign, Run now: `Forbidden`; a
 mentions of a workspace agent are dropped before they notify or wake, in card comments, doc
 threads, page bodies and chat; a guest's reply is never its turn). Read side, guests only:
 `access._guest_criteria` hides Comment and DocComment rows by or addressed to a workspace agent,
-its ItemAssignee rows, and its events (plus the events of comments addressed to it); `items.views`
-drops its agent badge, session links, waits and `created_by` (guest views are never cached:
-`item_cache._restricted`); the live gate's `EventGate._for_guest` drops its talk events and
-events of hidden comments, scrubs its id from `actor_id` and from `reply_to` / `thread_followers`
-/ `for` / `queued`, and filters its handle out of `item.assigned`; `access.guest_payloads` does
-the same for `GET /events` and an item's history. Known gap: a page it edited still says "edited
-by Someone" to a guest (doc `updated_by`). Tests: `tests/test_members_only_chat.py`.
+its ItemAssignee rows, its events (plus the events of comments addressed to it), and an
+`item.assigned` whose only change is a workspace agent; `items.views` drops its agent badge,
+session links, waits and `created_by` (guest views are never cached: `item_cache._restricted`).
+
+What a visible row says about a workspace agent is blanked in one place, `access.scrub`: its id
+becomes null, and its id, its handle or an entry naming it drops out of a list.
+`access.event_snapshots` applies it to every stored event's `before` and `after`, and
+`core.event_payload` (the only way an event leaves the service layer; `EventOut` accepts no
+stored row) blanks a workspace agent's `actor_id`, so history, `GET /events`, the audit log and
+its CSV, the inbox, the activity feed, the check-in, a guest agent's work context and the export
+all carry the same scrub. Views that hold account ids call it too: checklist entries, pages
+(`created_by`, `updated_by`, versions, revisions), the export's raw rows (whose tags are
+`tags.list_tags`, and whose links leave out an end the reader cannot see), and the Box view's
+roster (`access.participant_ids`). The live gate's `EventGate._for_guest` uses the same
+`_scrubbed` on what the bus carries, drops its talk events and events of hidden comments, and
+blanks its `actor_id`. `tests/test_guest_boundary.py` calls every GET route as a guest person
+and as a guest agent and fails when a workspace agent's handle or id appears, so a new route
+cannot forget the rule. Other tests: `tests/test_members_only_chat.py`.
 
 ## Digest privacy and extraction bounds
 

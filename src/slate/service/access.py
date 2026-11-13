@@ -606,21 +606,62 @@ def read_criteria(state: ORMExecuteState) -> None:
     state.statement = state.statement.options(*opts)
 
 
-def guest_payloads(session: Session, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Event payloads as a guest reader may see them (history pages): what a workspace agent
-    said or did is gone, its id and handle are scrubbed (`EventGate._for_guest`). Any other
-    reader gets `payloads` unchanged."""
+# --- What a guest never sees ----------------------------------------------------------------
+#
+# A project's guest sees no trace of a workspace agent (service/guests.py). Rows are kept out by
+# `_guest_criteria` (with them every event a workspace agent made, and an `item.assigned` that
+# only adds or removes one); what a visible row says about one (an id in a snapshot, a handle
+# among a card's assignees) is blanked by `scrub()`. `event_snapshots()` calls it, so every
+# reader of stored events (history, audit, inbox, activity, check-in, work context, export) is
+# covered in one place; the live gate (`EventGate._for_guest`) uses the same `_scrubbed`, and
+# the views that carry account ids call `scrub()`. tests/test_guest_boundary.py walks every GET
+# route as a guest to keep it so.
+
+_HIDDEN_KEY = "slate_hidden_agents"
+
+
+def hidden_agents(session: Session) -> tuple[frozenset[str], frozenset[str]]:
+    """`(ids, handles)` of the workspace agents this session's caller must not see: both empty
+    unless the caller is a guest. Read once per attached access."""
     caller = current(session)
     if caller is None or caller.role != Role.guest:
-        return payloads
-    gate = EventGate(caller.account_id)
-    gate.access = caller
-    out = []
-    for p in payloads:
-        shown = gate._for_guest(session, p)
-        if shown is not None:
-            out.append(shown)
-    return out
+        return frozenset(), frozenset()
+    cached = session.info.get(_HIDDEN_KEY)
+    if cached is None or cached[0] is not caller:
+        with unrestricted(session):
+            ids = frozenset(session.scalars(_workspace_agents()))
+            handles = frozenset(
+                session.scalars(select(_accounts.c.handle).where(_accounts.c.id.in_(ids)))
+            )
+        cached = (caller, ids, handles)
+        session.info[_HIDDEN_KEY] = cached
+    return cached[1], cached[2]
+
+
+def _scrubbed(value: Any, ids: frozenset[str], handles: frozenset[str]) -> Any:
+    if isinstance(value, str):
+        return None if value in ids else value
+    if isinstance(value, list):
+        return [
+            _scrubbed(v, ids, handles)
+            for v in value
+            if not (isinstance(v, str) and (v in ids or v in handles))
+            and not (isinstance(v, dict) and (v.get("id") in ids or v.get("account_id") in ids))
+        ]
+    if isinstance(value, dict):
+        return {k: _scrubbed(v, ids, handles) for k, v in value.items()}
+    return value
+
+
+def scrub(session: Session, value: Any) -> Any:
+    """`value` (JSON-ready: a snapshot, a view, a list of them) as this session's caller may
+    read it. For a guest, a workspace agent's id becomes null; in a list, its id, its handle or
+    an entry naming it (`{"id": ...}`, `{"account_id": ...}`) drops out. Anyone else gets
+    `value` itself."""
+    ids, handles = hidden_agents(session)
+    if not ids:
+        return value
+    return _scrubbed(value, ids, handles)
 
 
 def _workspace_agents() -> Any:
@@ -662,10 +703,35 @@ def _guest_criteria() -> list[Any]:
             lambda c: and_(
                 c.actor_id.not_in(_workspace_agents()),
                 c.subject_id.not_in(_hidden_comments()),
+                ~_assigns_only_agents(c),
             ),
             include_aliases=True,
         ),
     ]
+
+
+def _assigns_only_agents(c: Any) -> Any:
+    """An `item.assigned` event (`c`: `events` columns) whose only change is a workspace agent
+    joining or leaving the card: with the agent scrubbed it says nothing, so a guest is not
+    shown it."""
+    handles = select(_accounts.c.handle).where(_accounts.c.id.in_(_workspace_agents()))
+    added = func.json_each(c.after_json).table_valued("value").alias("assigned_after")
+    was = func.json_each(c.before_json).table_valued("value").alias("assigned_before")
+    kept = func.json_each(c.before_json).table_valued("value").alias("assigned_kept")
+    now = func.json_each(c.after_json).table_valued("value").alias("assigned_now")
+    return and_(
+        c.type == "item.assigned",
+        ~exists(
+            select(added.c.value).where(
+                added.c.value.not_in(select(kept.c.value)), added.c.value.not_in(handles)
+            )
+        ),
+        ~exists(
+            select(was.c.value).where(
+                was.c.value.not_in(select(now.c.value)), was.c.value.not_in(handles)
+            )
+        ),
+    )
 
 
 def _hidden_comments() -> Any:
@@ -974,8 +1040,12 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
 
 
 def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
-    if ev.type != "account.digest" or session is None:
+    """An event's `before` and `after` as this session's caller may read them: every reader of
+    stored events goes through here (`core.event_payload`, the audit log)."""
+    if session is None:
         return ev.before_json, ev.after_json
+    if ev.type != "account.digest":
+        return scrub(session, ev.before_json), scrub(session, ev.after_json)
     caller = current(session)
     return (
         digest_snapshot(session, ev.before_json, caller) if ev.before_json is not None else None,
@@ -1179,31 +1249,21 @@ class EventGate:
             and {before.get("author_id"), before.get("assignee_id")} & self._agents
         ):
             return None  # a deleted comment by it or addressed to it
-        if isinstance(after, dict) and after.get("assignee_id") in self._agents:
+        if (
+            type_.startswith(("item.commented", "comment.", "doc.commented", "doc.comment_"))
+            and isinstance(after, dict)
+            and after.get("assignee_id") in self._agents
+        ):
             return None  # an Ask addressed to it
-        out = payload
+        ids, handles = frozenset(self._agents), frozenset(self._agent_handles)
+        out = {
+            **payload,
+            **{k: _scrubbed(payload[k], ids, handles) for k in ("before", "after") if k in payload},
+        }
         if by_agent:
             out = {**out, "actor_id": None, "session_ref": None}
-        if type_ == "item.assigned":
-            shown = {
-                k: [h for h in out[k] if h not in self._agent_handles]
-                if isinstance(out.get(k), list)
-                else out.get(k)
-                for k in ("before", "after")
-            }
-            if shown["before"] == shown["after"]:
-                return None
-            out = {**out, **shown}
-        for k in ("before", "after"):
-            snap = out.get(k)
-            if not isinstance(snap, dict):
-                continue
-            if snap.get("created_by") in self._agents:
-                snap = {**snap, "created_by": None}
-            for field_ in ("reply_to", "thread_followers", "for", "queued"):
-                if isinstance(snap.get(field_), list):
-                    snap = {**snap, field_: [a for a in snap[field_] if a not in self._agents]}
-            out = {**out, k: snap}
+        if type_ == "item.assigned" and out.get("before") == out.get("after"):
+            return None  # only a workspace agent joined or left the card
         return out
 
     def allows(self, session: Session, payload: dict[str, Any]) -> bool:

@@ -364,6 +364,9 @@ INFRASTRUCTURE = {
     # Called inside an item, assignment or comment change (it takes the `cx`); each watcher it
     # adds records its own `item.watched` (field "auto", tests/test_watchers.py).
     "slate.service.watchers": {"auto_watch"},
+    # Called inside a share change or an invitation cancel (it takes the `cx`); each link it
+    # retires records its own `invitation.revoked` (tests/test_invitation_links.py).
+    "slate.service.permissions": {"retire_links"},
     "slate.service.core": {
         "apply_change",
         "jsonable",
@@ -378,7 +381,8 @@ INFRASTRUCTURE = {
     "slate.service.errors": set(),
     # The permission hooks (read filter, write check) and their helpers.
     "slate.service.access": {
-        "guest_payloads",
+        "hidden_agents",
+        "scrub",
         "attach",
         "bind",
         "can_see_list",

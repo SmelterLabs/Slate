@@ -433,7 +433,7 @@ def _with_counts(session: Session, rows: list[dict[str, Any]]) -> list[dict[str,
     for r in rows:
         r["comment_count"], r["open_threads"] = found.get(r["id"], (0, 0))
         r["tags"] = tags.get(r["id"], [])
-    return rows
+    return access.scrub(session, rows)  # a guest's copy names no workspace agent
 
 
 def _set_tags(cx: Change, doc: Doc, names: Sequence[str]) -> None:
@@ -585,7 +585,7 @@ def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
         revisions=[revision_out(f) for f in revisions],
         words=len(doc.body_md.split()),
     )
-    return out
+    return access.scrub(session, out)
 
 
 def versions_of(session: Session, doc_id: str) -> list[DocVersion]:

@@ -27,6 +27,7 @@ from slate.models import (
     Status,
     StatusKind,
 )
+from slate.service import access
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Forbidden, Invalid, NotFound
 
@@ -85,6 +86,9 @@ def roster(session: Session, kinds: str = "all") -> list[Account]:
     elif kinds == "agents":
         q = q.where(Account.kind == AccountKind.agent)
     accounts = list(session.scalars(q))
+    visible = access.participant_ids(session)  # a guest's roster names no workspace agent
+    if visible is not None:
+        accounts = [a for a in accounts if a.id in visible]
     accounts.sort(key=lambda a: (a.kind != AccountKind.person, a.display_name.lower()))
     return accounts
 
