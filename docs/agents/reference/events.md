@@ -139,6 +139,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
+| `item.activity` | Not a stored event: lines an agent's run posted about what it is doing now (`after.lines` = `[{at, text}]`). It has no `id`, reaches only `/events/stream`, and is never replayed, polled, sent to a webhook or kept in history. |
 | `item.archived` | An item was archived. |
 | `item.assigned` | Assignees changed (`before`/`after` = sorted handles). Check-in news `assigned`/`unassigned`. |
 | `item.attachment_added` | A file was attached. |

@@ -24,6 +24,7 @@
   import { fullStamp } from '../../lib/format';
   import { verb } from '../../lib/history';
   import { isSendKey } from '../../lib/mentions.svelte';
+  import { liveActivity } from '../../lib/liveactivity.svelte';
   import { renderMarkdown } from '../../lib/markdown';
   import { liveRefs } from '../../lib/refs.svelte';
   import { ApiError } from '../../lib/api';
@@ -34,6 +35,7 @@
   import Avatars from '../Avatars.svelte';
   import Composer from './Composer.svelte';
   import Icon from './Icon.svelte';
+  import LiveActivity from './LiveActivity.svelte';
   import WatchersPicker from './WatchersPicker.svelte';
 
   // `actions`: how the next turn starts (Run now, Hand off), shown with the composer and its Ask
@@ -122,6 +124,15 @@
     return () => clearInterval(t);
   });
   const unpicked = $derived(unpickedAsk(pending, askClock));
+  // What the working agent is doing now, in a box under the dots: the run's lines so far when
+  // the task opens mid-run, then the stream's. A run that ended takes its lines with it.
+  const workingBy = $derived(pending?.picked ? pending.id : null);
+  $effect(() => {
+    const id = item.id;
+    if (workingBy) void liveActivity.load(id);
+    else liveActivity.clear(id);
+  });
+  const liveLines = $derived(workingBy ? (liveActivity.lines[item.id] ?? []) : []);
   // Who the Ask picker starts on (the card's agent, else the one you asked last).
   const askDefault = $derived(defaultAsk(item, allComments, board.pickable, lastAsk(), board.projectAgents(item.list_id)));
 
@@ -138,6 +149,7 @@
   $effect(() => {
     void rows.length;
     void pending;
+    void (liveLines.length > 0); // the box appearing grows the feed once; its lines never do
     if (pinned) void tick().then(() => feed && (feed.scrollTop = feed.scrollHeight));
   });
 
@@ -465,19 +477,22 @@
         </span>
       </div>
     {:else if pending && task.filter !== 'events'}
-      <div class="typing" role="status" aria-live="polite" data-agent-pending={pending.picked ? 'working' : 'sent'}>
-        <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span>
-          <strong>{board.accountName(pending.id) ?? 'The agent'}</strong>
-          {stopping ? 'is stopping…' : 'is typing…'}
-        </span>
-        {#if pending.picked && run.start}
-          <button class="stop" data-stop-run disabled={stopping}
-            title={stopping ? 'Stop was sent; waiting for the agent to end its run' : 'Stop what the agent is doing on this task'}
-            onclick={stop}>
-            <span class="stop-square" aria-hidden="true"></span>{stopping ? 'Stopping' : 'Stop'}
-          </button>
-        {/if}
+      <div class="typing" class:has-lines={liveLines.length > 0} data-agent-pending={pending.picked ? 'working' : 'sent'}>
+        <div class="typing-head" role="status" aria-live="polite">
+          <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>
+            <strong>{board.accountName(pending.id) ?? 'The agent'}</strong>
+            {stopping ? 'is stopping…' : 'is typing…'}
+          </span>
+          {#if pending.picked && run.start}
+            <button class="stop" data-stop-run disabled={stopping}
+              title={stopping ? 'Stop was sent; waiting for the agent to end its run' : 'Stop what the agent is doing on this task'}
+              onclick={stop}>
+              <span class="stop-square" aria-hidden="true"></span>{stopping ? 'Stopping' : 'Stop'}
+            </button>
+          {/if}
+        </div>
+        {#if liveLines.length}<LiveActivity lines={liveLines} />{/if}
       </div>
     {/if}
   </div>
@@ -535,6 +550,14 @@
   .live-note {
     color: var(--muted);
     overflow-wrap: anywhere;
+  }
+  .typing-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .typing.has-lines {
+    display: block;
   }
   .typing {
     display: flex;

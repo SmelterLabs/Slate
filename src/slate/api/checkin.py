@@ -248,7 +248,7 @@ def _judge(
                 or (
                     payload["type"] == "comment.assigned"
                     and after.get("assignee_id") == me.id
-                    and work.holds(session, me.id, item_id)
+                    and work.is_running(session, me.id, item_id)
                 )
             )
         ):

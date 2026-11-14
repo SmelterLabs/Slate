@@ -53,4 +53,6 @@ test('a message sent mid-run is marked seen, and Stop reaches the run', async ({
   }, agent);
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('Stopped as asked');
+  // Leave nothing waiting on the signed-in person: later specs count their own rows on Home.
+  await api('POST', `/items/${item.id}/trash`);
 });

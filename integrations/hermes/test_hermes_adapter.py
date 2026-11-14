@@ -643,3 +643,83 @@ def test_a_changed_tool_note_goes_out_after_the_interval(state_file):
         "Hermes is using read_file",
         "Waiting on an approval: rm x",
     ]
+
+
+# --- Live activity (the task window box) --------------------------------------------------------
+
+
+def test_a_card_turn_says_what_it_is_doing_for_the_live_box(state_file):
+    # Every tool goes out with its preview, unlike the badge note (one a minute): these lines
+    # are never history. Lines that arrive inside the interval leave together on the next event.
+    gw = Gateway(
+        events=[
+            ("run.started", {}),
+            ("tool.started", {"tool_name": "terminal", "preview": "uv run pytest -q"}),
+            ("tool.started", {"tool_name": "read_file", "preview": "docs/board.md"}),
+            ("tool.completed", {"tool_name": "read_file"}),
+            ("assistant.delta", {"delta": "Do"}),
+            ("assistant.delta", {"delta": "ne."}),
+            ("assistant.completed", {"message": {"content": "Done.\n\nSLATE: done"}}),
+            ("run.completed", {}),
+        ]
+    )
+    out, lines, _ = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "done"
+    said = [text for line in lines for text in line.get("activity", [])]
+    assert said == [
+        "Turn started",
+        "terminal: uv run pytest -q",
+        "read_file: docs/board.md",
+        "Writing",
+    ]
+    assert all(set(line) == {"activity"} for line in lines if "activity" in line)
+
+
+def test_activity_goes_out_at_once_then_in_batches():
+    clock = Clock()
+    seen: list[dict] = []
+    late: list = []
+    say = run_task.Activity(
+        seen.append, every=1.0, clock=clock, defer=lambda wait, call: late.append((wait, call))
+    )
+    say("terminal: ls")
+    say("terminal: ls")  # the same words twice in a row are one line
+    say("read_file: a.md")
+    say("x" * 500)
+    assert seen == [{"activity": ["terminal: ls"]}]
+    # One late flush is booked for the rest of the interval, so a line before a long tool call
+    # does not wait for that tool to end.
+    assert [wait for wait, _ in late] == [1.0]
+    late[0][1]()
+    assert seen[1] == {"activity": ["read_file: a.md", "x" * 299 + "…"]}
+    say.flush(force=True)
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize(
+    ("kind", "data", "want"),
+    [
+        (
+            "tool.started",
+            {"tool_name": "terminal", "preview": "git status"},
+            "terminal: git status",
+        ),
+        ("tool.started", {"name": "web_search"}, "web_search"),
+        ("tool.failed", {"tool_name": "patch"}, "patch failed"),
+        (
+            "tool.progress",
+            {"tool_name": "_thinking", "delta": "check the tests"},
+            "Thinking: check the tests",
+        ),
+        ("tool.progress", {"tool_name": "terminal", "delta": "..."}, None),
+        (
+            "assistant.commentary",
+            {"text": "Reading the brief first.\nThen the code."},
+            "Reading the brief first.",
+        ),
+        ("assistant.delta", {"delta": "x"}, "Writing"),
+        ("tool.completed", {"tool_name": "terminal"}, None),
+    ],
+)
+def test_activity_line_per_stream_event(kind, data, want):
+    assert run_task.activity_line(kind, data) == want

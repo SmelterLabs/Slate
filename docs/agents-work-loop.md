@@ -274,7 +274,7 @@ turn. Both the stop and the seen marks are derived from events after the take's
 
 The agent stream sends a third message kind, `control` (`{id, item_id, type}`), to the agent a
 `comment.assigned` or `item.stop_requested` concerns when it holds a live lease on that item
-(`work.holds`), so a runner heartbeats at once instead of waiting for its timer (a third of the
+(`work.is_running`), so a runner heartbeats at once instead of waiting for its timer (a third of the
 lease). The stream is only the doorbell; the heartbeat answer is the source. Tests:
 `tests/test_mid_run.py`, `tests/test_mid_run_stream.py`, `tests/test_runner_control.py`.
 
@@ -392,7 +392,31 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   the 409 is said (`store.runNow` flashes the server's message). Badge time: since the last report,
   which every heartbeat with a note refreshes; a bare keep-alive heartbeat stays bookkeeping (no
   event), so it does not reach the board.
-- **Adapters**: `slate_runner.py` forwards `reply` and `thread` (result and progress lines). Hermes
+- **Live activity** (`slate/liveactivity.py`): what a run is doing right now, for the box under
+  "is typing…". `POST /work/{id}/activity {run_id, lines[]}` (MCP `slate_work activity`) needs
+  the caller's live lease (`work.holds`, the same proof as a heartbeat) and writes nothing: no
+  event, no comment, no row. The last `KEEP` (60) lines of the current run live in memory per
+  item (a new `run_id` starts over; a restart forgets them), each cut to one 300-character line
+  (`clean`). `GET /work/{id}/activity` returns them only while the item's flag is `working` by
+  the account that posted them, and nothing of a workspace agent to a guest. Each post is also
+  handed to open boards as an **id-less** `item.activity` message through `bus.publish_live`,
+  which reaches only subscribers that asked (`bus.subscribe(live=True)`: `/events/stream`), so
+  the engines, long-polls, `/checkin/stream`, `GET /events`, webhooks and history never see it
+  (`docs/live-stream.md`). It is deliberately not an event: a turn starts a tool every few
+  seconds, and product rule 3 would make each one a history line. Posts count against the
+  token's write bucket, so a runner batches (`tests/test_live_activity.py`).
+  Board: `lib/liveactivity.svelte.ts` (`liveActivity.lines[itemId]`, `mergeLines`) is fed by
+  `BoardStream.#receive`, which takes `item.activity` before the cursor check (no id, so no
+  cursor, reducer or detail refetch); `ActivityPanel` loads the run's lines when the open task's
+  agent is working and clears them when it stops; `task/LiveActivity.svelte` is the box
+  (`data-live-activity`): fixed height, `overscroll-behavior: contain`, follows the newest line
+  unless the reader scrolled back inside it. E2E: `live-activity.spec.ts`.
+- **Adapters**: `slate_runner.py` forwards `reply` and `thread` (result and progress lines) and
+  posts a progress line's `activity` (a string or a list) to the live box, giving up for good on
+  a server that answers 404/405. The Hermes adapter turns its turn stream into those lines
+  (`activity_line`: a tool with its preview, a failed tool, thinking, commentary, "Writing"),
+  at most one request per `HERMES_ACTIVITY_EVERY` (1 s) with late lines flushed by a timer
+  (`Activity`), for card turns only. Hermes
   uses one `api_server` session per card, a watchdog (`/health` start time, session 404, gateway
   silent for `HERMES_DOWN_GRACE`) and approvals as Asks; facts and unverified points in
   `integrations/hermes/README.md`. The runner example sends the answer on the card as the next turn

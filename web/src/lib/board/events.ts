@@ -114,6 +114,7 @@ export const EVENT_TYPES = [
   'favorite.moved',
   'favorite.removed',
   'item.reported',
+  'item.activity',
   'item.work_started',
   'item.work_finished',
   'item.run_requested',

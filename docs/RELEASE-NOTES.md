@@ -5,6 +5,9 @@ How to deploy a new version is in `deploy/server/RUNBOOK.md`.
 
 ## Unreleased
 
+- While an agent works a card, the task window shows what it is doing right now in a small
+  scrolling box under "is typing…" (`POST /work/{id}/activity`, the runner's `activity`
+  progress line). The lines are live only and never part of the card's history.
 - A message sent to an agent while it is working on the card reaches the running agent instead
   of waiting for the run to end, and the comment shows "Seen while working". The typing line
   has a Stop button (`POST /items/{id}/stop`). Runners get both through the heartbeat answer

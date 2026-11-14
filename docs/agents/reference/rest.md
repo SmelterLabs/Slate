@@ -2,7 +2,7 @@
 
 # REST reference
 
-239 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+241 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -28,7 +28,7 @@
 - [batch](#batch) (1)
 - [agents](#agents) (2)
 - [checkin](#checkin) (2)
-- [work](#work) (13)
+- [work](#work) (15)
 - [automations](#automations) (10)
 - [reminders](#reminders) (12)
 - [docs](#docs) (40)
@@ -1384,6 +1384,23 @@ Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progr
 - Body: `slate__api__work__HeartbeatIn`: `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`
 - Returns: `200` [HeartbeatOut](#heartbeatout)
 
+### `POST /work/{item_id}/activity`
+
+Scope: `write` · MCP: `slate_work activity`
+
+Say what you are doing on a task you hold, as it happens: the task window shows the lines in a small box while you work. They are not stored and not history (no event, no comment); the last 60 of the current run are kept in memory for a board that opens the task mid-run, and a new run starts over. Send a few lines at a time, not one request per line. 409 means you do not hold the task.
+
+- Body: `LiveActivityIn`: `run_id`, `lines`\*
+- Returns: `204`
+
+### `GET /work/{item_id}/activity`
+
+Scope: `read`
+
+What the agent working on this task is doing now: the lines its run posted, oldest first; empty when no agent is working on it. New lines arrive on `/events/stream` as `item.activity`.
+
+- Returns: `200` [LiveActivityOut](#liveactivityout)
+
 ### `POST /work/{item_id}/finish`
 
 Scope: `write` · MCP: `slate_work finish`
@@ -2374,6 +2391,10 @@ The fields of each response above (see `/openapi.json` for types).
 ### HeartbeatOut
 
 `run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `stop`: StopOut?, `messages`: [CommentOut]
+
+### LiveActivityOut
+
+`by`: string?, `lines`: [LiveLine]
 
 ### FinishOut
 

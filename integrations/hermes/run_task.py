@@ -54,6 +54,12 @@ POLL_EVERY = 5.0
 # Tool notes go to the card at most this often (seconds, `HERMES_NOTE_EVERY`): every note is a
 # line in the card's history, and a turn can start a tool every few seconds.
 NOTE_EVERY = 60.0
+# Live lines for the task window's box (what the agent is doing now; never history) go out at
+# most this often (seconds, `HERMES_ACTIVITY_EVERY`), several to a request when tools start
+# faster than that.
+ACTIVITY_EVERY = 1.0
+ACTIVITY_MAX = 300
+ACTIVITY_BATCH = 20
 DOWN_GRACE = 20.0
 SLATE_LINE = re.compile(
     r"^\s*SLATE:\s*(done|review|later|blocked)"
@@ -135,12 +141,93 @@ class Notes:
         self.last, self.at = note, now
 
 
-_STDOUT = threading.Lock()
+class Activity:
+    """What the turn is doing now, for the task window's live box: a new line goes out at once
+    unless one went out less than `every` seconds ago; then it waits out the rest of that
+    interval and leaves with whatever else arrived (`defer` runs the late flush; without one,
+    held lines leave on the next stream event or when the turn ends). The same words twice in
+    a row are one line."""
+
+    def __init__(
+        self,
+        emit: Emit,
+        *,
+        every: float,
+        clock: Callable[[], float],
+        defer: Callable[[float, Callable[[], None]], None] | None = None,
+    ) -> None:
+        self.emit, self.every, self.clock, self.defer = emit, every, clock, defer
+        self.held: list[str] = []
+        self.last: str | None = None
+        self.at: float | None = None
+        self.waiting = False
+        self.lock = threading.Lock()
+
+    def __call__(self, line: str) -> None:
+        text = " ".join(str(line).split())
+        if len(text) > ACTIVITY_MAX:
+            text = text[: ACTIVITY_MAX - 1] + "…"
+        with self.lock:
+            if text and text != self.last:
+                self.last = text
+                self.held = [*self.held, text][-ACTIVITY_BATCH:]
+        self.flush()
+
+    def flush(self, *, force: bool = False) -> None:
+        with self.lock:
+            if not self.held:
+                return
+            wait = 0.0 if self.at is None else self.every - (self.clock() - self.at)
+            if wait > 0 and not force:
+                if self.defer is not None and not self.waiting:
+                    self.waiting = True
+                    self.defer(wait, self._late)
+                return
+            self.emit({"activity": self.held})
+            self.held, self.at = [], self.clock()
+
+    def _late(self) -> None:
+        with self.lock:
+            self.waiting = False
+        self.flush(force=True)
+
+
+def after(seconds: float, call: Callable[[], None]) -> None:
+    timer = threading.Timer(seconds, call)
+    timer.daemon = True
+    timer.start()
+
+
+def activity_line(kind: str, data: dict[str, Any]) -> str | None:
+    """One stream event as a line for the live box, or None when it says nothing new."""
+    name = str(data.get("tool_name") or data.get("name") or data.get("tool") or "a tool")
+    if kind == "tool.started":
+        preview = str(data.get("preview") or "").strip()
+        return f"{name}: {preview}" if preview else name
+    if kind == "tool.failed":
+        return f"{name} failed"
+    if kind == "tool.progress" and name == "_thinking":
+        thought = str(data.get("delta") or "").strip()
+        return f"Thinking: {thought}" if thought else "Thinking"
+    if kind == "assistant.commentary":
+        said = str(data.get("text") or "").strip()
+        return said.splitlines()[0] if said else None
+    if kind == "assistant.delta":
+        return "Writing"
+    if kind == "approval.request":
+        return "Waiting on an approval in the native Hermes UI"
+    if kind == "run.started":
+        return "Turn started"
+    return None
+
+
+_stdout_lock = threading.Lock()
 
 
 def emit_stdout(line: dict[str, Any]) -> None:
-    with _STDOUT:  # the control watcher reports from its own thread
-        print(json.dumps(line), flush=True)
+    with _stdout_lock:  # the late activity flush writes from a timer thread
+        sys.stdout.write(json.dumps(line) + "\n")
+        sys.stdout.flush()
 
 
 def closing(text: str) -> tuple[str, str | None, str] | None:
@@ -498,9 +585,11 @@ def run_turn(
     clock: Callable[[], float] = time.monotonic,
     on_approval: Callable[[dict[str, Any]], None] | None = None,
     control: Control | None = None,
+    activity: Activity | None = None,
 ) -> tuple[str | None, list[dict[str, Any]]]:
     """Stream one turn as Slate. Returns (the reply text or None, approvals asked for).
-    `Stopped` when the gateway died or the session went away (the watchdog)."""
+    `Stopped` when the gateway died or the session went away (the watchdog). `activity` (card
+    turns only) receives what the turn is doing, for the task window's live box."""
     approvals: list[dict[str, Any]] = []
     reply: str | None = None
     notes = Notes(emit, every=note_every, clock=clock)
@@ -549,6 +638,12 @@ def run_turn(
                         control.attach(str(data["run_id"]))
                     if data.get("pending_steer"):
                         control.not_read()
+                if activity is not None:
+                    said = activity_line(kind, data)
+                    if said:
+                        activity(said)
+                    else:
+                        activity.flush()
                 if kind == "tool.started":
                     name = data.get("tool_name") or data.get("name") or data.get("tool") or "a tool"
                     notes(f"Hermes is using {name}")
@@ -621,6 +716,8 @@ def run_turn(
     finally:
         if control is not None and (ended or failed or terminal_failure):
             control.detach()
+        if activity is not None:
+            activity.flush(force=True)
     if failed:
         raise Stopped(
             f"The Hermes turn failed or stopped: {failed[:300]}.", terminal=terminal_failure
@@ -1245,6 +1342,12 @@ def run(
     timeout = float(env.get("HERMES_TURN_TIMEOUT") or 3600)
     grace = float(env.get("HERMES_DOWN_GRACE") or DOWN_GRACE)
     note_every = float(env.get("HERMES_NOTE_EVERY") or NOTE_EVERY)
+    activity = Activity(
+        emit,
+        every=max(0.2, float(env.get("HERMES_ACTIVITY_EVERY") or ACTIVITY_EVERY)),
+        clock=clock,
+        defer=after if clock is time.monotonic else None,
+    )
 
     try:
         pending = load_pending(env, item_id)
@@ -1358,6 +1461,7 @@ def run(
             clock=clock,
             on_approval=remember_approval,
             control=control,
+            activity=activity,
         )
 
     try:

@@ -299,6 +299,20 @@ less, so a fixed "just started" number is noise.
  "thread": {"ref": "sess_42", "url": "https://example.com/chat/42"}}
 ```
 
+**What you are doing right now.** A line with `activity` (a string, or a list of strings) goes
+to the small box the task window shows under "is typing…" while you work, so a person can tell
+a long run from a stuck one:
+
+```json
+{"activity": ["terminal: uv run pytest -q", "read_file: docs/board.md"]}
+```
+
+One short line per step (a tool and its argument); each is cut to 300 characters and the box
+keeps the newest 60 of the run. These lines are not history: no event, no comment, gone when
+the run ends. Print them as often as you like but batch a burst into one line's list, since
+each printed line is one request against your write limit. Without a runner, post them yourself
+with `POST /work/{id}/activity {"run_id": "...", "lines": ["..."]}`.
+
 `url` must use a scheme the server allows (`http` and `https` unless the server lists more in
 `GET /me` `link_schemes`); the card shows it as **Open ↗**. It stays until the task is done or
 released.

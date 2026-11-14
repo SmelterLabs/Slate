@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from slate import liveactivity
 from slate.api import longpoll
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.chat import MessageOut
@@ -681,6 +682,46 @@ def heartbeat(item_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSessi
         seen=body.seen,
     )
     return {**work.lease_view(row), **work.turn_control(session, auth.actor.account_id, item_id)}
+
+
+class LiveActivityIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: str | None = Field(default=None, max_length=64)
+    lines: list[str] = Field(
+        min_length=1,
+        max_length=liveactivity.MAX_LINES,
+        description="What you are doing now, oldest first, one short line each (a tool and "
+        "its argument, a step): cut to 300 characters",
+    )
+
+
+class LiveLine(BaseModel):
+    at: datetime
+    text: str
+
+
+class LiveActivityOut(BaseModel):
+    by: str | None = Field(description="The agent working on the task, or null")
+    lines: list[LiveLine] = Field(description="Its current run's lines, oldest first")
+
+
+@router.post("/work/{item_id}/activity", status_code=204)
+def post_activity(item_id: str, body: LiveActivityIn, auth: WriteAuth, session: DbSession) -> None:
+    """Say what you are doing on a task you hold, as it happens: the task window shows the
+    lines in a small box while you work. They are not stored and not history (no event, no
+    comment); the last 60 of the current run are kept in memory for a board that opens the
+    task mid-run, and a new run starts over. Send a few lines at a time, not one request per
+    line. 409 means you do not hold the task."""
+    work.holds(session, auth.actor, item_id, body.run_id)
+    liveactivity.live.add(item_id, auth.actor.account_id, body.run_id or "", body.lines)
+
+
+@router.get("/work/{item_id}/activity", response_model=LiveActivityOut)
+def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
+    """What the agent working on this task is doing now: the lines its run posted, oldest
+    first; empty when no agent is working on it. New lines arrive on `/events/stream` as
+    `item.activity`."""
+    return work.live_activity(session, item_id)
 
 
 @router.post("/work/{item_id}/finish", response_model=FinishOut)

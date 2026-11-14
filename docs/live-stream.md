@@ -40,6 +40,15 @@ after the subscribe is in the queue; one that is both is skipped by the cursor.
 `test_catch_up_has_no_gap_or_duplicate_across_the_subscribe_replay_seam` injects writes on both
 sides of the query.
 
+**Messages that are not events.** `bus.publish_live(message)` hands an id-less message to the
+subscribers that asked for them (`bus.subscribe(live=True)`, which only `/events/stream` does).
+`payloads(..., live=True)` sends one through the same gate and filters as an event but never
+compares or advances the cursor, and `_sse` leaves its `id:` off, so the client's
+`Last-Event-ID` stays on the last real event and a reconnect replays nothing for it. The only
+such message is `item.activity` (`docs/agents-work-loop.md`, "Live activity"). A guest's gate
+drops it with the rest of a workspace agent's talk (`EventGate._AGENT_TALK`). `publish_live`
+does not bump `bus.seq`, so no engine or long-poll wakes for it.
+
 **Slow consumers.** Bus queues are bounded (1000). A full queue drops its *oldest* message, logs one
 warning per burst and counts `Subscription.dropped`; `publish()` never waits. The stream checks
 `dropped` before sending each live message and, if set, replays `id > cursor` from the table instead
