@@ -66,7 +66,10 @@ existing model/provider settings.
 1. Fetch and validate the authorized `GET /items/{id}/brief` on **every** turn. Any HTTP
    failure, malformed response or empty text blocks before runtime work. No title-only fallback.
 2. Reuse the saved session when it exists. A 404 can create a new session; an authorization
-   error cannot. Emit `thread.ref` promptly, retaining it on runtime failure and brief errors
+   error cannot. A create the gateway refuses because the card's own session title is already
+   held (a previous create that timed out on the runner side still made the session) adopts
+   that session and sends it the brief; a title held for another card still blocks. Emit
+   `thread.ref` promptly, retaining it on runtime failure and brief errors
    when a previous ref is known.
 3. Send the brief on a first turn, or the card reply as quoted data with stable author ID,
    kind, role, handle, comment ID and timestamp. Unknown provenance stays unknown; a person's

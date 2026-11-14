@@ -7,6 +7,7 @@
 import type { Account, AgentFlag, Comment, Item, SlateEvent } from './types';
 import type { Row } from './activity';
 import { waitingOn } from './words';
+import { PICKUP_WAIT_MS } from './pickup';
 
 /** Is this comment part of a conversation with an agent? */
 export function isChat(c: Comment, isAgent: (id: string) => boolean): boolean {
@@ -159,13 +160,13 @@ export function askFor(text: string, accounts: Account[], fallback: string): str
 
 /** The agent the card is waiting on to answer, for the "working" dots at the foot of the
  * thread: the agent working on it now, else the agent with an open Ask (sent, not yet
- * picked up). `picked` says whether it has started. */
+ * picked up). `picked` says whether it has started; `since` is when an unpicked Ask was sent. */
 export function pendingAgent(
   item: { agent?: AgentFlag | null },
   comments: (Pick<Comment, 'assignee_id' | 'resolved_at' | 'created_at'> & { id?: string })[],
   isAgent: (id: string) => boolean,
   events: SlateEvent[] = [],
-): { id: string; picked: boolean } | null {
+): { id: string; picked: boolean; since?: string } | null {
   if (item.agent?.state === 'working') return { id: item.agent.by, picked: true };
   const assignments = new Map<string, string>();
   const settled = new Map<string, string>();
@@ -183,7 +184,16 @@ export function pendingAgent(
     .filter((c) => !c.id || !assignments.has(c.id) || !settled.has(c.assignee_id!) || assignments.get(c.id)! > settled.get(c.assignee_id!)!)
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
     .at(-1);
-  return open ? { id: open.assignee_id!, picked: false } : null;
+  return open ? { id: open.assignee_id!, picked: false, since: open.created_at } : null;
+}
+
+/** An Ask no agent has taken within the pickup wait: the thread says so instead of showing
+ * typing dots, because nothing may be listening (no runner, or an agent that only reads Slate
+ * when someone opens its session). */
+export function unpickedAsk(pending: { picked: boolean; since?: string } | null, now: Date): boolean {
+  if (!pending || pending.picked || !pending.since) return false;
+  const sent = Date.parse(pending.since);
+  return Number.isFinite(sent) && now.getTime() - sent > PICKUP_WAIT_MS;
 }
 
 /** What a card that waits on `me` is waiting for: who set the wait, the comment that carries

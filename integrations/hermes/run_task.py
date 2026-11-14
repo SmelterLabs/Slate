@@ -297,6 +297,13 @@ def create_session(hermes: httpx.Client, title: str, *, cwd: str | None = None) 
         body["cwd"] = cwd
     r = hermes.post("/api/sessions", json=body)
     if r.is_error:
+        # A create that timed out on our side may still have made the session; the retry is then
+        # refused because the title (unique per card) is taken. That session is ours: adopt it.
+        held = re.fullmatch(
+            r"Title '(.*)' is already in use by session (\S+)", _error_of(r), re.DOTALL
+        )
+        if held and held.group(1) == title and session_exists(hermes, held.group(2)):
+            return held.group(2)
         raise RuntimeError(f"Hermes refused session creation: {_error_of(r)}")
     r.raise_for_status()
     sid = _id_of(r.json())

@@ -468,7 +468,9 @@ Design choices and the reason for each, with the alternatives that were rejected
   someone and a done status in `work.eligible()` (like Run now), so a follow-up on a card the
   agent already answered wakes it at once instead of sitting unanswered. The board shows no "Asked
   X" pill on questions to agents and one "<agent> is typing…" line until the answer lands (pills
-  stay for Asks to people).
+  stay for Asks to people). An Ask no run has taken after `PICKUP_WAIT_MS` (two minutes, the
+  same wait as Run now) shows "<agent> hasn't picked this up" instead (`unpickedAsk`), because
+  an agent with no runner never answers and the dots would claim work that is not happening.
 - **One answer per turn.** `work.finish` posts no note or reply when the agent already reported
   the same outcome with a comment of its own since its last take (`_already_answered`: the turn
   starts at its report moving into `working`), so an agent that finishes through its own Slate
