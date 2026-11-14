@@ -240,17 +240,19 @@ def test_card_reply_keeps_kind_role_identity_without_promoting_guest(adapter):
 
 
 @pytest.mark.parametrize(
-    "adapter,work_kinds,resume",
+    "adapter,work_kinds,resume,remote_stop",
     [
-        (run_task, ["task", "chat", "doc"], "session"),
-        (cli, ["task"], "fresh-process"),
-        (example, ["task"], "agent-conversation"),
+        (run_task, ["task", "chat", "doc"], "session", True),
+        (cli, ["task"], "fresh-process", False),
+        (example, ["task"], "agent-conversation", False),
     ],
 )
-def test_readable_capabilities_do_not_claim_remote_control(adapter, work_kinds, resume):
+def test_readable_capabilities_claim_only_the_control_they_have(
+    adapter, work_kinds, resume, remote_stop
+):
     assert adapter.CAPABILITIES["work_kinds"] == work_kinds
     assert adapter.CAPABILITIES["resume"] == resume
-    assert adapter.CAPABILITIES["remote_stop"] is False
+    assert adapter.CAPABILITIES["remote_stop"] is remote_stop
     assert adapter.CAPABILITIES["approvals"] == "native-ui-only"
 
 

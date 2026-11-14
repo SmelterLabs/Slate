@@ -91,4 +91,15 @@ export class BoardRun extends BoardItems {
     }
     void agents.refreshRoster();
   }
+
+  /** Ask the agent working on the task to stop (POST /items/{id}/stop). */
+  async stopRun(id: string): Promise<boolean> {
+    try {
+      await post(`/items/${id}/stop`);
+      return true;
+    } catch (e) {
+      this.flash(e instanceof ApiError ? e.message : 'Could not ask the agent to stop');
+      return false;
+    }
+  }
 }

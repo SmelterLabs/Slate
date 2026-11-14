@@ -1514,6 +1514,7 @@ class EventGate:
         "item.activity",
         "item.work_",
         "item.run_requested",
+        "item.stop_requested",
         "item.watched",
         "item.unwatched",
         "comment.",

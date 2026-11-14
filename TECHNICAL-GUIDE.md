@@ -536,6 +536,14 @@ Design choices and the reason for each, with the alternatives that were rejected
   owners are only those the caller can see; fields the person changed first are kept; a model
   failure leaves the card as typed. The prompt carries a three-week calendar because the model
   gets relative dates wrong without one.
+- **A message sent while the agent works reaches the run through its heartbeat, and Stop is a
+  request, not a seizure.** The heartbeat answer carries the new Asks (`messages`) and `stop`;
+  the runner's `seen` records `comment.seen`, and the finish settles only what was read, so a
+  runner that passes nothing on behaves exactly as before (the message is the next turn).
+  Rejected: pushing message text over the agent stream (the stream is a doorbell; one source,
+  the heartbeat, cannot disagree with itself after a reconnect), and ending the lease on Stop
+  (the server cannot know the remote run ended; the agent's own finish is the proof). Details:
+  `docs/agents-work-loop.md` "While a run is going".
 
 ### Shared projects and chat
 

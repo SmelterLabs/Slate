@@ -18,7 +18,7 @@
     timeline,
   } from '../../lib/activity';
   import { automationNames, automationOf } from '../../lib/automationref.svelte';
-  import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shortAge, shownProgress, unpickedAsk, updatedAgo } from '../../lib/conversation';
+  import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, runNow, shortAge, shownProgress, unpickedAsk, unreadMidRun, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
   import { fullStamp } from '../../lib/format';
@@ -103,8 +103,17 @@
 
   // The dots at the foot of the thread: an agent has the card's question, sent or started.
   const allComments = $derived(entries.flatMap((e) => (e.kind === 'comment' && e.comment ? [e.comment] : [])));
-  const pending = $derived(pendingAgent(item, allComments, isAgent,
-    [...item.events, ...entries.flatMap((e) => e.kind === 'event' && e.event ? [e.event] : [])]));
+  const allEvents = $derived([...item.events, ...entries.flatMap((e) => (e.kind === 'event' && e.event ? [e.event] : []))]);
+  const pending = $derived(pendingAgent(item, allComments, isAgent, allEvents));
+  // The run going on now: where it began (a message sent after that is "not read yet" until the
+  // agent reads it) and whether someone pressed Stop.
+  const run = $derived(pending?.picked ? runNow(allEvents, pending.id) : { start: null, stopping: false });
+  let stopSent = $state<string | null>(null); // the run a Stop of ours is on its way to
+  const stopping = $derived(run.stopping || (!!run.start && stopSent === run.start));
+  async function stop() {
+    stopSent = run.start;
+    if (!(await board.stopRun(item.id))) stopSent = null;
+  }
   // An Ask nobody took within the pickup wait reads "not picked up", not "typing"; a minute tick
   // flips it without a refetch.
   let askClock = $state(new Date());
@@ -339,6 +348,15 @@
                 Asked {board.accountName(c.assignee_id) ?? 'someone'} · {c.resolved_at ? 'Resolved' : 'Open'}
               </span>
             {/if}
+            {#if c.seen_at}
+              <span class="seen" data-seen="yes" title="{board.accountName(c.seen_by_id ?? c.assignee_id ?? '') ?? 'The agent'} got this while it was working, {fullStamp(c.seen_at)}">
+                <Icon name="check" size={12} /> Seen while working
+              </span>
+            {:else if pending?.picked && unreadMidRun(c, allEvents, pending.id, run.start)}
+              <span class="seen waiting" data-seen="no" title="{board.accountName(pending.id) ?? 'The agent'} is working. This reaches it during the run when its runner can pass it on; otherwise it is the agent's next turn.">
+                Not read yet
+              </span>
+            {/if}
           </div>
           {#if editing === c.id}
             <textarea
@@ -464,8 +482,15 @@
           <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
           <span>
             <strong>{board.accountName(pending.id) ?? 'The agent'}</strong>
-            is typing…
+            {stopping ? 'is stopping…' : 'is typing…'}
           </span>
+          {#if pending.picked && run.start}
+            <button class="stop" data-stop-run disabled={stopping}
+              title={stopping ? 'Stop was sent; waiting for the agent to end its run' : 'Stop what the agent is doing on this task'}
+              onclick={stop}>
+              <span class="stop-square" aria-hidden="true"></span>{stopping ? 'Stopping' : 'Stop'}
+            </button>
+          {/if}
         </div>
         {#if liveLines.length}<LiveActivity lines={liveLines} />{/if}
       </div>
@@ -548,6 +573,45 @@
   }
   .typing strong {
     color: var(--text);
+  }
+  .stop {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .stop:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .stop:disabled {
+    cursor: default;
+    color: var(--muted);
+  }
+  .stop-square {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: currentColor;
+  }
+  .seen {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--accent);
+  }
+  .seen.waiting {
+    color: var(--muted);
   }
   .dots {
     display: inline-flex;

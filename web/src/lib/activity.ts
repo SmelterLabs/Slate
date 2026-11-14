@@ -64,7 +64,7 @@ export function timeline(entries: ActivityEntry[]): Row[] {
 
 /** Merge a detail's comments and events into entries (used before /activity answers). */
 export function entriesFrom(comments: Comment[], events: SlateEvent[]): ActivityEntry[] {
-  const hidden = new Set(['item.commented', 'comment.reacted', 'comment.unreacted', 'comment.edited']);
+  const hidden = new Set(['item.commented', 'comment.reacted', 'comment.unreacted', 'comment.edited', 'comment.seen']);
   const out: ActivityEntry[] = [
     ...comments.map((c) => ({ kind: 'comment' as const, at: c.created_at, comment: c, event: null })),
     ...events

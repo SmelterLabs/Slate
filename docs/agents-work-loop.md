@@ -251,6 +251,33 @@ proof in runner/client payloads. The board uses these same receipts to stop typi
 while retaining visible Open/Resolve pills. The event log is authoritative; do not prune these
 records independently of task history.
 
+### While a run is going: new messages and Stop
+
+An Ask addressed to an agent that already holds the card is not a new turn yet. The run's
+heartbeat answers with it (`messages`, the comments addressed to the agent since its take that it
+has not marked seen: `work.turn_messages`), the runner hands it to the running agent and sends
+its id back (`heartbeat {seen: [...]}`), and that records `comment.seen` (once per comment;
+ids that are not this run's messages are ignored). The comment view then carries `seen_at` /
+`seen_by_id`, which the board shows as "Seen while working". The finish settles what was read:
+`item.work_finished.after.through` is `work._turn_through`, the take's boundary moved past each
+seen message in order and stopped at the first one never read, so a message the run did not
+read is still the agent's next turn, exactly as before.
+
+`POST /items/{id}/stop` (MCP `slate_item stop`) records `item.stop_requested` with `after.for` =
+the account holding the lease; 409 when no live lease exists, and a second press in the same run
+returns the first event. Slate does not take the lease away: the heartbeat answer carries `stop`
+(`{by, by_id, at}`), the runner ends its command, and the agent's own finish (blocked, waiting on
+whoever pressed Stop) ends the run. A Stop also settles every message sent before it, so an
+unread message does not start the run again; what the person writes after Stop is the next
+turn. Both the stop and the seen marks are derived from events after the take's
+`item.work_started`, so a new run starts clean with no state to reset.
+
+The agent stream sends a third message kind, `control` (`{id, item_id, type}`), to the agent a
+`comment.assigned` or `item.stop_requested` concerns when it holds a live lease on that item
+(`work.is_running`), so a runner heartbeats at once instead of waiting for its timer (a third of the
+lease). The stream is only the doorbell; the heartbeat answer is the source. Tests:
+`tests/test_mid_run.py`, `tests/test_mid_run_stream.py`, `tests/test_runner_control.py`.
+
 ## Wake modes, Copy brief, the `SLATE:` line and the adapters
 
 The agent-facing version is `docs/agents/pull-agents.md`.

@@ -187,6 +187,35 @@ export function pendingAgent(
   return open ? { id: open.assignee_id!, picked: false, since: open.created_at } : null;
 }
 
+/** What happened in the run `agentId` has going on the card, from the card's events: `start`
+ * is the event id of its latest take (null: no run in view), `stopping` whether someone has
+ * asked that run to stop. */
+export function runNow(
+  events: Pick<SlateEvent, 'id' | 'type' | 'actor_id' | 'after'>[],
+  agentId: string,
+): { start: string | null; stopping: boolean } {
+  let start: string | null = null;
+  let stop: string | null = null;
+  for (const event of events) {
+    if (event.type === 'item.work_started' && event.actor_id === agentId && event.id > (start ?? '')) start = event.id;
+    const who = (event.after as { for?: string[] } | null)?.for;
+    if (event.type === 'item.stop_requested' && who?.includes(agentId) && event.id > (stop ?? '')) stop = event.id;
+  }
+  return { start, stopping: start !== null && stop !== null && stop > start };
+}
+
+/** A message sent to the agent after its run began that it has not read yet: the thread says
+ * so until the run reads it (`seen_at`) or ends. */
+export function unreadMidRun(
+  comment: Pick<Comment, 'id' | 'assignee_id' | 'resolved_at' | 'seen_at'>,
+  events: Pick<SlateEvent, 'id' | 'type' | 'subject_id'>[],
+  agentId: string,
+  start: string | null,
+): boolean {
+  if (!start || comment.assignee_id !== agentId || comment.resolved_at || comment.seen_at) return false;
+  return events.some((e) => e.type === 'comment.assigned' && e.subject_id === comment.id && e.id > start);
+}
+
 /** An Ask no agent has taken within the pickup wait: the thread says so instead of showing
  * typing dots, because nothing may be listening (no runner, or an agent that only reads Slate
  * when someone opens its session). */

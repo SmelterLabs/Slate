@@ -34,6 +34,25 @@ upgrade. The server's health check (`healthz`) reports `min_runner_protocol`.
 
 ## One runner per machine, every agent in one file
 
+## While a task runs: new messages and Stop
+
+A person can write to the agent, or press **Stop**, while the command is still running. The
+runner hears it at once (the stream's `control` message makes it heartbeat; the answer carries
+the news) and appends one JSON line per event to the file named in env `SLATE_CONTROL`:
+
+- `{"message": {...}}`: a comment addressed to the agent since the run began, as Slate returns
+  it (`id`, `body_md`, `author_handle`, `author_kind`...). A command that hands it to its
+  running agent prints `{"seen": ["<comment id>"]}`. The card then shows the message as "Seen
+  while working", and this run's finish settles it.
+- `{"stop": {"by": "alex", "at": "..."}}`: someone pressed Stop. The command ends its agent's
+  run and prints its result line. A command still running 30 seconds later is stopped by the
+  runner. Either way the task finishes blocked, waiting on the person who pressed Stop, and a
+  reply or Run now carries on.
+
+A command that never reads the file loses nothing: a message it did not mark seen is the
+agent's next turn when this run ends, as if it had been sent afterwards, and Stop still ends
+the command after the 30 seconds. Chat and doc turns have no control file.
+
 A machine runs **one** runner process for all its agents. List them in a TOML file and start
 it with `--config`; adding an agent is adding an `[[agent]]` block and restarting the runner,
 not installing anything new.

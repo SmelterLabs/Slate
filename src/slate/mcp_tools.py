@@ -711,6 +711,13 @@ ITEM_ACTIONS = {
         "or it is done, cancelled or archived",
         ItemRef,
     ),
+    "stop": bind(
+        items_api.stop,
+        "Stop: ask the agent working on the item to stop (records item.stop_requested; its "
+        "runner ends the run, which finishes blocked waiting on you). Refused when no agent "
+        "is working on it",
+        ItemRef,
+    ),
     "brief": bind(
         items_api.get_brief,
         "the task as one paste-ready prompt (title, due, description, checklists, recent "
@@ -1153,7 +1160,9 @@ WORK_ACTIONS = {
     "heartbeat": bind(
         work_api.heartbeat,
         "keep holding the task (the lease runs lease_seconds from now); note/progress update "
-        "the badge. An error saying you do not hold it means stop: another agent has it",
+        "the badge. The answer carries messages (Asks sent to you since the take: read them, "
+        "then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish blocked "
+        "waiting_on them). An error saying you do not hold it means stop: another agent has it",
         with_id(HeartbeatIn, "item_id", "The task you hold"),
     ),
     "activity": bind(

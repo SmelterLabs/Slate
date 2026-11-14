@@ -328,12 +328,142 @@ def pending_asks(session: Session, account_id: str) -> list[Comment]:
 
 
 def turn_asks(session: Session, account_id: str, item_id: str) -> list[Comment]:
-    """Pending Asks in the current take, excluding assignments arriving during the run."""
+    """Pending Asks in the current take: the ones it started with and the ones it read while
+    running (`_turn_through`), not the ones that arrived and were never handed to it."""
     start = _turn_start(session, account_id, item_id)
     q = _pending_asks(account_id).where(Comment.item_id == item_id)
     if start is not None:
-        q = q.where(_assignment_id() < start.id)
+        q = q.where(_assignment_id() <= _turn_through(session, account_id, item_id, start))
     return list(session.scalars(q.order_by(Comment.created_at, Comment.id)))
+
+
+# --- While a run is going: new messages and Stop ----------------------------------------------
+#
+# A person's Ask that arrives while the agent holds the card is not a new turn yet: the run's
+# heartbeat answers with it (`turn_control` -> `messages`), the runner passes it to the running
+# agent and says so (`heartbeat(seen=...)` records `comment.seen`), and the finish settles what
+# was read (`_turn_through`). One never read stays pending and is the agent's next turn, as
+# before. Stop is one `item.stop_requested` event for the account holding the lease; the same
+# heartbeat answer carries it (`stop`), and the agent's own finish ends the run.
+
+STOP_TYPE = "item.stop_requested"
+SEEN_TYPE = "comment.seen"
+
+
+def _seen_ids(session: Session, account_id: str, item_id: str, start: Event) -> set[str]:
+    return set(
+        session.scalars(
+            select(Event.subject_id).where(
+                Event.type == SEEN_TYPE,
+                Event.item_id == item_id,
+                Event.actor_id == account_id,
+                Event.id > start.id,
+            )
+        )
+    )
+
+
+def _arrived(session: Session, account_id: str, item_id: str, start: Event) -> list[Any]:
+    """`(comment, assignment event id)` for the account's pending Asks addressed to it after
+    the take, in the order they were addressed."""
+    assigned = _assignment_id().label("assigned")
+    rows = session.execute(
+        _pending_asks(account_id)
+        .add_columns(assigned)
+        .where(Comment.item_id == item_id, _assignment_id() > start.id)
+        .order_by(assigned)
+    )
+    return [(row[0], row[1]) for row in rows]
+
+
+def _turn_through(session: Session, account_id: str, item_id: str, start: Event) -> str:
+    """The run's settlement cursor: its take, moved past each message it read mid-run, in
+    order, stopping at the first one it never read (that one is still a turn to come). A Stop
+    settles everything sent before it: the person wrote those and then stopped the run, so
+    they must not start it again; what they write after Stop is the next turn."""
+    through = start.id
+    stop = _stop_of(session, account_id, item_id)
+    if stop is not None:
+        through = stop.id
+    seen = _seen_ids(session, account_id, item_id, start)
+    if not seen:
+        return through
+    for comment, assigned in _arrived(session, account_id, item_id, start):
+        if assigned > through and comment.id not in seen:
+            break
+        through = max(through, assigned)
+    return through
+
+
+def turn_messages(session: Session, account_id: str, item_id: str) -> list[Comment]:
+    """The Asks addressed to the account since it took the item that it has not marked seen."""
+    start = _turn_start(session, account_id, item_id)
+    if start is None:
+        return []
+    seen = _seen_ids(session, account_id, item_id, start)
+    return [c for c, _ in _arrived(session, account_id, item_id, start) if c.id not in seen]
+
+
+def _stop_of(session: Session, account_id: str, item_id: str) -> Event | None:
+    """The stop request against the account's current run on the item, or None."""
+    start = _turn_start(session, account_id, item_id)
+    if start is None:
+        return None
+    for event in session.scalars(
+        select(Event)
+        .where(Event.type == STOP_TYPE, Event.item_id == item_id, Event.id > start.id)
+        .order_by(Event.id.desc())
+    ):
+        if account_id in ((event.after_json or {}).get("for") or []):
+            return event
+    return None
+
+
+def turn_control(session: Session, account_id: str, item_id: str) -> dict[str, Any]:
+    """What the running agent should know now (the heartbeat's answer): `stop` (who asked the
+    run to stop and when, or None) and `messages` (comment views, oldest first)."""
+    stop = _stop_of(session, account_id, item_id)
+    who = session.get(Account, stop.actor_id) if stop is not None else None
+    return {
+        "stop": {"by": who.handle if who else None, "by_id": stop.actor_id, "at": stop.at}
+        if stop is not None
+        else None,
+        "messages": comments.comment_views(session, turn_messages(session, account_id, item_id)),
+    }
+
+
+def is_running(
+    session: Session, account_id: str, item_id: str, now: datetime | None = None
+) -> bool:
+    """The account has a live lease on the item (a run of its own is going)."""
+    row = session.get(WorkLease, item_id)
+    return (
+        row is not None
+        and row.account_id == account_id
+        and not row.quarantined
+        and row.until >= (now or utcnow())
+    )
+
+
+def request_stop(
+    session: Session, actor: Actor, item_id: str, *, now: datetime | None = None
+) -> Event:
+    """Ask the agent working on the item to stop: one `item.stop_requested` event
+    (`after.for` = the account holding the lease), which reaches its runner at once (the agent
+    stream's `control` message) and on its next heartbeat (`stop`). The run ends when the agent
+    finishes it; nothing here takes the lease away. Asking again during the same run returns
+    the first request. `Conflict` (409) when no agent is working on it."""
+    item = get_item(session, item_id)
+    now = now or utcnow()
+    with apply_change(session, actor) as cx:
+        row = session.get(WorkLease, item.id, populate_existing=True)
+        if row is None or row.quarantined or row.until < now:
+            raise Conflict("no agent is working on this item")
+        guests.refuse(session, actor.account_id, session.get(Account, row.account_id))
+        already = _stop_of(session, row.account_id, item.id)
+        if already is not None:
+            return already
+        return cx.record(STOP_TYPE, item_id=item.id, after={"for": [row.account_id]})
 
 
 def _turn_start(session: Session, account_id: str, item_id: str) -> Event | None:
@@ -680,21 +810,33 @@ def heartbeat(
     progress: int | None = None,
     url: str | None = None,
     thread: Any = None,
+    seen: list[str] | None = None,
     now: datetime | None = None,
 ) -> WorkLease:
     """Keep holding the item: the lease runs `lease` seconds from now. With `note`, `progress`,
     a new `url` or a new `thread` it is also a `working` report (the badge updates live; no
-    comment).
+    comment). `seen` names messages of this run (`turn_messages`) the running agent has now
+    read: each is recorded once as `comment.seen`; any other id is ignored.
     `Conflict` when the lease was lost: another account has taken the task, so stop working
     on it."""
     seconds = lease_seconds(lease)
     now = now or utcnow()
     thread = reports.check_thread(thread)
     actor = reports.with_thread_ref(session, actor, thread)
-    with apply_change(session, actor):
+    with apply_change(session, actor) as cx:
         item = get_item(session, item_id)
         session.refresh(item)
         row = _holding(session, actor, item, run_id, now)
+        if seen:
+            unread = {c.id for c in turn_messages(session, actor.account_id, item.id)}
+            for comment_id in dict.fromkeys(seen):
+                if comment_id in unread:
+                    cx.record(
+                        SEEN_TYPE,
+                        item_id=item.id,
+                        subject_id=comment_id,
+                        after={"comment_id": comment_id, "by": actor.account_id},
+                    )
         url = reports.check_url(url)
         news = url is not None and url != item.agent_url
         if thread is not None and thread != reports.thread_of(session, item.id, actor.account_id):
@@ -806,6 +948,7 @@ def finish(
             comment, reply = False, None
         start = _turn_start(session, actor.account_id, item.id)
         asks = turn_asks(session, actor.account_id, item.id) if start is not None else []
+        through = _turn_through(session, actor.account_id, item.id, start) if start else None
         if (
             answering
             and state == "blocked"
@@ -853,7 +996,7 @@ def finish(
                 "item.work_finished",
                 item_id=item.id,
                 after={
-                    "through": start.id if start else None,
+                    "through": through,
                     "outcome": outcome,
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),

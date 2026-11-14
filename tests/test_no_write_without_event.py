@@ -131,6 +131,7 @@ READS = {
         "not_about_deleted_comment",
         "reactions_of",
         "comment_views",
+        "seen_of",
         "open_asks",
         "authors_of",
         "reply_target",
@@ -177,6 +178,9 @@ READS = {
         "lease_seconds",
         "check_later",
         "turn_asks",
+        "turn_messages",
+        "turn_control",
+        "is_running",
         "pending_asks",
         "eligible",
         "is_takeable",
@@ -1074,6 +1078,9 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             evidence="test control confirmed",
         ),
         "expire_leases": None,  # scheduler hook: writes as `slate` (tests/test_work.py)
+        # Needs an agent's take first (events by the agent): tests/test_mid_run.py checks the
+        # one `item.stop_requested` event.
+        "request_stop": None,
         "request_run": lambda db, a, p: (
             _create_account(db, a, p),
             work.request_run(db, a, _item(db, a, assignees=["agent"]).id),

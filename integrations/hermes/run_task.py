@@ -9,8 +9,13 @@ Failure, cancellation, approval and unconfirmed execution block instead of repor
 No card/chat text can authorize a runtime control. Pending approvals remain bound to the
 native session/request and require native UI handling plus independent reconciliation.
 Observation fences prevent replay after crashes, unconfirmed turns or failed control writes.
-No remote stop or automatic approval reconciliation is implemented. See README.md for
-capabilities, state recovery, environment options, supported chat and rollout limitations.
+No automatic approval reconciliation is implemented. See README.md for capabilities, state
+recovery, environment options, supported chat and rollout limitations.
+
+While a card turn runs, the runner's control file (env SLATE_CONTROL) is watched (`Control`):
+a new message on the card is steered into the live Hermes run and reported as seen, and a
+person's Stop stops that run (`POST /v1/runs/{run_id}/stop`). A message the run ended without
+reading is sent as one more turn in the same session before the result is reported.
 
 Session refs are always retained when known; optional Desktop links require explicit
 HERMES_SESSION_LINK=1 and server scheme support. Slate's src/ knows nothing of this module.
@@ -27,7 +32,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +45,8 @@ CAPABILITIES = {
     "work_kinds": ["task", "chat", "doc"],
     "resume": "session",
     "approvals": "native-ui-only",
-    "remote_stop": False,
+    "remote_stop": True,
+    "mid_run_messages": True,
     "probe": "nonce-v1",
 }
 REPLY_MAX = 19000
@@ -77,6 +83,21 @@ PAUSED = (
     "(Paused: the agent ended its turn without saying the task is finished, so this is not "
     "ready for review. Reply here to continue it in the same session, or press Run now.)"
 )
+
+STEER = (
+    "A new message arrived on the Slate card while you were working on it. Read it now and "
+    "take it into account in the work you are doing, then carry on; do not start over."
+)
+LATE = (
+    "This message arrived on the Slate card while you were finishing your last answer, so "
+    "you have not acted on it yet. Deal with it now. End your answer with the SLATE: line, "
+    "as before."
+)
+STOPPED = (
+    "Stopped at {who}'s request before it finished. Reply here to carry on in the same "
+    "session, or press Run now."
+)
+CONTROL_POLL = 1.0
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -429,6 +450,128 @@ def last_reply(hermes: httpx.Client, session_id: str) -> tuple[int, str | None]:
     return len(replies), (replies[-1] if replies else None)
 
 
+class Control:
+    """What a person did on the card while this run is going, read from the runner's control
+    file (JSON lines: `{"message": <comment>}`, `{"stop": {"by": handle}}`).
+
+    A message is steered into the live Hermes run (`POST /v1/runs/{run_id}/steer`: the agent
+    reads it with its next tool result) and reported as `{"seen": [id]}`. One that could not be
+    steered, or that the run ended without reading (`pending_steer`), is handed back by
+    `unread()` for one more turn. Stop is `POST /v1/runs/{run_id}/stop`, retried until the
+    gateway takes it. Without a control file every method is a no-op."""
+
+    def __init__(self, path: str | None, hermes: httpx.Client, emit: Emit) -> None:
+        self.path = Path(path) if path else None
+        self.hermes, self.emit = hermes, emit
+        self.lock = threading.RLock()
+        self.lines = 0
+        self.waiting: list[dict[str, Any]] = []
+        self.steered: list[dict[str, Any]] = []
+        self.stop: dict[str, Any] | None = None
+        self.stop_sent = False
+        self.run_id: str | None = None
+
+    def read(self) -> None:
+        if self.path is None:
+            return
+        try:
+            rows = self.path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        for line in rows[self.lines :]:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                break  # a line still being written: read it next time
+            self.lines += 1
+            if not isinstance(row, dict):
+                continue
+            message = row.get("message")
+            if isinstance(message, dict) and str(message.get("body_md") or "").strip():
+                self.waiting.append(message)
+            if isinstance(row.get("stop"), dict) and self.stop is None:
+                self.stop = row["stop"]
+
+    def stop_asked(self) -> bool:
+        with self.lock:
+            self.read()
+            return self.stop is not None
+
+    def attach(self, run_id: str) -> None:
+        """The live turn's Hermes run id is known: act on what is waiting."""
+        with self.lock:
+            if run_id != self.run_id:
+                self.run_id = run_id
+                self.act()
+
+    def detach(self) -> None:
+        with self.lock:
+            self.run_id = None
+
+    def not_read(self) -> None:
+        """The run ended with a steer still undelivered: nothing steered was read."""
+        with self.lock:
+            self.waiting = [*self.steered, *self.waiting]
+            self.steered = []
+
+    def act(self) -> None:
+        with self.lock:
+            self.read()
+            if self.run_id is None:
+                return
+            if self.stop is not None:
+                if not self.stop_sent:
+                    self.stop_sent = self._post("stop", {})
+                    if self.stop_sent:
+                        self.emit({"note": "Stopping the Hermes run"})
+                return
+            for message in list(self.waiting):
+                if not self._post("steer", {"text": f"{STEER}\n\n{quoted(message)}"}):
+                    break  # not accepted (the run is ending): it becomes the next turn
+                self.waiting.remove(message)
+                self.steered.append(message)
+                self.emit({"seen": [message.get("id")], "note": "Passed a new message to Hermes"})
+
+    def _post(self, what: str, body: dict[str, Any]) -> bool:
+        try:
+            r = self.hermes.post(f"/v1/runs/{self.run_id}/{what}", json=body, timeout=15.0)
+        except httpx.HTTPError:
+            return False
+        return r.status_code < 300
+
+    def unread(self) -> list[dict[str, Any]]:
+        """The messages no live run read, for a turn of their own; they are seen with it."""
+        with self.lock:
+            self.read()
+            out, self.waiting = self.waiting, []
+            self.steered = []
+        ids = [m.get("id") for m in out if m.get("id")]
+        if ids:
+            self.emit({"seen": ids})
+        return out
+
+    @contextmanager
+    def watching(self, poll: float = CONTROL_POLL) -> Iterator[None]:
+        """Look at the control file every `poll` seconds while the turns run."""
+        if self.path is None:
+            yield
+            return
+        done = threading.Event()
+
+        def loop() -> None:
+            while not done.wait(poll):
+                with suppress(Exception):
+                    self.act()
+
+        thread = threading.Thread(target=loop, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            done.set()
+            thread.join(timeout=20)
+
+
 def run_turn(
     hermes: httpx.Client,
     session_id: str,
@@ -441,6 +584,7 @@ def run_turn(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     on_approval: Callable[[dict[str, Any]], None] | None = None,
+    control: Control | None = None,
     activity: Activity | None = None,
 ) -> tuple[str | None, list[dict[str, Any]]]:
     """Stream one turn as Slate. Returns (the reply text or None, approvals asked for).
@@ -489,6 +633,11 @@ def run_turn(
                 )
             r.raise_for_status()
             for kind, data in sse(observed_lines(r.iter_lines())):
+                if control is not None:
+                    if data.get("run_id"):
+                        control.attach(str(data["run_id"]))
+                    if data.get("pending_steer"):
+                        control.not_read()
                 if activity is not None:
                     said = activity_line(kind, data)
                     if said:
@@ -565,6 +714,8 @@ def run_turn(
     except httpx.HTTPError:
         pass  # the turn may keep running in Hermes without us: poll for its end below
     finally:
+        if control is not None and (ended or failed or terminal_failure):
+            control.detach()
         if activity is not None:
             activity.flush(force=True)
     if failed:
@@ -577,11 +728,13 @@ def run_turn(
         raise Stopped(
             "The Hermes turn is unconfirmed after native approval observation ended. "
             "Its exact control identity remains pending; inspect the native session before "
-            "retrying. Remote stop is not supported by this adapter."
+            "retrying. No remote stop was sent."
         )
     # The stream dropped: poll the session, and watch the gateway itself.
     down_since: float | None = None
     while clock() < deadline:
+        if control is not None and control.stop_sent:
+            raise Stopped("The Hermes run was stopped on request; its end was not observed.")
         try:
             now_life = started_at(hermes)
             down_since = None
@@ -605,7 +758,7 @@ def run_turn(
         sleep(POLL_EVERY)
     raise Stopped(
         "The Hermes turn did not finish with a confirmed successful runtime status; "
-        "its outcome is unconfirmed. Remote stop is not supported by this adapter. "
+        "its outcome is unconfirmed. No remote stop was sent. "
         "Inspect the native session before retrying; remote work may still be running."
     )
 
@@ -1222,7 +1375,7 @@ def run(
                 "outcome": "blocked",
                 "waiting_on": ask,
                 "reply": "Previous remote turn has not been reconciled. Inspect the native "
-                "session before retrying; remote stop is not supported by this adapter.",
+                "session before retrying; no remote stop was sent.",
                 **({"thread": thread_ref(pending_session, env)} if pending_session else {}),
             }
         else:
@@ -1292,49 +1445,63 @@ def run(
             },
         )
 
-    try:
+    control = Control(env.get("SLATE_CONTROL"), hermes, emit)
+
+    def turn(text: str, budget: float) -> tuple[str | None, list[dict[str, Any]]]:
         remember_observing()
-        reply, approvals = run_turn(
+        return run_turn(
             hermes,
             session_id,
-            prompt,
+            text,
             emit,
-            timeout=timeout,
+            timeout=budget,
             grace=grace,
             note_every=note_every,
             sleep=sleep,
             clock=clock,
             on_approval=remember_approval,
+            control=control,
             activity=activity,
         )
-        # Only a confirmed normal turn without a closing line can be nudged.
-        while reply is not None and not approvals and not closing(reply) and nudges > 0:
-            left = deadline - clock()
-            if left <= 0:
-                break
-            nudges -= 1
-            emit({"note": "No status line yet: asked Hermes to finish or wait for its work"})
-            remember_observing()
-            again, approvals = run_turn(
-                hermes,
-                session_id,
-                NUDGE.format(ask=ask),
-                emit,
-                timeout=left,
-                grace=grace,
-                note_every=note_every,
-                sleep=sleep,
-                clock=clock,
-                on_approval=remember_approval,
-                activity=activity,
-            )
-            if again is None:
-                break  # the nudge turn did not finish: report what the agent said before
-            reply = again
+
+    try:
+        with control.watching():
+            reply, approvals = turn(prompt, timeout)
+            # Only a confirmed normal turn can be followed by another: a message from the
+            # card the run did not read, else a nudge for a missing closing line.
+            while reply is not None and not approvals and not control.stop_asked():
+                left = deadline - clock()
+                if left <= 0:
+                    break
+                late = control.unread()
+                if late:
+                    emit({"note": "Passing a new message to Hermes"})
+                    text = LATE + "\n\n" + "\n\n".join(quoted(m) for m in late)
+                    text += card_files(slate, item_id)
+                elif not closing(reply) and nudges > 0:
+                    nudges -= 1
+                    emit(
+                        {"note": "No status line yet: asked Hermes to finish or wait for its work"}
+                    )
+                    text = NUDGE.format(ask=ask)
+                else:
+                    break
+                again, approvals = turn(text, left)
+                if again is None:
+                    break  # that turn did not finish: report what the agent said before
+                reply = again
     except (Stopped, OSError) as e:
         if isinstance(e, Stopped) and (e.terminal or e.not_submitted):
             with suppress(OSError):
                 save_pending(env, item_id, None)
+        if control.stop is not None and isinstance(e, Stopped):
+            by = control.stop.get("by")
+            return {
+                "outcome": "blocked",
+                "waiting_on": by or ask,
+                "reply": STOPPED.format(who=f"@{by}" if by else "a person"),
+                "thread": thread_ref(session_id, env),
+            }
         stopped = {"outcome": "blocked", "thread": thread_ref(session_id, env), "reply": str(e)}
         if isinstance(e, Stopped) and e.resumable:
             return {**stopped, "resumable": True}  # waits on nobody: Run now carries on

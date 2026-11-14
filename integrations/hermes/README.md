@@ -15,7 +15,7 @@ python integrations/hermes/run_task_cli.py --capabilities
 
 | Adapter | `work_kinds` | `resume` | `approvals` | `remote_stop` |
 |---|---|---|---|---|
-| `hermes-gateway` | `task`, `chat` | `session` | `native-ui-only` | `false` |
+| `hermes-gateway` | `task`, `chat`, `doc` | `session` | `native-ui-only` | `true` (card turns) |
 | `hermes-cli` | `task` | `fresh-process` | `native-ui-only` | `false` |
 
 The declaration also includes `version: 1`. It is an offline declaration, not a live readiness
@@ -86,6 +86,24 @@ existing model/provider settings.
    the card waits on nobody and Run now continues in the same session.
 5. The generic runner writes the final reply/outcome to Slate and settles only the take's
    dispatched Asks. Adapters never bulk-resolve Asks or write task status directly.
+
+## While a card turn runs: new messages and Stop
+
+The gateway adapter watches the runner's control file (`SLATE_CONTROL`, see
+`docs/agents/runner.md`) once a second while a card turn runs.
+
+- **A new message** is steered into the live run (`POST /v1/runs/{run_id}/steer`), quoted with
+  its provenance like any card reply; the agent reads it with its next tool result and carries
+  on. The adapter then prints `{"seen": [id]}`. A message the gateway would not take (the run
+  was ending), or that the run ended without reading (`pending_steer` on the terminal event),
+  is sent as one more turn in the same session before the result is reported, so it is never
+  dropped and never answered by a reply that did not read it.
+- **Stop** is `POST /v1/runs/{run_id}/stop`, retried each second until the gateway takes it.
+  The cancelled turn is reported `blocked`, waiting on whoever pressed Stop, with the session
+  kept: a reply continues in it. Stop wins over a message still waiting to be steered.
+
+Card text still authorizes nothing: a steered message is quoted data, exactly as a reply is.
+Chat and doc turns, and the CLI adapter, have no mid-run control.
 
 After stream loss, message polling can detect a missing/denied session, gateway restart or
 outage. It **cannot** convert transcript text to success. An observation timeout blocks and

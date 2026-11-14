@@ -115,6 +115,12 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return ev.before === ev.actor_id
         ? 'stopped watching this'
         : `removed ${ctx.name(String(ev.before)) ?? 'someone'} as a watcher`;
+    case 'item.stop_requested': {
+      const who = arr((ev.after as { for?: string[] } | null)?.for).map((id) => ctx.name(String(id)) ?? 'the agent');
+      return `asked ${list(who) || 'the agent'} to stop`;
+    }
+    case 'comment.seen':
+      return 'read a message while working';
     case 'item.attachment_added':
       return `attached ${obj(ev.after).filename ?? 'a file'}`;
     case 'item.attachment_removed':

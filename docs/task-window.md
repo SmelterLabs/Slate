@@ -143,6 +143,13 @@ Board side:
   and `PriorityPicker`. Styles are component-scoped and use the `:root` tokens only, so a theme that
   redefines the tokens restyles the window. Under 760 px it fills the screen (safe-area padding) and
   the activity column stacks under the task.
+- **The typing line** (`ActivityPanel.svelte`): while the agent holds the card
+  (`pendingAgent().picked`) the line carries **Stop** (`board.stopRun` -> `POST
+  /items/{id}/stop`); `conversation.runNow(events, agent)` finds the run's `item.work_started`
+  and whether an `item.stop_requested` followed it, and the line then reads "is stopping…" with
+  the button disabled until the agent's finish removes it. A comment addressed to that agent
+  after the run began shows "Not read yet" (`conversation.unreadMidRun`) until its `seen_at`
+  arrives ("Seen while working"). E2E: `web/e2e/mid-run.spec.ts`.
 - `AutoText.svelte` is the autosaving markdown box (description, "Done means"): local draft; save
   1.2 s after the last keystroke, on blur, and on destroy (closing or switching tasks never loses
   typing); remote changes replace the draft only while it is not being edited. Every save is one

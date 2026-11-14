@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Row } from './activity';
-import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, safeAgentUrl, unpickedAsk, shortAge, shownProgress, updatedAgo, waitingQuestion } from './conversation';
+import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, runNow, safeAgentUrl, unpickedAsk, unreadMidRun, shortAge, shownProgress, updatedAgo, waitingQuestion } from './conversation';
 import type { Account, AgentFlag, Comment } from './types';
 
 const AGENTS = new Set(['agent', 'agent2']);
@@ -175,6 +175,28 @@ describe('askFor', () => {
     expect(askFor('can you check this?', accounts, 'guest-agent')).toBe('guest-agent');
     expect(askFor('mail guest@guest-agent.test', accounts, 'guest-agent')).toBe('guest-agent');
     expect(askFor('@nobody here', accounts, 'guest-agent')).toBe('guest-agent');
+  });
+});
+
+describe('the run going on now', () => {
+  const events = [
+    { id: '01', type: 'item.work_started', actor_id: 'agent', after: {} },
+    { id: '02', type: 'item.stop_requested', actor_id: 'alex', after: { for: ['agent'] } },
+    { id: '03', type: 'item.work_started', actor_id: 'agent', after: {} },
+    { id: '04', type: 'comment.assigned', actor_id: 'alex', subject_id: 'late', after: {} },
+  ] as unknown as import('./types').SlateEvent[];
+  it('a Stop belongs to the run it was pressed in, not the next one', () => {
+    expect(runNow(events.slice(0, 2), 'agent')).toEqual({ start: '01', stopping: true });
+    expect(runNow(events, 'agent')).toEqual({ start: '03', stopping: false });
+    expect(runNow(events, 'agent2')).toEqual({ start: null, stopping: false });
+  });
+  it('a message sent after the run began is unread until the agent reads it', () => {
+    const late = { id: 'late', assignee_id: 'agent', resolved_at: null, seen_at: null };
+    expect(unreadMidRun(late, events, 'agent', '03')).toBe(true);
+    expect(unreadMidRun({ ...late, seen_at: '2026-10-26T20:05:00Z' }, events, 'agent', '03')).toBe(false);
+    expect(unreadMidRun(late, events, 'agent', '05')).toBe(false); // the run began with it
+    expect(unreadMidRun(late, events, 'agent2', '03')).toBe(false);
+    expect(unreadMidRun(late, events, 'agent', null)).toBe(false);
   });
 });
 

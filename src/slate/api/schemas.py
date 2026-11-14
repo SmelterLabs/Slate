@@ -445,6 +445,12 @@ class CommentOut(_Out):
         default=None, description="When the Ask was answered or resolved (null: open)"
     )
     resolved_by_id: str | None = None
+    seen_at: datetime | None = Field(
+        default=None,
+        description="When the Ask's agent read it while already working on the card (null: "
+        "it was not handed to a running agent)",
+    )
+    seen_by_id: str | None = None
     author_handle: str | None = Field(default=None, description="The author's handle")
     author_kind: Literal["person", "agent", "guest"] | None = Field(
         default=None,
