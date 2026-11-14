@@ -73,6 +73,7 @@ class Gateway:
         self.settled: list[tuple[str, dict]] = []
         self.settle_status = 200
         self.create_status = 201
+        self.create_error = "Requested Browser model lock cannot be routed"
         self.started = "2026-10-26T14:00:00Z"
         self.health = [self.started]  # what /health answers, in turn; the last one repeats
         self.down = False
@@ -90,7 +91,7 @@ class Gateway:
             if self.create_status != 201:
                 return httpx.Response(
                     self.create_status,
-                    json={"error": {"message": "Requested Browser model lock cannot be routed"}},
+                    json={"error": {"message": self.create_error}},
                 )
             self.sessions.add("sess-new")
             return httpx.Response(201, json={"id": "sess-new", "title": body.get("title")})
@@ -234,6 +235,35 @@ def test_a_model_the_gateway_cannot_route_blocks_the_card_with_the_reason(state_
     )
     assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
     assert "cannot be routed" in out["reply"] and "Model field" not in out["reply"]
+    assert gw.turns == []
+
+
+TAKEN = "Title '[Slate] Draft the newsletter · {card}' is already in use by session sess-old"
+
+
+def test_a_session_left_by_a_timed_out_create_is_adopted_not_a_dead_end(state_file):
+    # A create that timed out on the runner side still made the session: the next run's create
+    # is refused because this card's title is taken. That session is this card's; use it.
+    gw = Gateway(
+        events=[
+            ("assistant.completed", {"content": "Sent it.\nSLATE: done"}),
+            ("run.completed", {}),
+        ]
+    )
+    gw.create_status = 400
+    gw.create_error = TAKEN.format(card="it1")
+    out, lines, _ = go(gw, env=env_with(state_file))
+    assert out == {"outcome": "done", "thread": {"ref": "sess-old"}, "reply": "Sent it."}
+    assert lines[0] == {"note": "Started a Hermes session", "thread": {"ref": "sess-old"}}
+    assert gw.turns == [{"message": BRIEF, "author": run_task.BOT_AUTHOR}]
+
+
+def test_a_title_held_by_another_cards_session_still_blocks(state_file):
+    gw = Gateway()
+    gw.create_status = 400
+    gw.create_error = TAKEN.format(card="it9")
+    out, _, _ = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "blocked" and "already in use" in out["reply"]
     assert gw.turns == []
 
 

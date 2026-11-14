@@ -166,3 +166,27 @@ test('Clear takes a blocked badge off the card', async ({ page }) => {
 
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
+
+test('an Ask no agent takes says it was not picked up instead of typing forever', async ({ page }) => {
+  seed();
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Unpicked', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Asks' });
+  await api<{ id: string }>('POST', '/items', { list_id: list.id, title: 'Rotate the backup key', assignees: ['agent'] });
+
+  await page.clock.install();
+  await signIn(page);
+  await page.goto(`/#/list/${list.id}`);
+  await page.locator('.card', { hasText: 'Rotate the backup key' }).getByText('Rotate the backup key').click();
+  const tw = page.locator('.tw');
+  await tw.getByLabel('Add comment').fill('go');
+  await tw.getByRole('button', { name: /Ask Agent/ }).click();
+  await expect(tw.locator('[data-agent-pending="sent"]')).toContainText('Agent is typing');
+
+  // Nobody takes it: after the pickup wait the thread stops claiming the agent is typing.
+  await page.clock.fastForward(3 * 60_000);
+  const unpicked = tw.locator('[data-agent-pending="unpicked"]');
+  await expect(unpicked).toContainText("Agent hasn't picked this up (asked 3 min ago)");
+  await expect(tw.locator('[data-agent-pending="sent"]')).toHaveCount(0);
+
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
+});

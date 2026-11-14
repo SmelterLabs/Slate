@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Row } from './activity';
-import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, safeAgentUrl, shortAge, shownProgress, updatedAgo, waitingQuestion } from './conversation';
+import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, safeAgentUrl, unpickedAsk, shortAge, shownProgress, updatedAgo, waitingQuestion } from './conversation';
 import type { Account, AgentFlag, Comment } from './types';
 
 const AGENTS = new Set(['agent', 'agent2']);
@@ -187,8 +187,8 @@ describe('pendingAgent', () => {
     ] as unknown as import('./types').SlateEvent[];
     expect(pendingAgent({}, asks, isAgent, events)).toBeNull();
     expect(asks[0].resolved_at).toBeNull();
-    expect(pendingAgent({}, asks, isAgent, [{ ...events[0], id: '04' }, events[1]])).toEqual({ id: 'agent', picked: false });
-    expect(pendingAgent({}, asks, isAgent, [events[0], { ...events[1], actor_id: 'agent2' }])).toEqual({ id: 'agent', picked: false });
+    expect(pendingAgent({}, asks, isAgent, [{ ...events[0], id: '04' }, events[1]])).toEqual({ id: 'agent', picked: false, since: '2026-10-26T20:01:00Z' });
+    expect(pendingAgent({}, asks, isAgent, [events[0], { ...events[1], actor_id: 'agent2' }])).toEqual({ id: 'agent', picked: false, since: '2026-10-26T20:01:00Z' });
   });
   it('is the working agent, else the agent with the newest open Ask', () => {
     const working = { state: 'working', by: 'agent' } as AgentFlag;
@@ -198,8 +198,18 @@ describe('pendingAgent', () => {
       { assignee_id: 'agent2', resolved_at: null, created_at: '2026-10-26T20:03:00Z' },
       { assignee_id: 'member', resolved_at: null, created_at: '2026-10-26T20:04:00Z' },
     ];
-    expect(pendingAgent({ agent: null }, asks, isAgent)).toEqual({ id: 'agent2', picked: false });
+    expect(pendingAgent({ agent: null }, asks, isAgent)).toEqual({ id: 'agent2', picked: false, since: '2026-10-26T20:03:00Z' });
     expect(pendingAgent({ agent: null }, asks.slice(0, 1), isAgent)).toBeNull();
+  });
+});
+
+describe('unpickedAsk', () => {
+  const now = new Date('2026-10-26T22:00:00Z');
+  it('says an Ask nobody took after the pickup wait is not picked up, not typing', () => {
+    expect(unpickedAsk({ picked: false, since: '2026-10-26T20:00:00Z' }, now)).toBe(true);
+    expect(unpickedAsk({ picked: false, since: '2026-10-26T21:59:30Z' }, now)).toBe(false);
+    expect(unpickedAsk({ picked: true }, now)).toBe(false);
+    expect(unpickedAsk(null, now)).toBe(false);
   });
 });
 

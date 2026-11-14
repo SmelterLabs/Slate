@@ -18,7 +18,7 @@
     timeline,
   } from '../../lib/activity';
   import { automationNames, automationOf } from '../../lib/automationref.svelte';
-  import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shownProgress, updatedAgo } from '../../lib/conversation';
+  import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, shortAge, shownProgress, unpickedAsk, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
   import { fullStamp } from '../../lib/format';
@@ -103,6 +103,16 @@
   const allComments = $derived(entries.flatMap((e) => (e.kind === 'comment' && e.comment ? [e.comment] : [])));
   const pending = $derived(pendingAgent(item, allComments, isAgent,
     [...item.events, ...entries.flatMap((e) => e.kind === 'event' && e.event ? [e.event] : [])]));
+  // An Ask nobody took within the pickup wait reads "not picked up", not "typing"; a minute tick
+  // flips it without a refetch.
+  let askClock = $state(new Date());
+  $effect(() => {
+    if (!pending || pending.picked) return;
+    askClock = new Date();
+    const t = setInterval(() => (askClock = new Date()), 30_000);
+    return () => clearInterval(t);
+  });
+  const unpicked = $derived(unpickedAsk(pending, askClock));
   // Who the Ask picker starts on (the card's agent, else the one you asked last).
   const askDefault = $derived(defaultAsk(item, allComments, board.pickable, lastAsk(), board.projectAgents(item.list_id)));
 
@@ -428,7 +438,15 @@
     {:else}
       <p class="empty muted">No {task.filter === 'comments' ? 'comments' : 'activity'} yet.</p>
     {/each}
-    {#if pending && task.filter !== 'events'}
+    {#if pending && unpicked && task.filter !== 'events'}
+      <div class="typing unpicked" role="status" aria-live="polite" data-agent-pending="unpicked"
+        title="No run has started for this Ask. The agent may have no runner connected; open Agents to check, or assign the card to an agent that runs.">
+        <span>
+          <strong>{board.accountName(pending.id) ?? 'The agent'}</strong>
+          hasn't picked this up{pending.since ? ` (asked ${shortAge(pending.since, askClock)} ago)` : ''}. Check agent status.
+        </span>
+      </div>
+    {:else if pending && task.filter !== 'events'}
       <div class="typing" role="status" aria-live="polite" data-agent-pending={pending.picked ? 'working' : 'sent'}>
         <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
         <span>
