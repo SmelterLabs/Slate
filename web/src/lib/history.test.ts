@@ -18,6 +18,10 @@ describe('verb', () => {
     );
   });
 
+  it('a Stop names the agent it was sent to', () => {
+    expect(verb(ev({ type: 'item.stop_requested', after: { for: ['c'] } }), ctx)).toBe('asked Alex to stop');
+  });
+
   it('never shows a raw event type', () => {
     for (const type of ['item.due', 'item.overdue', 'item.due_soon', 'item.moved', 'recurrence.advanced']) {
       expect(verb(ev({ type }), ctx)).not.toMatch(/^item |^recurrence /);

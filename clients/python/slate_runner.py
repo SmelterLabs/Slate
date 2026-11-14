@@ -59,6 +59,19 @@ A `blocked` result that names nobody waits on the agent's owner, unless it carri
 `"resumable": true`: the run stopped short of needing anyone (a step limit), the card waits on
 no one, and Run now carries on.
 The retained per-attempt proof is sent on heartbeat/finish and in env `SLATE_RUN_ID`.
+
+While a task runs, what a person does on its card reaches the command through the control file
+(env `SLATE_CONTROL`, JSON lines the runner appends; a command that never reads it loses
+nothing). The stream's `control` message makes the runner heartbeat at once, and the answer
+carries the news:
+
+- `{"message": {...}}`: a comment addressed to the agent since the run began (the comment as
+  Slate returns it). A command that hands it to its running agent prints `{"seen": ["<comment
+  id>"]}`; the runner reports that, the card shows the message as seen, and this run's finish
+  settles it. A message never marked seen is the agent's next turn, as if sent after the run.
+- `{"stop": {"by": "alex"}}`: someone pressed Stop. The command ends its agent's run and prints
+  its result; one still running after `STOP_WAIT` seconds is stopped locally. Either way the
+  task finishes blocked, waiting on whoever pressed Stop.
 `SLATE_WORK_KINDS` (a comma list of task, chat, doc; default all three) restricts admission
 before a lease is taken; connection setup must configure this to the adapter's actually
 supported work kinds. A server too old for `doc` refuses it (422): the runner then drops `doc`
@@ -97,6 +110,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -116,6 +130,11 @@ __version__ = "0.3.0"  # 0.<RUNNER_PROTOCOL>.<patch>; the package version (pypro
 TAIL = 2000
 NOTE_MAX = 4000
 STOP_GRACE = 30
+# After a person's Stop reaches the command: how long it has to end its run and print a result
+# before the runner stops it locally. How often a running command's loop looks for a stream
+# `control` message, a due heartbeat and that deadline.
+STOP_WAIT = 30.0
+CONTROL_POLL = 0.5
 DRAIN_GRACE = 1.0
 REPLY_MAX = 19000
 CHAT_PREFIX = "chat:"
@@ -132,7 +151,7 @@ RESULT_KEYS = (
     "hand_to",
     "progress",
 )
-PROGRESS_KEYS = ("note", "progress", "url", "thread")
+PROGRESS_KEYS = ("note", "progress", "url", "thread", "seen")
 # The runner's own environment variables a command needs to run at all (find programs, a home,
 # temp files, the locale, proxies and CA bundles). In --config mode nothing else of the
 # runner's environment reaches an agent's command. Names compare upper-case (Windows).
@@ -299,6 +318,8 @@ class Runner:
         self._runs = 0
         self._interrupted: set[str] = set()
         self.running: dict[str, subprocess.Popen] = {}
+        # Per running task: its control file, what was written to it, and the stream's nudge.
+        self._control: dict[str, dict[str, Any]] = {}
         self.pending: deque[str | None] = deque()
         self.stopping = threading.Event()
         self._me: dict[str, Any] | None = None
@@ -472,8 +493,10 @@ class Runner:
         }
         item = task.get("item")
         if item:
+            control = self._control.get(item["id"])
             return {
                 **env,
+                **({"SLATE_CONTROL": str(control["path"])} if control else {}),
                 "SLATE_ITEM_ID": item["id"],
                 "SLATE_ITEM_URL": f"{self.url}/#/list/{item['list_id']}?task={item['id']}",
             }
@@ -512,7 +535,7 @@ class Runner:
                     },
                 )
                 return
-            self.call(
+            got = self.call(
                 "POST",
                 f"/work/{item_id}/heartbeat",
                 {
@@ -521,10 +544,64 @@ class Runner:
                     "run_id": self._records.get(item_id, {}).get("run_id"),
                 },
             )
+            if isinstance(got, dict):
+                self._tell(item_id, got)
         except (SlateHTTPError, httpx.HTTPError) as e:
             self.log(f"heartbeat for {item_id} failed: {e}")
             if isinstance(e, SlateHTTPError) and e.status in (401, 403, 404, 409, 410, 426):
                 self._lost_execution(item_id)
+
+    def _open_control(self, item_id: str) -> None:
+        """The running command's control file (`SLATE_CONTROL`), empty until there is news."""
+        fd, path = tempfile.mkstemp(prefix="slate-control-", suffix=".jsonl")
+        os.close(fd)
+        self._control[item_id] = {
+            "path": Path(path),
+            "lock": threading.Lock(),
+            "sent": set(),
+            "stop": None,
+            "stop_deadline": None,
+            "kick": threading.Event(),
+        }
+
+    def _close_control(self, item_id: str) -> None:
+        control = self._control.pop(item_id, None)
+        if control is not None:
+            with contextlib.suppress(OSError):
+                control["path"].unlink()
+
+    def _tell(self, item_id: str, got: dict[str, Any]) -> None:
+        """Pass a heartbeat's news to the running command: each new message once, Stop once."""
+        control = self._control.get(item_id)
+        if control is None:
+            return
+        lines: list[dict[str, Any]] = []
+        with control["lock"]:
+            for message in got.get("messages") or []:
+                if isinstance(message, dict) and message.get("id") not in control["sent"]:
+                    control["sent"].add(message.get("id"))
+                    lines.append({"message": message})
+            stop = got.get("stop")
+            if isinstance(stop, dict) and control["stop"] is None:
+                control["stop"] = stop
+                control["stop_deadline"] = time.monotonic() + STOP_WAIT
+                lines.append({"stop": stop})
+                self.log(f"stop asked for {item_id} by {stop.get('by')}")
+            if lines:
+                with control["path"].open("a", encoding="utf-8") as f:
+                    f.writelines(json.dumps(line) + "\n" for line in lines)
+
+    def _stopped_result(self, task: dict[str, Any], stop: dict[str, Any]) -> dict[str, Any]:
+        """The finish for a run a person stopped whose command gave no result of its own."""
+        who = stop.get("by") or self._owner(task)
+        body: dict[str, Any] = {
+            "outcome": "blocked",
+            "reply": (f"Stopped at @{who}'s request" if who else "Stopped on request")
+            + " before it finished. Reply here to carry on, or press Run now.",
+        }
+        if who:
+            body["waiting_on"] = who
+        return body
 
     def _lost_execution(self, key: str) -> None:
         self._record(key, state="reconciliation_required", remote_state="unknown")
@@ -596,6 +673,8 @@ class Runner:
                 if not proof or proof != owned.get("run_id") or owned.get("state") != "taken":
                     raise SlateHTTPError(409, "attempt is not a locally unstarted, proved take")
                 self._record(item_id, state="running", remote_state="unknown")
+                if task.get("item"):
+                    self._open_control(item_id)
                 # Python 3.12+ is required; encoding/errors are supported. self.command is
                 # operator configuration, never chat text (which is supplied on stdin).
                 proc = subprocess.Popen(  # nosemgrep: python.lang.compatibility.python36.python36-compatibility-Popen1, python.lang.compatibility.python36.python36-compatibility-Popen2  # noqa: E501
@@ -618,6 +697,7 @@ class Runner:
             self._leave_for_resume(item_id)
             return "release"
         result: dict[str, Any] | None = None
+        stopped_here = False
         plain: list[str] = []
         errors: list[str] = []
         output_lock = threading.Lock()
@@ -665,13 +745,26 @@ class Runner:
                 if os.name != "nt" or exc.errno != errno.EINVAL:
                     raise
             beat = max(5.0, self.lease / 3)
+            due = time.monotonic() + beat
+            control = self._control.get(item_id)
             while True:
                 try:
-                    proc.wait(timeout=beat)
+                    proc.wait(timeout=CONTROL_POLL if control else beat)
                     break
                 except subprocess.TimeoutExpired:
-                    if item_id in self.running:
+                    now = time.monotonic()
+                    kicked = control is not None and control["kick"].is_set()
+                    if item_id in self.running and (kicked or now >= due or control is None):
+                        if control is not None:
+                            control["kick"].clear()
+                        due = now + beat
                         self.heartbeat(item_id)
+                    deadline = control["stop_deadline"] if control else None
+                    if deadline is not None and now >= deadline and not stopped_here:
+                        # The command did not end its run in time: local containment.
+                        stopped_here = True
+                        self.log(f"{item_id} still running {STOP_WAIT:.0f}s after Stop; ending it")
+                        self._stop_local(proc)
             # A descendant may inherit the pipes after the shell exits. Drain only briefly.
             deadline = time.monotonic() + DRAIN_GRACE
             for t in readers:
@@ -682,10 +775,15 @@ class Runner:
             # from here, since close itself can block behind the reader's pending read.
             with output_lock:
                 output_closed.set()
+        stop = (self._control.get(item_id) or {}).get("stop")
+        self._close_control(item_id)
         with self._state_lock:
             if item_id in self._interrupted:
                 return "reconciliation_required"
-        body = self._result(task, proc.returncode, result, "".join(plain), "".join(errors))
+        if stop is not None and (stopped_here or result is None or proc.returncode != 0):
+            body = self._stopped_result(task, stop)
+        else:
+            body = self._result(task, proc.returncode, result, "".join(plain), "".join(errors))
         body["run_id"] = self._records[item_id]["run_id"]
         path = f"/work/{item_id}/finish"
         ref = turn_ref(item_id)
@@ -983,6 +1081,12 @@ class Runner:
                 key = doc_key(data["doc_id"], data.get("thread_id"))
             if key and key not in self.running:
                 self.dispatch(key)
+        if msg.get("event") == "control":
+            # A new message or Stop for a task running here: its loop heartbeats now and reads
+            # the news from the answer (the stream is only the doorbell).
+            control = self._control.get((msg.get("data") or {}).get("item_id"))
+            if control is not None:
+                control["kick"].set()
         self.save_cursor(msg.get("id"))
 
     def stream(self) -> Any:

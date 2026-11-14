@@ -42,7 +42,7 @@ slate.work_forever(handle)  # or let it run the loop; see its docstring
 | `report(id, state, note, **kw)` | `POST /items/{id}/report` |
 | `claim`, `progress`, `block`, `review`, `done` | `report` with that state (`claim=True` for claim) |
 | `batch(ops, atomic=True, views="final")` | `POST /batch` |
-| `agent_stream(since, pool=False)` | `GET /checkin/stream`: `news` and `work` messages |
+| `agent_stream(since, pool=False)` | `GET /checkin/stream`: `news`, `work` and `control` messages |
 | `events(since, **filters)`, `stream(since, **filters)` | `GET /events`, the SSE stream |
 | `work_forever(handle, wait=30, lease_seconds=900, once=False)` | the work loop, heartbeats included |
 | `run_forever(handle, interval=30, once=False)` | the work loop with a plain `handle(item)`; `on_news` sees each check-in news entry |

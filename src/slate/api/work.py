@@ -109,6 +109,26 @@ class LeaseOut(BaseModel):
     )
 
 
+class StopOut(BaseModel):
+    by: str | None = Field(description="Handle of who asked the run to stop")
+    by_id: str
+    at: datetime
+
+
+class HeartbeatOut(LeaseOut):
+    stop: StopOut | None = Field(
+        default=None,
+        description="Someone asked this run to stop (`POST /items/{id}/stop`): end it now and "
+        "finish (`blocked`, `waiting_on` them, saying where you stopped). null: carry on",
+    )
+    messages: list[CommentOut] = Field(
+        default_factory=list,
+        description="Asks addressed to you since you took the task that you have not marked "
+        "`seen`: pass each to the running agent, then heartbeat with `seen`. One never marked "
+        "is your next turn after this finish",
+    )
+
+
 class ChatLeaseOut(BaseModel):
     run_id: str | None = None
     account_id: str
@@ -240,6 +260,12 @@ class HeartbeatIn(BaseModel):
         "the card as Open",
     )
     thread: dict[str, Any] | None = THREAD_FIELD
+    seen: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Comment ids from `messages` the running agent has now read: each is "
+        "marked seen on the card (`comment.seen`) and settled by this run's finish",
+    )
 
 
 class FinishIn(BaseModel):
@@ -632,11 +658,16 @@ def doc_finish(body: DocFinishIn, auth: WriteAuth, session: DbSession) -> dict:
     )
 
 
-@router.post("/work/{item_id}/heartbeat", response_model=LeaseOut)
+@router.post("/work/{item_id}/heartbeat", response_model=HeartbeatOut)
 def heartbeat(item_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSession) -> dict:
     """Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progress`
     also update the card's badge live. 409 means you lost it (the lease ran out and another
-    agent took the task): stop working on it."""
+    agent took the task): stop working on it.
+
+    The answer also says what changed for the run while it works: `messages` (Asks addressed
+    to you since the take; hand them to the running agent and send their ids back as `seen`)
+    and `stop` (someone pressed Stop). The agent stream sends a `control` message for either,
+    so a runner heartbeats at once instead of waiting for its timer."""
     row = work.heartbeat(
         session,
         auth.actor,
@@ -647,8 +678,9 @@ def heartbeat(item_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSessi
         progress=body.progress,
         url=body.url,
         thread=body.thread,
+        seen=body.seen,
     )
-    return work.lease_view(row)
+    return {**work.lease_view(row), **work.turn_control(session, auth.actor.account_id, item_id)}
 
 
 @router.post("/work/{item_id}/finish", response_model=FinishOut)

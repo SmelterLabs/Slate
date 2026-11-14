@@ -242,6 +242,26 @@ def _judge(
             )
         if (
             item_id
+            and not own
+            and (
+                (payload["type"] == work.STOP_TYPE and me.id in (after.get("for") or []))
+                or (
+                    payload["type"] == "comment.assigned"
+                    and after.get("assignee_id") == me.id
+                    and work.holds(session, me.id, item_id)
+                )
+            )
+        ):
+            # Something for a run of yours that is going now (a new message, or Stop): the
+            # runner heartbeats at once and reads it from the answer (`messages`, `stop`).
+            out.append(
+                _message(
+                    "control",
+                    {"id": payload["id"], "item_id": item_id, "type": payload["type"]},
+                )
+            )
+        if (
+            item_id
             and (not own or self_wake)
             # A wake (Run now, the run time, the due time) always hints: the runner acts on it.
             and (item_id not in hinted or payload["type"] in work.WAKE_TYPES)
@@ -301,7 +321,7 @@ async def checkin_stream(
     ] = False,
     last_event_id: Annotated[str | None, Header(pattern=CURSOR_PATTERN)] = None,
 ) -> EventSourceResponse:
-    """Your check-in, pushed live: react instead of polling. Two SSE event names, both with
+    """Your check-in, pushed live: react instead of polling. Three SSE event names, all with
     `id` = the event id (your resume cursor; EventSource resends it as `Last-Event-ID`):
     `news` = an event that concerns you (the `/checkin` news shape, with `why`); `work` = a
     task you could take with `POST /work/next` just became free (`{id, item_id, type}`: it
@@ -309,7 +329,10 @@ async def checkin_stream(
     message.mentioned_agent, channel, thread_id, message_id, queued}`: take it with `POST
     /work/next {channel, thread_id}`; `queued` means your open turn there takes it, no new
     run), or a doc mention (`{id, type: doc.mentioned_agent, doc_id, thread_id, comment_id,
-    queued}`: take it with `POST /work/next {doc_id, thread_id}`). With `since` or
+    queued}`: take it with `POST /work/next {doc_id, thread_id}`); `control` = something for
+    a task you are working on now (`{id, item_id, type}`: `comment.assigned` is a new message
+    for the run, `item.stop_requested` is Stop): heartbeat that task now and read `messages`
+    and `stop` from the answer. With `since` or
     `Last-Event-ID` it first replays what you missed; a `: ready` comment marks the switch to
     live. Token in the `Authorization` header (or `?token=`); you only hear about lists you can
     see."""

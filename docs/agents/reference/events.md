@@ -75,6 +75,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `comment.edited` | A comment's text changed. |
 | `comment.reacted` | An emoji reaction was added to a comment. |
 | `comment.resolved` | An Ask was explicitly closed (`after.comment_id`, `by`, `reason`). A plain reply never resolves it. |
+| `comment.seen` | An Ask sent while its agent was already working on the card was handed to the running agent (`after.comment_id`, `by`; recorded by the run's heartbeat with `seen`). The comment carries `seen_at`; that run's finish settles it. |
 | `comment.unreacted` | An emoji reaction was removed. |
 
 ## doc
@@ -162,6 +163,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.run_requested` | Run now: the item's agent assignees are asked to start on it now (`after.for` = their account ids, `after.reason` = `now` when someone pressed Run now, `due` when the scheduler reached the run time of an agent's task: 06:00 workspace time on the day for a date-only due date, else the due time). A `work` hint on each agent's stream; a runner takes it with `POST /work/next {item_id}`. |
 | `item.split` | Subtasks were made from an item (`after` = the new ids). |
 | `item.status_changed` | An item moved to another status (`before`/`after` = status ids). |
+| `item.stop_requested` | Stop: someone asked the agent working on the item to stop (`after.for` = the account holding the lease). A `control` message on that agent's stream and `stop` on its next heartbeat; the run ends with the agent's own finish. |
 | `item.trashed` | An item went to the trash (`after` = `trashed_at`, `archived_at`); subtasks get one each. It is hidden like an archived item. |
 | `item.unarchived` | An item was restored. |
 | `item.unblocked` | The last open task an item waited on was done, cancelled, archived or unlinked: the item is free to start. `after.cleared_by` = the blockers this change closed or unlinked. Agents: treat it as new work becoming available. |

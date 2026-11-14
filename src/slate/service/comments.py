@@ -13,6 +13,8 @@ independent of the item's assignees and of `waiting_on`. Events: `comment.assign
 `keep_open` remains accepted for compatibility. `item.commented.after.reply_to` carries only
 earlier authors/Ask recipients' account ids, notifying participants without auto-watching.
 Resolving is for the assignee, the author or an admin; (re)assigning for the author or an admin.
+A comment view carries `seen_at` / `seen_by_id` when the Ask reached its agent while the agent
+was already working on the card (`comment.seen`, service/work.py).
 `open_asks()` lists the open ones; check-in news `asked`, Today "Asked of you", the agent
 stream's `work` hint and `/work/next` (why `asked`) read them.
 
@@ -124,11 +126,14 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
     """Comments as dicts with their reactions, mentions and author handle and kind."""
     reactions = reactions_of(session, [c.id for c in comments])
     authors = authors_of(session, [c.author_id for c in comments])
+    seen = seen_of(session, [c.id for c in comments if c.assignee_id])
     return [
         {
             **snapshot(c),
             "created_at": c.created_at,
             "edited_at": c.edited_at,
+            "seen_at": seen.get(c.id, (None, None))[0],
+            "seen_by_id": seen.get(c.id, (None, None))[1],
             "reactions": reactions.get(c.id, []),
             "mentions": mentions_in(session, c.body_md),
             "author_handle": authors.get(c.author_id, (None, None))[0],
@@ -136,6 +141,19 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
         }
         for c in comments
     ]
+
+
+def seen_of(session: Session, comment_ids: Sequence[str]) -> dict[str, tuple[Any, str]]:
+    """`{comment id: (when, account id)}` for the Asks their agent read while it was already
+    working (`comment.seen`, recorded by the run's heartbeat: service/work.py)."""
+    if not comment_ids:
+        return {}
+    rows = session.execute(
+        select(Event.subject_id, Event.at, Event.actor_id)
+        .where(Event.type == "comment.seen", Event.subject_id.in_(comment_ids))
+        .order_by(Event.id)
+    )
+    return {subject: (at, actor) for subject, at, actor in rows}
 
 
 def reply_target(session: Session, item: Any, author_id: str) -> Account | None:

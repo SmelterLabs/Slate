@@ -1513,6 +1513,7 @@ class EventGate:
         "item.reported",
         "item.work_",
         "item.run_requested",
+        "item.stop_requested",
         "item.watched",
         "item.unwatched",
         "comment.",

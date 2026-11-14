@@ -2,8 +2,9 @@
 task window's right-hand column shows it (and the way an agent reads "what happened here").
 
 Events that the feed already shows another way are left out: `item.commented` (the comment
-itself is an entry), `comment.reacted`/`comment.unreacted` (shown on the comment), and
-`comment.edited` (the comment carries `edited_at`).
+itself is an entry), `comment.reacted`/`comment.unreacted` (shown on the comment),
+`comment.edited` (the comment carries `edited_at`) and `comment.seen` (the comment carries
+`seen_at`).
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ from slate.service.comments import comment_views
 from slate.service.core import event_payload
 from slate.service.items import comments_of, get_item
 
-FOLDED = frozenset({"item.commented", "comment.reacted", "comment.unreacted", "comment.edited"})
+FOLDED = frozenset(
+    {"item.commented", "comment.reacted", "comment.unreacted", "comment.edited", "comment.seen"}
+)
 
 
 def activity(

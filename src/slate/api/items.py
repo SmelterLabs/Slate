@@ -397,6 +397,16 @@ def run(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
     return event_payload(work.request_run(session, auth.actor, item_id))
 
 
+@router.post("/items/{item_id}/stop", response_model=EventOut, status_code=status.HTTP_202_ACCEPTED)
+def stop(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
+    """Stop: ask the agent working on the item to stop what it is doing. Records
+    `item.stop_requested` (`after.for` = the account running it), which reaches its runner at
+    once; the run ends when the agent finishes it (blocked, waiting on you, saying where it
+    stopped), and a reply or Run now carries on. Pressing it again during the same run returns
+    the first request. 409 when no agent is working on the item."""
+    return event_payload(work.request_stop(session, auth.actor, item_id))
+
+
 class BriefOut(BaseModel):
     text: str
     ask: str

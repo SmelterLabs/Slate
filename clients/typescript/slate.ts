@@ -249,9 +249,11 @@ export class Slate {
   next(opts: NextOptions = {}) {
     return this.post<Task>('/work/next', opts);
   }
-  /** Keep holding the task; SlateError 409 means you lost it: stop. */
-  heartbeat(id: string, opts: { run_id?: string; lease_seconds?: number; note?: string; progress?: number } = {}) {
-    return this.post<Lease>(`/work/${encodeURIComponent(id)}/heartbeat`, opts);
+  /** Keep holding the task; SlateError 409 means you lost it: stop. The answer carries
+   * `messages` (Asks sent to you since the take: read them, then pass their ids as `seen`) and
+   * `stop` (someone asked this run to stop). */
+  heartbeat(id: string, opts: { run_id?: string; lease_seconds?: number; note?: string; progress?: number; seen?: string[] } = {}) {
+    return this.post<Lease & { stop?: { by: string | null; at: string } | null; messages?: Record<string, unknown>[] }>(`/work/${encodeURIComponent(id)}/heartbeat`, opts);
   }
   /** Report back in one call (outcome, note as a comment, hand_to...); `next` also takes the next task. */
   finish(id: string, outcome: Outcome = 'done', note?: string, opts: FinishOptions = {}) {

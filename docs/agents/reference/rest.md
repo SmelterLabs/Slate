@@ -2,7 +2,7 @@
 
 # REST reference
 
-238 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+239 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -12,7 +12,7 @@
 - [permissions](#permissions) (11)
 - [sections](#sections) (3)
 - [lists](#lists) (5)
-- [items](#items) (23)
+- [items](#items) (24)
 - [comments](#comments) (9)
 - [checklists](#checklists) (7)
 - [attachments](#attachments) (5)
@@ -599,6 +599,14 @@ An agent says what it is doing: `working`, `blocked` or `review` put a live badg
 Scope: `write` · MCP: `slate_item run`
 
 Run now: ask the item's agent assignees to start on it now instead of at its run time. Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`) and webhooks. 422 when no agent is assigned or the item is done, cancelled or archived.
+
+- Returns: `202` [slate__api__schemas__EventOut](#slate__api__schemas__eventout)
+
+### `POST /items/{item_id}/stop`
+
+Scope: `write` · MCP: `slate_item stop`
+
+Stop: ask the agent working on the item to stop what it is doing. Records `item.stop_requested` (`after.for` = the account running it), which reaches its runner at once; the run ends when the agent finishes it (blocked, waiting on you, saying where it stopped), and a reply or Run now carries on. Pressing it again during the same run returns the first request. 409 when no agent is working on the item.
 
 - Returns: `202` [slate__api__schemas__EventOut](#slate__api__schemas__eventout)
 
@@ -1262,7 +1270,7 @@ What to work on and what changed for you, in one call. `queue`: your open items 
 
 Scope: `read`
 
-Your check-in, pushed live: react instead of polling. Two SSE event names, both with `id` = the event id (your resume cursor; EventSource resends it as `Last-Event-ID`): `news` = an event that concerns you (the `/checkin` news shape, with `why`); `work` = a task you could take with `POST /work/next` just became free (`{id, item_id, type}`: it was assigned to you, unblocked, released...), or a chat mention to answer (`{id, type: message.mentioned_agent, channel, thread_id, message_id, queued}`: take it with `POST /work/next {channel, thread_id}`; `queued` means your open turn there takes it, no new run), or a doc mention (`{id, type: doc.mentioned_agent, doc_id, thread_id, comment_id, queued}`: take it with `POST /work/next {doc_id, thread_id}`). With `since` or `Last-Event-ID` it first replays what you missed; a `: ready` comment marks the switch to live. Token in the `Authorization` header (or `?token=`); you only hear about lists you can see.
+Your check-in, pushed live: react instead of polling. Three SSE event names, all with `id` = the event id (your resume cursor; EventSource resends it as `Last-Event-ID`): `news` = an event that concerns you (the `/checkin` news shape, with `why`); `work` = a task you could take with `POST /work/next` just became free (`{id, item_id, type}`: it was assigned to you, unblocked, released...), or a chat mention to answer (`{id, type: message.mentioned_agent, channel, thread_id, message_id, queued}`: take it with `POST /work/next {channel, thread_id}`; `queued` means your open turn there takes it, no new run), or a doc mention (`{id, type: doc.mentioned_agent, doc_id, thread_id, comment_id, queued}`: take it with `POST /work/next {doc_id, thread_id}`); `control` = something for a task you are working on now (`{id, item_id, type}`: `comment.assigned` is a new message for the run, `item.stop_requested` is Stop): heartbeat that task now and read `messages` and `stop` from the answer. With `since` or `Last-Event-ID` it first replays what you missed; a `: ready` comment marks the switch to live. Token in the `Authorization` header (or `?token=`); you only hear about lists you can see.
 
 - Query: `since`, `pool`, `token`
 - Returns: `200`
@@ -1373,8 +1381,8 @@ Scope: `write` · MCP: `slate_work heartbeat`
 
 Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progress` also update the card's badge live. 409 means you lost it (the lease ran out and another agent took the task): stop working on it.
 
-- Body: `slate__api__work__HeartbeatIn`: `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`
-- Returns: `200` [LeaseOut](#leaseout)
+- Body: `slate__api__work__HeartbeatIn`: `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`
+- Returns: `200` [HeartbeatOut](#heartbeatout)
 
 ### `POST /work/{item_id}/finish`
 
@@ -2237,7 +2245,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### CommentOut
 
-`id`: string, `item_id`: string, `author_id`: string, `body_md`: string, `created_at`: date-time, `edited_at`: date-time?, `reactions`: [ReactionOut], `mentions`: [string], `assignee_id`: string?, `resolved_at`: date-time?, `resolved_by_id`: string?, `author_handle`: string?, `author_kind`: `person` \| `agent` \| `guest`?
+`id`: string, `item_id`: string, `author_id`: string, `body_md`: string, `created_at`: date-time, `edited_at`: date-time?, `reactions`: [ReactionOut], `mentions`: [string], `assignee_id`: string?, `resolved_at`: date-time?, `resolved_by_id`: string?, `seen_at`: date-time?, `seen_by_id`: string?, `author_handle`: string?, `author_kind`: `person` \| `agent` \| `guest`?
 
 ### ItemReadOut
 
@@ -2362,6 +2370,10 @@ The fields of each response above (see `/openapi.json` for types).
 ### DocFinishOut
 
 `comment`: DocCommentOut?, `pending`: boolean
+
+### HeartbeatOut
+
+`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `stop`: StopOut?, `messages`: [CommentOut]
 
 ### FinishOut
 

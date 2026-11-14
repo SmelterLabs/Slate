@@ -121,6 +121,9 @@ EVENT_DOCS: dict[str, str] = {
     "on the day for a date-only due date, else the due time). A `work` hint on each agent's "
     "stream; "
     "a runner takes it with `POST /work/next {item_id}`.",
+    "item.stop_requested": "Stop: someone asked the agent working on the item to stop "
+    "(`after.for` = the account holding the lease). A `control` message on that agent's "
+    "stream and `stop` on its next heartbeat; the run ends with the agent's own finish.",
     "item.watched": "Someone started watching an item.",
     "item.read": "An account opened an item; its comments so far are no longer new to it (the "
     "card's comment dot). `subject_id` is the account, `after.item_id` the item.",
@@ -156,6 +159,9 @@ EVENT_DOCS: dict[str, str] = {
     "(with `comment_id`, and `reply`).",
     "comment.resolved": "An Ask was explicitly closed (`after.comment_id`, `by`, `reason`). "
     "A plain reply never resolves it.",
+    "comment.seen": "An Ask sent while its agent was already working on the card was handed "
+    "to the running agent (`after.comment_id`, `by`; recorded by the run's heartbeat with "
+    "`seen`). The comment carries `seen_at`; that run's finish settles it.",
     "comment.reacted": "An emoji reaction was added to a comment.",
     "comment.unreacted": "An emoji reaction was removed.",
     "message.posted": "A chat message was posted (`after` = the message, `channel`, "
