@@ -184,6 +184,8 @@ READS = {
         "lease_view",
         "context",
         "held_by",
+        "holds",
+        "live_activity",
         "as_event",
         "may_free_work",
         "agent_assignees",

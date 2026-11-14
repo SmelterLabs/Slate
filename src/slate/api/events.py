@@ -94,9 +94,9 @@ class Filters:
     def matches(self, payload: dict[str, Any]) -> bool:
         if self.types is not None and payload["type"] not in self.types:
             return False
-        if self.actor_id is not None and payload["actor_id"] != self.actor_id:
+        if self.actor_id is not None and payload.get("actor_id") != self.actor_id:
             return False
-        return self.item_id is None or payload["item_id"] == self.item_id
+        return self.item_id is None or payload.get("item_id") == self.item_id
 
 
 def resolve_actor(session: Session, actor: str | None) -> str | None:
@@ -357,8 +357,11 @@ def _newest_id() -> str:
 
 
 def _sse(payload: dict[str, Any]) -> ServerSentEvent:
+    # An id-less message (`item.activity`) leaves the client's Last-Event-ID where it was.
     return ServerSentEvent(
-        data=json.dumps(payload, separators=(",", ":")), event=payload["type"], id=payload["id"]
+        data=json.dumps(payload, separators=(",", ":")),
+        event=payload["type"],
+        id=payload.get("id"),
     )
 
 
@@ -404,12 +407,17 @@ READY = None  # what `payloads` yields once the replay is over and delivery goes
 
 
 async def payloads(
-    since: str | None, filters: Filters, gate: access.EventGate | None = None
+    since: str | None,
+    filters: Filters,
+    gate: access.EventGate | None = None,
+    *,
+    live: bool = False,
 ) -> AsyncIterator[dict[str, Any] | None]:
     """Every event after `since` that the caller may see, in id order: the replay from the
     table, then `READY`, then live ones from the bus. Shared by `/events/stream` and the
-    agent stream (`/checkin/stream`)."""
-    async with bus.subscribe() as sub:
+    agent stream (`/checkin/stream`). `live` adds the id-less messages that are not events
+    (`item.activity`): they pass the same gate and filters, and never move the cursor."""
+    async with bus.subscribe(live=live) as sub:
         if since is None:
             cursor = await run_in_threadpool(_newest_id)
         else:
@@ -425,9 +433,10 @@ async def payloads(
                 async for payload in _replay(cursor, filters, gate):
                     cursor = payload["id"]
                     yield payload
-            if message["id"] <= cursor:
-                continue
-            cursor = message["id"]
+            if message.get("id") is not None:
+                if message["id"] <= cursor:
+                    continue
+                cursor = message["id"]
             if gate is not None:
                 projected = await run_in_threadpool(_gate_check, gate, message)
                 if gate.denied or gate.narrowed:
@@ -443,7 +452,7 @@ async def _stream_events(
     since: str | None, filters: Filters, gate: access.EventGate | None = None
 ) -> AsyncIterator[ServerSentEvent]:
     """Replay uses current read filters; live delivery checks credentials and current reach."""
-    async for payload in payloads(since, filters, gate):
+    async for payload in payloads(since, filters, gate, live=True):
         if payload is READY:
             yield ServerSentEvent(comment="ready", retry=RETRY_MS)
         else:

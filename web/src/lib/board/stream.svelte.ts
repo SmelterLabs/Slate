@@ -12,6 +12,7 @@ import { affectsMyAccess } from '../permissions';
 import { applyEvent } from '../reducer';
 import { dotsChangedBy } from '../commentdots';
 import { applyTheme, asTheme } from '../theme';
+import { liveActivity } from '../liveactivity.svelte';
 import type { Me, Prefs, SlateEvent } from '../types';
 import { COOKIE_SESSION, inviteSecretFrom } from '../collaboration';
 import { TOKEN_KEY } from './state.svelte';
@@ -267,7 +268,12 @@ export class BoardStream extends BoardLoad {
     } catch {
       return;
     }
-    if (ev.id <= this.lastEventId) return;
+    // Not an event: what an agent is doing now. No id, so no cursor, no reducer, no refetch.
+    if (ev.type === 'item.activity') {
+      liveActivity.take(ev);
+      return;
+    }
+    if (!ev.id || ev.id <= this.lastEventId) return;
     this.lastEventId = ev.id;
     if (this.#buffer) this.#buffer.push(ev);
     else {

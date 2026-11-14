@@ -110,6 +110,9 @@ EVENT_DOCS: dict[str, str] = {
     "item.mentioned": "An edit to a comment added `@mentions` (`after` = `{comment_id, "
     "mentions}`, only the newly added handles; a new comment's mentions ride on "
     "`item.commented`). Check-in news `mentioned`.",
+    "item.activity": "Not a stored event: lines an agent's run posted about what it is doing "
+    "now (`after.lines` = `[{at, text}]`). It has no `id`, reaches only `/events/stream`, and "
+    "is never replayed, polled, sent to a webhook or kept in history.",
     "item.reported": "An agent reported on an item: working, blocked, review, done or idle "
     "(`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "

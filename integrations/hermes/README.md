@@ -51,6 +51,9 @@ Settings:
 - `HERMES_TURN_TIMEOUT`: observation timeout, default 3600 seconds; not proof of remote stop.
 - `HERMES_DOWN_GRACE`: gateway-down grace, default 20 seconds.
 - `HERMES_NOTE_EVERY`: progress interval, default 60 seconds.
+- `HERMES_ACTIVITY_EVERY`: on a card turn, each tool the agent starts (with its preview), its
+  thinking and its commentary go to the task window's live box, at most one request per this
+  many seconds (default 1, minimum 0.2). These lines are not history.
 - `HERMES_NUDGES`: at most two follow-up prompts by default after a confirmed successful
   runtime turn without a closing marker. No nudge follows an unconfirmed/failed turn.
 - `HERMES_SESSION_LINK`: default **0**, preserving a portable `thread.ref` without a URL.
