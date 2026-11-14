@@ -65,7 +65,7 @@ from typing import Any
 from sqlalchemy import and_, case, false, func, not_, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
-from slate import dates
+from slate import dates, liveactivity
 from slate.models import (
     Account,
     AccountKind,
@@ -997,6 +997,25 @@ def _for_how_long(spent: timedelta) -> str:
     if minutes < 60:
         return f"{minutes} min"
     return f"{minutes // 60} h {minutes % 60} min" if minutes % 60 else f"{minutes // 60} h"
+
+
+def holds(session: Session, actor: Actor, item_id: str, run_id: str | None) -> WorkLease:
+    """The caller's live lease on the task, proven by `run_id`; `Conflict` when it holds none.
+    Reads only: for what a run sends that is not a change (`slate.liveactivity`)."""
+    return _holding(session, actor, get_item(session, item_id), run_id)
+
+
+def live_activity(session: Session, item_id: str) -> dict[str, Any]:
+    """What the agent working on the task now is doing (`slate.liveactivity`): nothing once it
+    stops working, and nothing of a workspace agent for a guest."""
+    item = get_item(session, item_id)
+    access.check_object(session, item)
+    if item.agent_state != AgentState.working or not item.agent_state_by:
+        return {"by": None, "lines": []}
+    hidden = guests.workspace_agent_ids(session) if guests.viewer_is_guest(session) else ()
+    if item.agent_state_by in hidden:
+        return {"by": None, "lines": []}
+    return liveactivity.live.lines(item.id, item.agent_state_by)
 
 
 def held_by(session: Session, account_id: str) -> list[dict[str, Any]]:

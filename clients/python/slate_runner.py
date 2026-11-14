@@ -46,6 +46,10 @@ in its environment could be expanded into the command line, so an `exec` that na
   plus `progress` (0-100) only when the agent can measure it (the card shows the note, and
   `url` as an Open link; `thread` is the agent's own session for this task, handed back as
   `thread` on the next run);
+- a line with `activity` (a string or a list of strings) says what the agent is doing right
+  now (`{"activity": ["terminal: uv run pytest -q"]}`): the task window shows these in a small
+  box while the agent works. They are not history and not stored (`POST
+  /work/{id}/activity`); a server too old for them is asked once and then left alone;
 - the runner heartbeats every `lease/3` seconds anyway, so the task stays yours.
 
 When it exits, the last stdout line that is a JSON object with `outcome` is the result:
@@ -319,6 +323,7 @@ class Runner:
         self.drain_path = self.state_path.with_suffix(".drain") if self.state_path else None
         self.status_path = self.state_path.with_suffix(".status.json") if self.state_path else None
         self._admission_closed = False
+        self._no_activity = False  # set once a server answers that it has no live activity
 
     # --- HTTP -------------------------------------------------------------------------------
 
@@ -526,6 +531,26 @@ class Runner:
             if isinstance(e, SlateHTTPError) and e.status in (401, 403, 404, 409, 410, 426):
                 self._lost_execution(item_id)
 
+    def activity(self, item_id: str, lines: Any) -> None:
+        """What the agent is doing now, for the task window's live box. Best effort: never
+        history, never a reason to stop a run. Chat and doc turns have no box."""
+        if self._no_activity or turn_ref(item_id) is not None:
+            return
+        said = [str(x) for x in (lines if isinstance(lines, list) else [lines]) if x]
+        if not said:
+            return
+        try:
+            self.call(
+                "POST",
+                f"/work/{item_id}/activity",
+                {"run_id": self._records.get(item_id, {}).get("run_id"), "lines": said[-20:]},
+            )
+        except SlateHTTPError as e:
+            if e.status in (404, 405):  # a server from before live activity
+                self._no_activity = True
+        except httpx.HTTPError:
+            pass
+
     def _lost_execution(self, key: str) -> None:
         self._record(key, state="reconciliation_required", remote_state="unknown")
         with self._state_lock:
@@ -636,9 +661,12 @@ class Runner:
                             plain.append(line)
                         elif "outcome" in obj:
                             result = obj
-                        elif any(k in obj for k in PROGRESS_KEYS):
-                            progress = {k: obj.get(k) for k in PROGRESS_KEYS}
-                            self.heartbeat(item_id, **progress)
+                        else:
+                            if obj.get("activity"):
+                                self.activity(item_id, obj["activity"])
+                            if any(k in obj for k in PROGRESS_KEYS):
+                                progress = {k: obj.get(k) for k in PROGRESS_KEYS}
+                                self.heartbeat(item_id, **progress)
 
         def read_stderr() -> None:
             assert proc.stderr is not None

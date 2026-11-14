@@ -1156,6 +1156,12 @@ WORK_ACTIONS = {
         "the badge. An error saying you do not hold it means stop: another agent has it",
         with_id(HeartbeatIn, "item_id", "The task you hold"),
     ),
+    "activity": bind(
+        work_api.post_activity,
+        "say what you are doing on a task you hold, as it happens (lines: short strings); "
+        "shown live in the task window, never stored",
+        with_id(work_api.LiveActivityIn, "item_id", "The task you hold"),
+    ),
     "finish": bind(
         work_api.finish,
         "report back in one call: outcome done / review / later (stay assigned, no badge, the "

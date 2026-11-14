@@ -593,3 +593,65 @@ def test_streams_have_a_finite_read_timeout(tmp_path):
     for call in (runner, client_events, client_agent):
         (read,) = _timeouts_seen(call)
         assert read is not None and read <= slate_runner.STREAM_READ_TIMEOUT
+
+
+SAYS = """
+import json, sys
+json.load(sys.stdin)
+first = ["terminal: uv run pytest -q", "read_file: docs/board.md"]
+print(json.dumps({"activity": first}), flush=True)
+print(json.dumps({"activity": "patch: src/app.py", "note": "Fixing"}), flush=True)
+print(json.dumps({"outcome": "blocked", "reply": "Which one?"}))
+"""
+
+
+def test_runner_passes_activity_lines_to_the_live_box(
+    client, alex, todo, make_account, tmp_path, monkeypatch
+):
+    """`activity` lines reach the server while the run holds the task, and leave no history."""
+    from slate import liveactivity
+
+    seen: list[list[str]] = []
+    add = liveactivity.live.add
+    monkeypatch.setattr(
+        liveactivity.live,
+        "add",
+        lambda i, a, r, lines, **kw: seen.append(lines) or add(i, a, r, lines),
+    )
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo, title="Fix the build")
+    script = tmp_path / "says.py"
+    script.write_text(SAYS)
+    runner = _runner(client, h, tmp_path, f'"{sys.executable}" "{script}"')
+
+    assert runner.once() == 1
+    assert seen == [
+        ["terminal: uv run pytest -q", "read_file: docs/board.md"],
+        ["patch: src/app.py"],
+    ]
+    types = {e["type"] for e in _events(client, alex, item["id"])}
+    assert "item.activity" not in types
+    notes = [
+        e["after"].get("note")
+        for e in _events(client, alex, item["id"])
+        if e["type"] == "item.reported"
+    ]
+    assert "Fixing" in notes
+
+
+def test_runner_stops_asking_a_server_that_has_no_live_activity(client, make_account, tmp_path):
+    from slate_runner import SlateHTTPError
+
+    _, h = make_account("agent")
+    runner = _runner(client, h, tmp_path)
+    calls: list[str] = []
+
+    def call(method, path, body=None):
+        calls.append(path)
+        raise SlateHTTPError(404, "Not Found")
+
+    runner.call = call
+    runner.activity("item1", ["one"])
+    runner.activity("item1", ["two"])
+    runner.activity("chat:general", ["never for a chat turn"])
+    assert calls == ["/work/item1/activity"]

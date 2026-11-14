@@ -22,8 +22,9 @@ Message = dict[str, Any]
 
 
 class Subscription:
-    def __init__(self, bus: EventBus, max_queue: int) -> None:
+    def __init__(self, bus: EventBus, max_queue: int, live: bool = False) -> None:
         self._bus = bus
+        self.live = live  # also hears `publish_live` messages (id-less, never stored)
         self._loop = asyncio.get_running_loop()
         self._queue: asyncio.Queue[Message] = asyncio.Queue(maxsize=max_queue)
         self.dropped = 0  # events discarded since the consumer last reset this
@@ -88,9 +89,10 @@ class EventBus:
     def subscriber_count(self) -> int:
         return len(self._subs)
 
-    def subscribe(self) -> Subscription:
-        """Call from async code. Use as `async with bus.subscribe() as sub: async for m in sub`."""
-        sub = Subscription(self, self._max_queue)
+    def subscribe(self, live: bool = False) -> Subscription:
+        """Call from async code. Use as `async with bus.subscribe() as sub: async for m in sub`.
+        `live=True` also receives `publish_live` messages."""
+        sub = Subscription(self, self._max_queue, live)
         with self._lock:
             self._subs.add(sub)
         return sub
@@ -111,6 +113,14 @@ class EventBus:
         with self._published:
             self._seq += 1
             self._published.notify_all()
+
+    def publish_live(self, message: Message) -> None:
+        """Hand a message that is not an event (no id, no row: `slate.liveactivity`) to the
+        subscribers that asked for them. Nothing else wakes: not the engines, not a long-poll."""
+        with self._lock:
+            subs = [s for s in self._subs if s.live]
+        for sub in subs:
+            sub._deliver(message)
 
     def wait_sync(self, seq: int, timeout: float) -> bool:
         """Block this (worker) thread until something is published after `seq`, at most

@@ -59,6 +59,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |
 | `batch.py` | `/batch` and `slate_batch`: many MCP actions in one request, atomic by default. |
 | `ratelimit.py`, `presence.py`, `monitor.py` | In-memory per-token buckets, who is around, what the Health page counts. |
+| `liveactivity.py` | In-memory lines a run posts about what it is doing now; sent to boards as id-less `item.activity`, never stored. |
 | `mcp_tools.py`, `mcp_server.py` | The MCP tool table and the server (`docs/mcp-server.md`). |
 | `docgen.py` | Generates `docs/agents/reference/` (`uv run slate docs`); `EVENT_DOCS`. |
 | `build.py` | The build revision (`rev`, `commit`) on `/healthz`. |
@@ -471,6 +472,11 @@ Design choices and the reason for each, with the alternatives that were rejected
   stay for Asks to people). An Ask no run has taken after `PICKUP_WAIT_MS` (two minutes, the
   same wait as Run now) shows "<agent> hasn't picked this up" instead (`unpickedAsk`), because
   an agent with no runner never answers and the dots would claim work that is not happening.
+- **What an agent is doing right now is not an event.** The box under "is typing…" shows a
+  run's tool calls as they start. Those lines are kept in memory and sent over the stream
+  without an id (`liveactivity.py`, `bus.publish_live`); nothing is written. As events they
+  would be the card's history, the webhook feed and every agent's check-in news, at one line
+  every few seconds. The card's record of a run stays what the agent reports and says.
 - **One answer per turn.** `work.finish` posts no note or reply when the agent already reported
   the same outcome with a comment of its own since its last take (`_already_answered`: the turn
   starts at its report moving into `working`), so an agent that finishes through its own Slate
