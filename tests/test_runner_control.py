@@ -42,22 +42,29 @@ time.sleep(60)
 
 
 def _start(client, h, tmp_path, item_id, script):
+    """Run the command in a thread. The test client is not shared across threads safely, so
+    the test never calls Slate while the runner might: it waits on the runner's own heartbeats
+    (`beats`: one entry per heartbeat that carried something) instead of polling the API."""
     path = tmp_path / "command.py"
     path.write_text(script, encoding="utf-8")
     runner = _runner(client, h, tmp_path, f'"{sys.executable}" "{path}"')
+    beats: list[dict] = []
+    real = runner.heartbeat
+
+    def heartbeat(item, **body):
+        real(item, **body)
+        if any(v is not None for v in body.values()):
+            beats.append(body)
+
+    runner.heartbeat = heartbeat
     done: list[int] = []
     thread = threading.Thread(target=lambda: done.append(runner.once(item_id)), daemon=True)
     thread.start()
-    _wait(lambda: _working(client, h, item_id), "the command to start")
-    return runner, thread, done
+    _wait(lambda: any(b.get("note") == "Working" for b in beats), "the command to start")
+    return runner, thread, done, beats
 
 
-def _working(client, h, item_id):
-    agent = client.get(f"{API}/items/{item_id}", headers=h).json()["agent"]
-    return bool(agent and agent["note"] == "Working")
-
-
-def _wait(check, what, seconds=20.0):
+def _wait(check, what, seconds=30.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         if check():
@@ -76,7 +83,7 @@ def test_a_message_then_stop_reach_the_command_and_show_on_the_card(
 ):
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Draft the notice", who=("agent", "alex"))
-    runner, thread, done = _start(client, h, tmp_path, item["id"], COOPERATIVE)
+    runner, thread, done, beats = _start(client, h, tmp_path, item["id"], COOPERATIVE)
 
     new = client.post(
         f"{API}/items/{item['id']}/comments",
@@ -84,7 +91,8 @@ def test_a_message_then_stop_reach_the_command_and_show_on_the_card(
         headers=alex,
     ).json()
     _control(runner, item["id"], "comment.assigned")
-    _wait(lambda: _events(client, alex, item["id"], "comment.seen"), "the message to be seen")
+    _wait(lambda: any(b.get("seen") == [new["id"]] for b in beats), "the message to be seen")
+    assert len(_events(client, alex, item["id"], "comment.seen")) == 1
     rows = client.get(f"{API}/items/{item['id']}/comments", headers=alex).json()
     assert next(c for c in rows if c["id"] == new["id"])["seen_at"] is not None
 
@@ -109,7 +117,7 @@ def test_a_command_that_ignores_stop_is_ended_and_the_card_says_who_stopped_it(
     monkeypatch.setattr("slate_runner.STOP_WAIT", 0.3)
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Crawl the archive", who=("agent", "alex"))
-    runner, thread, done = _start(client, h, tmp_path, item["id"], DEAF)
+    runner, thread, done, beats = _start(client, h, tmp_path, item["id"], DEAF)
 
     assert client.post(f"{API}/items/{item['id']}/stop", headers=alex).status_code == 202
     _control(runner, item["id"], "item.stop_requested")
