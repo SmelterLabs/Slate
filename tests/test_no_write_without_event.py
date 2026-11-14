@@ -1076,6 +1076,9 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             evidence="test control confirmed",
         ),
         "expire_leases": None,  # scheduler hook: writes as `slate` (tests/test_work.py)
+        # Needs an agent's take first (events by the agent): tests/test_mid_run.py checks the
+        # one `item.stop_requested` event.
+        "request_stop": None,
         "request_run": lambda db, a, p: (
             _create_account(db, a, p),
             work.request_run(db, a, _item(db, a, assignees=["agent"]).id),

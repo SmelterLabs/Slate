@@ -561,6 +561,7 @@ class Runner:
             "sent": set(),
             "stop": None,
             "stop_deadline": None,
+            "stopped_here": False,
             "kick": threading.Event(),
         }
 
@@ -697,7 +698,6 @@ class Runner:
             self._leave_for_resume(item_id)
             return "release"
         result: dict[str, Any] | None = None
-        stopped_here = False
         plain: list[str] = []
         errors: list[str] = []
         output_lock = threading.Lock()
@@ -745,26 +745,39 @@ class Runner:
                 if os.name != "nt" or exc.errno != errno.EINVAL:
                     raise
             beat = max(5.0, self.lease / 3)
-            due = time.monotonic() + beat
             control = self._control.get(item_id)
-            while True:
-                try:
-                    proc.wait(timeout=CONTROL_POLL if control else beat)
-                    break
-                except subprocess.TimeoutExpired:
-                    now = time.monotonic()
-                    kicked = control is not None and control["kick"].is_set()
-                    if item_id in self.running and (kicked or now >= due or control is None):
-                        if control is not None:
-                            control["kick"].clear()
-                        due = now + beat
-                        self.heartbeat(item_id)
-                    deadline = control["stop_deadline"] if control else None
-                    if deadline is not None and now >= deadline and not stopped_here:
-                        # The command did not end its run in time: local containment.
-                        stopped_here = True
-                        self.log(f"{item_id} still running {STOP_WAIT:.0f}s after Stop; ending it")
-                        self._stop_local(proc)
+            ended = threading.Event()
+
+            def watch_control() -> None:
+                # The stream's doorbell (a new message, Stop): heartbeat now, not at the next
+                # beat. A command still running STOP_WAIT after Stop is ended here.
+                while not ended.is_set():
+                    if control["kick"].wait(CONTROL_POLL):
+                        control["kick"].clear()
+                        if not ended.is_set() and item_id in self.running:
+                            self.heartbeat(item_id)
+                    deadline = control["stop_deadline"]
+                    if deadline is not None and time.monotonic() >= deadline:
+                        if not ended.is_set():
+                            control["stopped_here"] = True
+                            self.log(
+                                f"{item_id} still running {STOP_WAIT:.0f}s after Stop; ending it"
+                            )
+                            self._stop_local(proc)
+                        return
+
+            if control is not None:
+                threading.Thread(target=watch_control, daemon=True).start()
+            try:
+                while True:
+                    try:
+                        proc.wait(timeout=beat)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if item_id in self.running:
+                            self.heartbeat(item_id)
+            finally:
+                ended.set()
             # A descendant may inherit the pipes after the shell exits. Drain only briefly.
             deadline = time.monotonic() + DRAIN_GRACE
             for t in readers:
@@ -776,6 +789,7 @@ class Runner:
             with output_lock:
                 output_closed.set()
         stop = (self._control.get(item_id) or {}).get("stop")
+        stopped_here = bool((self._control.get(item_id) or {}).get("stopped_here"))
         self._close_control(item_id)
         with self._state_lock:
             if item_id in self._interrupted:
