@@ -7,7 +7,10 @@ Where work goes when it leaves the board, and how data leaves Slate.
 - **Trash** (`service/trash.py`, column `items.trashed_at`). `trash_item`
   stamps the item and its subtasks (`trashed_at`, and `archived_at` when not archived already), one
   `item.trashed` each. `restore_item` brings back the item and the subtasks trashed in the same
-  instant; a subtask with a trashed parent is refused (restore the parent). `purge_item` (trashed
+  instant; a subtask with a trashed parent is refused (restore the parent). Restoring clears
+  `trashed_at`, and clears `archived_at` only where the trash set it (its value equals
+  `trashed_at`), so an item that was archived before it was trashed returns to the archive, not
+  the board. `purge_item` (trashed
   only) deletes the item and its subtasks with `item.purged` (comments, checklists, files and links
   cascade; events stay), deepest level first with a flush per level (`items.parent_id` has no
   ORM relationship, so one flush would delete in id order and break the foreign key).

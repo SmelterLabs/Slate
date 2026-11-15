@@ -1,6 +1,6 @@
 # The board
 
-The Svelte 5 single-page app under `web/`, served by FastAPI at `/` from `SLATE_STATIC_DIR` (the Dockerfile's `web` stage builds `web/dist` and copies it to `src/slate/static`). Vite + Svelte 5 (runes) + TypeScript; no SvelteKit, no UI framework, no router, no runtime dependencies at all (everything in `package.json` is a dev dependency). Plain CSS with custom properties in `src/app.css`: dark unless the system says `prefers-color-scheme: light`.
+The Svelte 5 single-page app under `web/`, served by FastAPI at `/` from `SLATE_STATIC_DIR` (the Dockerfile's `web` stage builds `web/dist` and copies it to `src/slate/static`). Vite + Svelte 5 (runes) + TypeScript; no SvelteKit, no UI framework, no router. The only runtime packages are `exceljs` and `mammoth`, which `lib/office.ts` imports on first use to preview Office files; everything else in `package.json` is a dev dependency, drag and drop is native HTML5, and markdown goes through the board's own renderer. The one `overrides` entry raises `uuid` under exceljs to a patched major; the browser loads exceljs's prebuilt bundle, so the override changes only the Node-side install that unit tests and `npm audit` see. Plain CSS with custom properties in `src/app.css`: dark unless the system says `prefers-color-scheme: light`.
 
 ## Layout
 
@@ -98,7 +98,7 @@ Unit tests: `src/lib/store.test.ts` (happy-dom; `fetch` and `EventSource` faked,
 
 - Drag to a column: `moveToStatus()` sets the status locally, `PATCH /items/{id} {status: <id>}`, and on error restores the old status and shows the server's `detail` in a toast. The stream's `item.status_changed` then confirms it.
 - Quick add: one `POST /items` (`title`, `tags`, `assignees`, `priority`, `due_at` as `YYYY-MM-DD`; Slate applies 17:00 workspace time). The store does not insert the response: the card arrives via `item.created`.
-- AI add (`AiToggle.svelte`, `board.aiAdd`, server `service/aiadd.py`): when `GET /me` says `ai_add` and this device has not switched it off (`localStorage slate.aiAdd = 0`), quick add and `ColumnAdd` send one `POST /items/ai {list_id, text, defaults}` (defaults = the column's meaning). The server files one item with the words as typed and fills it in after the response with its own model, as the `slate` account; every field arrives over the stream as ordinary `item.*` events (`session_ref` `ai-add`). Rule 1 holds: one item, no children. Fills run one at a time on a worker thread of their own (`aiadd.fill_later`, an anyio limiter of one), so a slow model never holds the threads that serve requests; at most `MAX_QUEUED` (16) wait, beyond that a card stays as typed, and the model's answer is read up to 1 MB.
+- AI add (`AiToggle.svelte`, `board.aiAdd`, server `service/aiadd.py`): when `GET /me` says `ai_add` and this device has not switched it off (`localStorage slate.aiAdd = 0`), quick add and `ColumnAdd` send one `POST /items/ai {list_id, text, defaults}` (defaults = the column's meaning). The server files one item with the words as typed and fills it in after the response with its own model, as the `slate` account; every field arrives over the stream as ordinary `item.*` events (`session_ref` `ai-add`). Rule 1 holds: one item, no children. Fills run one at a time on a worker thread of their own (`aiadd.fill_later`, an anyio limiter of one), so a slow model never holds the threads that serve requests; at most `MAX_QUEUED` (16) wait, beyond that a card stays as typed, and the model's answer is read up to 1 MB. The model sees only the people the caller can see (a guest is never offered a workspace agent), the list's statuses and the next three weeks of the workspace calendar; an assignee, status or date outside those is dropped, and a column's tag stays with the model's tags added. A model that fails or times out leaves the card as typed and is not retried; the fill skips an item archived or deleted meanwhile, and when one value is refused it writes the others one field at a time.
 - Task window edits `PATCH` and store the response; subtasks are `POST /items {parent_id}`; ticking one sets the list's first `done`-kind status (unticking: the list's default status).
 - Every board write is recorded with `source=ui`: `lib/api.ts` sends `X-Slate-Client: browser` and `X-Slate-Source: ui` on every request, and `api/auth.request_source` accepts `ui` only with both; every other REST caller is `api`.
 - Recurrence line: the task window loads the rule with `GET /recurrences/{id}` and shows its server-made `description`.
@@ -122,6 +122,11 @@ item cache serves one view to everyone): `board.commentDots` is loaded from `GET
 with the board and reloaded (150 ms debounce) when `lib/commentdots.ts dotsChangedBy` says an event
 may change it: someone else's `item.commented`, `comment.edited`, `item.mentioned`,
 `comment.assigned`, or this account's own `item.read` (another device opened the card).
+A comment is new when it was written after the account's `item_reads.read_at` for that item (or
+after the account was created), and the account's own comments never count. A dot clears only when
+the account opens the card; reading the comment in the Inbox leaves it. `POST /items/{id}/read`
+records one `item.read` event whose subject is the account and which has no `item_id`, so it
+stays out of the item's history and webhooks.
 `board.open(id)` clears the dot locally and sends `POST /items/{id}/read` (writes nothing when
 nothing is new); a reload while the card is open reads its dot at once. The upper right corner is
 the complete circle and ⋯, so the dot shares the corner with the copy-ID button
@@ -129,7 +134,7 @@ and fades out on hover. E2E: `e2e/comment-dots.spec.ts`.
 
 ## Quick-add grammar
 
-Whitespace-separated words; tokens can sit anywhere. `#tag` (lowercased, deduped), `@handle` (lowercased), `~list`, `!urgent|!high|!normal|!low` or `!1`..`!4` (other bang words stay in the title), `due:today|tomorrow|<weekday or 3+ letter prefix>|YYYY-MM-DD` and `start:` likewise (a weekday is the next one, today if it is that day; resolved on the workspace calendar). An unrecognised `due:` stays in the title. Bare dates, times and repeats are read too (`docs/task-window.md`, "Quick add"). Everything else, single-spaced, is the title; an empty title does not submit.
+Whitespace-separated words; tokens can sit anywhere. `#tag` (lowercased, deduped), `@handle` (lowercased), `~list`, `!urgent|!high|!normal|!low` or `!1`..`!4` (urgent, high, normal and low in that order; the board always shows a priority as its word, never as a number; other bang words stay in the title), `due:today|tomorrow|<weekday or 3+ letter prefix>|YYYY-MM-DD` and `start:` likewise (a weekday is the next one, today if it is that day; resolved on the workspace calendar). An unrecognised `due:` stays in the title. Bare dates, times and repeats are read too (`docs/task-window.md`, "Quick add"). Everything else, single-spaced, is the title; an empty title does not submit.
 
 ## Run and test
 

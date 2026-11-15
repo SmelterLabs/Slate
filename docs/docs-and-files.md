@@ -13,7 +13,9 @@ list. The same tree also holds **file docs**.
   uploads are `doc_files` rows with a `revision_no` (1 upward, unique per doc), a `note` (what
   changed; **required for everyone**), `superseded_at` (stamped on the previous
   revision when the next arrives) and `restored_from`. Pages' inline images are `doc_files` rows
-  with `revision_no` NULL. `GET /doc-files/{id}` serves both through `api/uploads.file_response`
+  with `revision_no` NULL, at most 10 MB each (`MAX_FILE_BYTES`); a file doc's revision allows
+  25 MB. A folder holds documents, not files, so an upload into one is refused.
+  `GET /doc-files/{id}` serves both through `api/uploads.file_response`
   (the one response for every stored file: inline for images, PDFs and text, never for HTML, SVG
   or XML; names and types cleaned by `attachments.clean`, as for every upload). `body_md` on a file doc is the description (Notes), versioned
   like a page. Service: `add_revision` (25 MB, `MAX_REVISION_BYTES`; event `doc.revision_added`,
@@ -182,6 +184,9 @@ list. The same tree also holds **file docs**.
   (file events carry metadata, never bytes). `update_doc` takes `title`, `icon`, `body_md` or
   `append_md` or `replace_section {heading, body_md}` (agents edit one section without resending the
   page), `base_revision` (409 `conflict` when someone saved in between), `new_version`, `note`.
+  A page body holds at most 500,000 characters (`doc_pages.MAX_BODY`); a longer `body_md`,
+  `append_md` result or section replacement is refused with an error. The request schema's
+  1,000,000-character limit (`PAGE_BODY_MAX`) is only the outer bound on what a request may carry.
   **Versions**: `_checkpoint` folds a save into the latest version when it is the same author,
   unnamed and under 10 minutes old; otherwise it seals that version and starts a new one. A note
   names a version and seals it. Restore writes a new version, never rewrites history.
@@ -219,7 +224,14 @@ list. The same tree also holds **file docs**.
   `/`[] `/`> ` line shortcuts, link box, task/page pickers, image paste/drop, selection bubble with
   Bold/Italic/Link/Create task/Comment; it redraws from the text on blur, on paste and when the page
   changes elsewhere, keeping the caret by character offset); `DocHistory`; `TaskEmbed`; `TreeRow`;
-  `Picker`). `lib/docmd.ts` renders the page into html and task blocks (escape-first, like
+  `Picker`). The editor draws the page from `renderDoc(body, ctx, { split: true })`, one
+  `div.md-block[data-b]` per block (`.embed-row` for a task card), each remembering its exact source
+  slice (`richdoc.drawEditor`). On save, `richdoc.editorMarkdown` returns a block's original slice
+  byte for byte when its content still serializes the same, and the original body untouched when
+  nothing changed, so editing one paragraph never reformats the rest of a page an agent wrote.
+  Formatting uses `document.execCommand`; there is no editor library. Keep this round trip when
+  changing the editor or the renderer. `lib/docmd.ts` renders the page into html and task blocks
+  (escape-first, like
   `markdown.ts`), `lib/docs.ts` holds the pure editing helpers (slash commands, list continuation,
   tree), `lib/docs.svelte.ts` the store (900 ms autosave debounce, serialized PATCHes, conflict
   state). Tree expansion follows the account (`prefs.docs_expanded`). The palette searches page

@@ -19,20 +19,24 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
  board ──SSE┤  api/ routers ─┐                               │
  agents REST┤                ├─► service/ (apply_change) ─► SQLite (WAL)
  agents MCP ┤  mcp_server ───┘        │                      │
-            │  scheduler (asyncio): recurrence, due events,  │
-            │  webhook delivery ◄── events table             │
+            │  scheduler (asyncio tick): recurrence, due     │
+            │  events, reminders, ...                        │
+            │  engines (webhooks, automations, push, email)  │
+            │    ◄── events table                            │
             └───────────────────────────────────────────────┘
 ```
 
 - `service/` is the only module allowed to write to the database. Every write goes through
-  `apply_change()`, which records the `events` row and publishes to the in-process event bus (SSE +
-  webhook queue).
+  `apply_change()`, which records the `events` row and publishes it to the in-process event bus.
+  The bus feeds the SSE stream and long-poll waits, and rings a doorbell for the webhook
+  dispatcher and the automations, push and email engines, which each read the events table after
+  their own cursor.
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
-  scheduler (nine hooks on one tick: recurrences, due events, reminders, digest, trash purge, lease
-  expiry, chat-turn expiry, doc-turn expiry, session-expiry notices), the webhook dispatcher, the
-  automations engine and the push engine; a thread warms the item cache. Every one must be
-  idempotent on restart.
+  scheduler (ten hooks on one tick: recurrences, due events, reminders, digest, trash purge, lease
+  expiry, chat-turn expiry, doc-turn expiry, session-expiry notices, the sweep of unsent chat
+  files), the webhook dispatcher, the automations engine, the push engine and the email engine; a
+  thread warms the item cache. Every one must be idempotent on restart.
 
 ### Modules
 
@@ -43,8 +47,8 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 
 | Path | What it is |
 |---|---|
-| `app.py` | `create_app()`: routers, `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (scheduler, dispatcher, automations, push, cache warm-up, the MCP session manager). |
-| `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is in `env.example`). |
+| `app.py` | `create_app()`: the REST routers, the MCP app at `/mcp`, the middleware (fast lane, runner protocol check, and outermost the request body cap), `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (MCP session manager, scheduler, dispatcher, automations, push, email, cache warm-up). |
+| `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is listed in `deploy/server/env.example`, and the root `env.example` is the short starter for a first run). |
 | `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`), `SharedConnection` (the tests' one in-memory connection, used by one thread at a time: `docs/PERFORMANCE.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
 | `ids.py` | `new_id()` 12-char base62 keys; `new_event_id()` time-ordered ids for events and messages. |
@@ -71,9 +75,11 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/errors.py` | `NotFound`/`Conflict`/`Invalid`/`Forbidden`/`Gone`/`Unavailable` → 404/409/422/403/410/503. |
 | `service/accounts.py`, `sessions.py`, `collaboration.py`, `connections.py` | Accounts and tokens; guest-session expiry notices; invitations and cookie sign-in; agent pairing. |
 | `service/access.py`, `permissions.py`, `audit.py` | Roles, shares, token limits and the two enforcing hooks; the writes behind them; the audit log (`docs/permissions.md`). |
+| `service/agent_rules.py` | The agent deny-list: a fixed vocabulary of actions agent accounts may never do, whatever their token or role (`check`, `check_read`); people are never affected. Served at `GET`/`PUT /settings/agents`. |
+| `service/guests.py` | What a project's guests may do with the workspace's agents: guests reach only their project's agent, never a workspace agent, and do not see members-only chat. |
 | `service/aiadd.py` | AI add: `POST /items/ai` files one item from plain words, then the configured Ollama model (`SLATE_AI_URL`) fills it in as `slate` after the response. |
-| `service/sections.py`, `lists.py`, `tags.py`, `views.py`, `favorites.py` | Structure, statuses (`move_item_to_status` decides `completed_at`), tags, saved views, favorites. |
-| `service/items.py`, `item_cache.py`, `links.py`, `trash.py`, `export.py`, `search.py`, `revert.py` | Items and their views; the cached view JSON; dependencies and the derived blocked state; trash and purge; JSON/CSV export; one search; revert from the log. |
+| `service/sections.py`, `lists.py`, `tags.py`, `views.py`, `favorites.py`, `colors.py` | Structure, statuses (`move_item_to_status` decides `completed_at`), tags, saved views, favorites; the colour check for statuses and tags. |
+| `service/items.py`, `item_cache.py`, `links.py`, `trash.py`, `export.py`, `search.py`, `revert.py` | Items and their views; the cached view JSON; dependencies and the derived blocked state; trash and purge; JSON/CSV export and the admin's whole-database backup copy; one search; revert from the log. |
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
@@ -86,24 +92,33 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py` with `doc_tree.py`, `doc_pages.py`, `doc_files.py`, `doc_listing.py`, `doc_shape.py`; `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers, split by job (`docs.py` re-exports the public names); discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
 | `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
-| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`) and counted raw upload bodies; the long-poll helpers. |
-| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search; plus `events` and `recurrences`. |
+| `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`), counted raw upload bodies, and `file_response`, the safe response every stored file is served with; the long-poll helpers. |
+| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search, settings (the agent deny-list); plus `events` and `recurrences`. |
 
 ## Schema notes
 
 - **Ids** are 12-char base62 (`0-9A-Za-z`) strings made in Python. No `_`, so a token
-  `slate_<id>_<secret>` splits cleanly. Event ids are time-ordered (7 chars of milliseconds + 5
-  random; a per-process logical clock means no ties), so `ORDER BY id` is commit order and the
-  event stream uses the id as its `since` cursor.
+  `slate_<id>_<secret>` splits cleanly. Event ids (and chat message ids) are time-ordered: 7 chars
+  of milliseconds + 5 random. A per-process logical clock gives two ids in one millisecond
+  consecutive logical milliseconds, and on the first connection it continues after the newest
+  stored event and message id, so a restart never mints an id that sorts below a committed one.
+  `apply_change()` assigns, commits and publishes ids under one write lock, so `ORDER BY id` is
+  commit order and the event stream uses the id as its `since` cursor.
 - **Timestamps** use `UTCDateTime`: aware UTC datetimes stored as fixed-width ISO 8601 text
   (`2026-10-23T17:00:00.000000Z`). Naive datetimes raise. Text order is time order.
 - **Enums** are `VARCHAR` + `CHECK` (non-native), so a bad value fails in the database, not only in
   Python.
 - **Rules held by the database:** tag names unique and lowercase (`CHECK name = lower(name)`); item
-  depth ≤ 4 (a top task plus four levels of subtasks), no cycles, and no
-  reparent that would push a subtree past four (triggers `items_depth_*`); events append-only
-  (triggers `events_no_*`); `(recurrence_id, occurrence_at)` unique, for idempotent recurrence
-  spawning.
+  depth ≤ 4 (a top task plus four levels of subtasks), no cycles, and no reparent that would push
+  a subtree past four (triggers `items_depth_*`), and no item is its own parent
+  (`ck_items_not_own_parent`); `external_ref` unique when set (`ux_items_external_ref`); an item
+  link never points at its own item (`ck_item_links_not_self`) and is unique per
+  `(from_item_id, to_item_id, kind)`; events append-only (triggers `events_no_*`);
+  `(recurrence_id, occurrence_at)` unique, for idempotent recurrence spawning; a doc is never its
+  own parent (`ck_docs_not_own_parent`) and its `kind` is `page`, `file` or `folder`
+  (`ck_docs_kind`); doc link targets are `doc` or `task` (`ck_doc_links_kind`); doc comment
+  surfaces are `review` or `discussion` (`ck_doc_comments_surface`). Plain unique columns and
+  pairs (handles, slugs, `(list_id, name)` for statuses, version numbers) are in `models.py`.
 - **Triggers are not autogenerated by Alembic.** They live in `models.TRIGGERS` (attached to
   `create_all` for tests) and are repeated verbatim in the baseline migration;
   `tests/test_migrations.py` fails if the two drift. A future migration that changes a trigger must
@@ -147,14 +162,33 @@ with apply_change(session, actor) as cx:
     # delete + event (before = snapshot)
     cx.delete(obj, "item.deleted")
     # any other write: do it yourself, name the rows the event accounts for
-    cx.record("item.tagged", item_id=item.id, after=[...], covers=[item_tag_row])
+    cx.record(
+        "item.updated",
+        item_id=item.id,
+        field="tags",
+        before=[...],
+        after=[...],
+        covers=[*removed_rows, *added_rows],
+    )
 ```
 
-On leaving the outermost block it flushes, commits, then publishes each event (`event_payload()`
-shape) to `service.bus.bus`. Any exception rolls back and publishes nothing. Inner `apply_change()`
+`create` also takes `after=` (instead of the snapshot) and `covers=` (rows added alongside, such
+as an item's first body version).
+`cx.derive(obj, type, field=..., before=..., after=..., **values)` sets values and records an
+event that follows from this change rather than an edit the actor asked for (an item unblocked
+because its blocker was done), with no checks. Every other helper first runs `agent_rules.check()`
+(the workspace's agent deny-list refuses an agent actor whatever its token) and the actor's access
+check, so a refused write raises before anything is written.
+
+The outermost block holds one process-wide write lock from its first write to its last publish.
+On leaving it, it flushes, settles blocked/unblocked links for what changed (`links.settle`,
+recorded as derived events), commits, invalidates the cached item views the events touch, then
+publishes each event (`event_payload()` shape) to `service.bus.bus`. Any exception rolls back and
+publishes nothing. If something commits or rolls back the session's transaction while a block is
+open, the block raises `ChangeRolledBack` instead of committing the rest. Inner `apply_change()`
 blocks join the outer one (same actor required), so service functions can call each other and still
-commit once. Event payloads never include `token_hash`, `secret_hash` or `secret_enc`
-(`core.SECRET_COLUMNS`).
+commit once. Event payloads never include `token_hash`, `secret_hash`, `secret_enc` or the Web
+Push keys `p256dh` and `auth` (`core.SECRET_COLUMNS`).
 
 **The guard** (`core.guard_flush`/`guard_bulk`/`guard_cursor`, hooked onto every `Session` and
 the engine in `db.py` so import order cannot skip it):
@@ -169,21 +203,34 @@ the engine in `db.py` so import order cannot skip it):
   rule as an ORM bulk write;
 - an `Event` modified or deleted → refused (and the database triggers refuse it too).
 
-The exemptions: `core.BOOKKEEPING` (`Token.last_used_at`, refreshed by `resolve_token()` at most
-once a minute) and `core.BOOKKEEPING_MODELS` (`Delivery` rows: the deliveries table is itself the
-webhook delivery log; logging each attempt as an event would flood the log and loop back into
-webhooks). SQL on a bare `engine.connect()` connection, outside any session, is not guarded;
-only migrations and tests use it (tests seed old rows with `conftest.raw_write`).
+The exemptions are bookkeeping, not changes to anything a person or an agent owns.
+`core.BOOKKEEPING` lists single columns: `Token.last_used_at` (refreshed by `resolve_token()` at
+most once a minute), `AgentConnection.last_seen_at` and `verified_at`,
+`PushSubscription.last_ok_at` and `failures`, and `ChatWake.until` and `DocWake.until`.
+`core.BOOKKEEPING_MODELS` lists whole tables that are operational logs or indexes: `Delivery`
+(the webhook delivery log), `PushDelivery`, `EmailDelivery`, `AutomationRun`, `EngineCursor`,
+`WorkLease`, and `DocLink` (an index of what a page body embeds; the body's event is the record).
+A delivery attempt is a row, never an event, so attempts never flood the log or loop back into
+webhooks. SQL on a bare `engine.connect()` connection, outside any session, is not guarded. Only
+migrations and tests write through one (tests seed old rows with `conftest.raw_write`); the app
+uses bare connections only for reads (`/healthz`, the newest event id for the stream cursor,
+seeding the event id clock).
 
 **How to add a mutation:** write a function in `slate/service/<area>.py` taking `(session, actor,
 ...)`, validate, then do every write through `cx.*` inside `apply_change()`. Then classify it in
-`tests/test_no_write_without_event.py` (`MUTATIONS` with a scenario, or `READS`): that test walks
-every public function in `slate.service` and fails on anything unclassified, and runs each mutation
-scenario asserting it left an event with the caller as actor.
+`tests/test_no_write_without_event.py`: `MUTATIONS` with a scenario (or `None` when another test
+checks its attribution), `READS`, or `INFRASTRUCTURE` (helpers that run inside a caller's change
+or write as Slate's own account). The test walks every public function in `slate.service` and
+fails on anything unclassified or on a stale entry, fails if a function listed under `READS` opens
+`apply_change()`, and runs each mutation scenario asserting every event it left carries the
+caller's actor, source and `session_ref`.
 
 **Event types.** The full list, one line each, is generated into `docs/agents/reference/events.md`
 from `docgen.EVENT_DOCS` (`uv run slate docs`); `tests/test_agent_docs.py` fails when a type in code
-has no line or a line has no code. Naming: `<table singular>.<verb past tense>`. `item.updated`
+has no line or a line has no code. Naming: `<subject>.<what happened>`, where the prefix names what
+the event is about (usually a table's singular, such as `item.`, `doc.`, `account.`) and the rest
+is usually a past-tense verb (`item.created`, `doc.moved`); scheduler and state events name the
+stage instead (`item.due_soon`, `item.overdue`, `health.alert`, `doc.agent_turn`). `item.updated`
 carries `field` (`title`, `due_at`, `body_md`, `tags`, `completed_at`...); `item.assigned` and tag
 changes carry the whole before/after handle or name list; events about a non-item row put its id in
 `subject_id`. The board hears only the types listed in `lib/board/events.ts` `EVENT_TYPES`
@@ -191,11 +238,18 @@ changes carry the whole before/after handle or name list; events about a non-ite
 
 ## Core REST and the item rules
 
-All under `/api/v1`. Reads need `read`, writes `write`. Service errors map to
-HTTP in `api/__init__.py`: `NotFound` 404, `Conflict` 409 (duplicate slug or tag), `Invalid` 422
-with a plain-English `detail` (rule violations: depth, stranded statuses, bad dates, undo window),
-`Forbidden` 403 (editing someone else's comment). Pydantic shape errors are FastAPI's usual 422
-list.
+All under `/api/v1`. Reads need `read`, writes `write`, administration (tokens for other
+accounts, accounts, permissions, agent pairing, data and settings) `admin`. A few writes that only
+touch the caller's own credential (revoking a token or connection, signing out) need only `read`,
+and `POST /batch` checks each op's scope. Service errors map to HTTP in `api/__init__.py`
+(`_STATUS`): `NotFound` 404, `Conflict` 409 (something already exists or is held: a slug, tag,
+handle, `external_ref`, a work lease), `Invalid` 422 with a plain-English `detail` (rule
+violations: depth, stranded statuses, bad dates, undo window), `Forbidden` 403 (the caller's role,
+token or ownership does not allow it), `Gone` 410 (bootstrap after the first run, a used pairing
+code or invitation), `Unavailable` 503 (a feature switched off by configuration); any other
+service error is 400, and a failed batch takes its cause's status. The body is
+`{"detail": ...}`, plus `failed_op` for a batch and `existing_id`/`existing_state` for a taken
+`external_ref`. Pydantic shape errors are FastAPI's usual 422 list.
 
 **Items, the rules in code (`service/items.py`):**
 
@@ -209,8 +263,10 @@ list.
   item. At create the first version rides on `item.created` (`cx.create(..., covers=[version])`).
 - `status` is an id or a name (case-insensitive) within the item's list.
   `lists.move_item_to_status()` stamps `completed_at` on entering a `done`-kind status and clears it
-  on leaving; `set_statuses()` uses the same function for items it moves, and re-stamps items on a
-  kept status whose kind crosses done.
+  on leaving; entering done or cancelled also clears `waiting_on_account_id`, and entering done
+  makes the next occurrence of a recur-when-done rule. A person's move clears a review flag, and
+  closing the card clears a review or blocked flag whoever closes it. `set_statuses()` uses the
+  same function for items it moves, and re-stamps items on a kept status whose kind crosses done.
 - `assignees` (handles or ids) and `tags` (names; unknown tags are created, each a `tag.created`)
   are whole-set replacements, one event naming before/after.
 - Archive is soft and cascades to subtasks (both ways). Hard `DELETE /items/{id}` is an undo:
@@ -242,13 +298,25 @@ the time and sends bare dates for date-only due dates; an explicit 17:00 stays a
 | `due_before`, `due_after` | exclusive bounds; the date rule applies |
 | `q` | case-insensitive substring of title or body |
 | `kind` | `task` (the only item kind: documents are docs, not items) |
-| `include_archived` | default false hides archived items **and** items in archived lists/sections |
+| `include_archived` | default false hides archived items **and** items in archived lists/sections; trashed items stay hidden |
+| `archived` | true: only archived items (not trashed); false: only unarchived |
+| `trashed` | only items in the trash; without it trashed items are never returned, even with `include_archived` |
+| `closed` | true: only done/cancelled; false: only open/active (or no status) |
+| `blocked` | true: has an open blocker (dependency); false: has none |
 | `stale` | not done/cancelled, and either (a) >=3 `item.updated` events on `due_at` whose previous value was set (first-time setting is not a push), or (b) in an `open`-kind status (or none) with no event of any kind for >=30 days (comments count as touches) |
+| `changed_since` | an event id (for example a previous `X-Slate-Cursor`): only items with an event after it |
+| `ids` | comma-separated item ids, at most 1000: only these items |
+| `open_comment_for` | handle or id: only items with an open Ask addressed to that account |
+| `order` | `position` (default), or newest first by `completed`, `archived`, `trashed`, `updated`, `created` |
+| `fields` | comma-separated item fields to return (`id` always); default all (REST only) |
+| `limit`, `offset` | a page of the ordered result; `limit` 1 to 1000 |
 
 Unknown handles, tags or status names match nothing (empty list), not an error. Order: `position`,
-then `created_at`. Pagination is `limit`/`offset` (`docs/fast-lane.md`). New items get `position =
-max + 1` in their list. `views()` turns rows into output dicts with a fixed set of batch queries
-(statuses, assignees, tags, subtask counts, links…), never one per item. Measured: 10,000 items in
+then `created_at`, then `id` by default; `order=completed|archived|trashed|updated|created` sorts
+newest first by that date (items without it last). Pagination is `limit` (1 to 1000) and
+`offset` (`docs/fast-lane.md`). New items get `position = max + 1` in their list. `views()` turns
+rows into output dicts with a fixed set of batch queries (statuses, assignees, tags, subtask
+counts, links…), never one per item. Measured: 10,000 items in
 5 lists, `GET /items?list_id=&tag=` returns 176 rows in ~11 ms median through the test client
 (`tests/test_perf.py`, marker `perf`; skip with `-m "not perf"`).
 
@@ -263,11 +331,13 @@ trashed items keep their reference (a recurring incident reopens its card, it do
 get a new one), and the detail tells the filer to reopen, unarchive or restore it. A blank reference
 is stored as null. Recurrences never copy `external_ref`.
 
-**Today (`GET /today`, `service/today.py`):** the caller's open items (not done/cancelled, not
-archived) in three groups, each item in the first that fits: `overdue` (due before now), `today`
-(due before midnight workspace time), `waiting` (`waiting_on_account_id` is the caller). Each
-sorted by priority (urgent, high, normal, low, none), then soonest due. Also returns `now` and
-`day_ends_at`.
+**Today (`GET /today`, `service/today.py`):** open items the caller can see (not done/cancelled,
+not archived, not in an archived list or section) in three groups, each item in the first that
+fits: `overdue` (due before now), `today` (due before midnight workspace time), `waiting`
+(`waiting_on_account_id` is the caller). Each sorted by priority (urgent, high, normal, low,
+none), then soonest due. A fourth group, `asked`, holds open items with an open Ask addressed to
+the caller, oldest Ask first; an item can be in `asked` and in one of the three. Also returns
+`now` and `day_ends_at`; `fields` trims items as on `GET /items`.
 
 **Statuses (`PUT /lists/{id}/statuses`):** replaces the set in order, one `list.statuses_changed`
 event. A spec keeps an existing status by `id`, else by name; unmatched existing statuses are
@@ -281,26 +351,42 @@ removed. If items sit on a removed status, `fallback` (name or id in the new set
 `tests/test_no_write_without_event.py` (`READS`, or `MUTATIONS` with a scenario); (3) add
 request/response models to `api/schemas.py`; (4) add the route to the resource's router with
 `ReadAuth`/`WriteAuth`, passing `auth.actor`; (5) a new router module goes into the tuple in
-`api/__init__.py`; (6) add the route to `tests/test_openapi.py` and an API test.
+`api/__init__.py`; (6) add an API test; a core route goes into `CORE_ROUTES` in
+`tests/test_openapi.py`, and a new `GET /items` filter into `ITEM_FILTERS` (it must equal the
+route's query parameters); (7) to expose it to agents, bind the handler as an action in
+`mcp_tools.py` (`tests/test_mcp_parity.py` checks params and scope); (8) run `uv run slate docs`
+(and add any new event type to `docgen.EVENT_DOCS`), or `tests/test_agent_docs.py` fails.
 
 ## Auth
 
 - Token plaintext `slate_<token id>_<secret>` (secret = 32 random bytes, urlsafe). Stored:
-  `sha256(plaintext)` hex only. The plaintext appears in exactly two responses: `POST /bootstrap`
-  and `POST /accounts/{id}/tokens`.
+  `sha256(plaintext)` hex only. The plaintext appears in a response body only from
+  `POST /bootstrap`, `POST /accounts/{id}/tokens` and `POST /agent-connections/exchange`; an
+  accepted invitation sets it as the HttpOnly `slate_session` cookie instead.
 - `resolve_token()` parses the id, loads that row, constant-time compares the hash, and rejects
-  revoked tokens and disabled accounts.
-- **Scopes are ranked** `read < write < admin`; a token's effective level is its highest scope.
-  `require("read")` accepts write and admin tokens.
-- `require(scope)` → 401 (with `WWW-Authenticate: Bearer`) for a missing/invalid/revoked token; 403
-  for too low a scope. Returns `Auth(principal, actor)`; `auth.actor` goes to service writes.
+  malformed, expired and revoked tokens and disabled accounts. `authenticate()` wraps it for every
+  door (REST, the live stream, MCP) and accepts a credential from the `slate_session` cookie only
+  if it is a browser-session token.
+- **Scopes are ranked** `read < write < admin` (`accounts.SCOPE_RANK`); a token's effective level
+  is its highest scope, except that `admin` counts only on an owner or admin account and never on
+  a list-limited token (such a token works as `write`). `require("read")` accepts write and admin
+  tokens.
+- `require(scope)` takes a Bearer token, or with no `Authorization` header the `slate_session`
+  browser-session cookie (a write through the cookie must be a same-origin board request, else
+  403). It answers 401 (with `WWW-Authenticate: Bearer`) for a missing, invalid, expired or
+  revoked token; 403 for too low a scope; 429 with `Retry-After` and `X-RateLimit-*` headers when
+  the token is over its per-minute read or write limit. Returns `Auth(principal, actor)`;
+  `auth.actor` goes to service writes.
 - **`session_ref`**: optional `X-Slate-Session-Ref` header (≤200 chars) on any request; lands in
   every event that request writes.
-- **Bootstrap:** `POST /api/v1/bootstrap {handle, display_name}` with no auth, only while the
-  accounts table is empty: creates a `person` with an `admin` token (the new account is the actor of
-  its own events). After that: 410.
-- `DELETE /tokens/{id}`: admins revoke any token; any account revokes its own (needs only `read`).
-  Revoking twice is a no-op 204.
+- **Bootstrap:** `POST /api/v1/bootstrap {handle, display_name}` with no auth, only while no
+  account other than `slate` exists (checked again under the write lock): creates a `person`
+  account with the `owner` role and an `admin` token, and seeds the default views (the new account
+  is the actor of its own events). After that: 410.
+- `DELETE /tokens/{id}` (needs only `read`): an account revokes its own tokens, and an admin
+  revokes any member's or guest's token; tokens on an admin or the owner account are revoked only
+  by the owner or that account. A list-limited credential can revoke only itself. Revoking twice
+  is a no-op 204.
 - **The board keeps a pasted token in `localStorage`.** The browser has to hold the credential
   somewhere, and the live stream can only send it as a query parameter (EventSource sends no
   headers; the server redacts `token=` from the access log). Guests are different: an accepted
@@ -322,10 +408,17 @@ request/response models to `api/schemas.py`; (4) add the route to the resource's
 See `AGENTS.md` → Commands. Python is managed by uv (`uv python install 3.12`); `uv sync` creates
 `.venv`.
 
+Each runtime dependency in `pyproject.toml` has its floor set to the version `uv.lock` pins and a
+cap below the next major (the next minor for SQLAlchemy, 1.0 for a 0.x package; `tzdata`, dated
+data, has no cap). A change that
+moves the lock raises the matching floor too; `tests/test_portable_package.py` builds the wheel and
+installs it outside the repo with the lock's versions as constraints.
+
 ## Deploy
 
 The step-by-step procedure for a long-running server is `deploy/server/RUNBOOK.md` (service user,
-`.env`, first deploy, https, bootstrap accounts, verify, update, rollback, logs, restore drill). The
+`.env`, first deploy, https, bootstrap accounts, verify, update, rollback, logs, restore drill, and
+the optional push-notification and AI add setups). The
 examples use the service user `slate`, install dir `/opt/slate` (repo `/opt/slate/repo`, data
 `/opt/slate/data`, env `/opt/slate/.env`) and `https://slate.example.com`; put your own values in
 the server's `.env`, not in the repo.
@@ -335,27 +428,40 @@ the server's `.env`, not in the repo.
   there; Node exists only inside the Dockerfile's build stage and uv (pinned) only inside its
   Python stage: the runtime stage copies `/app` and runs as uid 10001. CI publishes no image: nothing
   pulls one, and a publish job would need a token that can write packages.
-- **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`, `127.0.0.1:18448:8000`,
-  `/opt/slate/data:/data`, `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs
-  10m×5, run as the service user's uid with every capability dropped and `no-new-privileges`,
+- **Files:** `deploy/server/compose.yml` (project `slate`, container `slate`,
+  `restart: unless-stopped`, `127.0.0.1:18448:8000`, `/opt/slate/data:/data`,
+  `env_file` `/opt/slate/.env`, `init`, 20 s stop grace, json-file logs 10m×5, a `/healthz`
+  healthcheck every 30 s, `host.docker.internal` mapped to the host gateway for AI add, run as the
+  service user's uid and gid with every capability dropped and `no-new-privileges`,
   forwarded headers trusted from loopback and Docker's bridge pools `172.16.0.0/12` and `192.168.0.0/16` only, never `*`); `slate.service` (user unit, oneshot + RemainAfterExit, reload = rebuild);
   `slate-backup.service/.timer` + `backup.sh` (daily at 03:30; `backup.py`, fed to the container's
   Python on stdin, takes the SQLite online backup, refuses a missing or non-Slate database and
   streams the copy out; `backup.sh` checks its SHA-256 and keeps 30 days in `/opt/slate/backups/`,
   which the container does not mount, and records each run in `data/backup-status.json` for the
-  Health page); `deploy.sh [ref]`
-  (idempotent install/update for any `SLATE_HOME`, waits for health, adds Tailscale Serve when
-  `SLATE_TAILSCALE_PORT` is set); `rollback.sh <ref>`; `env.example` (every
-  setting).
+  Health page); `deploy.sh [ref]` (idempotent install or update for any `SLATE_HOME`: needs
+  `.env`, refuses a checkout with local changes, backs up a running database to
+  `backups/pre-deploy-<stamp>.db` before the restart, waits for `/healthz` to serve the new
+  commit, adds Tailscale Serve when `SLATE_TAILSCALE_PORT` is set); `rollback.sh <ref>` (refuses
+  a ref without the database's migration revision, backs up a running database to
+  `backups/pre-rollback-<stamp>.db`, rebuilds from the ref and waits for `/healthz` to serve it);
+  `env.example` (every setting); `slate-push.service` (optional user unit for the
+  push-notification bridge in `integrations/push`; not installed by `deploy.sh`).
 - **Exposure:** the container publishes on loopback only; put a TLS reverse proxy (Tailscale Serve,
   Caddy, nginx) in front of `127.0.0.1:18448`, on a private network unless you decide otherwise.
-- **`/healthz`** (unauthenticated) adds `scheduler_last_tick_age_s` (null when the scheduler is
-  disabled or has not ticked) and `webhooks_enabled` (`SLATE_SECRET_KEY` set) for deploy checks;
-  `rev`, `commit` and `board` carry the build (`docs/design-system.md`, Build revision). Queue
+- **Portable install:** the root `compose.yaml` (project `slate-portable`) runs the same image on
+  `127.0.0.1:${SLATE_PORT:-8000}` with a `slate-data` named volume and no systemd units or backup
+  timer; it needs `SLATE_SECRET_KEY` in `.env` and is independent of `deploy/server`
+  (`docs/agent-kit.md`, "Agent connections and portable installation").
+- **`/healthz`** (unauthenticated) answers `ok`, `version`, `db` ("ok" after a `SELECT 1`),
+  `scheduler_last_tick_age_s` (null when the scheduler is disabled or has not ticked),
+  `webhooks_enabled` (`SLATE_SECRET_KEY` set) and `min_runner_protocol` (the oldest runner
+  protocol the server accepts) for deploy checks and clients; `rev`, `commit` and `board` carry
+  the build (`docs/design-system.md`, Build revision). Queue
   counts are on the authenticated health report, not here; `db_path` is on the authenticated `GET
   /api/v1/stats`.
 - **Gotchas:** every `docker compose` call passes `-p slate` (a test enforces it in
-  `deploy/server/`). The container `CMD` `exec`s uvicorn so SIGTERM reaches it rather than the shell.
+  `deploy/server/`). The container `CMD` runs `slate migrate`, then `exec`s `slate serve` (uvicorn
+  in-process), so SIGTERM reaches the server rather than the shell.
   `deploy.sh`/`rollback.sh` wrap their body in `main()` so `git checkout` rewriting the running
   script is harmless. systemd eats `$(`; unit files write `$$(`. Rolling back past a migration needs
   a backup restore (the schema does not downgrade): `rollback.sh` refuses a ref that lacks the
@@ -410,13 +516,13 @@ the server's `.env`, not in the repo.
 ## Topic docs (the rest of the internals)
 
 Each feature's internals live in one file under `docs/`. The names in parentheses are the
-section titles code comments cite as `ARCHITECTURE "..."`.
+section titles or bold paragraph labels that code comments cite as `ARCHITECTURE "..."`.
 
 | Topic | File |
 |---|---|
-| Agents: reports, presence, the work loop and agent stream, Run now and the due gate, the runner, Asks, wake modes and Copy brief, the card conversation, chat mentions that wake an agent, the agent plan, pickup evidence ("Agent reports", "Agent work loop and agent stream", "Run now and the runner", "Webhooks and due events" for the run stage) | `docs/agents-work-loop.md` |
+| Agents: reports, presence, the work loop and agent stream, Run now and the due gate, the runner, Asks, wake modes and Copy brief, the card conversation, chat and doc mentions that wake an agent, the agent plan, pickup evidence ("Agent reports", "Agent work loop and agent stream", "Run now, the due gate and the runner") | `docs/agents-work-loop.md` |
 | Agent kit: onboarding, Add my agent, the generated reference, Python/TypeScript clients, the Slate skill installer, chat apps, agent connections and the portable install, the optional adapters | `docs/agent-kit.md` |
-| Live event stream and polling: the write lock, the replay/subscribe seam, slow consumers ("Board", "Event types") | `docs/live-stream.md` |
+| Live event stream and polling: the write lock, the replay/subscribe seam, slow consumers ("Live event stream and polling"; "Event types" is above, in this file; the board's side is `docs/board.md`, "Live stream and catch-up") | `docs/live-stream.md` |
 | Webhooks and due events: design, signatures, retries, retention, targets | `docs/webhooks.md` |
 | MCP server: the tool table, the two bindings, auth over HTTP, stdio, how to add an action ("MCP server") | `docs/mcp-server.md` |
 | Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list | `docs/recurrence.md` |
@@ -425,14 +531,15 @@ section titles code comments cite as `ARCHITECTURE "..."`.
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |
 | Design system, polish, phone and installed app: tokens, motion, icons, the build revision, PWA, touch drag, share target ("Scoped class names"; "The date rule" is above, in this file) | `docs/design-system.md` |
 | Automations | `docs/automations.md` |
-| Reminders, the daily digest, push notifications and delivery receipts | `docs/notifications.md` |
+| Reminders, the daily digest, push notifications, delivery receipts, email notifications and the waiting bell | `docs/notifications.md` |
 | Docs & Files: pages, file docs, drawers, threads, compare, facts, collaboration correctness, extraction caps | `docs/docs-and-files.md` |
 | Trash, Archive page, export, backup, duplicates | `docs/trash-and-export.md` |
-| Chat and agent chats | `docs/chat.md` |
-| Permissions: roles, shares, private lists, limited tokens, the audit log | `docs/permissions.md` |
+| Chat, files on messages and agent chats | `docs/chat.md` |
+| Permissions: roles, shares, private lists, limited tokens, the audit log, the agent action deny-list | `docs/permissions.md` |
 | Private shared projects and guest sessions | `docs/collaboration.md`, with `docs/shared-project-collaboration.md` and `docs/collaboration-security.md` |
 | Health and observability | `docs/health.md` |
-| The board's module map, store, reducer and test recipe | `docs/board.md` |
+| The board's module map, views, store and reducer, live stream catch-up, writes, comment dots, quick-add grammar and test recipe | `docs/board.md` |
+| Repository checks: the private-terms check, the hooks, CI rules, how rule 5 is tested | `docs/repository-checks.md` |
 | Measured performance story | `docs/PERFORMANCE.md` |
 | Release notes | `docs/RELEASE-NOTES.md` |
 | Connect your own agent (user flow) | `docs/connect-your-agent.md` |

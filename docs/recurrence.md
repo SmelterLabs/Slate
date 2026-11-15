@@ -17,7 +17,8 @@ MONTHLY or YEARLY (sub-daily is refused: a task board does not need 300 hourly i
 `dtstart` is its own field. `dtstart` takes `YYYY-MM-DD` (midnight in the rule's zone; default
 today), naive ISO (rule's zone) or aware ISO. `UNTIL` may be `...Z` (UTC) or a bare date (through
 the end of that local day). `tags_json` holds tag names (created on first spawn);
-`assignee_ids_json` holds account ids (the API accepts handles).
+`assignee_ids_json` holds account ids (the API accepts handles). `lead_days` defaults to 14 and
+must be between 0 and `MAX_LEAD_DAYS` (366).
 
 **Occurrences and DST.** `occurrences(rule, start)` runs dateutil on *naive local wall time* from
 `dtstart` in the rule's zone, then attaches the zone (`ZoneInfo`, `fold=0`) and converts to UTC. So
@@ -142,8 +143,10 @@ repeats on a calendar; the board does not call it. The board loads every rule at
 /{id}/pause|resume|run-now` (the REST path is `run-now` only; the MCP action is named `run_now`).
 Writes need `write`. Every response carries `next_occurrences`: the next
 5 whose due time is still ahead, each `{local, utc, due_at}` (empty once ended). `run_now` returns
-`{recurrence, spawned: [items]}` and is 422 on a paused or ended rule. `GET /{id}` exists
-because the MCP `get` action's stdio binding calls it. `GET
+`{recurrence, spawned: [items]}` and is 422 on a paused or ended rule. It materializes the rule
+exactly as a scheduler tick would, as the caller: it spawns only occurrences that fall inside
+`now + lead_days` and applies the same `missed_policy`, so it can return an empty `spawned` list.
+`GET /{id}` exists because the MCP `get` action's stdio binding calls it. `GET
 /preview` and `POST /{id}/adopt` are described above; `/preview` is declared before `/{rule_id}` so
 the path is not read as an id.
 
