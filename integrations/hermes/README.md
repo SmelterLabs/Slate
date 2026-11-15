@@ -48,7 +48,10 @@ Settings:
 - `HERMES_ASK`: optional blocked-recipient override; otherwise use the authorized brief's
   structured `ask`, then `owner`. It is not an authority grant.
 - `HERMES_STATE`: base path, default `~/.slate-hermes-approvals.json`.
-- `HERMES_TURN_TIMEOUT`: observation timeout, default 3600 seconds; not proof of remote stop.
+- `HERMES_TURN_TIMEOUT`: how long a turn may go without an event from the runtime (a tool
+  starting, text, a result), default 3600 seconds. It is not a limit on the turn's length: a
+  turn that keeps working is watched until it ends. Keepalives are not events. Each follow-up
+  turn (a nudge, a late message) gets the whole budget again. Not proof of remote stop.
 - `HERMES_DOWN_GRACE`: gateway-down grace, default 20 seconds.
 - `HERMES_NOTE_EVERY`: progress interval, default 60 seconds.
 - `HERMES_ACTIVITY_EVERY`: on a card turn, each tool the agent starts (with its preview), its
@@ -151,6 +154,11 @@ pre-admission path in the native handler, so it remains conservatively
 unconfirmed, like 5xx and post-submit transport loss. No transcript text, timeout, or local
 stream close is proof of remote termination. Observation budgets include native keepalives.
 
+When the stream is lost or goes silent after the runtime named the turn's run (`run_id` on
+its events), the adapter reads that run's own status (`GET /v1/runs/{run_id}`) before giving
+up: a completed run's `output` is the turn's answer, a failed or cancelled one is a confirmed
+failure, and a run still going (or a gateway that cannot say) stays unconfirmed.
+
 Source basis: Hermes Agent's `gateway/platforms/api_server.py`: `_prepare_session_chat`,
 `_handle_session_chat_stream`, `_register_session_stream_approval`, and
 `_drain_session_stream_task_on_disconnect`. Offline controlled-generator tests assert that
@@ -163,12 +171,24 @@ then reconcile the matching state entry. Do not clear state just to bypass a pen
 or “retry” unknown work. No automatic reconciliation command is shipped; live readback and
 verified owner identity remain prerequisites for adding one.
 
-One case settles itself, on runtime evidence only: a card's `unconfirmed_turn` marker (a
-wrapper killed mid-turn, say when the runner lost its lease) is cleared at the next run when
-the gateway proves no turn can still be running: it restarted since the marker was written
-(start time, else `/health/detailed` pid, saved as `gateway`), or `/health/detailed` reports
-`active_api_runs == 0`. Otherwise, or when the gateway cannot say, the marker keeps blocking.
-Pending approvals and chat markers are unchanged.
+One case settles itself, on runtime evidence only: an `unconfirmed_turn` marker (a turn that
+outlived its watch, or a wrapper killed mid-turn, say when the runner lost its lease) is
+cleared at the next run when the gateway proves that turn is over. The marker saves the
+gateway's life (`gateway`: start time, else `/health/detailed` pid) and, once the runtime
+names it, the turn's `run_id`. The turn is over when the gateway restarted since; when the
+marker names a run and `GET /v1/runs/{run_id}` says it ended, or answers `run_not_found` (a
+gateway forgets a run only some time after it ended); or, for a marker with no run or a
+gateway without that route, when `/health/detailed` reports `active_api_runs == 0`. While the
+marker's own run is still going, nothing else clears it. Otherwise, or when the gateway
+cannot say, the marker keeps blocking. Chat markers settle the same way; pending approvals
+are unchanged.
+
+The answer of a card turn that ended unwatched is not lost. When the gateway still holds the
+run's `output`, a Run now with no new message reports that answer as the run's result without
+asking the agent anything, and a run started by a new message puts it ahead of the new
+answer. When the gateway no longer holds it, the next turn's prompt tells the agent its last
+answer never reached the card and asks it to repeat what still matters. A session transcript
+is never read for this. A chat turn's unwatched answer is not posted.
 
 State layout:
 
@@ -198,8 +218,9 @@ handle. These prompt rules are not a sandbox.
 A nonempty answer with `SLATE: done` **and runtime success** yields `done`/`reply`; the generic
 runner posts it to the supplied channel/thread. All failure/approval/unconfirmed paths yield
 `release` with no publishable reply. No task brief, card nudges or task mutation occurs.
-Progress is bounded and does not disclose commands. Pending/unconfirmed chat state blocks
-later mentions until independently reconciled in the native runtime.
+Progress is bounded and does not disclose commands. Pending chat approvals block later
+mentions until independently reconciled in the native runtime; an unconfirmed chat turn
+blocks them until the gateway proves it over (above).
 
 ## CLI adapter
 
