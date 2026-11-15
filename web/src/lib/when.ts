@@ -1,6 +1,6 @@
 // The drawer's date pickers: a stored UTC instant <-> a workspace date plus an optional time, and
 // the quick picks. Pure; `now` is passed in. Slate reads `YYYY-MM-DD` as 17:00 workspace and a
-// naive `YYYY-MM-DDTHH:MM` as workspace wall time (TECHNICAL-GUIDE "The date rule").
+// naive `YYYY-MM-DDTHH:MM` as workspace wall time (ARCHITECTURE "The date rule").
 
 import { workspaceDay } from './quickadd';
 import { workspaceFormatter } from './timezone';
