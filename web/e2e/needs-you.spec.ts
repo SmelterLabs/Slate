@@ -150,4 +150,8 @@ test('waiting on you while the agent is still blocked: one box, not two', async 
   await expect(banner).toBeVisible();
   await expect(banner.locator('[data-clear-blocked]')).toHaveCount(0);
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
+
+  // Not waiting on me ends the wait, and the box goes.
+  await banner.locator('[data-not-waiting]').click();
+  await expect(banner).toHaveCount(0);
 });
