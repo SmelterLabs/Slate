@@ -29,6 +29,8 @@ Section editors can create lists inside that section. List creation extends the 
 
 Event reads do not retain arbitrary scoped content merely because the viewer authored it. Live gates recheck account/token revocation and expiry before delivery, and replay pages reauthenticate. A live stream closes on revoked credentials or narrowing of reach, including when the stream's type filter would otherwise skip the revocation event. Cookie browsers reauthenticate/reload to discard revoked doc/chat/blob caches. Attachment/doc-file HTTP responses are `no-store`.
 
+The board loads each non-archived private section's participants (`GET /sections/{id}/project`) into its account map, so project members show by name on a guest's board, and keeps the section's agents for the Ask picker (`board.sectionAgents`). A `section.participants_changed` event reloads them (100 ms debounce).
+
 Project participants expose names, handles, kinds and section access levels, not preferences/token metadata/global presence. Scoped roster/export identity directories include reachable participants, not unrelated accounts; scoped rosters redact global online/last-seen/stream/throttle/wake telemetry. Scoped event counts and assignments are filtered. Whiteboard URLs are returned by the authorized project endpoint, not to list-only users through section heading metadata. Section-only event fields are likewise not exposed to list-only heading viewers.
 
 Whiteboard storage accepts only HTTPS URLs with a host and without credentials, whitespace, backslashes or invalid ports. Empty string clears it. The UI validates again and uses an external anchor with `noopener noreferrer` and no-referrer; Slate does not fetch it. External access is managed separately, not inherited from the Slate share.

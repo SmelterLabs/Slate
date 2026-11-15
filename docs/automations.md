@@ -62,6 +62,11 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   trigger and conditions.
 - **Triggers on items in archived lists or sections, and archived items, do nothing.** `moved_in`
   fires only when the item comes from a list outside the rule's scope.
+- **`agent_reported {state?}`** fires on `item.reported` only when the agent's badge state changes
+  (`before.state` differs from `after.state`; `state` is one of `working`, `blocked`, `review`,
+  `done`, `idle`); a new note or progress in the same state does not fire it, and with no `state`
+  it fires on any change. A list can use it to move a card to its own active column when an agent
+  starts working, while the badge itself stays a flag.
 - **Board**: no automations page (`#/automations` opens Everything). The task window's activity
   names the rule behind a change ("by automation “…”") from the event's `automation:<id>`
   `session_ref`; `lib/automationref.svelte.ts` reads the rule names once (`GET /automations`) when

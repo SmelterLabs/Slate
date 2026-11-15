@@ -80,7 +80,8 @@ answers `kind: none` with a `message` naming the unindexed revision instead of p
   byte is read; a chunked body is counted as it arrives and refused with 413 at the cap, so no
   JSON route buffers an unbounded body. The long text fields have their own limits
   (`api/schemas.py`): a task's body and acceptance 200,000 characters, a comment 50,000, a page
-  body 1,000,000, a split 100 children, `content_base64` a 25 MB file's length.
+  body 1,000,000, a split 100 children, `content_base64` a 25 MB file's length. The service then
+  holds a page body to 500,000 characters (`doc_pages.MAX_BODY`, `docs/docs-and-files.md`).
 
 Tests: `tests/test_collaboration_security_final.py` (xlsx bomb refused before openpyxl, in under
 a second and under 4 MB traced; absurd ratio; a small workbook still indexes; PDF budget),

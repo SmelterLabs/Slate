@@ -14,14 +14,21 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `done` clears the flag and, with `complete` (default), moves the item to the list's first done
   status; `idle` clears it only. `blocked` + `waiting_on` sets `waiting_on_account_id`; `assign_me`
   adds the reporter. A note is also posted as a comment (`comment=false` to skip); the board's feed
-  folds that echo away (`agents.svelte.ts` `isReportEcho`).
+  folds that echo away (`agents.svelte.ts` `isReportEcho`). A status change settles the flag in
+  the same change (`lists._settle_agent_flag` -> `reports.clear_flag`, recorded as an `idle`
+  report by the mover): a person's move clears a `review` flag, and a move to a done or cancelled
+  status clears a `review` or `blocked` flag whoever makes it, an agent included. A `working` flag
+  is never cleared by a status change, and an agent's own move that does not close the card leaves
+  the flag to its next report.
 - **Presence** (`slate/presence.py`): in memory only. `auth.require()` marks `api`, the MCP local
   backend marks `mcp`, the SSE stream counts open streams per account. After a restart it falls back
   to token `last_used_at`. Never persisted: it is bookkeeping, not a change, so it has no event and
   `/agents` is not in `CACHEABLE`.
 - **Roster** (`service/agents.py`, `GET /agents?kind=agent|person|all`, MCP `slate_agents`): one row
   per account with presence, what it is on (items whose flag it set), open assignments, events in
-  the last 24 h (index `ix_events_actor_id_id`) and how often the rate limit refused it.
+  the last 24 h (index `ix_events_actor_id_id`) and how often the rate limit refused it. "What it
+  is on" lists only flagged items that are not archived, not trashed and not in a done or
+  cancelled status, the same rule as Needs you (`web/src/lib/attention.ts`).
 - **Per-actor events:** `/events`, the stream and `slate_events` take `actor` (handle or id).
   `/events` also takes `actor_kind=person|agent` and `tail=true` (the newest `limit` events,
   returned oldest first); the board's Agents page seeds its feed with `tail=true&actor_kind=agent`
@@ -59,7 +66,10 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
 - **Board:** `AgentBadge.svelte` (card and task window), `AgentsPage.svelte` at `#/agents` (a page,
   not a scope: `parseRoute` returns `page: 'agents'` and the selected scope is left alone), store
   `lib/agents.svelte.ts` fed by the board store's `#apply`. The badge dims a `working` flag older
-  than six hours.
+  than six hours. The badge offers **Mark reviewed** on a `review` flag (also in Needs you) and
+  **✕ Clear** on a `blocked` flag; both call `task.clearAgentFlag`, an `idle` report by the viewer
+  with `comment: false`. Clear takes off the badge only and leaves the card's Waiting on field as
+  it is; a blocked badge that waits on nobody also shows Run now.
 
 ## Agent work loop and agent stream
 
@@ -83,6 +93,9 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   not retried in a loop), and held by another account (a live lease; with no lease, a badge younger
   than `reports.CLAIM_FRESH`, except that a parked `blocked`/`review` badge never holds a card
   against an open Ask for the caller; `reports._check_claim` applies the same rule at the take).
+  An open Ask for the caller overrides the `review` badge and `waiting_on` someone else, as Run
+  now does, and is the only way a done or cancelled card is eligible, so a follow-up question on
+  an answered card is taken at once.
   Order: own before pool, priority, due (nulls last), position, created. **Every NOT branch tests
   for NULL first**: `NOT (lease.account_id = me)` is NULL for an item without a lease and would drop
   the row.
@@ -97,6 +110,10 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   task-vs-Ask intent and accept only an identical retry; changed payloads and stale attempts
   conflict. Finish and taking next are separate. Direct reports cannot steal or clear active
   protected execution; optional handoff/status still occur inside the proven finish transaction.
+  A finish posts no note or reply when the agent has already reported the same state with a
+  comment of its own during this turn (`work._already_answered`; the turn starts at its report
+  moving into `working`), so a tool-side report followed by the runner's finish leaves one answer.
+  An interim comment without a matching report does not suppress the finish's comment.
 - **Expiry (protocol 3):** renewal and expiry re-read under the same write lock. Expired task/chat
   attempts remain quarantined as unknown remote state, not freed for replay. Explicit work/chat
   reconcile requires verified native stopped/completed evidence and a reason. Chat reconcile uses
@@ -119,7 +136,9 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   event (minus comments, watches, reminders and due nudges: `work.may_free_work`) whose item
   `work.is_takeable` for the caller gives a `work` hint. Both carry `id` = the event id, so
   `Last-Event-ID` resumes. During a replay a task is hinted once. The caller's own events are
-  skipped (except reminders/digest). Counts as a live stream on the Agents page.
+  skipped except reminders, digests, its own `item.run_requested` (Run now from another session
+  of the same agent) and its own reconcile of an expired run (`item.work_finished` with
+  `reconciled` and `expired`), which wake its runner. Counts as a live stream on the Agents page.
 - **MCP gotchas:** nested pydantic models in tool params put `$ref`s in the merged input schema, so
   `slate_work finish`'s `next` is a plain object validated into `WorkNext`; and a `ValidationError`
   escaping a local action surfaces as a bare JSON-RPC "Invalid request parameters", so build
@@ -233,11 +252,22 @@ item's assignees and `waiting_on`.
   assign the agent (`reports.report(no_assign=True)`, lease `asked_only`); `finish done`
   answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
-  pending `asks` within that take; new/reassigned Asks wait for the next turn.
+  pending `asks` within that take; new/reassigned Asks wait for the next turn. An asked-only finish
+  `blocked` may wait only on the author of an Ask the take answered (`work._waits_on_asker`);
+  naming anyone else turns it into an `idle` report with no `waiting_on`, so the answer is a
+  comment and the card gets no badge and no wait.
 - **Board**: Composer "Ask…" select (people and agents) turns Send into "Ask <name>";
   `ActivityPanel` shows "Asked X · Open/Resolved" (`data-ask`) for all Asks, plus Resolve for the
   assignee or author. Typing uses the work-finish receipt, not merely unresolved state. Reducer
-  refetches on Ask/work events. E2E: `web/e2e/ask.spec.ts` and `conversation.spec.ts`.
+  refetches on Ask/work events. The picker lists every pickable account except the viewer and
+  starts on `conversation.defaultAsk`: the card's agent assignee, then the card's project agents
+  (`board.projectAgents`, guest-role agents first), the agent last asked on the card, the agent
+  whose flag is on it, the viewer's last Ask on this device (`localStorage slate.lastAsk`), then
+  the oldest push agent; with no agent it starts on a plain comment. Until the viewer picks
+  someone, the Composer addresses the Ask from the draft (`conversation.askFor`): the first agent
+  `@mentioned` (`mentionedAgent`, never `slate`), else no Ask when it `@mentions` only people,
+  else the picker's default. The server addresses the Ask to exactly the `assignee` it receives.
+  E2E: `web/e2e/ask.spec.ts` and `conversation.spec.ts`.
 
 ### Ask dispatch and settlement (protocol 3)
 
@@ -359,7 +389,9 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   labelled `**Blocked** · note`; the badge note is `note` or the reply's first line.
 - **Reply turns** (`comments.reply_target`): a comment by the person an agent's `blocked` badge
   waits on (`waiting_on_account_id` = the author, `agent_state_by` an enabled agent, the author not
-  an agent, no explicit assignee) is addressed to that agent as an Ask (`comment.assigned` with
+  an agent) is a reply when it is plain or explicitly addressed to that same agent; a comment
+  addressed to anyone else is not a reply. A reply is addressed to that agent as an Ask
+  (`comment.assigned` with
   `after.reply = true`) and clears `waiting_on` in the same change. The Ask does the rest: it is a
   `WAKE_TYPES` hint (the agent stream adds `comment_id` and `reply` to the hint), puts the task in
   the agent's scope, ends the blocked pause (`eligible()`: an open Ask for you skips
@@ -601,6 +633,13 @@ carries `run_requested_at` (`items.views`, `ItemOut`), and `store.pickup()` fall
 when the page did not see the press, so an explicit Run now still says "Waiting for pickup…"
 after a reload. New overdue cards receive their grace interval from creation, not the
 already-passed due time.
+
+`PICKUP_WAIT_MS` is two minutes. An Ask to an agent that no run has taken by then shows "<agent>
+hasn't picked this up (asked N ago). Check agent status." in place of the typing dots
+(`conversation.unpickedAsk`, `data-agent-pending="unpicked"`). A Run now press reads "Waiting for
+pickup…" and then "Not picked up yet. Check agent status.", or "No live connection seen for
+<agent>. Check agent status." when a roster from within the wait shows no live stream for every
+relevant agent.
 
 Concurrency regression tests exercise real isolated HTTP/SSE and child processes for four
 scheduled cards, one/four slots, offline startup, and exactly-once execution. A runner
