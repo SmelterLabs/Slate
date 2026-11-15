@@ -97,7 +97,16 @@ STOPPED = (
     "Stopped at {who}'s request before it finished. Reply here to carry on in the same "
     "session, or press Run now."
 )
+MISSED = (
+    "Slate stopped watching your previous turn on this card before it ended, so nothing you "
+    "answered in it reached the card. If that answer held anything the reader still needs "
+    "(results, questions), say it again in this answer."
+)
 CONTROL_POLL = 1.0
+# A run in one of these states is over; the gateway keeps any other run's status.
+RUN_OVER = frozenset({"completed", "failed", "cancelled", "incomplete", "interrupted"})
+FORGOTTEN = "forgotten"
+STEP_LIMITS = ("max_iterations_reached", "budget_exhausted")
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -342,22 +351,74 @@ def gateway_stamp(hermes: httpx.Client) -> str | None:
         return None
 
 
+def run_state(hermes: httpx.Client, run_id: str) -> dict[str, Any] | None:
+    """What the gateway says of one run (`GET /v1/runs/{run_id}`): its status object, with
+    `status` FORGOTTEN when the gateway knows the route but no longer the run (it forgets a
+    run only some time after it ended). None when it cannot say: no answer, or a gateway
+    without the route, whose plain 404 proves nothing."""
+    try:
+        r = hermes.get(f"/v1/runs/{run_id}", timeout=5)
+        body = r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    if r.status_code == 404:
+        error = body.get("error")
+        gone = isinstance(error, dict) and error.get("code") == "run_not_found"
+        return {"status": FORGOTTEN} if gone else None
+    if r.is_error or not isinstance(body.get("status"), str):
+        return None
+    return body
+
+
+def step_limit(why: str) -> Stopped | None:
+    """The turn used up its steps before it finished: not an error, another run carries on."""
+    if not why.startswith(STEP_LIMITS):
+        return None
+    return Stopped(
+        f"Hermes stopped at its step limit ({why}) before it finished. "
+        "Press Run now and it carries on in the same session.",
+        terminal=True,
+        resumable=True,
+    )
+
+
 def turn_settled(hermes: httpx.Client, pending: dict[str, Any]) -> bool:
     """Does the runtime prove an unconfirmed turn is over? Only on hard evidence: the gateway
-    restarted since the turn began (no turn survives a restart), or it reports no API run in
-    flight at all (`/health/detailed` readiness.checks.background_queues.active_api_runs ==
-    0). Anything else, including an unreachable or older gateway, is False: the marker keeps
-    blocking."""
+    restarted since the turn began (no turn survives a restart); the turn's own run, when the
+    marker names it, has ended or been forgotten (and while that run is still going, nothing
+    else counts); or the gateway reports no API run in flight at all (`/health/detailed`
+    readiness.checks.background_queues.active_api_runs == 0). Anything else, including an
+    unreachable or older gateway, is False: the marker keeps blocking."""
     now = gateway_stamp(hermes)
     if now is None:
         return False
     if pending.get("gateway") and now != pending["gateway"]:
         return True
+    if pending.get("gateway") and pending.get("run_id"):
+        # Same gateway life as the turn, so its record of this run is the turn's own.
+        state = run_state(hermes, str(pending["run_id"]))
+        if state is not None:
+            return state["status"] in RUN_OVER or state["status"] == FORGOTTEN
     try:
         active = _detailed(hermes)["readiness"]["checks"]["background_queues"]["active_api_runs"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
         return False
     return isinstance(active, int) and not isinstance(active, bool) and active == 0
+
+
+def missed_reply(hermes: httpx.Client, pending: dict[str, Any]) -> str | None:
+    """The answer of a settled turn nobody was watching: the gateway's `output` for the
+    marker's run when that run completed on this gateway life. None when there is none or
+    the gateway no longer holds it. A session's transcript is never read for this."""
+    if not pending.get("run_id") or pending.get("gateway") != gateway_stamp(hermes):
+        return None
+    state = run_state(hermes, str(pending["run_id"]))
+    if state is None or state["status"] != "completed":
+        return None
+    text = state.get("output")
+    return text if isinstance(text, str) and text.strip() else None
 
 
 MAX_TITLE = 100  # the gateway answers 500 (ValueError: Title too long) above this
@@ -642,12 +703,16 @@ def run_turn(
     on_approval: Callable[[dict[str, Any]], None] | None = None,
     control: Control | None = None,
     activity: Activity | None = None,
+    on_run: Callable[[str], None] | None = None,
 ) -> tuple[str | None, list[dict[str, Any]]]:
     """Stream one turn as Slate. Returns (the reply text or None, approvals asked for).
-    `Stopped` when the gateway died or the session went away (the watchdog). `activity` (card
-    turns only) receives what the turn is doing, for the task window's live box."""
+    `Stopped` when the gateway died or the session went away (the watchdog). `timeout` is how
+    long the turn may go without an event from the runtime (keepalives are not events), not
+    how long it may take. `activity` (card turns only) receives what the turn is doing, for
+    the task window's live box; `on_run` hears the turn's run id once, before any approval."""
     approvals: list[dict[str, Any]] = []
     reply: str | None = None
+    run_id: str | None = None
     notes = Notes(emit, every=note_every, clock=clock)
     try:
         life = started_at(hermes)
@@ -668,8 +733,8 @@ def run_turn(
     deadline = clock() + timeout
 
     def observed_lines(lines: Iterator[str]) -> Iterator[str]:
-        # Count keepalives against the budget; a socket read timeout alone resets.
-        # The generic runner independently heartbeats while this process stays alive.
+        # Keepalives count against the budget (only an event resets it); a socket read
+        # timeout alone resets. The generic runner heartbeats while this process lives.
         for line in lines:
             if clock() >= deadline:
                 raise httpx.ReadTimeout("Turn observation budget expired")
@@ -689,6 +754,11 @@ def run_turn(
                 )
             r.raise_for_status()
             for kind, data in sse(observed_lines(r.iter_lines())):
+                deadline = clock() + timeout  # the runtime is working: the silence starts over
+                if data.get("run_id") and run_id is None:
+                    run_id = str(data["run_id"])
+                    if on_run is not None and not approvals:
+                        on_run(run_id)
                 if control is not None:
                     if data.get("run_id"):
                         control.attach(str(data["run_id"]))
@@ -738,14 +808,9 @@ def run_turn(
                 elif kind in ("run.failed", "run.cancelled", "run.incomplete", "run.interrupted"):
                     terminal_failure = True
                     why = str(data.get("turn_exit_reason") or "")
-                    if why.startswith(("max_iterations_reached", "budget_exhausted")):
-                        # Not an error: the turn used up its steps before it finished.
-                        raise Stopped(
-                            f"Hermes stopped at its step limit ({why}) before it finished. "
-                            "Press Run now and it carries on in the same session.",
-                            terminal=True,
-                            resumable=True,
-                        )
+                    limit = step_limit(why)
+                    if limit is not None:
+                        raise limit
                     failed = str(data.get("error") or data.get("message") or why or kind)
                 elif kind == "run.completed":
                     if data.get("status") not in (None, "completed"):
@@ -799,8 +864,22 @@ def run_turn(
                     "The Hermes gateway restarted mid-turn, and a restarted gateway does not "
                     "replay the turn."
                 )
-            # Transcript text is not execution-success evidence.
+            # Transcript text is not execution-success evidence; the run's own status is.
             last_reply(hermes, session_id)
+            state = run_state(hermes, run_id) if run_id else None
+            if state is not None and state["status"] in RUN_OVER:
+                if control is not None:
+                    if state.get("pending_steer"):
+                        control.not_read()
+                    control.detach()
+                text = state.get("output")
+                if state["status"] == "completed":
+                    return (text if isinstance(text, str) and text else reply), []
+                why = str(state.get("turn_exit_reason") or "")
+                raise step_limit(why) or Stopped(
+                    f"The Hermes turn failed or stopped: {(why or state['status'])[:300]}.",
+                    terminal=True,
+                )
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
                 raise Stopped("Hermes denied access while observing the turn.") from None
@@ -1100,7 +1179,13 @@ def chat_session_path(env: dict[str, str], chat: dict[str, Any], agent_id: str) 
 
 
 def save_chat_session(
-    path: Path, session_id: str, pending: dict | None = None, *, observing: bool = False
+    path: Path,
+    session_id: str,
+    pending: dict | None = None,
+    *,
+    observing: bool = False,
+    gateway: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp: Path | None = None
@@ -1112,6 +1197,8 @@ def save_chat_session(
             state = {"session_id": session_id}
             if observing:
                 state["unconfirmed_turn"] = True
+                # Which gateway life and run the turn belongs to, so it can settle itself.
+                state.update({k: v for k, v in (("gateway", gateway), ("run_id", run_id)) if v})
             if pending:
                 # Control identity only, not command text in shared-chat state.
                 state["pending_approval"] = {
@@ -1175,7 +1262,7 @@ def run_chat(
             stored = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(stored, dict):
                 raise ValueError("Invalid chat session state")
-            if stored.get("unconfirmed_turn"):
+            if stored.get("unconfirmed_turn") and not turn_settled(hermes, stored):
                 return release(
                     "Previous remote chat turn is unconfirmed; inspect the native "
                     "session before retrying. Remote stop is not supported."
@@ -1213,7 +1300,15 @@ def run_chat(
             notes(text[:280], force=text == "Hermes chat requires approval")
 
         # A crash or failed approval write cannot make an active turn disappear.
-        save_chat_session(path, session_id, observing=True)
+        gateway_at = gateway_stamp(hermes)
+        save_chat_session(path, session_id, observing=True, gateway=gateway_at)
+
+        def remember_run(run_id: str) -> None:
+            with suppress(OSError):  # the marker already stands; it just names no run
+                save_chat_session(
+                    path, session_id, observing=True, gateway=gateway_at, run_id=run_id
+                )
+
         reply, approvals = run_turn(
             hermes,
             session_id,
@@ -1225,8 +1320,9 @@ def run_chat(
             sleep=sleep,
             clock=clock,
             on_approval=lambda pending: save_chat_session(
-                path, session_id, pending, observing=True
+                path, session_id, pending, observing=True, gateway=gateway_at
             ),
+            on_run=remember_run,
         )
         if approvals:
             save_chat_session(path, session_id, approvals[-1])
@@ -1417,13 +1513,37 @@ def run(
             "reply": "Approval state cannot be read or written; no runtime turn was started.",
             **({"thread": thread_ref(known, env)} if known else {}),
         }
+    who = (task.get("reply") or {}).get("author_handle")
+    later = turn_text(task, f"@{who}" if who else None)
+    missed: str | None = None  # what a turn nobody was watching answered
+    unwatched = False
     if pending:
         # Legacy unbound state also blocks; never rebind it silently.
         pending_session = pending.get("session_id") or known
         if pending.get("state") == "unconfirmed_turn" and turn_settled(hermes, pending):
-            # The runtime proves the turn is over (restarted, or nothing running at all): a
-            # wrapper killed mid-turn left the marker. Clear it and take the new turn.
-            save_pending(env, item_id, None)
+            # The runtime proves the turn is over (restarted, its run ended, or nothing running
+            # at all): a turn that outlived its watch, or a wrapper killed mid-turn, left the
+            # marker. Its answer never reached the card.
+            unwatched, missed = True, missed_reply(hermes, pending)
+            try:
+                save_pending(env, item_id, None)
+            except OSError:
+                return {
+                    "outcome": "blocked",
+                    "waiting_on": ask,
+                    "reply": "Approval state cannot be read or written; no runtime turn was "
+                    "started.",
+                    **({"thread": thread_ref(pending_session, env)} if pending_session else {}),
+                }
+            if missed and later is None and pending_session:
+                # Nothing new was said on the card: that answer is this run's result.
+                emit(
+                    {
+                        "note": "Reporting the answer Hermes finished after Slate stopped watching",
+                        "thread": thread_ref(pending_session, env),
+                    }
+                )
+                return result(missed, [], ask, pending_session, env)
             emit({"note": "Previous turn is over on the runtime; starting a new one"})
             pending = None
         elif pending.get("state") == "unconfirmed_turn":
@@ -1462,16 +1582,14 @@ def run(
         }
     )
 
-    who = (task.get("reply") or {}).get("author_handle")
-    later = turn_text(task, f"@{who}" if who else None)
-
     if fresh or later is None:
         prompt = brief if fresh or not known else f"The card was run again.\n\n{brief}"
     else:
         prompt = later + card_files(slate, item_id)
+    if unwatched and not missed and not fresh:
+        prompt = f"{MISSED}\n\n{prompt}"
 
     nudges = int(env.get("HERMES_NUDGES") or NUDGES)
-    deadline = clock() + timeout
 
     def remember_approval(pending: dict[str, Any]) -> None:
         save_pending(
@@ -1487,7 +1605,7 @@ def run(
 
     gateway_at = gateway_stamp(hermes)
 
-    def remember_observing() -> None:
+    def remember_observing(run_id: str | None = None) -> None:
         save_pending(
             env,
             item_id,
@@ -1498,8 +1616,13 @@ def run(
                 "runtime_url": str(hermes.base_url),
                 "profile": profile_of(env),
                 "gateway": gateway_at,
+                **({"run_id": run_id} if run_id else {}),
             },
         )
+
+    def remember_run(run_id: str) -> None:
+        with suppress(OSError):  # the marker already stands; it just names no run
+            remember_observing(run_id)
 
     control = Control(env.get("SLATE_CONTROL"), hermes, emit)
 
@@ -1526,17 +1649,16 @@ def run(
             on_approval=remember_approval,
             control=control,
             activity=activity,
+            on_run=remember_run,
         )
 
     try:
         with control.watching():
             reply, approvals = turn(prompt, timeout)
             # Only a confirmed normal turn can be followed by another: a message from the
-            # card the run did not read, else a nudge for a missing closing line.
+            # card the run did not read, else a nudge for a missing closing line. Each is a
+            # turn of its own, with the whole silence budget.
             while reply is not None and not approvals and not control.stop_asked():
-                left = deadline - clock()
-                if left <= 0:
-                    break
                 late = control.unread()
                 if late:
                     emit({"note": "Passing a new message to Hermes"})
@@ -1550,7 +1672,7 @@ def run(
                     text = NUDGE.format(ask=ask)
                 else:
                     break
-                again, approvals = turn(text, left)
+                again, approvals = turn(text, timeout)
                 if again is None:
                     break  # that turn did not finish: report what the agent said before
                 # A message's own turn adds to the answer already given; a nudge restates it.
@@ -1571,6 +1693,8 @@ def run(
         if isinstance(e, Stopped) and e.resumable:
             return {**stopped, "resumable": True}  # waits on nobody: Run now carries on
         return {**stopped, "waiting_on": ask}
+    if missed and reply is not None and not approvals:
+        reply = with_earlier([missed], reply)  # the card never got that answer: it goes first
     out = result(reply, approvals, ask, session_id, env)
     if approvals:
         try:

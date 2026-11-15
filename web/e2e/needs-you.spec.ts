@@ -116,3 +116,42 @@ test('waiting on you: the card shows the question at the top, and Answer goes to
   await page.keyboard.press('Enter');
   await expect(banner).toHaveCount(0);
 });
+
+test('waiting on you while the agent is still blocked: one box, not two', async ({ page }) => {
+  const { agent, listId } = seed();
+  const card = await api<{ id: string }>('POST', '/items', {
+    list_id: listId,
+    title: 'One-box card',
+    assignees: ['agent'],
+  });
+  await api('POST', `/items/${card.id}/report`, {
+    state: 'blocked',
+    waiting_on: 'alex',
+    reply: 'Which registrar holds the domain?',
+    url: 'https://example.com/runs/1',
+  }, agent);
+
+  await signIn(page);
+  await page.goto(`/#/list/${listId}?task=${card.id}`);
+  const tw = page.locator('.tw');
+  const banner = tw.locator('[data-banner="waiting"]');
+  await expect(banner).toContainText('Agent is waiting on you');
+  await expect(banner.locator('[data-waiting-question]')).toHaveText('Which registrar holds the domain?');
+  // The agent's blocked badge would repeat the same sentence: the banner carries its parts.
+  await expect(tw.locator('.agent-badge')).toHaveCount(0);
+  await expect(banner.locator('[data-waiting-age]')).toBeVisible();
+  await expect(banner.locator('[data-waiting-open]')).toHaveAttribute('href', 'https://example.com/runs/1');
+
+  // Clear takes the agent's badge off; the wait, and the box, stay.
+  await banner.locator('[data-clear-blocked]').click();
+  await expect
+    .poll(async () => (await api<{ agent: unknown }>('GET', `/items/${card.id}`)).agent ?? null)
+    .toBeNull();
+  await expect(banner).toBeVisible();
+  await expect(banner.locator('[data-clear-blocked]')).toHaveCount(0);
+  await expect(tw.locator('.agent-badge')).toHaveCount(0);
+
+  // Not waiting on me ends the wait, and the box goes.
+  await banner.locator('[data-not-waiting]').click();
+  await expect(banner).toHaveCount(0);
+});
