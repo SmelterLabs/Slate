@@ -545,7 +545,9 @@ Design choices and the reason for each, with the alternatives that were rejected
   Rejected: pushing message text over the agent stream (the stream is a doorbell; one source,
   the heartbeat, cannot disagree with itself after a reconnect), and ending the lease on Stop
   (the server cannot know the remote run ended; the agent's own finish is the proof). Details:
-  `docs/agents-work-loop.md` "While a run is going".
+  `docs/agents-work-loop.md` "While a run is going". How the Hermes adapter passes a message on, and keeps
+  an answer the agent had already written when the message lands late, is in
+  `integrations/hermes/README.md`.
 
 ### Shared projects and chat
 

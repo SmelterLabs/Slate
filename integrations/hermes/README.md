@@ -100,6 +100,9 @@ The gateway adapter watches the runner's control file (`SLATE_CONTROL`, see
   dropped and never answered by a reply that did not read it. When the agent had already
   answered (a steer that lands as it finishes is appended and the run goes on to a second
   answer), the card's reply is the first answer followed by the second, not the second alone.
+  The run's outcome is the last answer's closing line; when that answer has none (the agent
+  closed the task in the first one and only added to it), the first answer's line stands, so
+  no nudge is sent.
 - **Stop** is `POST /v1/runs/{run_id}/stop`, retried each second until the gateway takes it.
   The cancelled turn is reported `blocked`, waiting on whoever pressed Stop, with the session
   kept: a reply continues in it. Stop wins over a message still waiting to be steered.
