@@ -480,7 +480,7 @@ def query_items(
     only_ids: bool = False,
     open_comment_for: str | None = None,
 ) -> list[Item] | list[str]:
-    """Items matching every given filter (AND). See TECHNICAL-GUIDE "Querying items".
+    """Items matching every given filter (AND). See ARCHITECTURE "Querying items".
 
     - `status`: a status id, or a status name (case-insensitive) in any list.
     - `assignee`: account handle or id. `tag`: tag name (any case) or id.

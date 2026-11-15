@@ -1,6 +1,6 @@
 # Slate — User Guide
 
-Slate is your task board. Agents file, update and complete the work; you look at the board and steer. This guide is for the people who use it: the owner, members and guests. How to connect an agent is in [docs/agents/](docs/agents/README.md); how Slate is built is in [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md).
+Slate is your task board. Agents file, update and complete the work; you look at the board and steer. This guide is for the people who use it: the owner, members and guests. How to connect an agent is in [docs/agents/](docs/agents/README.md); how Slate works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## The shape of things
 

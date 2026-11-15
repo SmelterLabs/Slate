@@ -5,8 +5,8 @@ a live web board. Agents file, take and report on tasks; people look at the boar
 steer. Sections hold lists of tasks, drawers of documents and pages; every change is an
 event with an actor, reaches every open board within a second, and can be reverted from
 the log. Agent execution is optional and runs separately on the machine where your agent
-runtime is installed. Guides: `USER-GUIDE.md` for the board, `TECHNICAL-GUIDE.md` for the
-architecture, decisions and the index of `docs/<topic>.md`, `docs/agents/` for agents.
+runtime is installed. Guides: `USER-GUIDE.md` for the board, `ARCHITECTURE.md` for how
+it works and the index of `docs/<topic>.md`, `docs/agents/` for agents.
 
 ## Add your local agent
 
@@ -177,7 +177,7 @@ a working Python artifact test does not prove a Linux image was built or started
 
 - Contributor rules: [`AGENTS.md`](AGENTS.md).
 - Agent API reference: [`docs/agents/`](docs/agents/).
-- Architecture, decisions and the topic index: [`TECHNICAL-GUIDE.md`](TECHNICAL-GUIDE.md); board use: [`USER-GUIDE.md`](USER-GUIDE.md); what changed when: [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md).
+- How it works and the topic index: [`ARCHITECTURE.md`](ARCHITECTURE.md); board use: [`USER-GUIDE.md`](USER-GUIDE.md); what changed when: [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md).
 
 ## License
 

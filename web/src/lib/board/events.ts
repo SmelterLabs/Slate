@@ -1,4 +1,4 @@
-// Every event type Slate emits (TECHNICAL-GUIDE.md "Event types"). EventSource dispatches
+// Every event type Slate emits (ARCHITECTURE.md "Event types"). EventSource dispatches
 // named events only to listeners for that exact name.
 export const EVENT_TYPES = [
   'agent.connection_created',

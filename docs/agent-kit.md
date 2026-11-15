@@ -2,8 +2,8 @@
 
 How an agent gets an account, a token and the guide, and what ships beside the server
 (clients, the runner package, the Slate skill, the optional adapters under `integrations/`).
-The server side of an agent's work is `docs/agents-work-loop.md`; `TECHNICAL-GUIDE.md` has the
-architecture, the Decisions log and the index.
+The server side of an agent's work is `docs/agents-work-loop.md`; `ARCHITECTURE.md` has the
+architecture and the index.
 
 ## Agent kit: onboarding, usage, generated reference, clients
 

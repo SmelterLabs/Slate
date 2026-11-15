@@ -4,7 +4,7 @@ Slate is a self-hosted task board, built to be used primarily by AI agents and l
 
 ## Startup reads
 
-1. `TECHNICAL-GUIDE.md` — architecture, how to run and test, the Decisions log, and the index of `docs/<topic>.md` files that hold each feature's internals.
+1. `ARCHITECTURE.md` — how Slate works: architecture, schema, the write rules, how to run, test and deploy, the gotchas, and the index of `docs/<topic>.md` files that hold each feature's internals.
 2. `git log -15` — what landed last.
 3. `.local/AGENTS.md`, if this clone has one — a maintainer's own notes for this clone. The `.local/` folder is gitignored and never committed; in a Git worktree, look in the main checkout (the folder that holds `git rev-parse --git-common-dir`).
 
@@ -43,7 +43,7 @@ final report and PR, which list every changed file, not just the large changes.
 - **TDD per task:** write the failing test, run it, implement, run green, commit. Small commits.
 - **Run before claiming done:** `uv run ruff check . && uv run pytest -q`. CI runs the same.
 - **Regenerate the agent reference** with `uv run slate docs` whenever you add or change a route, an MCP action, a docstring or an event type (add its line to `docgen.EVENT_DOCS`); `tests/test_agent_docs.py` fails until you do. The agent-facing docs are `docs/agents/`.
-- **Update `TECHNICAL-GUIDE.md`** in the same pull request for anything a new contributor would need to know (new module, decision, gotcha). It is an index plus the architecture and the Decisions log; feature internals live in the topic files under `docs/` it points to, so a change to a feature updates its topic file. Update `USER-GUIDE.md` when user-facing behaviour changes. Keep both proportionate, and write them in the present tense: what the product does, not what changed.
+- **Update `ARCHITECTURE.md`** in the same pull request when the structure changes (a new module, a schema or write rule, a gotcha). It is an index plus the architecture; feature internals live in the topic files under `docs/` it points to, so a change to a feature updates its topic file. These files say how the product works, in enough detail that an agent can work from them alone. They hold no decision history: why a change was made and what was rejected go in the pull request. Update `USER-GUIDE.md` when user-facing behaviour changes. Keep both proportionate, and write them in the present tense: what the product does, not what changed.
 - **Say why in the pull request.** Each pull request and commit message says what changed and why. Questions go in the pull request, not into silent choices.
 - **Out of scope** (do not build without a maintainer decision): two-way sync with another task tool, calendar sync, a public hostname by default, anything specific to one agent runtime in `src/` (adapters under `integrations/` are allowed, per rule 5), and these removed features: custom fields, dashboards, goals, sprints, time tracking, forms, Slack/Discord channels, email-to-task, a GitHub integration, task and status templates, duplicate merge, a ClickUp importer, a Workload page and an Import page on the board, the Timeline, Box and Calendar layouts, and the board's automations builder page (the automations engine and its REST and MCP API stay). The Table layout is kept but frozen.
 - **Secrets:** none in the repo, ever. Tokens are shown once at creation and stored hashed. `.env` is gitignored.
@@ -71,5 +71,5 @@ web/                  Svelte board
 clients/              Python and TypeScript clients, the resident runner
 integrations/         optional adapters and the agent skill
 deploy/server/        compose, systemd units, backup timer, runbook
-docs/<topic>.md       one file per feature area (indexed in TECHNICAL-GUIDE.md); docs/agents/ is the agent-facing kit
+docs/<topic>.md       one file per feature area (indexed in ARCHITECTURE.md); docs/agents/ is the agent-facing kit
 ```
