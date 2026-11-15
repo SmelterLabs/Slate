@@ -38,6 +38,9 @@ async function makeList(name: string, titles: string[]): Promise<Made> {
 type Pt = { x: number; y: number };
 
 async function center(page: Page, selector: string): Promise<Pt> {
+  // Mid-screen first: a finger cannot reach a row that other tests' cards pushed below the fold
+  // or under the toast at the foot of the screen.
+  await page.locator(selector).first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const box = await page.locator(selector).first().boundingBox();
   if (!box) throw new Error(`no box for ${selector}`);
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
