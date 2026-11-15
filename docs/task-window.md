@@ -150,6 +150,15 @@ Board side:
   the button disabled until the agent's finish removes it. A comment addressed to that agent
   after the run began shows "Not read yet" (`conversation.unreadMidRun`) until its `seen_at`
   arrives ("Seen while working"). E2E: `web/e2e/mid-run.spec.ts`.
+- **Steps on an agent's answer**: a comment with `run_steps` shows a small "N steps" pill in
+  its foot row; it opens the run log in place (`GET /comments/{id}/run`, fetched once, drawn by
+  `LiveActivity.svelte` with `tall`: whole lines, up to 220 px, scrolling itself).
+- **The All view is quiet about a run** (`activity.plumbing`, applied by `timeline(entries,
+  quiet)`): it leaves out an agent's working reports, `item.work_finished`, `comment.assigned`,
+  `comment.resolved` and the `completed_at` stamp that follows a status change by the same
+  actor, so a run reads "started working on this" … "finished this". "via API" / "via MCP" show
+  only in History; "automatically" and an automation's name show everywhere. History lists
+  every event, in words (`history.verb`).
 - `AutoText.svelte` is the autosaving markdown box (description, "Done means"): local draft; save
   1.2 s after the last keystroke, on blur, and on destroy (closing or switching tasks never loses
   typing); remote changes replace the draft only while it is not being edited. Every save is one

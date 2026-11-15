@@ -172,7 +172,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.unwatched` | Someone stopped watching an item. |
 | `item.updated` | One item field changed (`field` = title, priority, due_at, tags, waiting_on, body...; `before`/`after`). |
 | `item.watched` | Someone started watching an item. |
-| `item.work_finished` | An agent finished a taken turn (`after.through` = its work-start event id, `outcome`). Earlier Ask assignments no longer dispatch that agent; they remain visible until resolved. New/reassigned Asks remain pending. |
+| `item.work_finished` | With `steps` and `comment_id` when the run left a log with its answer (`GET /comments/{id}/run`). An agent finished a taken turn (`after.through` = its work-start event id, `outcome`). Earlier Ask assignments no longer dispatch that agent; they remain visible until resolved. New/reassigned Asks remain pending. |
 | `item.work_started` | A work take's immutable Ask dispatch boundary (this event id). Resume and heartbeat do not move it. |
 
 ## list

@@ -29,9 +29,26 @@ function foldable(ev: SlateEvent): boolean {
   return ev.type === 'item.status_changed' || ev.type === 'checklist.updated';
 }
 
-/** Activity entries to display rows, oldest first, with folded runs of repeated edits. */
-export function timeline(entries: ActivityEntry[]): Row[] {
+/** Lines the conversation already tells, left out of the All view (History keeps every one):
+ * an agent's progress notes (the typing line and its box show them live), the end-of-run
+ * bookkeeping (the report beside it says how the run ended), an Ask being addressed or closed
+ * (the pill on the comment says both), and the completion stamp of a status change. */
+export function plumbing(ev: SlateEvent, before?: SlateEvent): boolean {
+  if (ev.type === 'item.reported') return (ev.after as { state?: string } | null)?.state === 'working';
+  if (ev.type === 'item.work_finished' || ev.type === 'comment.assigned' || ev.type === 'comment.resolved') return true;
+  return (
+    ev.type === 'item.updated' &&
+    ev.field === 'completed_at' &&
+    before?.type === 'item.status_changed' &&
+    before.actor_id === ev.actor_id
+  );
+}
+
+/** Activity entries to display rows, oldest first, with folded runs of repeated edits. `quiet`
+ * (the All view) leaves out the `plumbing` lines. */
+export function timeline(entries: ActivityEntry[], quiet = false): Row[] {
   const rows: Row[] = [];
+  let previous: SlateEvent | undefined;
   for (const e of entries) {
     if (e.kind === 'comment' && e.comment) {
       rows.push({ kind: 'comment', key: `c:${e.comment.id}`, at: e.at, comment: e.comment });
@@ -39,6 +56,9 @@ export function timeline(entries: ActivityEntry[]): Row[] {
     }
     const ev = e.event;
     if (!ev) continue;
+    const before = previous;
+    previous = ev;
+    if (quiet && plumbing(ev, before)) continue;
     const last = rows.at(-1);
     // "made this depend on X" already says it: the item.blocked of the same change is noise.
     if (ev.type === 'item.blocked' && last?.kind === 'event' && last.event.type === 'item.linked') {

@@ -608,6 +608,24 @@ class CommentReaction(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class CommentRun(Base):
+    """The run log kept with an agent's answer: the lines its run posted while it worked
+    (`slate.liveactivity`), stored when the run finishes (service/work.py) and shown on the
+    comment as "N steps". Goes with its comment."""
+
+    __tablename__ = "comment_runs"
+
+    comment_id: Mapped[str] = mapped_column(
+        ForeignKey("comments.id", ondelete="CASCADE"), primary_key=True
+    )
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"))
+    steps: Mapped[int] = mapped_column(Integer)
+    lines_json: Mapped[Any] = mapped_column(JSON)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    finished_at: Mapped[datetime] = _created()
+
+
 class Checklist(Base):
     """A named checklist inside an item: lightweight to-dos that are not subtasks."""
 

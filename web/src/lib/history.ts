@@ -121,6 +121,18 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
     }
     case 'comment.seen':
       return 'read a message while working';
+    case 'item.work_started':
+      return 'started working on this';
+    case 'item.work_finished': {
+      const steps = Number((ev.after as { steps?: number } | null)?.steps ?? 0);
+      return steps ? `ended the run (${steps} step${steps === 1 ? '' : 's'})` : 'ended the run';
+    }
+    case 'comment.assigned': {
+      const to = obj(ev.after).assignee_id;
+      return to ? `asked ${ctx.name(to) ?? 'someone'}` : 'took an Ask off a comment';
+    }
+    case 'comment.resolved':
+      return 'resolved an Ask';
     case 'item.attachment_added':
       return `attached ${obj(ev.after).filename ?? 'a file'}`;
     case 'item.attachment_removed':

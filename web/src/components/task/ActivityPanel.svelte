@@ -24,10 +24,10 @@
   import { fullStamp } from '../../lib/format';
   import { verb } from '../../lib/history';
   import { isSendKey } from '../../lib/mentions.svelte';
-  import { liveActivity } from '../../lib/liveactivity.svelte';
+  import { liveActivity, type LiveLine } from '../../lib/liveactivity.svelte';
   import { renderMarkdown } from '../../lib/markdown';
   import { liveRefs } from '../../lib/refs.svelte';
-  import { ApiError } from '../../lib/api';
+  import { ApiError, get } from '../../lib/api';
   import { canRevert, revertEvent, revertQuestion } from '../../lib/revert';
   import { board } from '../../lib/store.svelte';
   import { task } from '../../lib/task.svelte';
@@ -81,7 +81,7 @@
 
   const entries = $derived(task.activity ?? entriesFrom(item.comments, item.events));
   const rows = $derived(
-    timeline(entries).filter((r) => task.filter === 'all' || (task.filter === 'comments') === (r.kind === 'comment')),
+    timeline(entries, task.filter === 'all').filter((r) => task.filter === 'all' || (task.filter === 'comments') === (r.kind === 'comment')),
   );
   const commentCount = $derived(entries.filter((e) => e.kind === 'comment').length);
 
@@ -224,10 +224,27 @@
 
   const SOURCES: Record<string, string> = { api: 'via API', mcp: 'via MCP', system: 'automatically' };
 
-  // The board itself writes through the API, so "via API" only says something about agents.
+  // What did it (an automation, Slate itself) always shows. How an agent reached Slate ("via
+  // API", "via MCP") is plumbing: only the History view says it. The board itself writes
+  // through the API, so for a person it says nothing anywhere.
   function showSource(ev: SlateEvent): boolean {
-    if (ev.source === 'mcp' || ev.source === 'system') return true;
-    return ev.source === 'api' && board.accounts[ev.actor_id]?.kind === 'agent';
+    if (ev.source === 'system' || automationOf(ev)) return true;
+    if (task.filter !== 'events') return false;
+    return ev.source === 'mcp' || (ev.source === 'api' && board.accounts[ev.actor_id]?.kind === 'agent');
+  }
+
+  // An agent's answer keeps what its run did ("6 steps"): opened in place, fetched once.
+  let runOpen = $state<Record<string, boolean>>({});
+  let runLogs = $state<Record<string, LiveLine[] | 'loading' | 'failed'>>({});
+  async function toggleRun(c: Comment) {
+    runOpen[c.id] = !runOpen[c.id];
+    if (!runOpen[c.id] || Array.isArray(runLogs[c.id]) || runLogs[c.id] === 'loading') return;
+    runLogs[c.id] = 'loading';
+    try {
+      runLogs[c.id] = (await get<{ lines: LiveLine[] }>(`/comments/${c.id}/run`)).lines;
+    } catch {
+      runLogs[c.id] = 'failed';
+    }
   }
 
   function sourceLabel(ev: SlateEvent): string {
@@ -402,7 +419,29 @@
               </ul>
             {/if}
           {/if}
+          {#if c.run_steps && runOpen[c.id]}
+            {@const log = runLogs[c.id]}
+            <div class="run-log" data-run-log>
+              {#if Array.isArray(log)}
+                <LiveActivity lines={log} label="What the agent did in this run" tall />
+              {:else}
+                <p class="muted small">{log === 'failed' ? 'Could not load what the agent did.' : 'Loading…'}</p>
+              {/if}
+            </div>
+          {/if}
           <div class="foot">
+            {#if c.run_steps}
+              <button
+                class="steps"
+                class:open={runOpen[c.id]}
+                data-run-steps
+                aria-expanded={!!runOpen[c.id]}
+                title={runOpen[c.id] ? 'Hide what the agent did' : 'Show the tool calls and steps behind this message'}
+                onclick={() => toggleRun(c)}
+              >
+                <span class="chev" aria-hidden="true"></span>{c.run_steps} {c.run_steps === 1 ? 'step' : 'steps'}
+              </button>
+            {/if}
             {#each c.reactions ?? [] as rx (rx.emoji)}
               <button
                 class="rx"
@@ -881,6 +920,41 @@
   .rx.on {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .steps {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 2px;
+    padding: 2px 9px 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .steps:hover,
+  .steps.open {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .chev {
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.12s;
+  }
+  .steps.open .chev {
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .run-log {
+    margin: 2px 0 6px;
+  }
+  .run-log p {
+    margin: 0;
   }
   .act {
     border: 0;

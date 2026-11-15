@@ -1287,6 +1287,12 @@ COMMENT_ACTIONS = {
         CommentRef,
         empty=_deleted("deleted"),
     ),
+    "run": bind(
+        comments_api.run_log,
+        "the run log kept with an agent's answer: what its run did while it worked (id is "
+        "the comment id; a comment with one carries run_steps)",
+        CommentRef,
+    ),
     "react": bind(
         comments_api.react,
         "add your emoji reaction to a comment",

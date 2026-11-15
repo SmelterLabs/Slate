@@ -2,7 +2,7 @@
 
 # REST reference
 
-241 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+242 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -13,7 +13,7 @@
 - [sections](#sections) (3)
 - [lists](#lists) (5)
 - [items](#items) (24)
-- [comments](#comments) (9)
+- [comments](#comments) (10)
 - [checklists](#checklists) (7)
 - [attachments](#attachments) (5)
 - [tags](#tags) (5)
@@ -662,6 +662,14 @@ Scope: `write` · MCP: `slate_comment resolve`
 Close an Ask: for its assignee, its author or an admin. Idempotent.
 
 - Returns: `200` [CommentOut](#commentout)
+
+### `GET /comments/{comment_id}/run`
+
+Scope: `read` · MCP: `slate_comment run`
+
+The run log kept with an agent's answer: the lines its run posted while it worked (`POST /work/{id}/activity`: tool calls, what it was thinking), stored when the run finished. A comment with one carries `run_steps`. 404 when the comment has no log (it was not a run's answer, the run posted no lines, or the server restarted mid-run).
+
+- Returns: `200` [RunLogOut](#runlogout)
 
 ### `POST /comments/{comment_id}/reactions`
 
@@ -2262,7 +2270,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### CommentOut
 
-`id`: string, `item_id`: string, `author_id`: string, `body_md`: string, `created_at`: date-time, `edited_at`: date-time?, `reactions`: [ReactionOut], `mentions`: [string], `assignee_id`: string?, `resolved_at`: date-time?, `resolved_by_id`: string?, `seen_at`: date-time?, `seen_by_id`: string?, `author_handle`: string?, `author_kind`: `person` \| `agent` \| `guest`?
+`id`: string, `item_id`: string, `author_id`: string, `body_md`: string, `created_at`: date-time, `edited_at`: date-time?, `reactions`: [ReactionOut], `mentions`: [string], `assignee_id`: string?, `resolved_at`: date-time?, `resolved_by_id`: string?, `seen_at`: date-time?, `seen_by_id`: string?, `run_steps`: integer?, `author_handle`: string?, `author_kind`: `person` \| `agent` \| `guest`?
+
+### RunLogOut
+
+`comment_id`: string, `account_id`: string, `started_at`: date-time?, `finished_at`: date-time, `lines`: [RunLine]
 
 ### ItemReadOut
 

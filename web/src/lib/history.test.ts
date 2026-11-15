@@ -22,6 +22,13 @@ describe('verb', () => {
     expect(verb(ev({ type: 'item.stop_requested', after: { for: ['c'] } }), ctx)).toBe('asked Alex to stop');
   });
 
+  it('a run and an Ask read as words', () => {
+    expect(verb(ev({ type: 'item.work_started' }), ctx)).toBe('started working on this');
+    expect(verb(ev({ type: 'item.work_finished', after: { steps: 6 } }), ctx)).toBe('ended the run (6 steps)');
+    expect(verb(ev({ type: 'comment.assigned', after: { assignee_id: 'c' } }), ctx)).toBe('asked Alex');
+    expect(verb(ev({ type: 'comment.resolved' }), ctx)).toBe('resolved an Ask');
+  });
+
   it('never shows a raw event type', () => {
     for (const type of ['item.due', 'item.overdue', 'item.due_soon', 'item.moved', 'recurrence.advanced']) {
       expect(verb(ev({ type }), ctx)).not.toMatch(/^item |^recurrence /);
