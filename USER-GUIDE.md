@@ -145,7 +145,7 @@ The thin bar across the top holds your favorites: one click opens a list, a sect
 
 **Needs you** is the cards that cannot move until you act. Every page uses the same four words for why:
 
-- **Waiting on Alex** (your name): a person has to answer, usually because an agent needs your decision. Elsewhere it names whoever it waits on. The card has a red ring and a red **Waiting on Alex** chip. In the task window the question sits in a red box: **Answer** jumps to the message and puts you in the reply box (your reply goes to that agent and the card stops waiting); **Not waiting on me** clears it when there is nothing to answer.
+- **Waiting on Alex** (your name): a person has to answer, usually because an agent needs your decision. Elsewhere it names whoever it waits on. The card has a red ring and a red **Waiting on Alex** chip. In the task window the question sits in a red box: **Answer** jumps to the message and puts you in the reply box (your reply goes to that agent and the card stops waiting); **Not waiting on me** clears it when there is nothing to answer. While the agent that asked is still blocked, this box stands in for its badge in the window: it also shows how long ago the agent reported, **Open ↗** to where it is working, and **✕ Clear badge**, which takes the agent's blocked badge off the card and leaves the wait.
 - **Agent blocked**: an agent on your card stopped and named nobody. A run that only ran out of steps reads this way too; nothing is asked of you, and **Run now** in the red box carries it on.
 - **Asked of you**: an open question addressed to you.
 - **Ready for review**: an agent says the work is done.

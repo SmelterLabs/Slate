@@ -41,9 +41,9 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from './Icon.svelte';
-  import { formatEstimate, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { ago, formatEstimate, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
-  import { waitingQuestion } from '../../lib/conversation';
+  import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
   import PriorityPicker from './PriorityPicker.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import Subtasks from './Subtasks.svelte';
@@ -110,6 +110,14 @@
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
     return waitingQuestion(d, comments, events, task.me);
   });
+
+  // The agent that asked is still flagged blocked: its badge would say the banner's sentence a
+  // second time, so the banner carries the badge's parts (age, link, Clear) and the badge is
+  // left out. Any other flag (working, review, another agent's) says something else and stays.
+  const waitFlag = $derived(
+    waitQ && agentFlag?.state === 'blocked' && agentFlag.by === waitQ.by ? agentFlag : null,
+  );
+  const waitUrl = $derived(waitFlag ? safeAgentUrl(waitFlag.url, board.me?.link_schemes) : null);
 
   // The folded Details line: what is set, in a few words.
   const refSummary = $derived.by((): string[] => {
@@ -486,16 +494,35 @@
             <div class="wq-head">
               <Icon name="hourglass" size={13} />
               <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
+              {#if waitFlag}
+                <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
+                {#if waitUrl}<span class="wq-meta">·</span><a
+                    class="wq-open"
+                    data-waiting-open
+                    href={waitUrl}
+                    target={/^https?:/i.test(waitUrl) ? '_blank' : null}
+                    rel="noopener noreferrer"
+                    title="Open where the agent is working">Open ↗</a
+                  >{/if}
+              {/if}
             </div>
-            {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>{/if}
+            {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
+            {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
             <div class="wq-actions">
               <button class="primary" data-answer onclick={() => task.reveal(waitQ.commentId)}>Answer</button>
               <button class="link" data-not-waiting onclick={() => save({ waiting_on_account_id: null })}>Not waiting on me</button>
+              {#if waitFlag}
+                <button
+                  class="link"
+                  data-clear-blocked
+                  title="Take the agent's blocked badge off this card. It does not change who the card waits on."
+                  onclick={() => task.clearAgentFlag(d.id)}>✕ Clear badge</button>
+              {/if}
             </div>
           </div>
         {/if}
 
-        {#if agentFlag}
+        {#if agentFlag && !waitFlag}
           <div class="agent-now"><AgentBadge flag={agentFlag} item={d} full /></div>
         {/if}
 
@@ -955,6 +982,17 @@
     align-items: center;
     gap: 6px;
     color: var(--danger);
+  }
+  .wq-meta {
+    color: var(--muted);
+  }
+  .wq-open {
+    color: var(--danger);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .wq-open:hover {
+    text-decoration: underline;
   }
   .wq-text {
     margin: 6px 0 8px;

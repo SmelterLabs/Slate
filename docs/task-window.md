@@ -305,7 +305,11 @@ selection").
   comment if collapsed, scrolls it into view, outlines it (`.comment.lit`) and focuses the reply
   box. Why: the question is often only the last sentence of a long agent comment, and once the
   agent flag is cleared ("stopped working") the badge is gone too, so without the banner
-  "Answer →" in the pill would open a card that shows nothing to answer.
+  "Answer →" in the pill would open a card that shows nothing to answer. While the agent that
+  asked is still flagged blocked (`waitFlag`: the flag is `blocked` and by the account that set the
+  wait), the banner is the only box: it adds the flag's age, its **Open ↗** link and **✕ Clear
+  badge** (`data-clear-blocked`, clears the flag and leaves the wait), and the `AgentBadge` under it
+  is not rendered, because its note is the same sentence. Any other flag keeps its badge.
 - **A reply after the flag is cleared** (`comments.reply_target`): a comment by the person the card
   waits on is the agent's next turn while the agent's blocked flag names them, and also when there
   is no agent flag at all and the last `waiting_on_account_id` change to that person was made by an
