@@ -148,8 +148,8 @@ Board side:
   /items/{id}/stop`); `conversation.runNow(events, agent)` finds the run's `item.work_started`
   and whether an `item.stop_requested` followed it, and the line then reads "is stopping…" with
   the button disabled until the agent's finish removes it. A comment addressed to that agent
-  after the run began shows "Not read yet" (`conversation.unreadMidRun`) until its `seen_at`
-  arrives ("Seen while working"). E2E: `web/e2e/mid-run.spec.ts`.
+  after the run began shows "Sending to <agent>…" (`conversation.unreadMidRun`) until its `seen_at`
+  arrives ("<agent> got this mid-run"). E2E: `web/e2e/mid-run.spec.ts`.
 - **Steps on an agent's answer**: a comment with `run_steps` shows a small "N steps" pill in
   its foot row; it opens the run log in place (`GET /comments/{id}/run`, fetched once, drawn by
   `LiveActivity.svelte` with `tall`: whole lines, up to 220 px, scrolling itself).

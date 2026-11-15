@@ -450,6 +450,53 @@ def last_reply(hermes: httpx.Client, session_id: str) -> tuple[int, str | None]:
     return len(replies), (replies[-1] if replies else None)
 
 
+def _rows(hermes: httpx.Client, session_id: str) -> list[dict[str, Any]]:
+    r = hermes.get(f"/api/sessions/{session_id}/messages")
+    r.raise_for_status()
+    body = r.json()
+    rows = (body.get("data") or body.get("messages") or []) if isinstance(body, dict) else body
+    return [row for row in rows or [] if isinstance(row, dict)]
+
+
+def answers_before_steers(hermes: httpx.Client, session_id: str) -> list[str]:
+    """What the agent had already answered in this turn when a steered message reached it.
+
+    A steer that arrives as the agent finishes (no tool call left to carry it) is appended as
+    the next user message and the run goes on, so the turn ends with a second answer and the
+    stream reports only that one. The first is still in the session: the assistant text right
+    before each steer since the turn began. Empty when there is none or it cannot be read."""
+    try:
+        rows = _rows(hermes, session_id)
+    except (httpx.HTTPError, ValueError):
+        return []
+
+    def steer(row: dict[str, Any]) -> bool:
+        return row.get("role") == "user" and str(row.get("content") or "").startswith(STEER)
+
+    start = max(
+        (i for i, row in enumerate(rows) if row.get("role") == "user" and not steer(row)),
+        default=-1,
+    )
+    out = []
+    for before, row in zip(rows[start + 1 :], rows[start + 2 :], strict=False):
+        text = str(before.get("content") or "").strip()
+        if steer(row) and before.get("role") == "assistant" and text:
+            out.append(text)
+    return out
+
+
+def with_earlier(earlier: list[str], reply: str) -> str:
+    """`reply` after the answers that came before it in the same run, each without its own
+    closing line (the last answer's line is the run's)."""
+    parts = []
+    for text in earlier:
+        found = closing(text)
+        body = (found[2] if found else text).strip()
+        if body and body not in parts and body not in reply:
+            parts.append(body)
+    return "\n\n".join([*parts, reply])
+
+
 class Control:
     """What a person did on the card while this run is going, read from the runner's control
     file (JSON lines: `{"message": <comment>}`, `{"stop": {"by": handle}}`).
@@ -457,7 +504,9 @@ class Control:
     A message is steered into the live Hermes run (`POST /v1/runs/{run_id}/steer`: the agent
     reads it with its next tool result) and reported as `{"seen": [id]}`. One that could not be
     steered, or that the run ended without reading (`pending_steer`), is handed back by
-    `unread()` for one more turn. Stop is `POST /v1/runs/{run_id}/stop`, retried until the
+    `unread()` for one more turn. Either way the answer the agent had already given is kept:
+    the card's reply is that answer followed by the one that read the message.
+    Stop is `POST /v1/runs/{run_id}/stop`, retried until the
     gateway takes it. Without a control file every method is a no-op."""
 
     def __init__(self, path: str | None, hermes: httpx.Client, emit: Emit) -> None:
@@ -469,6 +518,7 @@ class Control:
         self.steered: list[dict[str, Any]] = []
         self.stop: dict[str, Any] | None = None
         self.stop_sent = False
+        self.steers = 0  # how many messages a live run accepted
         self.run_id: str | None = None
 
     def read(self) -> None:
@@ -530,6 +580,7 @@ class Control:
                     break  # not accepted (the run is ending): it becomes the next turn
                 self.waiting.remove(message)
                 self.steered.append(message)
+                self.steers += 1
                 self.emit({"seen": [message.get("id")], "note": "Passed a new message to Hermes"})
 
     def _post(self, what: str, body: dict[str, Any]) -> bool:
@@ -1449,6 +1500,14 @@ def run(
 
     def turn(text: str, budget: float) -> tuple[str | None, list[dict[str, Any]]]:
         remember_observing()
+        steers = control.steers
+        said, asked = observe(text, budget)
+        if said and control.steers > steers:
+            # A message steered in as the agent finished: keep what it had already answered.
+            said = with_earlier(answers_before_steers(hermes, session_id), said)
+        return said, asked
+
+    def observe(text: str, budget: float) -> tuple[str | None, list[dict[str, Any]]]:
         return run_turn(
             hermes,
             session_id,
@@ -1489,7 +1548,8 @@ def run(
                 again, approvals = turn(text, left)
                 if again is None:
                     break  # that turn did not finish: report what the agent said before
-                reply = again
+                # A message's own turn adds to the answer already given; a nudge restates it.
+                reply = with_earlier([reply], again) if late else again
     except (Stopped, OSError) as e:
         if isinstance(e, Stopped) and (e.terminal or e.not_submitted):
             with suppress(OSError):

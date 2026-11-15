@@ -5,6 +5,8 @@ How to deploy a new version is in `deploy/server/RUNBOOK.md`.
 
 ## Unreleased
 
+- Hermes adapter: a message that reaches the agent just as it finishes no longer replaces the
+  answer it had already written; the card's reply carries both.
 - An agent's answer keeps what its run did: a "N steps" button under the comment opens the
   run's lines (`run_steps` on the comment, `GET /comments/{id}/run`; new table `comment_runs`).
   The lines are no longer lost when the run ends, as long as the run leaves a comment.
@@ -14,7 +16,7 @@ How to deploy a new version is in `deploy/server/RUNBOOK.md`.
   scrolling box under "is typing…" (`POST /work/{id}/activity`, the runner's `activity`
   progress line). The lines are never events in the card's history.
 - A message sent to an agent while it is working on the card reaches the running agent instead
-  of waiting for the run to end, and the comment shows "Seen while working". The typing line
+  of waiting for the run to end, and the comment shows "<agent> got this mid-run". The typing line
   has a Stop button (`POST /items/{id}/stop`). Runners get both through the heartbeat answer
   (`messages`, `stop`), the stream's new `control` message and the command's `SLATE_CONTROL`
   file; a command that ignores them behaves as before.
