@@ -367,11 +367,11 @@
             {/if}
             {#if c.seen_at}
               <span class="seen" data-seen="yes" title="{board.accountName(c.seen_by_id ?? c.assignee_id ?? '') ?? 'The agent'} got this while it was working, {fullStamp(c.seen_at)}">
-                <Icon name="check" size={12} /> Seen while working
+                <Icon name="check" size={12} /> {board.accountName(c.seen_by_id ?? c.assignee_id ?? '') ?? 'The agent'} got this mid-run
               </span>
             {:else if pending?.picked && unreadMidRun(c, allEvents, pending.id, run.start)}
               <span class="seen waiting" data-seen="no" title="{board.accountName(pending.id) ?? 'The agent'} is working. This reaches it during the run when its runner can pass it on; otherwise it is the agent's next turn.">
-                Not read yet
+                Sending to {board.accountName(pending.id) ?? 'the agent'}…
               </span>
             {/if}
           </div>
@@ -647,9 +647,15 @@
     margin-left: 6px;
     font-size: 12px;
     white-space: nowrap;
+    padding: 1px 8px 1px 6px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent);
   }
   .seen.waiting {
+    border-color: var(--line);
+    background: none;
     color: var(--muted);
   }
   .dots {

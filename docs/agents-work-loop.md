@@ -258,7 +258,7 @@ heartbeat answers with it (`messages`, the comments addressed to the agent since
 has not marked seen: `work.turn_messages`), the runner hands it to the running agent and sends
 its id back (`heartbeat {seen: [...]}`), and that records `comment.seen` (once per comment;
 ids that are not this run's messages are ignored). The comment view then carries `seen_at` /
-`seen_by_id`, which the board shows as "Seen while working". The finish settles what was read:
+`seen_by_id`, which the board shows as "<agent> got this mid-run". The finish settles what was read:
 `item.work_finished.after.through` is `work._turn_through`, the take's boundary moved past each
 seen message in order and stopped at the first one never read, so a message the run did not
 read is still the agent's next turn, exactly as before.

@@ -1,5 +1,5 @@
-// While the agent is typing: a message sent now shows "Not read yet" until the running agent
-// reads it ("Seen while working"), and Stop on the typing line asks the run to stop.
+// While the agent is typing: a message sent now shows "Sending to Agent…" until the running agent
+// reads it ("Agent got this mid-run"), and Stop on the typing line asks the run to stop.
 import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
@@ -33,11 +33,11 @@ test('a message sent mid-run is marked seen, and Stop reaches the run', async ({
   await tw.getByLabel('Add comment').fill('Keep it under one page');
   await tw.getByRole('button', { name: /Ask Agent/ }).click();
   const mine = tw.locator('[data-chat="person"]', { hasText: 'Keep it under one page' });
-  await expect(mine.locator('[data-seen="no"]')).toContainText('Not read yet');
+  await expect(mine.locator('[data-seen="no"]')).toContainText('Sending to Agent');
   const got = await beat();
   expect(got.messages.map((m) => m.body_md)).toEqual(['Keep it under one page']);
   await beat({ seen: got.messages.map((m) => m.id) });
-  await expect(mine.locator('[data-seen="yes"]')).toContainText('Seen while working');
+  await expect(mine.locator('[data-seen="yes"]')).toContainText('Agent got this mid-run');
   await expect(typing).toContainText('Agent is typing');
 
   // Stop: the line says so, the run hears it, and its finish ends the typing line.

@@ -97,7 +97,9 @@ The gateway adapter watches the runner's control file (`SLATE_CONTROL`, see
   on. The adapter then prints `{"seen": [id]}`. A message the gateway would not take (the run
   was ending), or that the run ended without reading (`pending_steer` on the terminal event),
   is sent as one more turn in the same session before the result is reported, so it is never
-  dropped and never answered by a reply that did not read it.
+  dropped and never answered by a reply that did not read it. When the agent had already
+  answered (a steer that lands as it finishes is appended and the run goes on to a second
+  answer), the card's reply is the first answer followed by the second, not the second alone.
 - **Stop** is `POST /v1/runs/{run_id}/stop`, retried each second until the gateway takes it.
   The cancelled turn is reported `blocked`, waiting on whoever pressed Stop, with the session
   kept: a reply continues in it. Stop wins over a message still waiting to be steered.

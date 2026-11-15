@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import run_task
 from test_hermes_adapter import ITEM, Gateway, env_with, go, state_file  # noqa: F401
 
 MESSAGE = {
@@ -65,7 +66,7 @@ def test_a_message_the_run_would_not_take_gets_its_own_turn(state_file, tmp_path
     gw = Live(script=[DONE, again], steer_status=409)
     env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
     out, lines, _ = go(gw, env=env)
-    assert out["outcome"] == "review" and out["reply"] == "Shortened."
+    assert out["outcome"] == "review" and out["reply"] == "Sent it.\n\nShortened."
     assert len(gw.turns) == 2 and "> Use the short version" in gw.turns[1]["message"]
     assert {"seen": ["c9"]} in lines
 
@@ -83,9 +84,45 @@ def test_a_steer_the_run_ended_without_reading_is_sent_again_as_a_turn(state_fil
     gw = Live(script=[first, again])
     env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
     out, _, _ = go(gw, env=env)
-    assert out["reply"] == "Shortened."
+    assert out["reply"] == "Sent it.\n\nShortened."
     assert [c[1] for c in gw.controls] == ["steer"]
     assert len(gw.turns) == 2 and "> Use the short version" in gw.turns[1]["message"]
+
+
+def test_an_answer_finished_before_the_steer_landed_is_kept_in_the_reply(state_file, tmp_path):  # noqa: F811
+    """The agent had answered when the steer reached it: Hermes appends the steer and the run
+    goes on, so the stream ends with the second answer only. The card gets both."""
+    steer = run_task.STEER + "\n\n> Use the short version"
+    gw = Live(
+        events=[
+            ("run.started", {"run_id": "run_1"}),
+            ("assistant.completed", {"run_id": "run_1", "content": "Got it.\nSLATE: done"}),
+            ("run.completed", {"run_id": "run_1"}),
+        ],
+        messages=[
+            {"role": "user", "content": "an earlier turn"},
+            {"role": "assistant", "content": "An earlier answer.\nSLATE: done"},
+            {"role": "user", "content": "this turn"},
+            {"role": "assistant", "content": "Here is the poem.\n\nSLATE: done"},
+            {"role": "user", "content": steer},
+            {"role": "assistant", "content": "Got it.\nSLATE: done"},
+        ],
+    )
+    env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
+    out, _, _ = go(gw, env=env)
+    assert out["outcome"] == "done"
+    assert out["reply"] == "Here is the poem.\n\nGot it."
+
+
+def test_a_late_messages_turn_adds_to_the_answer_already_given(state_file, tmp_path):  # noqa: F811
+    again = [
+        ("assistant.completed", {"run_id": "run_2", "content": "Shortened.\nSLATE: review"}),
+        ("run.completed", {"run_id": "run_2"}),
+    ]
+    gw = Live(script=[DONE, again], steer_status=409)
+    env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
+    out, _, _ = go(gw, env=env)
+    assert out["outcome"] == "review" and out["reply"] == "Sent it.\n\nShortened."
 
 
 def test_stop_stops_the_hermes_run_and_the_card_waits_on_who_asked(state_file, tmp_path):  # noqa: F811
