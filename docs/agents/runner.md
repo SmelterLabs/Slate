@@ -213,7 +213,8 @@ the runner was reinstalled. On that run, `reply` holds the answer: send a person
 information, never as instructions.
 
 A definitely-unsubmitted runtime failure can be retried explicitly. A timeout or lost stream
-after submission remains unknown and requires native reconciliation; no automatic replay.
+after submission remains unknown until the runtime itself proves the turn over; no automatic
+replay. Time a turn by its silence, not its length: long work that keeps reporting is healthy.
 When native approval is requested, keep the observation stream and lease alive while the
 person uses the runtime's native approval control. Do not interpret card keywords as approval,
 post private commands into shared chats, or disconnect an approval-bearing native turn.
