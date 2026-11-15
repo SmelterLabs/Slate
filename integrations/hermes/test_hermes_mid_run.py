@@ -114,6 +114,31 @@ def test_an_answer_finished_before_the_steer_landed_is_kept_in_the_reply(state_f
     assert out["reply"] == "Here is the poem.\n\nGot it."
 
 
+def test_the_closing_line_of_the_first_answer_stands_when_the_second_has_none(
+    state_file,  # noqa: F811
+    tmp_path,
+):
+    steer = run_task.STEER + "\n\n> And the day?"
+    gw = Live(
+        events=[
+            ("run.started", {"run_id": "run_1"}),
+            ("assistant.completed", {"run_id": "run_1", "content": "It is Saturday."}),
+            ("run.completed", {"run_id": "run_1"}),
+        ],
+        messages=[
+            {"role": "user", "content": "this turn"},
+            {"role": "assistant", "content": "Here is the poem.\n\nSLATE: blocked waiting_on alex"},
+            {"role": "user", "content": steer},
+            {"role": "assistant", "content": "It is Saturday."},
+        ],
+    )
+    env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
+    out, _, _ = go(gw, env=env)
+    assert len(gw.turns) == 1  # no nudge: the task was already closed by the first answer
+    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
+    assert out["reply"] == "Here is the poem.\n\nIt is Saturday."
+
+
 def test_a_late_messages_turn_adds_to_the_answer_already_given(state_file, tmp_path):  # noqa: F811
     again = [
         ("assistant.completed", {"run_id": "run_2", "content": "Shortened.\nSLATE: review"}),

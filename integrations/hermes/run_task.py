@@ -487,14 +487,19 @@ def answers_before_steers(hermes: httpx.Client, session_id: str) -> list[str]:
 
 def with_earlier(earlier: list[str], reply: str) -> str:
     """`reply` after the answers that came before it in the same run, each without its own
-    closing line (the last answer's line is the run's)."""
-    parts = []
+    closing line. The last answer's line is the run's; when it has none (the agent closed the
+    task in an earlier answer and only added to it), that earlier line still stands."""
+    parts, line = [], None
     for text in earlier:
         found = closing(text)
+        if found:
+            line = f"SLATE: {found[0]}" + (f" waiting_on {found[1]}" if found[1] else "")
         body = (found[2] if found else text).strip()
         if body and body not in parts and body not in reply:
             parts.append(body)
-    return "\n\n".join([*parts, reply])
+    if closing(reply) or line is None:
+        line = None
+    return "\n\n".join([*parts, reply.rstrip(), *([line] if line else [])])
 
 
 class Control:
