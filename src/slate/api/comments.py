@@ -6,11 +6,11 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import CommentIn, CommentOut, CommentPatch, ReactionIn
-from slate.service import comments, item_reads
+from slate.service import comments, item_reads, work
 from slate.service.items import comments_of, get_item
 
 router = APIRouter(tags=["comments"])
@@ -74,6 +74,28 @@ def delete_comment(comment_id: str, auth: WriteAuth, session: DbSession) -> Resp
 def resolve(comment_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Close an Ask: for its assignee, its author or an admin. Idempotent."""
     return _out(session, comments.resolve_comment(session, auth.actor, comment_id))
+
+
+class RunLine(BaseModel):
+    at: datetime
+    text: str
+
+
+class RunLogOut(BaseModel):
+    comment_id: str
+    account_id: str = Field(description="The agent whose run it was")
+    started_at: datetime | None
+    finished_at: datetime
+    lines: list[RunLine] = Field(description="What the run posted while it worked, oldest first")
+
+
+@router.get("/comments/{comment_id}/run", response_model=RunLogOut)
+def run_log(comment_id: str, _: ReadAuth, session: DbSession) -> dict:
+    """The run log kept with an agent's answer: the lines its run posted while it worked
+    (`POST /work/{id}/activity`: tool calls, what it was thinking), stored when the run
+    finished. A comment with one carries `run_steps`. 404 when the comment has no log (it was
+    not a run's answer, the run posted no lines, or the server restarted mid-run)."""
+    return work.run_log(session, comment_id)
 
 
 @router.post("/comments/{comment_id}/reactions", response_model=CommentOut)

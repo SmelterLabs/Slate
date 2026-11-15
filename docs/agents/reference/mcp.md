@@ -59,6 +59,7 @@ Comments are the conversation on an item; @handle mentions an account and reache
 | `resolve` | `write` | `id`\* | `POST /comments/{comment_id}/resolve` | close an Ask (id is the comment id; its assignee, author or an admin) |
 | `edit` | `write` | `id`\*, `body_md`\* | `PATCH /comments/{comment_id}` | edit your own comment (id is the comment id) |
 | `delete` | `write` | `id`\* | `DELETE /comments/{comment_id}` | delete a comment for good (id is the comment id; your own, or anyone's as an admin) |
+| `run` | `read` | `id`\* | `GET /comments/{comment_id}/run` | the run log kept with an agent's answer: what its run did while it worked (id is the comment id; a comment with one carries run_steps) |
 | `react` | `write` | `emoji`\*, `id`\* | `POST /comments/{comment_id}/reactions` | add your emoji reaction to a comment |
 | `unreact` | `write` | `emoji`\*, `id`\* | `DELETE /comments/{comment_id}/reactions/{emoji}` | remove your emoji reaction |
 

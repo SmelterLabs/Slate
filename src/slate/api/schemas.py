@@ -451,6 +451,11 @@ class CommentOut(_Out):
         "it was not handed to a running agent)",
     )
     seen_by_id: str | None = None
+    run_steps: int | None = Field(
+        default=None,
+        description="This comment is an agent's answer and the run that wrote it left a log "
+        "of this many lines (`GET /comments/{id}/run`); null: no log",
+    )
     author_handle: str | None = Field(default=None, description="The author's handle")
     author_kind: Literal["person", "agent", "guest"] | None = Field(
         default=None,

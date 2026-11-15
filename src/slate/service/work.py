@@ -71,6 +71,7 @@ from slate.models import (
     AccountKind,
     AgentState,
     Comment,
+    CommentRun,
     Event,
     Item,
     ItemAssignee,
@@ -87,7 +88,7 @@ from slate.models import (
 )
 from slate.service import access, comments, guests, links, reports
 from slate.service.core import Actor, apply_change
-from slate.service.errors import Conflict, Invalid
+from slate.service.errors import Conflict, Invalid, NotFound
 from slate.service.items import PRIORITY_RANK, get_item, resolve_account, update_item
 
 log = logging.getLogger(__name__)
@@ -992,6 +993,7 @@ def finish(
             if answering and outcome == "done" and _is_agent(session, actor.account_id):
                 for ask in asks:
                     comments.resolve_comment(session, actor, ask.id)
+            log = _keep_run_log(session, actor, item.id, start)
             cx.record(
                 "item.work_finished",
                 item_id=item.id,
@@ -1000,12 +1002,70 @@ def finish(
                     "outcome": outcome,
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),
+                    **({"steps": log.steps, "comment_id": log.comment_id} if log else {}),
                 },
+                covers=[log] if log else [],
             )
         if row is not None:
             session.delete(row)
+    liveactivity.live.clear(item.id)  # the run is over: its box is empty for the next one
     session.refresh(item)
     return item
+
+
+def _keep_run_log(
+    session: Session, actor: Actor, item_id: str, start: Event | None
+) -> CommentRun | None:
+    """Keep what the run posted while it worked (`slate.liveactivity`) with the answer it
+    leaves: the caller's newest comment on the item since its take. None when the run posted
+    no lines or no comment (nothing to hang them on), or that comment already has a log."""
+    if start is None:
+        return None
+    lines = liveactivity.live.run_lines(item_id, actor.account_id)
+    if not lines:
+        return None
+    session.flush()
+    answer = session.scalar(
+        select(Comment)
+        .where(
+            Comment.item_id == item_id,
+            Comment.author_id == actor.account_id,
+            Comment.created_at >= start.at,
+        )
+        .order_by(Comment.created_at.desc(), Comment.id.desc())
+        .limit(1)
+    )
+    if answer is None or session.get(CommentRun, answer.id) is not None:
+        return None
+    log = CommentRun(
+        comment_id=answer.id,
+        item_id=item_id,
+        account_id=actor.account_id,
+        steps=len(lines),
+        lines_json=lines,
+        started_at=start.at,
+    )
+    session.add(log)
+    return log
+
+
+def run_log(session: Session, comment_id: str) -> dict[str, Any]:
+    """The run log kept with a comment (`_keep_run_log`): its lines, oldest first, and when
+    the run started and ended. `NotFound` when the comment has none, and for a guest when it
+    is a workspace agent's (as with that agent's live box)."""
+    comment = comments.get_comment(session, comment_id)
+    log = session.get(CommentRun, comment.id)
+    if log is None or (
+        guests.viewer_is_guest(session) and log.account_id in guests.workspace_agent_ids(session)
+    ):
+        raise NotFound(f"comment {comment_id} has no run log")
+    return {
+        "comment_id": log.comment_id,
+        "account_id": log.account_id,
+        "started_at": log.started_at,
+        "finished_at": log.finished_at,
+        "lines": log.lines_json,
+    }
 
 
 def agent_assignees(session: Session, item_id: str) -> list[str]:

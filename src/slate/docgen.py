@@ -152,7 +152,9 @@ EVENT_DOCS: dict[str, str] = {
     "the comment, with `reactions`). Inboxes and check-in news drop every entry about it.",
     "item.work_started": "A work take's immutable Ask dispatch boundary (this event id). "
     "Resume and heartbeat do not move it.",
-    "item.work_finished": "An agent finished a taken turn (`after.through` = its work-start "
+    "item.work_finished": "With `steps` and `comment_id` when the run left a log with its "
+    "answer (`GET /comments/{id}/run`). "
+    "An agent finished a taken turn (`after.through` = its work-start "
     "event id, `outcome`). Earlier Ask assignments no longer dispatch that agent; they remain "
     "visible until resolved. New/reassigned Asks remain pending.",
     "comment.assigned": "A comment was addressed to an account: an Ask, open until resolved "

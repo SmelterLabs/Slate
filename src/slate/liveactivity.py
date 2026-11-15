@@ -1,4 +1,4 @@
-"""What an agent is doing right now on a task it holds: in memory, per process, never stored.
+"""What an agent is doing right now on a task it holds: in memory, per process, while it runs.
 
 A runner posts short lines while its agent works ("terminal: uv run pytest", "Reading
 docs/board.md"); the task window shows them in a small box under "is typing…" so a person can
@@ -7,6 +7,10 @@ task: nothing here writes an event row, a restart forgets them, and the card's h
 only what the agent reports (`item.reported`) and says (its comment). They reach open boards
 as an id-less `item.activity` message on the live stream (`bus.publish_live`), which no
 cursor, replay, webhook or check-in ever sees.
+
+When the run ends, its finish keeps the lines with the answer it posted (`run_lines`, then
+`clear`; `service/work.py` stores them as the comment's run log), so a person can open what the
+agent did after the fact. A run that posts no comment, or a restart mid-run, keeps nothing.
 """
 
 from __future__ import annotations
@@ -20,7 +24,8 @@ from slate.models import utcnow
 from slate.service.bus import bus
 
 TYPE = "item.activity"
-KEEP = 60  # lines remembered per task (the box scrolls back this far)
+KEEP = 60  # lines the live box shows (it scrolls back this far)
+LOG_KEEP = 400  # lines remembered per run, for the run log kept with its answer
 MAX_LINES = 20  # per post
 MAX_CHARS = 300  # per line
 STALE = timedelta(hours=6)  # a run this quiet is over; its lines are dropped
@@ -63,7 +68,7 @@ class LiveActivity:
             for key in [k for k, v in self._runs.items() if now - v[2] > STALE]:
                 del self._runs[key]
             held = self._runs.get(item_id)
-            kept = held[3] if held and held[0] == run_id else deque(maxlen=KEEP)
+            kept = held[3] if held and held[0] == run_id else deque(maxlen=LOG_KEEP)
             kept.extend(added)
             self._runs[item_id] = (run_id, account_id, now, kept)
         bus.publish_live(
@@ -85,7 +90,13 @@ class LiveActivity:
             held = self._runs.get(item_id)
             if held is None or (account_id is not None and held[1] != account_id):
                 return {"by": None, "lines": []}
-            return {"by": held[1], "lines": list(held[3])}
+            return {"by": held[1], "lines": list(held[3])[-KEEP:]}
+
+    def run_lines(self, item_id: str, account_id: str) -> list[dict[str, str]]:
+        """Every line remembered of the account's run on the task, oldest first."""
+        with self._lock:
+            held = self._runs.get(item_id)
+            return list(held[3]) if held is not None and held[1] == account_id else []
 
     def clear(self, item_id: str) -> None:
         with self._lock:

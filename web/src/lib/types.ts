@@ -258,6 +258,8 @@ export interface Comment {
   /** When the Ask's agent read it while it was already working on the card (else null). */
   seen_at?: string | null;
   seen_by_id?: string | null;
+  /** Lines in the run log kept with an agent's answer (`GET /comments/{id}/run`), else null. */
+  run_steps?: number | null;
   /** person, agent or guest: who wrote it (the server's view, for agents' adapters). */
   author_handle?: string | null;
   author_kind?: 'person' | 'agent' | 'guest' | null;

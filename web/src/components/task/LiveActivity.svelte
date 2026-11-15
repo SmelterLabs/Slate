@@ -5,29 +5,33 @@
   import { tick } from 'svelte';
   import { lineTime, type LiveLine } from '../../lib/liveactivity.svelte';
 
-  let { lines }: { lines: LiveLine[] } = $props();
+  // `tall` + `label`: the same box under an agent's answer, for a run that is over (its whole
+  // log, a little taller, starting at the top).
+  let { lines, label = 'What the agent is doing now', tall = false }: { lines: LiveLine[]; label?: string; tall?: boolean } =
+    $props();
 
   let box = $state<HTMLElement>();
   let following = true;
   $effect(() => {
     void lines.length;
     void lines.at(-1)?.at;
-    if (following) void tick().then(() => box && (box.scrollTop = box.scrollHeight));
+    if (following && !tall) void tick().then(() => box && (box.scrollTop = box.scrollHeight));
   });
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrolling region must be reachable by keyboard) -->
 <div
   class="live-lines"
+  class:tall
   data-live-activity
   role="log"
-  aria-label="What the agent is doing now"
+  aria-label={label}
   aria-live="off"
   tabindex="0"
   bind:this={box}
   onscroll={() => box && (following = box.scrollHeight - box.scrollTop - box.clientHeight < 12)}
 >
-  {#each lines as l (l.at + l.text)}
+  {#each lines as l, i (i + l.at + l.text)}
     <div class="line" title={l.text}><time datetime={l.at}>{lineTime(l.at)}</time><span>{l.text}</span></div>
   {/each}
 </div>
@@ -48,6 +52,17 @@
     font-size: 11.5px;
     line-height: 1.55;
     color: var(--muted);
+  }
+  .live-lines.tall {
+    height: auto;
+    max-height: 220px;
+  }
+  .live-lines.tall .line span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .live-lines.tall .line:last-child span {
+    color: inherit;
   }
   .line {
     display: flex;

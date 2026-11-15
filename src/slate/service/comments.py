@@ -53,7 +53,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
-from slate.models import Account, Comment, CommentReaction, Event, Role, utcnow
+from slate.models import Account, Comment, CommentReaction, CommentRun, Event, Role, utcnow
 from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
@@ -127,6 +127,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
     reactions = reactions_of(session, [c.id for c in comments])
     authors = authors_of(session, [c.author_id for c in comments])
     seen = seen_of(session, [c.id for c in comments if c.assignee_id])
+    steps = run_steps_of(session, [c.id for c in comments])
     return [
         {
             **snapshot(c),
@@ -134,6 +135,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
             "edited_at": c.edited_at,
             "seen_at": seen.get(c.id, (None, None))[0],
             "seen_by_id": seen.get(c.id, (None, None))[1],
+            "run_steps": steps.get(c.id),
             "reactions": reactions.get(c.id, []),
             "mentions": mentions_in(session, c.body_md),
             "author_handle": authors.get(c.author_id, (None, None))[0],
@@ -154,6 +156,19 @@ def seen_of(session: Session, comment_ids: Sequence[str]) -> dict[str, tuple[Any
         .order_by(Event.id)
     )
     return {subject: (at, actor) for subject, at, actor in rows}
+
+
+def run_steps_of(session: Session, comment_ids: Sequence[str]) -> dict[str, int]:
+    """`{comment id: lines}` for the comments that carry a run log (service/work.py), without
+    a workspace agent's for a guest."""
+    if not comment_ids:
+        return {}
+    q = select(CommentRun.comment_id, CommentRun.steps).where(
+        CommentRun.comment_id.in_(comment_ids)
+    )
+    if guests.viewer_is_guest(session):
+        q = q.where(CommentRun.account_id.not_in(guests.workspace_agent_ids(session)))
+    return dict(session.execute(q).all())
 
 
 def reply_target(session: Session, item: Any, author_id: str) -> Account | None:

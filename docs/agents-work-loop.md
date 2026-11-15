@@ -405,6 +405,14 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   (`docs/live-stream.md`). It is deliberately not an event: a turn starts a tool every few
   seconds, and product rule 3 would make each one a history line. Posts count against the
   token's write bucket, so a runner batches (`tests/test_live_activity.py`).
+  **Run log.** A run's lines outlive it when it leaves an answer: `work.finish` calls
+  `_keep_run_log`, which stores every line the run posted (up to `liveactivity.LOG_KEEP`, 400;
+  the live box shows the last 60) as a `comment_runs` row on the caller's newest comment since
+  its take, covered by the `item.work_finished` event (`after.steps`, `after.comment_id`), and
+  then clears the run's lines. Comment views carry `run_steps`; `GET /comments/{id}/run` (MCP
+  `slate_comment run`) returns the lines. No lines, no comment, or a restart mid-run: no log.
+  A guest sees neither the count nor the log of a workspace agent. The row goes with its
+  comment and its item (cascade). Tests: `tests/test_run_log.py`, `web/e2e/run-log.spec.ts`.
   Board: `lib/liveactivity.svelte.ts` (`liveActivity.lines[itemId]`, `mergeLines`) is fed by
   `BoardStream.#receive`, which takes `item.activity` before the cursor check (no id, so no
   cursor, reducer or detail refetch); `ActivityPanel` loads the run's lines when the open task's

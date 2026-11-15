@@ -993,6 +993,7 @@ _COMMENT_MODELS = frozenset(
     {
         "Comment",
         "CommentReaction",
+        "CommentRun",
         "Message",
         "MessageFile",
         "MessageReaction",

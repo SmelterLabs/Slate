@@ -46,6 +46,23 @@ describe('timeline', () => {
     expect(row.kind === 'event' && [row.times, row.event.before, row.event.after]).toEqual([3, '', 'abc']);
   });
 
+  it('the All view leaves out what the conversation already says; History keeps it', () => {
+    const run = [
+      evEntry({ id: 'e1', type: 'comment.assigned', at: at(0) }),
+      evEntry({ id: 'e2', type: 'item.reported', after: { state: 'working' }, at: at(0) }),
+      evEntry({ id: 'e3', type: 'item.work_started', at: at(0) }),
+      evEntry({ id: 'e4', type: 'item.reported', after: { state: 'working' }, at: at(1) }),
+      evEntry({ id: 'e5', type: 'item.reported', after: { state: 'done' }, at: at(2) }),
+      evEntry({ id: 'e6', type: 'item.status_changed', at: at(2) }),
+      evEntry({ id: 'e7', type: 'item.updated', field: 'completed_at', after: 'x', at: at(2) }),
+      evEntry({ id: 'e8', type: 'comment.resolved', at: at(2) }),
+      evEntry({ id: 'e9', type: 'item.work_finished', at: at(2) }),
+      evEntry({ id: 'e10', type: 'item.updated', field: 'completed_at', after: null, at: at(9) }),
+    ];
+    expect(timeline(run, true).map((r) => r.key)).toEqual(['e:e3', 'e:e5', 'e:e6', 'e:e10']);
+    expect(timeline(run)).toHaveLength(10);
+  });
+
   it('drops the item.blocked that only repeats a just-added dependency', () => {
     const rows = timeline([
       evEntry({ id: 'e1', type: 'item.linked', field: 'links', after: { kind: 'blocked_by', item_id: 'x' }, at: at(0) }),
