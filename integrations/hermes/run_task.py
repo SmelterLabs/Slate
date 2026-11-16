@@ -464,6 +464,11 @@ def thread_ref(session_id: str, env: dict[str, str]) -> dict[str, str]:
     return out
 
 
+# Seconds between attempts to reach a gateway that refuses connections (about 3 minutes in all):
+# covers a PC boot where the runner starts before Hermes and a gateway restart.
+OPEN_RETRY_DELAYS = (10, 20, 30, 60, 60)
+
+
 def create_session(hermes: httpx.Client, title: str, *, cwd: str | None = None) -> str:
     # Preserve runtime model defaults; bind a fresh session to the chosen local workspace.
     body = {"title": title}
@@ -1559,20 +1564,31 @@ def run(
             if not pending_session:
                 out.pop("thread", None)
             return out
-    try:
-        session_id = known if known and session_exists(hermes, known) else None
-        fresh = session_id is None
-        if fresh:
-            session_id = create_session(
-                hermes, session_title(title, item_id), cwd=env.get("HERMES_CWD")
-            )
-    except (httpx.HTTPError, RuntimeError) as e:
-        return {
-            "outcome": "blocked",
-            "waiting_on": ask,
-            "reply": f"Could not open a Hermes session: {e}",
-            **({"thread": thread_ref(known, env)} if known else {}),
-        }
+    # A gateway that is not listening yet (PC just booted, gateway restarting) is a wait, not a
+    # question for a person: retry the connection for a few minutes before blocking on anyone.
+    delays = list(OPEN_RETRY_DELAYS)
+    session_id: str | None = None
+    fresh = False
+    while True:
+        try:
+            session_id = known if known and session_exists(hermes, known) else None
+            fresh = session_id is None
+            if fresh:
+                session_id = create_session(
+                    hermes, session_title(title, item_id), cwd=env.get("HERMES_CWD")
+                )
+            break
+        except (httpx.HTTPError, RuntimeError) as e:
+            if isinstance(e, httpx.TransportError) and delays:
+                emit({"note": "Hermes is not answering yet; retrying"})
+                sleep(delays.pop(0))
+                continue
+            return {
+                "outcome": "blocked",
+                "waiting_on": ask,
+                "reply": f"Could not open a Hermes session: {e}",
+                **({"thread": thread_ref(known, env)} if known else {}),
+            }
     assert session_id is not None
     started = "Started a Hermes session"
     emit(

@@ -723,3 +723,50 @@ def test_activity_goes_out_at_once_then_in_batches():
 )
 def test_activity_line_per_stream_event(kind, data, want):
     assert run_task.activity_line(kind, data) == want
+
+
+# --- A gateway that is not up yet --------------------------------------------------------------
+
+
+class LateGateway(Gateway):
+    """Refuses connections for the first `refusals` session creates (PC booting, gateway down)."""
+
+    def __init__(self, refusals: int, **kw):
+        super().__init__(**kw)
+        self.refusals = refusals
+
+    def handle(self, req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/sessions" and req.method == "POST" and self.refusals:
+            self.refusals -= 1
+            raise httpx.ConnectError("actively refused", request=req)
+        return super().handle(req)
+
+
+def test_a_gateway_that_comes_up_late_is_waited_for_not_asked_about(state_file):
+    gw = LateGateway(
+        2,
+        events=[
+            ("assistant.completed", {"content": "Sent it.\nSLATE: done"}),
+            ("run.completed", {}),
+        ],
+    )
+    out, lines, clock = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "done"
+    assert lines.count({"note": "Hermes is not answering yet; retrying"}) == 2
+    assert clock.t >= sum(run_task.OPEN_RETRY_DELAYS[:2])
+
+
+def test_a_gateway_that_stays_down_still_blocks_after_the_retries(state_file):
+    gw = LateGateway(99)
+    out, _, _ = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "blocked"
+    assert "Could not open a Hermes session" in out["reply"]
+    assert len(gw.created) == 0 and gw.refusals == 99 - len(run_task.OPEN_RETRY_DELAYS) - 1
+
+
+def test_a_refused_create_is_not_retried(state_file):
+    gw = Gateway()
+    gw.create_status = 400
+    out, lines, _ = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "blocked"
+    assert {"note": "Hermes is not answering yet; retrying"} not in lines
