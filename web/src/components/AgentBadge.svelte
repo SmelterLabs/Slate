@@ -106,6 +106,8 @@
     flex-direction: column;
     gap: 3px;
     max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 3px 8px;
     border-radius: 999px;
     border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
@@ -139,12 +141,31 @@
     align-items: center;
     gap: 5px;
     min-width: 0;
+    max-width: 100%;
     white-space: nowrap;
+  }
+  /* A narrow card squeezes the name and the label (each ellipsised; the name gives way first and
+     keeps a few letters); the dot, icon, separators, age and Open link keep their width, so
+     nothing spills past the pill. */
+  .ab-row > * {
+    flex: none;
+  }
+  .ab-row > .who,
+  .ab-row > .what {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The name shrinks far faster, so the label gives way only once the name is down to a few letters. */
+  .ab-row > .who {
+    flex-shrink: 1000;
+    min-width: 2.5em;
+  }
+  .ab-row > .what {
+    min-width: 0;
   }
   .who {
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .sep,
   .when {

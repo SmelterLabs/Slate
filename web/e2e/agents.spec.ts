@@ -129,3 +129,46 @@ test('Next up on the Agents page: what each agent runs next, live after Run now'
 
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
+
+test('a long blocked badge stays inside its card and keeps the agent name', async ({ page }) => {
+  const { agent, listId } = seed();
+  const item = await api<{ id: string }>('POST', '/items', {
+    list_id: listId,
+    title: 'Badge width card',
+    assignees: ['agent'],
+  });
+  await api(
+    'POST',
+    `/items/${item.id}/report`,
+    { state: 'blocked', waiting_on: 'alex', note: 'Need a decision', url: 'https://example.com/session/1' },
+    agent,
+  );
+
+  await page.setViewportSize({ width: 900, height: 800 });
+  await signIn(page);
+  await page.goto(`/#/list/${listId}`);
+  const card = page.locator('.card', { hasText: 'Badge width card' });
+  const badge = card.locator('.agent-badge');
+  await expect(badge).toHaveAttribute('data-agent-state', 'blocked');
+  await expect(badge.locator('.open')).toBeVisible();
+
+  // Squeeze the card to a narrow column's width: the badge must shrink with it, not spill out.
+  await card.evaluate((el) => {
+    (el as HTMLElement).style.width = '200px';
+  });
+  const fit = await card.evaluate((el) => {
+    const c = el.getBoundingClientRect();
+    const b = el.querySelector('.agent-badge')!.getBoundingClientRect();
+    const open = el.querySelector('.agent-badge .open')!.getBoundingClientRect();
+    const who = el.querySelector('.agent-badge .who')!.getBoundingClientRect();
+    return { cardRight: c.right, badgeRight: b.right, openRight: open.right, who: who.width };
+  });
+  expect(fit.badgeRight).toBeLessThanOrEqual(fit.cardRight);
+  expect(fit.openRight).toBeLessThanOrEqual(fit.badgeRight);
+  // The agent's name is never squeezed away entirely.
+  expect(fit.who).toBeGreaterThan(8);
+
+  // Leave the shared database as found: a card waiting on Alex changes every later page.
+  await api('POST', `/items/${item.id}/report`, { state: 'idle', comment: false }, agent);
+  await api('DELETE', `/items/${item.id}`);
+});
