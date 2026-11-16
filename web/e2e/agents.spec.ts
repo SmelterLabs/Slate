@@ -167,4 +167,8 @@ test('a long blocked badge stays inside its card and keeps the agent name', asyn
   expect(fit.openRight).toBeLessThanOrEqual(fit.badgeRight);
   // The agent's name is never squeezed away entirely.
   expect(fit.who).toBeGreaterThan(8);
+
+  // Leave the shared database as found: a card waiting on Alex changes every later page.
+  await api('POST', `/items/${item.id}/report`, { state: 'idle', comment: false }, agent);
+  await api('DELETE', `/items/${item.id}`);
 });
