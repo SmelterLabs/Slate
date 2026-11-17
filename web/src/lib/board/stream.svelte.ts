@@ -30,6 +30,7 @@ export class BoardStream extends BoardLoad {
   #clock: ReturnType<typeof setInterval> | undefined;
   #viewsTimer: ReturnType<typeof setTimeout> | undefined;
   #favoritesTimer: ReturnType<typeof setTimeout> | undefined;
+  #tagsTimer: ReturnType<typeof setTimeout> | undefined;
   #capacityTimer: ReturnType<typeof setTimeout> | undefined;
   #ruleQueue = new Set<string>();
   #ruleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -363,7 +364,12 @@ export class BoardStream extends BoardLoad {
       clearTimeout(this.#viewsTimer);
       this.#viewsTimer = setTimeout(() => void this.loadViews(), 50);
     }
-    if (fx.tags && this.tagManagerOpen) void this.loadTags();
+    // Tag colours paint every pill on the board, not only the tag manager: a tag created or
+    // recoloured elsewhere must reach an open board, or its pills keep the name-hash colour.
+    if (fx.tags) {
+      clearTimeout(this.#tagsTimer);
+      this.#tagsTimer = setTimeout(() => void this.loadTags(), 50);
+    }
     // Favorites are per account: only this board's own changes reload the bar.
     if (fx.favorites && ev.actor_id === this.me?.account.id) {
       clearTimeout(this.#favoritesTimer);
