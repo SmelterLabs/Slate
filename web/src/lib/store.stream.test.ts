@@ -149,6 +149,21 @@ describe('applying events', () => {
     expect(detail()).toBe(before + 1);
   });
 
+  it('a tag created or recoloured elsewhere reloads the tag list with the manager closed', async () => {
+    expect(board.tagManagerOpen).toBe(false);
+    routes.set('/tags', () => [{ id: 'T1', name: 'garden', color: '#C8102E' }]);
+    const tagLoads = () => calls.filter((p) => p === '/tags').length;
+    const before = tagLoads();
+    await emit(
+      ev({ type: 'tag.created', item_id: null, subject_id: 'T1' }),
+      ev({ type: 'tag.updated', item_id: null, subject_id: 'T1', field: 'color', after: '#C8102E' }),
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    await settle();
+    expect(tagLoads()).toBe(before + 1); // a burst of tag events is one reload
+    expect(board.tags.find((t) => t.name === 'garden')?.color).toBe('#C8102E');
+  });
+
   it('a lone event applies on the next tick, with no batching wait', async () => {
     FakeEventSource.last.emit(ev({ field: 'title', after: 'One' }));
     await vi.advanceTimersByTimeAsync(0);
