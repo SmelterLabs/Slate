@@ -37,7 +37,7 @@ account has open updates its unread count live.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -72,6 +72,8 @@ MENTION_TYPES = (
     "message.edited",
     "doc.mentioned",
 )
+# Chat entries: read with their message (service/chat.py `read_check`).
+CHAT_TYPES = ("message.posted", "message.edited")
 DUE_TYPES = ("item.due", "item.overdue")
 # Told to the item's assignees only (like due nudges), not to watchers.
 ASSIGNEE_TYPES = (*DUE_TYPES, "item.unblocked")
@@ -281,6 +283,7 @@ def entries(
     out: list[dict[str, Any]] = []
     edits: set[tuple[str | None, str]] = set()
     waited = waits(session, account.id)
+    chat_read: Callable[[str | None, str], bool] | None = None
     want = min(limit, MAX_ENTRIES)
     before: str | None = None
     while len(out) < want:
@@ -297,6 +300,14 @@ def entries(
             if reason and why != reason:
                 continue
             read = ev.id in marks or (read_through is not None and ev.id <= read_through)
+            if not read and ev.type in CHAT_TYPES and ev.subject_id:
+                # A chat mention or reply is read when its message is: the channel's read
+                # state is the one record, whichever device or path read it.
+                if chat_read is None:
+                    from slate.service.chat import read_check  # noqa: PLC0415
+
+                    chat_read = read_check(session, account)
+                read = chat_read((ev.after_json or {}).get("channel"), ev.subject_id)
             if unread_only and read:
                 continue
             out.append({"event": event_payload(ev), "reason": why, "read": read})

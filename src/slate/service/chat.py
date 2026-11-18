@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -357,6 +357,23 @@ def unread_messages(session: Session, account: Account) -> list[Message]:
             or (m.id > reads[m.channel].read_through and m.id not in exposed[m.channel])
         )
     ]
+
+
+def read_check(session: Session, account: Account) -> Callable[[str | None, str], bool]:
+    """`(channel, message_id) -> bool`: has the account read that message, by its channel
+    cursor or exact exposure (the same test as `unread_messages`). One query for the account's
+    read rows, then no more: the Inbox calls it per chat entry so a mention or reply reads with
+    its message, on whichever device or by whichever path the message was read."""
+    reads = {
+        r.channel: (r.read_through or "", set(r.exposed_ids or []))
+        for r in session.scalars(select(ChannelRead).where(ChannelRead.account_id == account.id))
+    }
+
+    def is_read(channel: str | None, message_id: str) -> bool:
+        through, exposed = reads.get(channel or "", ("", set()))
+        return message_id <= through or message_id in exposed
+
+    return is_read
 
 
 def unread(

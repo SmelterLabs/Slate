@@ -105,6 +105,39 @@ def test_mentions_reach_inbox_checkin_and_push(client, alex, todo, make_account,
     assert note["url"].startswith("/#/chat/general?thread=")
 
 
+def test_reading_the_message_reads_its_inbox_entry(client, alex, todo, make_account):
+    """A chat mention or reply in the Inbox is read once the message is read, however that
+    happened: exact exposure (any device), a cursor read, or read-all. The Inbox does not keep
+    its own second copy of chat read state that only the exposing browser tab could clear."""
+    _, agent = make_account("agent")
+    key = f"list:{todo['id']}"
+
+    def unread():
+        r = client.get(f"{API}/inbox", params={"unread": True}, headers=alex).json()
+        count = client.get(f"{API}/inbox/count", headers=alex).json()["unread"]
+        assert count == len(r)
+        return [e["event"]["subject_id"] for e in r]
+
+    first = post(client, agent, key, "@alex can you look at this?")
+    second = post(client, agent, key, "@alex and this one")
+    root = post(client, alex, key, "Starting a thread")
+    reply = post(client, agent, key, "Replying here", parent_id=root["id"])
+    assert set(unread()) == {first["id"], second["id"], reply["id"]}
+
+    # Exact exposure of one message reads that entry and nothing else.
+    r = client.post(
+        f"{API}/channels/{key}/read", json={"message_ids": [second["id"]]}, headers=alex
+    )
+    assert r.status_code == 200, r.text
+    assert set(unread()) == {first["id"], reply["id"]}
+
+    # A cursor read (read-all on the channel) covers the rest, replies included.
+    client.post(f"{API}/channels/{key}/read", json={}, headers=alex)
+    assert unread() == []
+    entries = client.get(f"{API}/inbox", headers=alex).json()
+    assert entries and all(e["read"] for e in entries)
+
+
 def test_push_text_names_linked_tasks(client, alex, todo, make_account, db):
     make_account("agent")
     item = client.post(
