@@ -5,7 +5,6 @@
 
 import { get, post } from './api';
 import { chatHref } from './chat';
-import { chat } from './chat.svelte';
 import { board } from './store.svelte';
 import type { SlateEvent } from './types';
 
@@ -149,9 +148,8 @@ class Inbox {
       this.entries = await get<InboxEntry[]>('/inbox?limit=200');
       this.unread = this.entries.filter((e) => !e.read).length;
       this.loaded = true;
-      // Only exact exposed messages, never every reply in a mounted channel.
-      const open = this.entries.filter((e) => !e.read && !!e.channel && e.event.type === 'message.posted' && !!e.event.subject_id && chat.exposed.has(e.event.subject_id)).map((e) => e.event.id);
-      if (open.length) void this.#mark('read', { event_ids: open });
+      // Chat entries need no marking here: the server reads them with their message
+      // (`channel.read` from any device brings a refresh).
     } catch {
       // the badge just stays as it was; the next event retries
     }
@@ -205,12 +203,6 @@ class Inbox {
     if (this.entries.some((e) => e.event.item_id === itemId && !e.read)) {
       void this.#mark('read', { item_id: itemId });
     }
-  }
-
-  /** Opening a chat channel reads its mentions and replies here too. */
-  readChannel(channel: string) {
-    const ids = this.entries.filter((e) => e.channel === channel && !e.read).map((e) => e.event.id);
-    if (ids.length) void this.#mark('read', { event_ids: ids });
   }
 
   /** Opening a doc page reads the mentions on it. */

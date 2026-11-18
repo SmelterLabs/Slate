@@ -149,6 +149,7 @@ READS = {
         "thread",
         "unread",
         "unread_messages",
+        "read_check",
         "list_channels",
         "agent_turns",
         "channel_view",

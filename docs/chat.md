@@ -34,8 +34,9 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   non-drawer lists; DocsHub is the source for document Needs you. The mention picker warns
   because `participant_ids`/the directory describes visible identities, not exact channel access.
 - **Inbox navigation is not bulk acknowledgement.** Chat groups collect events from multiple roots
-  but open only the newest thread; `Inbox.open` therefore leaves chat events untouched. Exact
-  message exposure/read persistence drives their read state. This is chat only: task, doc and
+  but open only the newest thread; `Inbox.open` therefore leaves chat events untouched. The
+  message's channel read state is their read state, on the server (`inbox.entries` asks
+  `chat.read_check`), so reading a mention on one device clears its Inbox entry everywhere. This is chat only: task, doc and
   digest entries keep their own open policies, and explicit read-all reads everything.
 - **Overlay dismissal at unchanged geometry:** `exposure.ts` shares one body `MutationObserver`
   (child changes and class/style/hidden/open attributes), coalesced per animation frame, plus

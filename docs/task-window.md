@@ -246,7 +246,10 @@ selection").
   `waiting_on`, or an item it follows), so other people's traffic never crowds an entry out; it
   pages (`PAGE`) until it has the entries asked for, and the window is also a primary-key range
   (`ids.event_id_floor`), so the scan stops at the window's start. Read state is `inbox_state`
-  (read-through and cleared-through cursors, time-ordered event ids) plus `inbox_marks` (one event read or cleared). Marking writes `inbox.read` /
+  (read-through and cleared-through cursors, time-ordered event ids) plus `inbox_marks` (one event read or cleared). A chat mention or reply (`CHAT_TYPES`) is
+  also read when its message is: `entries` asks `chat.read_check` (the channel cursor or exact
+  exposure, one `channel_reads` query per call), so a message read on any device, by exposure,
+  a channel read or read-all, reads its Inbox entry with no second write. Marking writes `inbox.read` /
   `inbox.cleared` with `subject_id` = the account, so other devices refetch. `completed_at` updates
   are not news (they always ride with `item.status_changed`).
 - **Board pages**: `#/home` (My Work, `components/work/HomePage.svelte`, grouping in
