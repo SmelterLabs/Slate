@@ -20,6 +20,10 @@ import {
   fileGroup,
   filterDocs,
   filterEntries,
+  loadDrawerSort,
+  nextDrawerSort,
+  saveDrawerSort,
+  sortEntries,
   sideBySide,
   sortTree,
   tagCounts,
@@ -281,6 +285,50 @@ describe('drawer entries', () => {
     expect(filterEntries(all, { tag: 'customer' }).map((x) => x.id)).toEqual(['Folder', 'Spec']);
     expect(filterEntries(all, { q: 'contract' }).map((x) => x.id)).toEqual(['Spec']);
     expect(filterEntries(all, {})).toHaveLength(4);
+  });
+
+  it('sorts by a column with pinned rows, then folders, kept on top', () => {
+    const rows = [
+      e('Notes', { kind: 'folder', created_at: '2026-01-05' }),
+      e('b 10', { created_at: '2026-03-01', version_no: 4, open_threads: 1 }),
+      e('Archive', { kind: 'folder', created_at: '2026-01-01' }),
+      e('a 9', { kind: 'file', file: { ...pdf, revision_no: 2, created_at: '2026-04-01' }, created_at: '2026-02-01', tags: ['zeta'], updated_at: '2026-01-01' }),
+      e('Pinned', { created_at: '2026-09-01', pinned_to_top: { at: '2026-01-01', by: 'me' } }),
+      e('c 2', { created_at: '2026-01-01', updated_at: '2026-05-01', tags: ['alpha'] }),
+    ];
+    const ids = (s: Parameters<typeof sortEntries>[1]) => sortEntries(rows, s).map((x) => x.id);
+    expect(sortEntries(rows, null)).toBe(rows);
+    expect(ids({ key: 'name', dir: 'asc' })).toEqual(['Pinned', 'Archive', 'Notes', 'a 9', 'b 10', 'c 2']);
+    expect(ids({ key: 'name', dir: 'desc' })).toEqual(['Pinned', 'Notes', 'Archive', 'c 2', 'b 10', 'a 9']);
+    expect(ids({ key: 'created', dir: 'asc' })).toEqual(['Pinned', 'Archive', 'Notes', 'c 2', 'a 9', 'b 10']);
+    expect(ids({ key: 'revision', dir: 'desc' })).toEqual(['Pinned', 'Notes', 'Archive', 'b 10', 'a 9', 'c 2']);
+    expect(ids({ key: 'change', dir: 'desc' })).toEqual(['Pinned', 'Notes', 'Archive', 'b 10', 'c 2', 'a 9']);
+    expect(ids({ key: 'threads', dir: 'desc' }).slice(3)).toEqual(['b 10', 'a 9', 'c 2']);
+    // Untagged rows stay last either way.
+    expect(ids({ key: 'tags', dir: 'asc' }).slice(3)).toEqual(['c 2', 'a 9', 'b 10']);
+    expect(ids({ key: 'tags', dir: 'desc' }).slice(3)).toEqual(['a 9', 'c 2', 'b 10']);
+  });
+
+  it('cycles a header: ascending, descending, then the drawer order', () => {
+    expect(nextDrawerSort(null, 'name')).toEqual({ key: 'name', dir: 'asc' });
+    expect(nextDrawerSort({ key: 'name', dir: 'asc' }, 'name')).toEqual({ key: 'name', dir: 'desc' });
+    expect(nextDrawerSort({ key: 'name', dir: 'desc' }, 'name')).toBeNull();
+    expect(nextDrawerSort({ key: 'name', dir: 'desc' }, 'created')).toEqual({ key: 'created', dir: 'asc' });
+  });
+
+  it('remembers the sort per drawer and ignores junk', () => {
+    const store = new Map<string, string>();
+    const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    saveDrawerSort('L1', { key: 'created', dir: 'desc' }, ls);
+    expect(loadDrawerSort('L1', ls)).toEqual({ key: 'created', dir: 'desc' });
+    expect(loadDrawerSort('L2', ls)).toBeNull();
+    saveDrawerSort('L1', null, ls);
+    expect(loadDrawerSort('L1', ls)).toBeNull();
+    store.set('slate.drawerSort.L3', '{"key":"bogus","dir":"asc"}');
+    expect(loadDrawerSort('L3', ls)).toBeNull();
+    store.set('slate.drawerSort.L4', 'not json');
+    expect(loadDrawerSort('L4', ls)).toBeNull();
+    expect(loadDrawerSort('L1', { getItem: () => { throw new Error('blocked'); }, setItem: () => {}, removeItem: () => {} })).toBeNull();
   });
 
   it('gives folders a folder glyph', () => {

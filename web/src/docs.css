@@ -2598,6 +2598,34 @@ textarea.doc-title {
   border-bottom: 1px solid var(--line);
   background: var(--chip);
 }
+.drawer-table .th-sort {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  font: inherit;
+}
+.drawer-table .th-sort:hover,
+.drawer-table .th-sort.on {
+  color: var(--text);
+}
+.drawer-table .th-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.drawer-table .sort-ind {
+  font-size: 8px;
+  opacity: 0;
+}
+.drawer-table .th-sort:hover .sort-ind {
+  opacity: 0.4;
+}
+.drawer-table .th-sort.on .sort-ind {
+  opacity: 1;
+}
 .drawer-table td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--line);

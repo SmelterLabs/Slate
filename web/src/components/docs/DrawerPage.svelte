@@ -8,7 +8,21 @@
   // the table. `?folder=<id>` and `?doc=<id>` on the list's hash carry both states.
   import { onDestroy, onMount } from 'svelte';
   import { fileSize } from '../../lib/activity';
-  import { docGlyph, fileGroup, filterEntries, tagCounts, type Drawer, type DrawerEntry, type FileGroup } from '../../lib/docs';
+  import {
+    docGlyph,
+    fileGroup,
+    filterEntries,
+    loadDrawerSort,
+    nextDrawerSort,
+    saveDrawerSort,
+    sortEntries,
+    tagCounts,
+    type Drawer,
+    type DrawerEntry,
+    type DrawerSort,
+    type DrawerSortKey,
+    type FileGroup,
+  } from '../../lib/docs';
   import { docs } from '../../lib/docs.svelte';
   import { ago, fullStamp, shortDate } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
@@ -97,7 +111,25 @@
   ];
   const present = $derived(new Set((drawer?.entries ?? []).map((e) => (e.kind === 'page' ? 'page' : fileGroup(e)))));
   const tags = $derived(tagCounts(drawer?.entries ?? []));
-  const shown = $derived(filterEntries(drawer?.entries ?? [], { group, tag, q }));
+  // A header click sorts by that column (ascending, descending, then the drawer's own order);
+  // this browser remembers the choice per drawer, folders included.
+  let sort = $state<DrawerSort>(null);
+  $effect.pre(() => {
+    sort = loadDrawerSort(listId);
+  });
+  function sortBy(key: DrawerSortKey) {
+    sort = nextDrawerSort(sort, key);
+    saveDrawerSort(listId, sort);
+  }
+  const COLUMNS: { key: DrawerSortKey; label: string }[] = [
+    { key: 'name', label: 'Name' },
+    { key: 'created', label: 'Created' },
+    { key: 'revision', label: 'Revision' },
+    { key: 'change', label: 'Last change' },
+    { key: 'tags', label: 'Tags' },
+    { key: 'threads', label: 'Threads' },
+  ];
+  const shown = $derived(sortEntries(filterEntries(drawer?.entries ?? [], { group, tag, q }), sort));
   const needs = $derived((drawer?.entries ?? []).filter((e) => (e.open_threads ?? 0) > 0).length);
 
   // --- adding ---------------------------------------------------------------------------------
@@ -282,7 +314,19 @@
       </div>
     {:else}
       <table class="drawer-table" data-testid="drawer-table">
-        <thead><tr><th class="c-name">Name</th><th>Created</th><th>Revision</th><th>Last change</th><th>Tags</th><th>Threads</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            {#each COLUMNS as c (c.key)}
+              {@const on = sort?.key === c.key ? sort : null}
+              <th class:c-name={c.key === 'name'} aria-sort={on ? (on.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="th-sort" class:on={!!on} data-sort={c.key} title={on ? (on.dir === 'asc' ? `Sorted by ${c.label}, ascending. Click for descending` : `Sorted by ${c.label}, descending. Click for the drawer's own order`) : `Sort by ${c.label}`} onclick={() => sortBy(c.key)}
+                  >{c.label}<span class="sort-ind" aria-hidden="true">{on ? (on.dir === 'asc' ? '▲' : '▼') : '▲'}</span></button
+                >
+              </th>
+            {/each}
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
           {#each shown as e (e.id)}
             <tr class:folder={e.kind === 'folder'} class:pinned={!!e.pinned_to_top} data-entry={e.id} data-kind={e.kind} data-pinned={e.pinned_to_top ? 'true' : undefined}>
