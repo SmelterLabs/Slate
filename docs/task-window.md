@@ -328,7 +328,8 @@ selection").
   (`#stash`) before editing locally, so the revert sees old values. Reverts go through `/items/bulk`
   and are not themselves recorded. Ctrl/Cmd+Z pops; complete, put away, trash, moves and multi-item
   bulk also show a toast with Undo, and the ways off the board add their `LEAVES` sentence to it.
-  Quick add's undo is the 10-minute delete.
+  Quick add's undo is the 10-minute delete. Signing out drops the history: it belongs to the
+  account that made the changes.
 - **Pickers** (assignees, mentions, hand-off, bulk assign, waiting on) take `board.pickable`:
   enabled accounts minus `slate`, the account the scheduler acts as. `slate` is Slate's own account,
   not an agent: `update_account` refuses to rename, disable or re-wake it (422), and
