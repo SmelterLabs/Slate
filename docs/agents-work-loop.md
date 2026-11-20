@@ -125,6 +125,17 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   touches a live lease, and an agent account still needs its run proof. The agent's own reconcile
   is a self-wake on its stream (`api/checkin._judge`), like its own Run now: Asks that arrived
   while the card was fenced hinted nothing, so without it the runner would never come back.
+- **A card closed during a run.** Heartbeat, finish and a proved report answer 409 ("work was
+  closed, archived or unassigned; stop execution") once the card is done, cancelled, archived or
+  no longer the holder's, so the runner stops the command. The holder's own close is not that
+  stop (`work._closed_it`: the card's latest `item.status_changed` is by the lease's account):
+  its run keeps its lease and its finish posts the answer and gives the lease up; a `review` or
+  `blocked` outcome then leaves no flag and no waiting-on, because a closed card needs nobody.
+  A lease that runs out on a closed card (done or cancelled; not an Ask turn taken on a card
+  that was done already) is settled by the scheduler instead of quarantined
+  (`work._settle_closed`): `item.work_finished` by `system` (reconciled, expired,
+  `runtime_state` `unknown`), the holder's flag cleared, the lease dropped. An archived or
+  unassigned card can be run again, so its lease is still quarantined.
 - **Long-poll** (`api/longpoll.py`): `wait_async` (REST: subscribe to the bus first, attempt, on
   nothing roll the session back so the next attempt reads a fresh WAL snapshot, wait for any bus
   message, drain the burst, attempt again) and `wait_sync` (MCP local calls run in a worker thread:

@@ -40,14 +40,15 @@ from `POST /work/next`, `GET /work` and `GET /agents/plan`; the Agents page's "h
 | State | Means | Leaves by |
 |---|---|---|
 | (no row) | nobody holds the task | `POST /work/next` takes it: `working` |
-| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); finish, or a report other than `working` by the holder (row deleted); `until` passes: `expired` |
+| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); finish, or a report other than `working` by the holder (row deleted); `until` passes: `expired`, or the row is deleted when the card is closed (done or cancelled) |
 | `expired` | the lease ran out; the run may still be going, so the task stays held | the agent's reconcile with the run's proof, or a person's Clear on the badge (row deleted) |
 
 A lease is `expired` from the moment `until` passes. The scheduler then marks the row
 (`quarantined`) and turns a `working` badge `blocked`, within one scheduler tick. The mark
 records that this happened; a person's Clear settles a lease only once it carries the mark. An
 `expired` lease refuses heartbeat, finish and stop, and `/work/next` does not offer the task to
-anyone.
+anyone. A lease that runs out on a closed card is not quarantined: the scheduler settles it
+(`item.work_finished`, reconciled) and deletes the row, since a closed card is not run again.
 
 A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `blocked`, `release`.
 
