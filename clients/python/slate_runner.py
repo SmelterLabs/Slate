@@ -482,6 +482,10 @@ class Runner:
                 if old.get("state") in ("reconciliation_required", "delivery_failed"):
                     del self._records[key]  # settled remotely; start a clean record
                     self._retry.pop(key, None)
+                # A new grant is a new execution. The fence a lost lease put on this key
+                # belonged to the attempt that lost it; kept, it would run the new one to
+                # the end and then drop its result.
+                self._interrupted.discard(key)
             self._record(key, run_id=proof, state="taken", remote_state="not_started")
             with self._state_lock:
                 self._claimed.add(key)
