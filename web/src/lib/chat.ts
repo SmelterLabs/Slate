@@ -5,6 +5,7 @@
 import { workspaceFormatter } from './timezone';
 import { MENTION_RE, highlightMentions } from './activity';
 import { escape } from './mdcore';
+import { PICKUP_WAIT_MS } from './pickup';
 import { renderMarkdown, type RefResolvers } from './markdown';
 
 export interface Channel {
@@ -78,6 +79,17 @@ export function applyTurnEvent(turns: AgentTurn[], ev: { type: string; after: un
     );
   }
   return out;
+}
+
+/** What the line under the messages says for one turn. A mention no runner has taken after
+ * `PICKUP_WAIT_MS` reads `unpicked` ("hasn't picked this up"), the same wait and words as a
+ * question on a card: an agent with no runner never answers, and "will answer…" would claim
+ * work that is not happening. A turn with no `since` is taken as fresh. */
+export type TurnLine = 'waiting' | 'working' | 'expired' | 'unpicked';
+export function turnLine(t: AgentTurn, now: Date): TurnLine {
+  if (t.state !== 'waiting' || !t.since) return t.state;
+  const since = new Date(t.since).getTime();
+  return Number.isFinite(since) && now.getTime() - since > PICKUP_WAIT_MS ? 'unpicked' : 'waiting';
 }
 
 /** The turns that show under a channel's messages (`thread` null) or in one thread. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agentChats,
   applyTurnEvent,
+  turnLine,
   badge,
   channelIcon,
   channelKey,
@@ -42,6 +43,27 @@ const msg = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({
   linked_items: [],
   files: [],
   ...over,
+});
+
+describe('turnLine', () => {
+  const now = new Date('2026-11-03T12:10:00Z');
+  const turn = (state: 'waiting' | 'working' | 'expired', since?: string) => ({
+    agent_id: 'A1',
+    thread_id: null,
+    state,
+    since,
+  });
+  it('a fresh mention will be answered', () => {
+    expect(turnLine(turn('waiting', '2026-11-03T12:09:00Z'), now)).toBe('waiting');
+    expect(turnLine(turn('waiting'), now)).toBe('waiting');
+  });
+  it('a mention no runner took for two minutes has not been picked up', () => {
+    expect(turnLine(turn('waiting', '2026-11-03T12:07:59Z'), now)).toBe('unpicked');
+  });
+  it('a taken or expired turn keeps its state however old it is', () => {
+    expect(turnLine(turn('working', '2026-11-03T09:00:00Z'), now)).toBe('working');
+    expect(turnLine(turn('expired', '2026-11-03T09:00:00Z'), now)).toBe('expired');
+  });
 });
 
 describe('channel addresses', () => {
