@@ -84,6 +84,18 @@ describe('optimistic edits', () => {
     expect(board.toast).toBe('Undone: Changed priority on task');
   });
 
+  it('signing out forgets the undo history: the next account cannot replay it', async () => {
+    acceptPatch();
+    await board.setPriority('I1', 'high');
+    expect(board.undoDepth).toBe(1);
+    board.signOut();
+    expect(board.undoDepth).toBe(0);
+    const before = writes().length;
+    await board.undoLast();
+    expect(board.toast).toBe('Nothing to undo');
+    expect(writes().length).toBe(before);
+  });
+
   it('an undo is not itself remembered, and an empty history says so', async () => {
     acceptPatch();
     await board.update('I1', { title: 'Fix the gutter' });

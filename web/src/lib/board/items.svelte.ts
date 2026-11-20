@@ -248,6 +248,15 @@ export class BoardItems extends BoardStream {
     if (this.openId && backs.some(([id]) => id === this.openId)) await this.refreshDetail();
   }
 
+  /** The history belongs to the account that made the changes: signing out drops it, so the
+   * next sign-in on this page can never replay another account's revert. */
+  override signOut() {
+    this.#undo = [];
+    this.#pre.clear();
+    this.undoDepth = 0;
+    super.signOut();
+  }
+
   /** Ctrl/Cmd+Z: put back the last change made from this board. */
   async undoLast() {
     const entry = this.#undo.pop();
