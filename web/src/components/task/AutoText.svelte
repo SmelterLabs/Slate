@@ -33,10 +33,11 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
   let savedTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // Someone else (or another tab) changed it: take theirs unless we are mid-edit.
+  // Someone else (or another tab) changed it: take theirs unless we are mid-edit, or hold
+  // text a failed save has not stored yet (`error`: it stays until the next save works).
   $effect(() => {
     const v = value;
-    if (!editing && phase !== 'pending' && phase !== 'saving' && v !== draft) {
+    if (!editing && phase !== 'pending' && phase !== 'saving' && phase !== 'error' && v !== draft) {
       draft = v;
       saved = v;
     }

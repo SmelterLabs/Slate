@@ -72,9 +72,22 @@ def key(thread_id: str | None) -> str:
     return thread_id or ""
 
 
+# A turn row is `waiting` (mentioned, not taken), `working` (taken, lease live) or `expired`
+# (taken, lease ran out: it waits for a reconcile, a person's clear or a new mention). The row
+# is deleted when the turn ends, so there is no fourth state (`docs/state-machines.md`).
+STATES = ("waiting", "working", "expired")
+
+
+def state(row: Any, now: datetime) -> str:
+    """The one rule for a turn row's state, for chat and doc turns alike."""
+    if row.claimed_at is None:
+        return "waiting"
+    return "working" if row.until is not None and row.until >= now else "expired"
+
+
 def live(row: Any, now: datetime) -> bool:
     """Taken, and its lease has not run out."""
-    return row.claimed_at is not None and row.until is not None and row.until >= now
+    return state(row, now) == "working"
 
 
 def lease_view(row: Any) -> dict[str, Any]:

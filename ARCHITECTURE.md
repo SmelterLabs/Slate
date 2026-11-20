@@ -539,6 +539,7 @@ section titles or bold paragraph labels that code comments cite as `ARCHITECTURE
 | Private shared projects and guest sessions | `docs/collaboration.md`, with `docs/shared-project-collaboration.md` and `docs/collaboration-security.md` |
 | Health and observability | `docs/health.md` |
 | The board's module map, views, store and reducer, live stream catch-up, writes, comment dots, quick-add grammar and test recipe | `docs/board.md` |
+| State machines: every set of states (agent badge, work lease, chat and doc turns, the delivery queues, connections, a task's place, due stages), the one rule that reads each, and what moves it | `docs/state-machines.md` |
 | Repository checks: the private-terms check, the hooks, CI rules, how rule 5 is tested | `docs/repository-checks.md` |
 | Measured performance story | `docs/PERFORMANCE.md` |
 | Release notes | `docs/RELEASE-NOTES.md` |

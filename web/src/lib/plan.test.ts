@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { heldFor, movesPlan, planWhen } from './plan';
+import { heldFor, leaseLine, movesPlan, planWhen } from './plan';
 
 // 2026-11-03 02:00 CST (08:00 UTC).
 const NOW = new Date('2026-11-03T08:00:00Z');
@@ -22,6 +22,17 @@ describe('movesPlan', () => {
     expect(movesPlan('account.updated')).toBe(true);
     expect(movesPlan('message.posted')).toBe(false);
     expect(movesPlan('doc.updated')).toBe(false);
+  });
+});
+
+describe('leaseLine', () => {
+  it('says a live run is holding and for how long', () => {
+    expect(leaseLine({ state: 'working', age_seconds: 240 })).toEqual({ when: 'holding', why: 'held 4 min' });
+  });
+  it('says a run whose lease ran out timed out, never that it is held', () => {
+    const line = leaseLine({ state: 'expired', age_seconds: 7200 });
+    expect(line.when).toBe('timed out');
+    expect(line.why).not.toContain('held');
   });
 });
 

@@ -259,6 +259,7 @@ def plan(
                     "title": item.title if item else None,
                     "claimed_at": lease["claimed_at"],
                     "until": lease["until"],
+                    "state": lease["state"],
                     "age_seconds": max(0, int((now - lease["claimed_at"]).total_seconds())),
                 }
             )

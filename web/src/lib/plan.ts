@@ -21,8 +21,12 @@ export interface PlanLease {
   title: string | null;
   claimed_at: string;
   until: string;
+  /** working: a run holds it. expired: the run timed out and the task waits for a Clear. */
+  state: LeaseState;
   age_seconds: number;
 }
+
+export type LeaseState = 'working' | 'expired';
 
 export interface AgentPlan {
   id: string;
@@ -58,6 +62,14 @@ export const REASON_LABEL: Record<PlanReason, string> = {
 /** Events after which the plan is re-read (anything that moves a task's gate or an Ask). */
 export function movesPlan(type: string): boolean {
   return type.startsWith('item.') || type.startsWith('comment.') || type.startsWith('account.');
+}
+
+/** The two words of a held task's line: a live run is "holding … held 4 min"; one whose lease
+ * ran out is "timed out … clear its badge to free it", so a dead run never reads as work. */
+export function leaseLine(l: Pick<PlanLease, 'state' | 'age_seconds'>): { when: string; why: string } {
+  return l.state === 'expired'
+    ? { when: 'timed out', why: 'clear its badge to free it' }
+    : { when: 'holding', why: heldFor(l.age_seconds) };
 }
 
 /** "held 4 min" / "held 2 h 05 min": how long an agent has had a lease. */

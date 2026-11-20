@@ -469,17 +469,15 @@ def agent_turns(session: Session) -> dict[str, list[dict[str, Any]]]:
     with a live lease is `working`; a taken row whose lease ran out is `expired` (the run is
     gone and the turn waits for its runner to reconcile, or for a person's Clear,
     `POST /work/chat/clear`)."""
+    from slate.service import turns  # turns reaches work, which reaches this module's users
+
     now = utcnow()
     out: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in session.scalars(
         select(ChatWake).order_by(ChatWake.channel, ChatWake.thread_id, ChatWake.account_id)
     ):
-        if row.claimed_at is None:
-            state, since = "waiting", row.created_at
-        elif row.until is not None and row.until >= now:
-            state, since = "working", row.claimed_at
-        else:
-            state, since = "expired", row.claimed_at
+        state = turns.state(row, now)
+        since = row.created_at if state == "waiting" else row.claimed_at
         out[row.channel].append(
             {
                 "agent_id": row.account_id,

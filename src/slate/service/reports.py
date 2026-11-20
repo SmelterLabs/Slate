@@ -352,7 +352,9 @@ def _check_claim(session: Session, item: Item, account_id: str) -> None:
     lease = session.get(WorkLease, item.id)
     if lease is not None and lease.account_id == holder:
         session.refresh(lease)
-        if lease.until < utcnow():
+        from slate.service import work
+
+        if work.lease_state(lease) == "expired":
             return
     else:
         at = item.agent_state_at
