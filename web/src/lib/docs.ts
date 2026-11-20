@@ -727,6 +727,80 @@ export interface Drawer {
   counts: DrawerCounts;
 }
 
+/** A Files-table column a drawer can be sorted by, and which way. `null` is the drawer's own
+ *  order (pinned first, then tree order, as the server sends it). */
+export type DrawerSortKey = 'name' | 'created' | 'revision' | 'change' | 'tags' | 'threads';
+export type DrawerSort = { key: DrawerSortKey; dir: 'asc' | 'desc' } | null;
+const DRAWER_SORT_KEYS: DrawerSortKey[] = ['name', 'created', 'revision', 'change', 'tags', 'threads'];
+
+const byText = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function drawerSortValue(e: DrawerEntry, key: DrawerSortKey): string | number | null {
+  switch (key) {
+    case 'name':
+      return e.title;
+    case 'created':
+      return e.created_at;
+    case 'revision':
+      return e.kind === 'file' && e.file ? e.file.revision_no : e.version_no;
+    case 'change':
+      return e.kind === 'file' && e.file ? e.file.created_at : e.updated_at;
+    case 'tags':
+      return e.tags?.length ? [...e.tags].sort(byText.compare).join(' ') : null;
+    case 'threads':
+      return e.open_threads ?? 0;
+  }
+}
+
+/** A drawer's entries sorted by one column. Pinned rows stay first and folders next, each
+ *  group sorted by the column; rows without a value (no tags) stay last either way; ties keep
+ *  the drawer's order. */
+export function sortEntries(entries: DrawerEntry[], sort: DrawerSort): DrawerEntry[] {
+  if (!sort) return entries;
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  const band = (e: DrawerEntry) => (e.pinned_to_top ? 0 : e.kind === 'folder' ? 1 : 2);
+  return entries
+    .map((e, i) => ({ e, i, v: drawerSortValue(e, sort.key) }))
+    .sort((a, b) => {
+      const g = band(a.e) - band(b.e);
+      if (g) return g;
+      if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1;
+      const c = typeof a.v === 'number' && typeof b.v === 'number' ? a.v - b.v : byText.compare(String(a.v), String(b.v));
+      return c ? c * sign : a.i - b.i;
+    })
+    .map((x) => x.e);
+}
+
+/** What a click on a column header does: ascending, then descending, then back to the
+ *  drawer's own order. */
+export function nextDrawerSort(current: DrawerSort, key: DrawerSortKey): DrawerSort {
+  if (current?.key !== key) return { key, dir: 'asc' };
+  return current.dir === 'asc' ? { key, dir: 'desc' } : null;
+}
+
+type SortStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+const sortStoreKey = (listId: string) => `slate.drawerSort.${listId}`;
+
+/** The sort this browser last chose for a drawer (it applies inside its folders too). */
+export function loadDrawerSort(listId: string, store: SortStore = localStorage): DrawerSort {
+  try {
+    const v = JSON.parse(store.getItem(sortStoreKey(listId)) ?? 'null');
+    if (v && DRAWER_SORT_KEYS.includes(v.key) && (v.dir === 'asc' || v.dir === 'desc')) return { key: v.key, dir: v.dir };
+  } catch {
+    // Unreadable or blocked storage: the drawer's own order.
+  }
+  return null;
+}
+
+export function saveDrawerSort(listId: string, sort: DrawerSort, store: SortStore = localStorage): void {
+  try {
+    if (sort) store.setItem(sortStoreKey(listId), JSON.stringify(sort));
+    else store.removeItem(sortStoreKey(listId));
+  } catch {
+    // Storage blocked: the sort lasts for this visit only.
+  }
+}
+
 /** The entries a drawer shows after its chips: by kind/type group, tag and a text search. */
 export function filterEntries(entries: DrawerEntry[], f: { group?: FileGroup | 'page' | null; tag?: string | null; q?: string }): DrawerEntry[] {
   const q = (f.q ?? '').trim().toLowerCase();

@@ -84,7 +84,7 @@ list. The same tree also holds **file docs**.
   `slate_doc drawer | to_drawer | pin_revision | unpin_revision`, `kind` on `slate_list create |
   update`. Board: `components/docs/DrawerPage.svelte` renders at `#/list/<id>` when the
   list's kind is `drawer` (`ScopePage` switches; `?folder=` and `?doc=` carry the folder and the
-  reading state); `lib/docs.ts` `filterEntries`; `DocPage` takes `openDiscussion` and offers **Turn
+  reading state); `lib/docs.ts` `filterEntries` and `sortEntries` (the Files table's header sort: name, created, revision, last change, tags or threads; pinned rows, then folders, stay first; no tags sorts last either way; `nextDrawerSort` cycles ascending, descending, off; `loadDrawerSort`/`saveDrawerSort` keep it per drawer in `localStorage` `slate.drawerSort.<listId>`, so a drawer's folders share it; client-only, the API order is unchanged); `DocPage` takes `openDiscussion` and offers **Turn
   into a drawer** on a top-level section page; `FileRevisions` pins; the sidebar's Add has a List /
   Drawer toggle (`Nav` `addKind`, `board.createList(section, name, kind)`), drawers show a folder
   glyph and a document count, Docs & Files sits under More; `ListSettings` has a Kind switch
