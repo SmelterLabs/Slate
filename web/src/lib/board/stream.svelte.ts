@@ -199,6 +199,8 @@ export class BoardStream extends BoardLoad {
     if (!this.token) return Promise.resolve(false);
     const params = new URLSearchParams(this.token === COOKIE_SESSION ? {} : { token: this.token });
     if (this.lastEventId) params.set('since', this.lastEventId);
+    // One stream at a time: a source left open here would keep delivering events twice.
+    this.#source?.close();
     const source = new EventSource(`/api/v1/events/stream?${params}`);
     this.#source = source;
     return new Promise<boolean>((resolve) => {
@@ -238,6 +240,9 @@ export class BoardStream extends BoardLoad {
     this.#backoff = Math.min(this.#backoff * 2, 30_000);
   }
 
+  /** The backoff timer and the browser's `online` event can both ask while an earlier call
+   * still checks the token; each goes on to #connect (which closes the stream before it) or
+   * to start() (which a newer start overtakes), so one stream is left open either way. */
   async #reconnect() {
     if (!this.token) return;
     try {
@@ -249,6 +254,7 @@ export class BoardStream extends BoardLoad {
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
+      clearTimeout(this.#retryTimer);
       this.#retryTimer = setTimeout(() => void this.#reconnect(), this.#backoff);
       this.#backoff = Math.min(this.#backoff * 2, 30_000);
       return;

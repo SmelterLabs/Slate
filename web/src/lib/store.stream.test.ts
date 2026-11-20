@@ -5,7 +5,7 @@
 // (board/testkit.ts).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ev, item } from './fixtures';
-import { FakeEventSource, ME, calls, freshBoard, requests, routes, settle, startLive, tearDown, type Board } from './board/testkit';
+import { FakeEventSource, ME, calls, deferred, freshBoard, requests, routes, settle, startLive, tearDown, type Board } from './board/testkit';
 
 let board: Board;
 
@@ -76,6 +76,18 @@ describe('resume', () => {
     await settle();
     expect(FakeEventSource.all).toHaveLength(2);
     expect(FakeEventSource.last.url).toContain('since=');
+  });
+
+  it('coming online while a reconnect is checking the token opens one stream, not two', async () => {
+    await emit(ev({ field: 'priority', after: 'high' })); // a cursor: the reconnect resumes
+    const me = deferred<unknown>();
+    routes.set('/me', () => me.promise);
+    FakeEventSource.last.fail();
+    await vi.advanceTimersByTimeAsync(1000); // the backoff timer's reconnect now waits on /me
+    window.dispatchEvent(new Event('online')); // the browser says it is back meanwhile
+    me.resolve(ME);
+    await settle();
+    expect(FakeEventSource.all.filter((s) => !s.closed)).toHaveLength(1);
   });
 
   it('a reconnect whose /me check fails keeps backing off; one that is refused signs out', async () => {
