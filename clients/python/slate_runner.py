@@ -94,8 +94,9 @@ off from 5 s to 5 min; `--retry-delivery KEY` by hand) as the identical body, wi
 relaunching the command; it never falls back to unfenced reports or comments. A fresh grant for
 a key whose earlier result is still undelivered means the server settled that run (its lease
 ran out and a person cleared it, or a person asked again): the stale result is dropped and the
-grant is run. A record a dead process left `taken` or `running` is unknown remote state, read
-as `reconciliation_required` on start.
+grant is run. A lost or undelivered task attempt the server no longer holds (`GET /work`, asked
+once a minute) is settled, and its record is forgotten. A record a dead process left `taken`
+or `running` is unknown remote state, read as `reconciliation_required` on start.
 
 `--once`: take one task (`--item` for a given one), run it, exit. Exit codes: 0 the task
 finished done, review or later; 1 it finished blocked or released; 2 nothing was free; 3 an error.
@@ -207,6 +208,8 @@ BASE_ENV_PREFIXES = ("LC_", "XDG_")
 _CARD_TEXT = re.compile(r"%SLATE_ITEM_TITLE%|\$\{?SLATE_ITEM_TITLE\b")
 RETRY_FIRST = 5.0
 RETRY_MAX = 300.0
+# How often the live loop asks the server whether a lost or undelivered attempt is settled.
+SETTLE_EVERY = 60.0
 
 
 class SlateHTTPError(Exception):
@@ -962,6 +965,46 @@ class Runner:
                     self._retry.pop(key, None)
         return tried
 
+    def settle_released(self) -> list[str]:
+        """Forget every task record whose attempt the server no longer holds. A lost or
+        undelivered attempt is kept for its run proof while the server still holds the lease
+        (live, or quarantined and waiting for `reconcile` or a person's Clear). Once `GET /work`
+        no longer lists the task for this account, the attempt is settled, and a card that is
+        never granted again (it is done) would otherwise keep its record for ever: no drained
+        receipt, and a refused result resent without end. Chat and doc turns are not leases
+        and are left alone. Returns the keys forgotten."""
+
+        def stale() -> dict[str, Any]:
+            return {
+                k: r.get("run_id")
+                for k, r in self._records.items()
+                if r.get("state") in ("reconciliation_required", "delivery_failed")
+                and turn_ref(k) is None
+                and k not in self._claimed
+                and k not in self.running
+            }
+
+        with self._state_lock:
+            before = stale()
+        if not before:
+            return []
+        held = {row.get("item_id") for row in self.call("GET", "/work")}
+        gone = []
+        with self._state_lock:
+            for key, proof in stale().items():
+                # Same attempt as before the question was asked: a grant taken meanwhile
+                # has replaced the record and is not stale.
+                if key in held or key not in before or before[key] != proof:
+                    continue
+                del self._records[key]
+                self._retry.pop(key, None)
+                gone.append(key)
+            if gone:
+                self._save_state()
+        for key in gone:
+            self.log(f"{key}: the server no longer holds that attempt; record forgotten")
+        return gone
+
     def _result(
         self,
         task: dict[str, Any],
@@ -1168,8 +1211,15 @@ class Runner:
 
     def forever(self) -> None:
         def monitor_drain():
+            settle_at = 0.0
             while not self.stopping.wait(1):
                 self.drain_status()
+                if time.monotonic() >= settle_at:
+                    settle_at = time.monotonic() + SETTLE_EVERY
+                    try:
+                        self.settle_released()
+                    except (SlateHTTPError, httpx.HTTPError) as e:
+                        self.log(f"settled-attempt check failed: {e}")
                 try:
                     if self.retry_due() and not self._closed():
                         self.dispatch(None)  # a delivered result may free the next task

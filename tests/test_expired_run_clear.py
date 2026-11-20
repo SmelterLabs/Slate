@@ -160,3 +160,68 @@ def test_runner_gives_back_a_grant_it_will_not_run(client, alex, todo, make_acco
     db.expire_all()
     assert db.get(WorkLease, item["id"]) is None, "the grant must not be left to expire"
     assert runner._records[item["id"]]["run_id"] == "old"
+
+
+def test_runner_forgets_a_lost_attempt_the_server_has_settled(
+    client, alex, todo, make_account, tmp_path, db
+):
+    """A card nobody grants again (it is done) must not keep its record for ever: the record
+    blocks the drain receipt, and an undelivered result is resent without end."""
+    from test_clients import _assign, _runner
+
+    _, h = make_account("agent")
+    lost, undelivered = _assign(client, alex, todo), _assign(client, alex, todo)
+    runner = _runner(client, h, tmp_path)
+    runner.take(lost["id"])
+    runner._lost_execution(lost["id"])
+    runner._claimed.discard(lost["id"])
+    grant = runner.take(undelivered["id"])
+    runner._claimed.discard(undelivered["id"])
+    _expire(db, lost["id"])
+    path = f"/work/{undelivered['id']}/finish"
+    body = {"outcome": "done", "run_id": grant["lease"]["run_id"]}
+    assert runner._deliver(undelivered["id"], path, body) == "delivery_failed"  # 409, expired
+
+    # Both attempts are still held on the server (quarantined): the run proof is still needed.
+    assert runner.settle_released() == []
+    assert set(runner._records) == {lost["id"], undelivered["id"]}
+
+    r = client.post(
+        f"{API}/items/{lost['id']}/report", headers=alex, json={"state": "idle", "comment": False}
+    )
+    assert r.status_code == 200, r.text
+    r = client.post(
+        f"{API}/work/{undelivered['id']}/reconcile",
+        headers=h,
+        json={"run_id": grant["lease"]["run_id"], "state": "completed", "evidence": "run ended"},
+    )
+    assert r.status_code == 200, r.text
+    # Keep the cleared card from being granted again, as a done card never is.
+    assert sorted(runner.settle_released()) == sorted([lost["id"], undelivered["id"]])
+    assert runner._records == {}
+    assert runner.retry_due(now=1e9) == []
+    runner.drain_path.touch()
+    assert runner.drain_status() == {"admission_closed": True, "drained": True}
+
+
+def test_runner_keeps_an_undelivered_result_while_its_lease_is_live(
+    client, alex, todo, make_account, tmp_path
+):
+    from test_clients import _assign, _runner
+
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo)
+    runner = _runner(client, h, tmp_path)
+    grant = runner.take(item["id"])
+    runner._claimed.discard(item["id"])
+    runner._record(
+        item["id"],
+        state="delivery_failed",
+        remote_state="terminal",
+        path=f"/work/{item['id']}/finish",
+        result={"outcome": "review", "run_id": grant["lease"]["run_id"]},
+    )
+    assert runner.settle_released() == []
+    runner.retry_due(now=0.0)  # schedules the first resend
+    assert runner.retry_due(now=1e9) == [item["id"]]  # which delivers it
+    assert runner._records[item["id"]]["state"] == "delivered"
