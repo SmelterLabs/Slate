@@ -327,7 +327,7 @@ The agent reports as it goes: working (with how far along), blocked, ready for r
 
 ### The Agents page
 
-**Agents** under **More** shows every agent with a green dot when it is around, what it is on, how many open tasks it has, how busy it has been today, and a live feed of everything agents did (**Feed** on an agent narrows it to that agent). **Next up** above the feed says what each agent will do in the next 24 hours, soonest first: runs due, a **Run now** you pressed, questions asked of it, and the tasks it holds now. It follows the same rule agents use to pick work, so a task missing from it will not be picked up either (blocked, waiting on someone, or not due yet). Your morning digest carries the same list as **Agents today**.
+**Agents** under **More** shows every agent with a green dot when it is around, what it is on, how many open tasks it has, how busy it has been today, and a live feed of everything agents did (**Feed** on an agent narrows it to that agent). **Next up** above the feed says what each agent will do in the next 24 hours, soonest first: runs due, a **Run now** you pressed, questions asked of it, and the tasks it holds now. A held task reads **holding** while its run is going and **timed out** when the run stopped checking in: open that card and press **✕ Clear** once you know the run really stopped. It follows the same rule agents use to pick work, so a task missing from it will not be picked up either (blocked, waiting on someone, or not due yet). Your morning digest carries the same list as **Agents today**.
 
 ## Automations
 

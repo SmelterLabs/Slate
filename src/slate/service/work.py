@@ -102,6 +102,15 @@ CONTEXT_ENTRIES = 10
 # A task you reported blocked stays out of your `next` this long (unless the badge is cleared),
 # so a failing task is not retried at once; one waiting on someone else stays out until then.
 BLOCKED_PAUSE = timedelta(hours=1)
+# A lease is `working` until its time runs out, then `expired`: the task stays held until the
+# agent reconciles or a person clears the badge (`docs/state-machines.md`).
+LEASE_STATES = ("working", "expired")
+
+
+def lease_state(row: WorkLease, now: datetime | None = None) -> str:
+    """The one rule for a lease's state. The clock decides, not only the scheduler's
+    `quarantined` mark, so a lease is `expired` from the moment `until` passes."""
+    return "expired" if row.quarantined or row.until < (now or utcnow()) else "working"
 
 
 def lease_seconds(value: int | None) -> int:
@@ -438,12 +447,7 @@ def is_running(
 ) -> bool:
     """The account has a live lease on the item (a run of its own is going)."""
     row = session.get(WorkLease, item_id)
-    return (
-        row is not None
-        and row.account_id == account_id
-        and not row.quarantined
-        and row.until >= (now or utcnow())
-    )
+    return row is not None and row.account_id == account_id and lease_state(row, now) == "working"
 
 
 def request_stop(
@@ -458,7 +462,7 @@ def request_stop(
     now = now or utcnow()
     with apply_change(session, actor) as cx:
         row = session.get(WorkLease, item.id, populate_existing=True)
-        if row is None or row.quarantined or row.until < now:
+        if row is None or lease_state(row, now) == "expired":
             raise Conflict("no agent is working on this item")
         guests.refuse(session, actor.account_id, session.get(Account, row.account_id))
         already = _stop_of(session, row.account_id, item.id)
@@ -536,13 +540,14 @@ def remaining(session: Session, account_id: str, **scope: Any) -> int:
 # --- Take, keep, give back ------------------------------------------------------------------
 
 
-def lease_view(lease: WorkLease) -> dict[str, Any]:
+def lease_view(lease: WorkLease, now: datetime | None = None) -> dict[str, Any]:
     return {
         "run_id": lease.run_id,
         "item_id": lease.item_id,
         "account_id": lease.account_id,
         "claimed_at": lease.claimed_at,
         "until": lease.until,
+        "state": lease_state(lease, now),
     }
 
 
@@ -778,8 +783,7 @@ def _holding(
         or not row.run_id
         or not secrets.compare_digest(row.run_id, run_id)
         or row.account_id != actor.account_id
-        or row.quarantined
-        or row.until < (now or utcnow())
+        or lease_state(row, now) == "expired"
     ):
         raise Conflict("current run_id proof required; execution lease lost or expired")
     access.check_object(session, item)
@@ -1181,7 +1185,7 @@ def _refuse_if_working(session: Session, item: Item, now: datetime) -> None:
         return
     lease = session.get(WorkLease, item.id)
     if lease is not None and lease.account_id == item.agent_state_by:
-        if lease.until < now:
+        if lease_state(lease, now) == "expired":
             return
         since = lease.claimed_at
     else:

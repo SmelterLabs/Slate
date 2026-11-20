@@ -255,3 +255,25 @@ test('the task window edits title, autosaves the description, adds subtasks and 
   await expect(tw.locator('.activity')).toContainText('You edited the description');
   await expect(tw.locator('.activity')).toContainText('You renamed this to “Pay the water bill now”');
 });
+
+test('a description that fails to save stays in the box, and Retry sends it', async ({ page }) => {
+  await openList(page);
+  await page.locator('.card', { hasText: 'Pay the water bill' }).click();
+  const desc = page.locator('.tw').getByRole('region', { name: 'Description' });
+  const fail = (route: import('@playwright/test').Route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"down"}' })
+      : route.fallback();
+  await page.route('**/api/v1/items/*', fail);
+  await desc.locator('.md').click();
+  await desc.getByLabel('Description').fill('Kept after a failed save');
+  await desc.getByLabel('Description').press('Escape');
+  const retry = desc.getByRole('button', { name: /Not saved/ });
+  await expect(retry).toBeVisible();
+  await expect(desc.locator('.md')).toHaveText('Kept after a failed save');
+
+  await page.unroute('**/api/v1/items/*', fail);
+  await retry.click();
+  await expect(desc).toContainText('Saved', { timeout: 5000 });
+  await expect(desc.locator('.md')).toHaveText('Kept after a failed save');
+});

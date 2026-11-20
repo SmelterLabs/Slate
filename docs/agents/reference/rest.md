@@ -2306,7 +2306,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### InboxEntry
 
-`event`: InboxEvent, `reason`: `mention` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
+`event`: InboxEvent, `reason`: `mention` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
 
 ### InboxCount
 
@@ -2382,7 +2382,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### LeaseOut
 
-`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time
+`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `state`: `working` \| `expired`
 
 ### ClearOut
 
@@ -2402,7 +2402,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### HeartbeatOut
 
-`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `stop`: StopOut?, `messages`: [CommentOut]
+`run_id`: string?, `item_id`: string, `account_id`: string, `claimed_at`: date-time, `until`: date-time, `state`: `working` \| `expired`, `stop`: StopOut?, `messages`: [CommentOut]
 
 ### LiveActivityOut
 

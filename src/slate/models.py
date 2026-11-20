@@ -29,7 +29,7 @@ from sqlalchemy import (
     event,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from slate.db import Base
 from slate.ids import new_event_id, new_id
@@ -156,6 +156,39 @@ class RecurTrigger(enum.StrEnum):
 
     schedule = "schedule"
     on_done = "on_done"
+
+
+class DeliveryState(enum.StrEnum):
+    """One webhook delivery attempt (`deliveries.state`, service/deliveries.py): `pending` is
+    queued, `sending` is claimed by the dispatcher; then `ok`, `retry` (a later attempt row
+    exists), `failed` (final) or `skipped` (not sent: the subscription was disabled or lost
+    its access first)."""
+
+    pending = "pending"
+    sending = "sending"
+    ok = "ok"
+    retry = "retry"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class SendState(enum.StrEnum):
+    """One push or email notification for one event (`push_deliveries.state`,
+    `email_deliveries.state`): `pending` until it is `sent`, `failed` (out of attempts or
+    time) or `dropped` (no longer wanted: seen, access changed, the device is gone)."""
+
+    pending = "pending"
+    sent = "sent"
+    failed = "failed"
+    dropped = "dropped"
+
+
+def _state_of(cls: type[enum.StrEnum], value: str) -> str:
+    """A state column's value, refused unless the queue's vocabulary names it. The columns
+    are plain text, so this is what keeps a misspelt state out of the database."""
+    if value not in cls._value2member_map_:
+        raise ValueError(f"{value!r} is not a {cls.__name__}: {', '.join(cls)}")
+    return str(value)
 
 
 def _pk() -> Mapped[str]:
@@ -570,6 +603,10 @@ class Delivery(Base):
     next_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     body: Mapped[str] = mapped_column(Text, default="")
 
+    @validates("state")
+    def _check_state(self, _key: str, value: str) -> str:
+        return _state_of(DeliveryState, value)
+
 
 class Attachment(Base):
     __tablename__ = "attachments"
@@ -812,6 +849,10 @@ class PushDelivery(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
+    @validates("state")
+    def _check_state(self, _key: str, value: str) -> str:
+        return _state_of(SendState, value)
+
 
 class EmailDelivery(Base):
     """One event waiting to be emailed to one account (service/email.py), or the outcome.
@@ -830,6 +871,10 @@ class EmailDelivery(Base):
     state: Mapped[str] = mapped_column(String(16), default="pending")
     send_after: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+
+    @validates("state")
+    def _check_state(self, _key: str, value: str) -> str:
+        return _state_of(SendState, value)
 
 
 class Doc(Base):

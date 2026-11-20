@@ -112,6 +112,10 @@ def test_expiry_notice_once_to_guest_and_inviter(client, alex, todo, db):
     assert mine[0]["item_title"] == "Access to Personal"
     theirs = [e for e in inbox.entries(db, inviter) if e["reason"] == "access"]
     assert len(theirs) == 1
+    # The route serves it: the API's reason vocabulary knows `access`.
+    r = client.get(f"{API}/inbox", headers=alex)
+    assert r.status_code == 200, r.text
+    assert "access" in {e["reason"] for e in r.json()}
     told = push.notification_for(db, note, "access")
     assert "ends" in told["title"] and "alex" in told["body"].lower()
     assert told["url"] == f"/#/section/{todo['section_id']}"

@@ -228,6 +228,22 @@ def _watch_news(ev: Event) -> bool:
 # on the account (an agent's blocked reply: a comment, a report and the waiting_on change),
 # the `waiting` entry says it all and these are dropped (`waiting_covers`).
 FOLLOW_REASONS = frozenset({"comment", "status", "update", "archived", "moved", "watching"})
+# Every reason `reason_for()` gives (the module docstring says what each means). The API's
+# `Reason` repeats it; `tests/test_state_vocabularies.py` keeps the three in step.
+REASONS = (
+    "mention",
+    "reply",
+    "assigned",
+    "waiting",
+    "due",
+    "unblocked",
+    "nudge",
+    "reminder",
+    "digest",
+    "health",
+    "access",
+    *sorted(FOLLOW_REASONS),
+)
 SAME_CHANGE = timedelta(seconds=2)
 
 

@@ -60,6 +60,10 @@ class PlanLeaseOut(BaseModel):
     title: str | None
     claimed_at: datetime
     until: datetime
+    state: Literal["working", "expired"] = Field(
+        description="working: a run holds it. expired: the lease ran out and the task stays "
+        "held until the agent reconciles or a person clears its badge"
+    )
     age_seconds: int = Field(description="How long it has held the task")
 
 

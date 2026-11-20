@@ -75,7 +75,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
 
 - **Work loop** (`service/work.py`, `api/work.py`, MCP `slate_work`): `POST /work/next` takes the
   best free task for the caller, `POST /work/{id}/heartbeat` keeps it, `POST /work/{id}/finish`
-  reports back, `GET /work` lists what the caller holds. A take is an ordinary claim
+  reports back, `GET /work` lists what the caller holds, each with its `state` (`working` or
+  `expired`, from `work.lease_state`; `docs/state-machines.md`). A take is an ordinary claim
   (`reports.report(state="working", claim=True, comment=False)`), so the board needs nothing extra:
   `item.reported` + `item.assigned` events. On top of it sits a **lease** in `work_leases`
   (one row per held item: account, `until`, `run_id`). The lease is

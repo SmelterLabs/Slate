@@ -108,6 +108,11 @@ class LeaseOut(BaseModel):
         description="Heartbeat before this. A lease that runs out holds the task, quarantined "
         "(you stay assigned), until you reconcile with your run_id or a person clears its badge"
     )
+    state: Literal["working", "expired"] = Field(
+        description="working: the lease is live, keep it with a heartbeat. expired: it ran "
+        "out; heartbeat and finish are refused until you reconcile with the run's proof or a "
+        "person clears the badge"
+    )
 
 
 class StopOut(BaseModel):

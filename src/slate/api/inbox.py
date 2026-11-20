@@ -23,6 +23,7 @@ Reason = Literal[
     "reminder",
     "digest",
     "health",
+    "access",
     "comment",
     "status",
     "update",

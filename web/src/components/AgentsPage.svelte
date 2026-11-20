@@ -11,7 +11,7 @@
   import { shownProgress } from '../lib/conversation';
   import { ago, fullStamp } from '../lib/format';
   import { verb } from '../lib/history';
-  import { heldFor, movesPlan, planWhen, REASON_LABEL, type AgentPlan, type PlanOut } from '../lib/plan';
+  import { leaseLine, movesPlan, planWhen, REASON_LABEL, type AgentPlan, type PlanOut } from '../lib/plan';
   import { board } from '../lib/store.svelte';
   import type { AgentEntry, SlateEvent } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -286,10 +286,11 @@
               <b>{a.display_name}</b>
               <ul>
                 {#each a.leases as l (l.item_id)}
-                  <li class="holding">
-                    <span class="when">holding</span>
+                  {@const line = leaseLine(l)}
+                  <li class="holding" data-lease-state={l.state}>
+                    <span class="when">{line.when}</span>
                     <button class="link item" onclick={() => board.open(l.item_id)}>{l.title ?? l.item_id}</button>
-                    <span class="why muted">{heldFor(l.age_seconds)}</span>
+                    <span class="why muted">{line.why}</span>
                   </li>
                 {/each}
                 {#each a.next as n (n.item_id)}
