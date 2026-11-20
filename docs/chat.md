@@ -83,9 +83,10 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
 - **"<agent> is working…":** while an agent's chat turn is open,
   `components/chat/AgentWorking.svelte` shows one quiet line under the last
   message (the agent's robot avatar, pulsing dots): **will answer…** between the mention and the
-  runner's take, **is working…** from the take to the end. Two states on purpose: "will answer"
-  that lingers says the runner has not picked the mention up (runner off), which "working" would
-  hide. A thread's turn shows in the thread pane only (`turnsIn(turns, rootId)`), a channel's
+  runner's take, **is working…** from the take to the end. A mention still waiting after
+  `PICKUP_WAIT_MS` (two minutes, `lib/pickup.ts`) reads **hasn't picked this up** instead
+  (`chat.turnLine`), the same wait and words as a question on a card: the runner is off, and
+  the dots would claim work that is not happening. A thread's turn shows in the thread pane only (`turnsIn(turns, rootId)`), a channel's
   under the channel's messages only; `ChannelView` serves the Chat page, the Chat tab and the panel
   alike. State: `chat.turns[channel]` (`chat.svelte.ts`), seeded from `GET /channels`
   `agent_turns` (`chat.agent_turns()`: a `ChatWake` row not taken is `waiting`, a taken one with a
