@@ -312,7 +312,7 @@ The agent reports as it goes: working (with how far along), blocked, ready for r
 
 - **Later.** When the agent has done what it can and the rest waits for the due time (you already gave it the go), it says so in its comment and leaves no badge: the card is not waiting on you, stays assigned, and the due time runs the agent again.
 - **Paused.** If a run stops without saying where things stand, the card waits on you with a "Paused" note; reply on the card to let it carry on.
-- **A run that lost contact.** If the agent stops checking in, Slate does not start the task again blindly: the badge turns blocked with *Execution lease expired*, because the run may still be going. Check that it really stopped, then press **✕ Clear**; the agent can pick the card up again.
+- **A run that lost contact.** If the agent stops checking in, Slate does not start the task again blindly: the badge turns blocked with *Execution lease expired*, because the run may still be going. Check that it really stopped, then press **✕ Clear**; the agent can pick the card up again. A card that was closed while the agent worked on it gets no such badge: the agent is told to stop, and the run is settled on its own. An agent that closes its own card can still post its final answer.
 - **Ready for review** clears only when you press **Mark reviewed** on the badge or change the card's status yourself; opening and closing the window does not.
 - **✕ Clear** on a blocked badge takes it off the card; it leaves the card's *Waiting on* field alone.
 - **Open ↗** on the badge goes to where the agent says it is working (its chat, session or pull request). After the run, the task window keeps an **Open My Agent's session ↗** line for every agent that worked the card.

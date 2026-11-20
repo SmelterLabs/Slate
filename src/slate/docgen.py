@@ -156,7 +156,9 @@ EVENT_DOCS: dict[str, str] = {
     "answer (`GET /comments/{id}/run`). "
     "An agent finished a taken turn (`after.through` = its work-start "
     "event id, `outcome`). Earlier Ask assignments no longer dispatch that agent; they remain "
-    "visible until resolved. New/reassigned Asks remain pending.",
+    "visible until resolved. New/reassigned Asks remain pending. With `reconciled` when the "
+    "attempt was settled without a finish: the agent's reconcile, a person's Clear, or (actor "
+    "`system`, `runtime_state` `unknown`) a lease that ran out on a closed card.",
     "comment.assigned": "A comment was addressed to an account: an Ask, open until resolved "
     "(`after.assignee` handle, `assignee_id`, `comment_id`; `assignee` null when taken off; "
     "`reply` true when it is the waited-on person's answer to an agent that reported the item "

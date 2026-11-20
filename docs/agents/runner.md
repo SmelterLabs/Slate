@@ -377,6 +377,12 @@ a fresh grant for that key (the server only gives one once the attempt is settle
 it. A grant for a key the runner is still busy with (an undelivered result, say) is given back
 at once with a `stopped` reconcile, never left to expire into a new quarantine.
 
+**A card closed during a run.** When someone else closes, cancels, archives or unassigns the
+card, the next heartbeat is refused and the runner stops the command; the server settles the
+lease of a closed card when it runs out, with no badge, and the record is then forgotten as
+below. When the agent closes its own card through the API or MCP, the run goes on and its
+result line is delivered as usual.
+
 **A settled attempt is forgotten.** Once a minute the live loop asks `GET /work` which tasks the
 account still holds. A task record that is `reconciliation_required` or undelivered is kept
 while the server still holds its lease (live, or expired and waiting for a reconcile or a

@@ -787,7 +787,20 @@ def _holding(
     ):
         raise Conflict("current run_id proof required; execution lease lost or expired")
     access.check_object(session, item)
-    status = session.get(Status, item.status_id) if item.status_id else None
+    ended = _ended(session, item, row)
+    if (
+        ended == "archived"
+        or (ended and not _closed_it(session, item, row))
+        or (not row.asked_only and not _is_assigned(session, item.id, actor.account_id))
+    ):
+        raise Conflict("work was closed, archived or unassigned; stop execution")
+    return row
+
+
+def _ended(session: Session, item: Item, row: WorkLease) -> str | None:
+    """Why the card needs no more work from this lease: `archived` (the card, its list or its
+    section), `closed` (cancelled, or done unless the holder took it to answer an Ask on a
+    card that was done already), or None."""
     lst = session.get(List, item.list_id)
     section = session.get(Section, lst.section_id) if lst else None
     if (
@@ -796,12 +809,26 @@ def _holding(
         or lst.archived_at
         or section is None
         or section.archived_at
-        or (status and status.kind == StatusKind.cancelled)
-        or (not row.asked_only and status and status.kind == StatusKind.done)
-        or (not row.asked_only and not _is_assigned(session, item.id, actor.account_id))
     ):
-        raise Conflict("work was closed, archived or unassigned; stop execution")
-    return row
+        return "archived"
+    status = session.get(Status, item.status_id) if item.status_id else None
+    if status is None:
+        return None
+    if status.kind == StatusKind.cancelled:
+        return "closed"
+    return "closed" if status.kind == StatusKind.done and not row.asked_only else None
+
+
+def _closed_it(session: Session, item: Item, row: WorkLease) -> bool:
+    """Did the lease's holder set the card's current status itself? Its own close is its
+    answer, not a stop from someone else: the run still heartbeats and reports back."""
+    by = session.scalar(
+        select(Event.actor_id)
+        .where(Event.item_id == item.id, Event.type == "item.status_changed")
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    return by == row.account_id
 
 
 def heartbeat(
@@ -963,6 +990,10 @@ def finish(
             # Only asked, not its card: it may wait on whoever asked it, nobody else. Blocked on
             # a third person ("someone else's job") is just its answer: no badge, no waiting-on.
             state, waiting_on = "idle", None
+        if row is not None and state in ("review", "blocked") and _ended(session, item, row):
+            # The agent closed the card itself during this run: a closed card carries no flag
+            # and waits on nobody. Its answer is still posted.
+            state, waiting_on = "done", None
         reports.report(
             session,
             actor,
@@ -1266,6 +1297,9 @@ def _expire_lease(session: Session, actor: Actor, row: WorkLease, now: datetime)
         item = session.get(Item, row.item_id, populate_existing=True)
         if item is None:
             return 0
+        if _ended(session, item, row) == "closed":
+            _settle_closed(session, cx, item, row)
+            return 1
         before = reports.flag_of(item)
         row.quarantined = True
         if item.agent_state == AgentState.working and item.agent_state_by == row.account_id:
@@ -1285,6 +1319,32 @@ def _expire_lease(session: Session, actor: Actor, row: WorkLease, now: datetime)
             covers=[item],
         )
     return 1
+
+
+def _settle_closed(session: Session, cx: Any, item: Item, row: WorkLease) -> None:
+    """A lease that ran out on a closed card is settled, not quarantined. The quarantine keeps a
+    card from being run twice at once; a closed card is not run again, every heartbeat since the
+    close told the holder to stop, and a "confirm the runtime stopped before retrying" badge on
+    a finished card asks a person for nothing they can act on. Records `item.work_finished`
+    (reconciled, `runtime_state` `unknown`), clears the holder's flag and drops the lease."""
+    start = _turn_start(session, row.account_id, item.id)
+    if item.agent_state_by == row.account_id:
+        reports.clear_flag(cx, item)
+    cx.record(
+        "item.work_finished",
+        item_id=item.id,
+        after={
+            "through": start.id if start else None,
+            "outcome": "release",
+            "reconciled": True,
+            "expired": True,
+            "runtime_state": "unknown",
+            "evidence": "The card was closed and the lease ran out",
+            "run_digest": _digest(row.run_id) if row.run_id else None,
+        },
+        covers=[item],
+    )
+    session.delete(row)
 
 
 def reconcile(
