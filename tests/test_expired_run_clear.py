@@ -141,6 +141,10 @@ def test_runner_takes_a_card_again_once_its_lost_attempt_is_settled(
         "state": "taken",
         "remote_state": "not_started",
     }
+    # The new grant is a new execution: its result is delivered. The fence the lost attempt
+    # left on this card must not outlive that attempt.
+    assert runner.run(again) != "reconciliation_required"
+    assert runner._records[item["id"]]["state"] == "delivered"
 
 
 def test_runner_gives_back_a_grant_it_will_not_run(client, alex, todo, make_account, tmp_path, db):
