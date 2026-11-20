@@ -377,6 +377,15 @@ a fresh grant for that key (the server only gives one once the attempt is settle
 it. A grant for a key the runner is still busy with (an undelivered result, say) is given back
 at once with a `stopped` reconcile, never left to expire into a new quarantine.
 
+**A settled attempt is forgotten.** Once a minute the live loop asks `GET /work` which tasks the
+account still holds. A task record that is `reconciliation_required` or undelivered is kept
+while the server still holds its lease (live, or expired and waiting for a reconcile or a
+Clear), because the record carries the run proof. When the server no longer lists the task,
+the attempt is settled and the record is dropped with a log line, whether or not the card is
+ever granted again: a finished card leaves no record behind to block the drained receipt, and
+a result the server will never accept stops being resent. Chat and doc turn records are not
+leases and are not checked.
+
 For a noninterrupting upgrade, create each runner state path with suffix `.drain`, then wait
 for its `.status.json` with matching current pid, fresh timestamp, admission_closed=true and
 drained=true. Admission stays closed. Pending/unknown results or unstarted persisted claims
