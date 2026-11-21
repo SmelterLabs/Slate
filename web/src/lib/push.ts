@@ -54,7 +54,6 @@ export const DEFAULT_PUSH_REASONS = [
   "chat",
   "assigned",
   "waiting",
-  "failed",
   "due",
   "unblocked",
   "nudge",
@@ -62,6 +61,7 @@ export const DEFAULT_PUSH_REASONS = [
   "digest",
   "health",
   "access",
+  "failed",
   "watching",
 ];
 

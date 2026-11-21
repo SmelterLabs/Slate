@@ -237,7 +237,7 @@ def test_runner_a_failing_command_finishes_failed_and_waits_on_nobody(
     monkeypatch.setenv("RUN_ONE_FAIL", "1")
     runner = _runner(client, h, tmp_path)
 
-    assert runner.once(item["id"]) in (1, 3)  # 3 until the server accepts `failed`
+    assert runner.once(item["id"]) == 1
     saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]["result"]
     assert saved["outcome"] == "failed"
     assert "could not reach the printer" in saved["note"]
@@ -286,7 +286,7 @@ def test_runner_plain_output_exit_zero_is_not_terminal_evidence(
     item = _assign(client, alex, todo, title="Say hi")
     cmd = f'"{sys.executable}" -c "print(\'hello from the agent\')"'
     runner = _runner(client, h, tmp_path, cmd)
-    assert runner.once(item["id"]) in (1, 3)  # 3 until the server accepts `failed`
+    assert runner.once(item["id"]) == 1
     saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]["result"]
     assert saved["outcome"] == "failed"
     assert "without an explicit terminal result" in saved["note"]
@@ -306,7 +306,7 @@ def test_runner_passes_the_agents_reply_and_thread_to_the_card(
         "task = json.load(sys.stdin)\n"
         "open(sys.argv[1], 'a').write(json.dumps(task.get('reply')) + '\\n')\n"
         "print(json.dumps({'note': 'Opened a session', 'thread': {'ref': 'sess-9'}}))\n"
-        "out = {'outcome': 'blocked', 'waiting_on': 'alex', 'reply': 'Sign in here: x'}\n"
+        "out = {'outcome': 'ask', 'question': 'Signed in yet?', 'reply': 'Sign in here: x'}\n"
         "if task.get('reply'):\n"
         "    out = {'outcome': 'done', 'reply': 'Verified', 'thread': task['thread']}\n"
         "print(json.dumps(out))\n"

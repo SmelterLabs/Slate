@@ -99,7 +99,7 @@ def test_a_message_then_stop_reach_the_command_and_show_on_the_card(
     assert client.post(f"{API}/items/{item['id']}/stop", headers=alex).status_code == 202
     _control(runner, item["id"], "item.stop_requested")
     thread.join(20)
-    assert done[0] in (1, 3)  # 3 until the server accepts `answered`
+    assert done[0] == 1
     saved = runner._records[item["id"]]["result"]
     assert saved["outcome"] == "answered"
     assert saved["reply"] == "Stopped after reading 1 message(s)"
@@ -120,7 +120,7 @@ def test_a_command_that_ignores_stop_is_ended_and_the_card_says_who_stopped_it(
     assert client.post(f"{API}/items/{item['id']}/stop", headers=alex).status_code == 202
     _control(runner, item["id"], "item.stop_requested")
     thread.join(30)
-    assert done[0] in (1, 3)  # 3 until the server accepts `answered`
+    assert done[0] == 1
     saved = runner._records[item["id"]]["result"]
     assert saved["outcome"] == "answered"
     assert saved["reply"].startswith("Stopped at @alex's request")
