@@ -90,8 +90,8 @@ describe('what each kind of event asks of the store', () => {
     }
   });
 
-  it('tag, view, favorite and capacity events each reload their own cache and touch no item', () => {
-    const flags: Record<string, keyof Effects> = { tag: 'tags', view: 'views', favorite: 'favorites', capacity: 'capacities' };
+  it('tag, view and favorite events each reload their own cache and touch no item', () => {
+    const flags: Record<string, keyof Effects> = { tag: 'tags', view: 'views', favorite: 'favorites' };
     for (const t of EVENT_TYPES) {
       const flag = flags[t.split('.')[0]];
       if (!flag) continue;
@@ -105,7 +105,7 @@ describe('what each kind of event asks of the store', () => {
   });
 
   it('events about accounts, tokens, docs, chat, webhooks and the rest change no item', () => {
-    const quiet = EVENT_TYPES.filter((t) => !ITEM_KINDS.has(t.split('.')[0]) && !/^(section|list|tag|view|favorite|capacity)\./.test(t));
+    const quiet = EVENT_TYPES.filter((t) => !ITEM_KINDS.has(t.split('.')[0]) && !/^(section|list|tag|view|favorite)\./.test(t));
     expect(quiet.length).toBeGreaterThan(50);
     for (const t of quiet) {
       const d = board();

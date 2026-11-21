@@ -63,7 +63,6 @@ from slate.api import today as today_api
 from slate.api import views as views_api
 from slate.api import webhooks as webhooks_api
 from slate.api import work as work_api
-from slate.api import workload as workload_api
 from slate.api.accounts import AccountPatch, TokenIn, me_view
 from slate.api.auth import Auth
 from slate.api.automations import AutomationPatch, RunNowIn
@@ -106,7 +105,6 @@ from slate.api.schemas import (
 from slate.api.views import ViewPatch
 from slate.api.webhooks import WebhookPatch
 from slate.api.work import FinishIn, FinishOut, HeartbeatIn, NextIn, NextOut
-from slate.api.workload import CapacityIn
 from slate.batch import Later
 from slate.service import items, work
 from slate.service.accounts import Principal
@@ -1635,32 +1633,6 @@ DOC_ACTIONS = {
     ),
 }
 
-# Workload -----------------------------------------------------------------------------------
-
-WORKLOAD_ACTIONS = {
-    "boxes": bind(
-        workload_api.get_boxes,
-        "the Box view: per person and agent (and unassigned) open, in progress, overdue and "
-        "recently done counts, with open minutes against this week's capacity",
-    ),
-    "capacities": bind(
-        workload_api.list_capacities,
-        "every person's and agent's capacity (hours a day, tasks a day, days)",
-    ),
-    "capacity": bind(workload_api.get_capacity, "one account's capacity", AccountRef),
-    "set_capacity": bind(
-        workload_api.set_capacity,
-        "set your own capacity (or anyone's as an admin): hours_per_day, tasks_per_day "
-        "(null = no limit) and work_days (0 = Monday)",
-        with_id(CapacityIn, "account_id", "Account id (a person or an agent)"),
-    ),
-    "reset_capacity": bind(
-        workload_api.reset_capacity,
-        "put an account's capacity back to the defaults for its kind",
-        AccountRef,
-    ),
-}
-
 # Reminders ----------------------------------------------------------------------------------
 
 REMINDER_ACTIONS = {
@@ -1843,16 +1815,6 @@ TOOLS: dict[str, ToolSpec] = {
             },
             AUTOMATION_ACTIONS,
             destructive=True,
-        ),
-        ToolSpec(
-            "slate_workload",
-            "Slate workload",
-            "Who has how much on: the Box view's per-person and per-agent counts (open, in "
-            "progress, overdue, recently done) and open minutes against this week's capacity. "
-            "Use boxes before handing work to someone, and set_capacity to say how much you "
-            "can take on.",
-            {"action": "boxes", "params": {"kinds": "agents"}},
-            WORKLOAD_ACTIONS,
         ),
         ToolSpec(
             "slate_reminder",

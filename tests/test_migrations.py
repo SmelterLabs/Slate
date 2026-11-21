@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import sqlite3
@@ -160,6 +161,7 @@ def _row(conn: sqlite3.Connection, table: str, **values: object) -> None:
 
 
 DEAD_COLUMNS = {
+    "items": {"estimate_minutes"},
     "comments": {"anchor_version_id", "anchor_start", "anchor_end", "anchor_quote"},
     "attachments": {"path"},
     "work_leases": {"from_pool"},
@@ -189,6 +191,7 @@ def test_dead_columns_and_the_doc_item_kind_are_dropped_and_rows_kept(tmp_path):
             kind="task",
             priority="normal",
             created_by="acc000000001",
+            estimate_minutes=30,
         )
         _row(
             conn,
@@ -210,12 +213,49 @@ def test_dead_columns_and_the_doc_item_kind_are_dropped_and_rows_kept(tmp_path):
             path="db:att000000001",
         )
         _row(conn, "work_leases", item_id="itm000000001", account_id="acc000000001", from_pool=1)
+        _row(conn, "capacities", id="cap000000001", account_id="acc000000001", tasks_per_day=2)
+        kept_rule = {"field": "blocked", "cmp": "is", "value": True}
+        estimate_rule = {"field": "estimate", "cmp": "gt", "value": 10}
+        kept_sort = {"field": "due", "dir": "asc"}
+        config = {
+            "layout": "list",
+            "card_fields": ["priority", "estimate"],
+            "sort": [{"field": "estimate", "dir": "asc"}, kept_sort],
+            "filter": {"op": "and", "rules": [{"op": "or", "rules": [estimate_rule, kept_rule]}]},
+        }
+        _row(
+            conn,
+            "views",
+            id="vw0000000001",
+            owner_id="acc000000001",
+            scope_kind="everything",
+            config_json=json.dumps(config),
+        )
+        conn.execute(
+            "UPDATE accounts SET prefs_json = ? WHERE id = 'acc000000001'",
+            (json.dumps({"theme": "dark", "view_drafts": {"vw0000000001": config}}),),
+        )
     up = _alembic(db, "upgrade", "head")
     assert up.returncode == 0, up.stderr
     with sqlite3.connect(db) as conn:
         for table, gone in DEAD_COLUMNS.items():
             assert not gone & _columns(conn, table), table
-            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (1,)
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (
+                2 if table == "items" else 1,
+            )
+        assert not _columns(conn, "capacities")
+        expected = {
+            **config,
+            "card_fields": ["priority"],
+            "sort": [kept_sort],
+            "filter": {"op": "and", "rules": [{"op": "or", "rules": [kept_rule]}]},
+        }
+        assert json.loads(conn.execute("SELECT config_json FROM views").fetchone()[0]) == expected
+        prefs = conn.execute("SELECT prefs_json FROM accounts WHERE id = 'acc000000001'")
+        assert json.loads(prefs.fetchone()[0]) == {
+            "theme": "dark",
+            "view_drafts": {"vw0000000001": expected},
+        }
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert conn.execute("SELECT DISTINCT kind FROM items").fetchall() == [("task",)]
         with pytest.raises(sqlite3.IntegrityError):
@@ -229,4 +269,5 @@ def test_dead_columns_and_the_doc_item_kind_are_dropped_and_rows_kept(tmp_path):
     with sqlite3.connect(db) as conn:
         for table, gone in DEAD_COLUMNS.items():
             assert gone <= _columns(conn, table), table
+        assert conn.execute("SELECT count(*) FROM capacities").fetchone() == (0,)
         assert conn.execute("SELECT path FROM attachments").fetchone() == ("db:att000000001",)

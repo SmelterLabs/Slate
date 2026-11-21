@@ -3,7 +3,6 @@
   // (click again to flip); rows can be dragged onto a group header, and with the manual sort
   // between two rows to put them in order (lib/slots.ts).
   import { beforeAt, slotFor } from '../lib/slots';
-  import { formatEstimate } from '../lib/format';
   import { board } from '../lib/store.svelte';
   import { GROUP_TYPE, isManual, markSourceGroup, refusal, type Group, type SortField, type ViewConfig } from '../lib/views';
   import ItemRow from './ItemRow.svelte';
@@ -12,7 +11,6 @@
   let { groups, config, wide }: { groups: Group[]; config: ViewConfig; wide: boolean } = $props();
 
   const PAGE = 100;
-  const groupMinutes = (g: Group) => g.items.reduce((n, i) => n + (i.estimate_minutes ?? 0), 0);
   let collapsed = $state<Record<string, boolean>>({});
   let limits = $state<Record<string, number>>({});
   let dragOver = $state<string | null>(null);
@@ -135,7 +133,6 @@
           <span>{g.title}</span>
           {#if g.hint && g.hint !== g.title}<span class="muted small">{g.hint}</span>{/if}
           <span class="count">{g.items.length}</span>
-          {#if groupMinutes(g)}<span class="muted small group-total" title="Estimates in this group">{formatEstimate(groupMinutes(g))}</span>{/if}
         </button>
       {/if}
       {#if !collapsed[g.key]}

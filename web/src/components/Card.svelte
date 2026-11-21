@@ -8,7 +8,7 @@
   import { DOT_TITLE } from '../lib/commentdots';
   import { copyText } from '../lib/clipboard';
   import { itemHasDraft } from '../lib/drafts.svelte';
-  import { blockedTitle, formatEstimate, openBlockers } from '../lib/format';
+  import { blockedTitle, openBlockers } from '../lib/format';
   import { shortRule } from '../lib/rrule';
   import { board } from '../lib/store.svelte';
   import type { Item, Tag } from '../lib/types';
@@ -258,9 +258,6 @@
       <span class="pill muted-pill" title={rule?.description ? `Repeats ${rule.description}` : 'Recurring'} data-repeat
         ><Icon name="repeat" />{rule ? shortRule(rule) : 'Recurring'}</span
       >
-    {/if}
-    {#if show.has('estimate') && item.estimate_minutes}
-      <span class="pill muted-pill" title="Time estimate"><Icon name="hourglass" />{formatEstimate(item.estimate_minutes)}</span>
     {/if}
     {#if item.duplicate_of?.length && !item.archived_at}
       <span class="pill muted-pill" title="Marked as a duplicate of {board.items[item.duplicate_of[0]]?.title ?? 'another task'}"

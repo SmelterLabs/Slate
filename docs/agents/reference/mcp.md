@@ -2,7 +2,7 @@
 
 # MCP reference
 
-28 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
+27 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
 
 `*` marks a required param. **REST** is the call the action makes in stdio mode and the route that does the same over HTTP.
 
@@ -14,8 +14,8 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 |---|---|---|---|---|
 | `get` | `read` | `id`\* | `GET /items/{item_id}` | the item with subtasks, comments and last 20 events |
 | `list` | `read` | `list_id`, `section_id`, `status`, `assignee`, `tag`, `external_ref`, `due_before`, `due_after`, `q`, `stale`, `include_archived`, `archived`, `trashed`, `closed`, `order`, `kind`, `blocked`, `changed_since`, `fields`, `limit`, `offset`, `ids`, `open_comment_for` | `GET /items` | items matching every filter given (AND); `fields` trims each item, `changed_since` returns only items changed after an event id, `limit`/`offset` page |
-| `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
-| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
+| `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
+| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
 | `set_status` | `write` | `id`\*, `status`\* | `PATCH /items/{item_id}` | move to a status of its list (done stamps completed_at) |
 | `assign` | `write` | `id`\*, `assignees`\* | `PATCH /items/{item_id}` | set who it is assigned to (replaces the set; to take an item yourself, `report` with assign_me) |
 | `tag` | `write` | `id`\*, `tags`\* | `PATCH /items/{item_id}` | set its tags |
@@ -136,18 +136,6 @@ Automations are when-this-then-that rules on a list, section or everywhere: a tr
 | `run` | `write` | `item_id`\*, `id`\* | `POST /automations/{automation_id}/run` | run a rule's actions on one item now (trigger and conditions skipped) |
 | `rotate_secret` | `write` | `id`\* | `POST /automations/{automation_id}/secret` | a new secret for verifying the rule's webhook signatures (shown once) |
 | `runs` | `read` | `id`, `limit` | `GET /automation-runs` | the run log, newest first: what fired, on which item, how each action went |
-
-## `slate_workload`
-
-Who has how much on: the Box view's per-person and per-agent counts (open, in progress, overdue, recently done) and open minutes against this week's capacity. Use boxes before handing work to someone, and set_capacity to say how much you can take on.
-
-| Action | Scope | Params | REST | What |
-|---|---|---|---|---|
-| `boxes` | `read` | `kinds`, `section_id`, `list_id`, `done_days` | `GET /workload/boxes` | the Box view: per person and agent (and unassigned) open, in progress, overdue and recently done counts, with open minutes against this week's capacity |
-| `capacities` | `read` | `kinds` | `GET /capacities` | every person's and agent's capacity (hours a day, tasks a day, days) |
-| `capacity` | `read` | `account_id`\* | `GET /accounts/{account_id}/capacity` | one account's capacity |
-| `set_capacity` | `write` | `hours_per_day`, `tasks_per_day`, `work_days`, `account_id`\* | `PATCH /accounts/{account_id}/capacity` | set your own capacity (or anyone's as an admin): hours_per_day, tasks_per_day (null = no limit) and work_days (0 = Monday) |
-| `reset_capacity` | `write` | `account_id`\* | `DELETE /accounts/{account_id}/capacity` | put an account's capacity back to the defaults for its kind |
 
 ## `slate_reminder`
 
@@ -311,7 +299,7 @@ Docs are nested Markdown pages (plans, notes, specs, logs) in a list, a section 
 | `version` | `read` | `id`\*, `version_no`\* | `GET /docs/{doc_id}/versions/{version_no}` | one version with its body |
 | `diff` | `read` | `from_version`\*, `to_version`, `id`\* | `GET /docs/{doc_id}/diff` | unified diff of the body between two versions (default to: the current text) |
 | `restore` | `write` | `id`\*, `version_no`\* | `POST /docs/{doc_id}/versions/{version_no}/restore` | put an older version's title and body back (as a new version) |
-| `create_task` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`, `id`\* | `POST /docs/{doc_id}/tasks` | file one task from the page: replace names the text that becomes its live card (else the card is added at the end); the task links back. Slate rule: create makes exactly one item; use split for subtasks. |
+| `create_task` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`, `id`\* | `POST /docs/{doc_id}/tasks` | file one task from the page: replace names the text that becomes its live card (else the card is added at the end); the task links back. Slate rule: create makes exactly one item; use split for subtasks. |
 | `attach` | `write` | `filename`\*, `content_base64`\*, `content_type`, `id`\* | `POST /docs/{doc_id}/files/base64` | upload an image or file into the page; paste the returned markdown into the body |
 | `remove_file` | `write` | `file_id`\* | `DELETE /doc-files/{file_id}` | remove an uploaded file |
 | `upload` | `write` | `filename`\*, `content_base64`\*, `content_type`, `note`\*, `id`\* | `POST /docs/{doc_id}/revisions/base64` | the next revision of a file doc (a PDF, spreadsheet, photo); the previous revision stays, superseded; note says what changed and is required |

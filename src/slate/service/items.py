@@ -72,11 +72,8 @@ UPDATABLE = frozenset(
         "external_ref",
         "assignees",
         "tags",
-        "estimate_minutes",
     }
 )
-
-MAX_ESTIMATE = 60 * 24 * 365
 
 
 def _due_date_only(fields: Mapping[str, Any]) -> bool:
@@ -111,14 +108,6 @@ def _priority(value: str | None) -> Priority | None:
         return Priority(value)
     except ValueError:
         raise Invalid(f"priority must be one of {[p.value for p in Priority]} or null") from None
-
-
-def _estimate(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_ESTIMATE:
-        raise Invalid("estimate_minutes must be a whole number of minutes (0 to a year) or null")
-    return value or None
 
 
 def _external_ref(value: Any) -> str | None:
@@ -312,7 +301,6 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 ],
                 "tags": tag_names[item.id],
                 "subtask_count": subtasks.get(item.id, 0),
-                "estimate_minutes": item.estimate_minutes,
                 "blocked_by": links[item.id]["blocked_by"],
                 "blocking": links[item.id]["blocking"],
                 "related": links[item.id]["related"],
@@ -757,7 +745,6 @@ def _new_item(
         waiting_on_account_id=resolve_account(session, waiting).id if waiting else None,
         acceptance_md=fields.get("acceptance_md"),
         external_ref=_external_ref(fields.get("external_ref")),
-        estimate_minutes=_estimate(fields.get("estimate_minutes")),
         position=position,
         created_by=actor.account_id,
     )
@@ -893,8 +880,6 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
         values["acceptance_md"] = changes["acceptance_md"]
     if "external_ref" in changes:
         values["external_ref"] = _external_ref(changes["external_ref"])
-    if "estimate_minutes" in changes:
-        values["estimate_minutes"] = _estimate(changes["estimate_minutes"])
     if "position" in changes:
         if changes["position"] is None:
             raise Invalid("position cannot be null")
@@ -1117,8 +1102,6 @@ def _validate_changes(
         resolve_account(session, ref)
     if "waiting_on_account_id" in changes and changes["waiting_on_account_id"]:
         resolve_account(session, changes["waiting_on_account_id"])
-    if "estimate_minutes" in changes:
-        _estimate(changes["estimate_minutes"])
 
 
 def _apply_changes(cx: Change, item: Item, changes: Mapping[str, Any]) -> None:
@@ -1135,7 +1118,6 @@ def _apply_changes(cx: Change, item: Item, changes: Mapping[str, Any]) -> None:
         "acceptance_md": ("acceptance_md", lambda v: v),
         "external_ref": ("external_ref", _external_ref),
         "position": ("position", int),
-        "estimate_minutes": ("estimate_minutes", _estimate),
     }
     if "external_ref" in changes:
         _claim_ref(session, _external_ref(changes["external_ref"]), item.id)

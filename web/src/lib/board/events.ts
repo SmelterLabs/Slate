@@ -153,6 +153,4 @@ export const EVENT_TYPES = [
   'doc.pinned_to_top',
   'doc.unpinned_from_top',
   'doc.mentioned',
-  'capacity.set',
-  'capacity.reset',
 ];

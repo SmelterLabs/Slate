@@ -166,7 +166,6 @@ export interface Item {
   checklist_total?: number;
   attachment_count?: number;
   // ClickUp-parity fields; optional so older payloads and fixtures still type-check.
-  estimate_minutes?: number | null;
   blocked_by?: string[];
   blocking?: string[];
   related?: string[];
@@ -184,17 +183,6 @@ export interface Item {
   /** In the trash since (also sets archived_at); purge_at is when it goes for good. */
   trashed_at?: string | null;
   purge_at?: string | null;
-}
-
-/** GET /capacities: how much one person or agent can take on (the Agents page). Null = no limit. */
-export interface Capacity {
-  account_id: string;
-  /** False: the defaults for the account's kind apply. */
-  custom: boolean;
-  hours_per_day: number | null;
-  tasks_per_day: number | null;
-  /** Weekdays worked, 0 = Monday. */
-  work_days: number[];
 }
 
 export type AgentState = 'working' | 'blocked' | 'review';

@@ -31,7 +31,6 @@ export class BoardStream extends BoardLoad {
   #viewsTimer: ReturnType<typeof setTimeout> | undefined;
   #favoritesTimer: ReturnType<typeof setTimeout> | undefined;
   #tagsTimer: ReturnType<typeof setTimeout> | undefined;
-  #capacityTimer: ReturnType<typeof setTimeout> | undefined;
   #ruleQueue = new Set<string>();
   #ruleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -380,10 +379,6 @@ export class BoardStream extends BoardLoad {
     if (fx.favorites && ev.actor_id === this.me?.account.id) {
       clearTimeout(this.#favoritesTimer);
       this.#favoritesTimer = setTimeout(() => void this.loadFavorites(), 50);
-    }
-    if (fx.capacities) {
-      clearTimeout(this.#capacityTimer);
-      this.#capacityTimer = setTimeout(() => void this.loadCapacities(), 80);
     }
     if (fx.reload) this.#scheduleReload();
     else if (fx.structure) void this.loadStructure();

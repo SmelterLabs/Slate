@@ -91,9 +91,9 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py` with `doc_tree.py`, `doc_pages.py`, `doc_files.py`, `doc_listing.py`, `doc_shape.py`; `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers, split by job (`docs.py` re-exports the public names); discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
-| `service/workload.py`, `health.py` | Capacities and per-account workload numbers (`GET /workload/boxes`, for agents); the health report. |
+| `service/health.py` | The health report. |
 | `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`), counted raw upload bodies, and `file_response`, the safe response every stored file is served with; the long-poll helpers. |
-| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, workload, data (export, backup, empty trash), health, search, settings (the agent deny-list); plus `events` and `recurrences`. |
+| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, data (export, backup, empty trash), health, search, settings (the agent deny-list); plus `events` and `recurrences`. |
 
 ## Schema notes
 
@@ -527,7 +527,7 @@ section titles or bold paragraph labels that code comments cite as `ARCHITECTURE
 | MCP server: the tool table, the two bindings, auth over HTTP, stdio, how to add an action ("MCP server") | `docs/mcp-server.md` |
 | Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list | `docs/recurrence.md` |
 | Fast lane, batch and performance at scale: ETags, projections, `views: "final"`, `SerialCursor`, the item cache ("Item cache"; "Querying items" is above, in this file) | `docs/fast-lane.md` |
-| The board's views and layouts: structure editors, the views engine, Board/List/Table, favorites, dependencies and estimates | `docs/views.md` |
+| The board's views and layouts: structure editors, the views engine, Board/List/Table, favorites and dependencies | `docs/views.md` |
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |
 | Design system, polish, phone and installed app: tokens, motion, icons, the build revision, PWA, touch drag, share target ("Scoped class names"; "The date rule" is above, in this file) | `docs/design-system.md` |
 | Automations | `docs/automations.md` |

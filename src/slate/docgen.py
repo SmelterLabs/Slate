@@ -232,9 +232,6 @@ EVENT_DOCS: dict[str, str] = {
     "favorite.added": "Something was pinned to the favorites bar.",
     "favorite.moved": "The favorites bar was reordered.",
     "favorite.removed": "A favorite was unpinned.",
-    "capacity.set": "An account's capacity changed (hours a day, tasks a day or work "
-    "days); one event per field, the first one makes the row.",
-    "capacity.reset": "An account's capacity went back to the defaults for its kind.",
     "recurrence.created": "A recurring rule was created.",
     "recurrence.updated": "A recurring rule changed.",
     "recurrence.paused": "A recurring rule was paused.",

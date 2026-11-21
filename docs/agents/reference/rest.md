@@ -2,7 +2,7 @@
 
 # REST reference
 
-242 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+237 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -32,7 +32,6 @@
 - [automations](#automations) (10)
 - [reminders](#reminders) (12)
 - [docs](#docs) (40)
-- [workload](#workload) (5)
 - [data](#data) (3)
 - [health](#health) (1)
 - [search](#search) (1)
@@ -430,7 +429,7 @@ Scope: `write` · MCP: `slate_item create`
 
 Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest four deep under a top task. Use `POST /items/{id}/split` to create several subtasks.
 
-- Body: `ItemIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `parent_id`
+- Body: `ItemIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id`
 - Returns: `201` [ItemOut](#itemout)
 
 ### `POST /items/ai`
@@ -456,7 +455,7 @@ Scope: `write` · MCP: `slate_item update`, `slate_item set_status`, `slate_item
 
 Send only what changes; `null` clears a field. `status` by id or name; `assignees` (handles) and `tags` (names) replace the whole set.
 
-- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`
+- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`
 - Returns: `200` [ItemOut](#itemout)
 
 ### `POST /items/bulk`
@@ -1734,7 +1733,7 @@ Scope: `write` · MCP: `slate_doc create_task`
 
 File one task from the page (create task from selection): `replace` names the text that becomes the task's live card; the task links back to the page.
 
-- Body: `DocTaskIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`
+- Body: `DocTaskIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`
 - Returns: `201` [DocTaskOut](#doctaskout)
 
 ### `POST /docs/{doc_id}/files`
@@ -1951,51 +1950,6 @@ Scope: `write` · MCP: `slate_doc accept_suggestion`
 Apply a review comment's suggestion to the page (an ordinary save, so page history has it) and resolve the thread.
 
 - Returns: `200` [AcceptOut](#acceptout)
-
-## workload
-
-### `GET /workload/boxes`
-
-Scope: `read` · MCP: `slate_workload boxes`
-
-The Box view's numbers: per person and agent, plus one box for unassigned tasks, open and in-progress counts, overdue, finished in the last `done_days` days, and open load against this week's capacity.
-
-- Query: `kinds`, `section_id`, `list_id`, `done_days`
-- Returns: `200` [BoxesOut](#boxesout)
-
-### `GET /capacities`
-
-Scope: `read` · MCP: `slate_workload capacities`
-
-Every person's and agent's capacity, defaults included.
-
-- Query: `kinds`
-- Returns: `200` [list of CapacityOut](#capacityout)
-
-### `GET /accounts/{account_id}/capacity`
-
-Scope: `read` · MCP: `slate_workload capacity`
-
-Get Capacity
-
-- Returns: `200` [CapacityOut](#capacityout)
-
-### `PATCH /accounts/{account_id}/capacity`
-
-Scope: `write` · MCP: `slate_workload set_capacity`
-
-Set an account's capacity: your own, or anyone's as an owner or admin.
-
-- Body: `CapacityIn`: `hours_per_day`, `tasks_per_day`, `work_days`
-- Returns: `200` [CapacityOut](#capacityout)
-
-### `DELETE /accounts/{account_id}/capacity`
-
-Scope: `write` · MCP: `slate_workload reset_capacity`
-
-Back to the defaults for the account's kind.
-
-- Returns: `200` [CapacityOut](#capacityout)
 
 ## data
 
@@ -2242,11 +2196,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ItemOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `estimate_minutes`: integer?, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?
 
 ### ItemDetailOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `estimate_minutes`: integer?, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
 
 ### slate__api__schemas__EventOut
 
@@ -2511,14 +2465,6 @@ The fields of each response above (see `/openapi.json` for types).
 ### AcceptOut
 
 `comment`: DocCommentOut, `doc`: DocOut
-
-### BoxesOut
-
-`today`: string, `done_days`: integer, `week_start`: string, `boxes`: [Box]
-
-### CapacityOut
-
-`account_id`: string, `custom`: boolean, `hours_per_day`: number?, `tasks_per_day`: integer?, `work_days`: [integer]
 
 ### EmptiedOut
 

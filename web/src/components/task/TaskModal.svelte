@@ -9,7 +9,7 @@
   // dock button parks the whole window on the right third or quarter of the screen (no scrim
   // then: the board beside it stays usable) or back in the center.
   // On a card an agent is on, the conversation is the action: the reference fields (assignees,
-  // dates, tags, list, repeats, estimate, dependencies) fold into one Details line once any is
+  // dates, tags, list, repeats, dependencies) fold into one Details line once any is
   // set, and on the phone the thread comes straight after the title instead of under them.
   import { onDestroy } from 'svelte';
   import { api } from '../../lib/api';
@@ -30,7 +30,6 @@
   import Reminders from './Reminders.svelte';
   import DatePicker from '../DatePicker.svelte';
   import DependenciesPanel from '../DependenciesPanel.svelte';
-  import EstimatePanel from '../EstimatePanel.svelte';
   import Menu, { type MenuEntry } from '../Menu.svelte';
   import Dropdown from '../Dropdown.svelte';
   import MovePicker from '../MovePicker.svelte';
@@ -41,7 +40,7 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from './Icon.svelte';
-  import { ago, formatEstimate, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { ago, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
   import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
   import PriorityPicker from './PriorityPicker.svelte';
@@ -131,7 +130,6 @@
     for (const t of d.tags.slice(0, 3)) out.push(`#${t}`);
     if (d.tags.length > 3) out.push(`+${d.tags.length - 3}`);
     if (d.recurrence_id) out.push('Repeats');
-    if (d.estimate_minutes) out.push(formatEstimate(d.estimate_minutes));
     const deps = (d.blocked_by?.length ?? 0) + (d.blocking?.length ?? 0) + (d.related?.length ?? 0);
     if (deps) out.push(`${deps} link${deps > 1 ? 's' : ''}`);
     return out;
@@ -641,9 +639,8 @@
             </div>
           {/if}
         </div>
-        <!-- panels: estimate, dependencies -->
+        <!-- dependencies -->
         <div class="panels">
-          <EstimatePanel item={d} />
           <DependenciesPanel item={d} />
         </div>
         {/if}

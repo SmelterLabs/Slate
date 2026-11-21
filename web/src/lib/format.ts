@@ -142,28 +142,3 @@ export function describeRrule(rrule: string): string {
   }
   return text;
 }
-
-/** "1h 30m" for minutes; "" for none. */
-export function formatEstimate(minutes: number | null | undefined): string {
-  if (!minutes) return '';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m}m`;
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-/** Parse "90", "1.5h", "1h 30m", "45m", "2d" (8h days) into minutes; null when unreadable. */
-export function parseEstimate(text: string): number | null {
-  const t = text.trim().toLowerCase();
-  if (!t) return null;
-  if (/^\d+$/.test(t)) return Number(t);
-  let total = 0;
-  let any = false;
-  for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*(d|h|m)/g)) {
-    any = true;
-    const n = Number(m[1]);
-    total += m[2] === 'd' ? n * 480 : m[2] === 'h' ? n * 60 : n;
-  }
-  if (!any || t.replace(/(\d+(?:\.\d+)?)\s*(d|h|m)/g, '').trim()) return null;
-  return Math.round(total);
-}

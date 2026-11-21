@@ -5,7 +5,7 @@ import { api, screenshots, seed, signIn } from './support';
 
 const shot = screenshots('SLATE_PARITY_SHOTS');
 
-// ClickUp parity: the Table layout, estimates, dependencies and the tag manager.
+// ClickUp parity: the Table layout, dependencies and the tag manager.
 // Builds its own section and list so it does not disturb the other specs' data.
 
 interface Built {
@@ -31,7 +31,7 @@ async function setup(): Promise<Built> {
   const today = workspaceDay(new Date());
   const ids: Record<string, string> = {};
   for (const [title, extra] of [
-    ['Plan the deck', { due_at: today, tags: ['parity-a'], estimate_minutes: 60 }],
+    ['Plan the deck', { due_at: today, tags: ['parity-a'] }],
     ['Build the deck', { due_at: addDays(today, 2), tags: ['parity-b'] }],
     ['Paint the shed', {}],
   ] as const) {
@@ -49,20 +49,13 @@ async function openList(page: Page, listId: string) {
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test('Table: edit an estimate and the title in place; totals add up', async ({ page }) => {
+test('Table: edit the title in place and show item counts', async ({ page }) => {
   const b = await setup();
   await openList(page, b.listId);
   await page.getByRole('button', { name: 'Table', exact: true }).click();
   const row = page.locator('tr.t-row', { hasText: 'Build the deck' });
   await expect(row).toBeVisible();
   await row.hover();
-  await row.getByLabel('Edit time estimate').click();
-  await row.getByLabel('Time estimate').fill('1h 30m');
-  await row.getByLabel('Time estimate').press('Enter');
-  await expect
-    .poll(async () => (await api<{ estimate_minutes: number }>('GET', `/items/${b.ids['Build the deck']}`)).estimate_minutes)
-    .toBe(90);
-
   // The name opens the task window, as on the board; the pencil renames in place.
   await row.getByRole('button', { name: 'Build the deck', exact: true }).click();
   await expect(page.locator('.tw')).toBeVisible();
@@ -77,28 +70,19 @@ test('Table: edit an estimate and the title in place; totals add up', async ({ p
   await expect(page.locator('tr.t-row', { hasText: 'Build the big deck' })).toBeVisible();
 
   const totals = page.locator('tr.t-total').first();
-  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('2h 30m');
+  await expect(totals).toHaveText('3 items');
 
   // An agent's write lands in the table live.
-  await api('PATCH', `/items/${b.ids['Paint the shed']}`, { estimate_minutes: 45 }, seed().agent);
-  await expect(page.locator('tr.t-row', { hasText: 'Paint the shed' }).locator('td[data-col="estimate"]')).toHaveText('45m');
-  await expect(totals.locator('td[data-col="estimate"]')).toHaveText('3h 15m');
+  await api('PATCH', `/items/${b.ids['Paint the shed']}`, { priority: 'high' }, seed().agent);
+  await expect(page.locator('tr.t-row.prio-stripe-high', { hasText: 'Paint the shed' })).toBeVisible();
   await shot(page, 'table');
 });
 
-test('Item panels: estimate and a dependency', async ({ page }) => {
+test('Item panel: add a dependency', async ({ page }) => {
   const b = await setup();
   await openList(page, b.listId);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await page.locator('.row', { hasText: 'Paint the shed' }).getByText('Paint the shed').click();
-  const panel = page.locator('.estimate-panel');
-  await panel.getByLabel('Edit time estimate').click();
-  await panel.getByLabel('Time estimate').fill('2h');
-  await panel.getByLabel('Time estimate').press('Enter');
-  await expect
-    .poll(async () => (await api<{ estimate_minutes: number }>('GET', `/items/${b.ids['Paint the shed']}`)).estimate_minutes)
-    .toBe(120);
-
   await page.getByRole('button', { name: '+ Add dependency' }).click();
   await page.getByLabel('Find item').fill('Plan the');
   await page.getByRole('listbox', { name: 'Items' }).getByRole('button', { name: /Plan the deck/ }).click();

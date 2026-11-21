@@ -50,7 +50,7 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   `section.*`. Webhook fan-out and Web Push use the same gate for the subscription's owner. The
   board reloads `/me` and its data when an event changes its own access
   (`lib/permissions.affectsMyAccess`). The replay and the gate agree: a restricted member with
-  General gets `tag.*`, `account.*` and `capacity.*` from both.
+  General gets `tag.*` and `account.*` from both.
 - **Personal events** (`access.is_personal`: `account.prefs_changed`, `account.digest`,
   `channel.read`, `item.read`, `inbox.*`, `push.*`, `webhook.*`, `token.*`, `favorite.*`,
   `session.*`, `agent.connection_*`) are about one account's own settings and bookkeeping. Only that
@@ -75,8 +75,6 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   a recursive CTE (`_visible_docs`) to hand the top page's place down to subpages, and filters
   `doc_versions`/`doc_files` by it. Creating, editing, archiving and moving need edit; a move checks
   both the old and new place. The stream gate caches doc -> place and clears it on `doc.moved`.
-- **Capacities** belong to no list, so they follow `Access.general` (members yes; guests and
-  list-limited tokens no; `_WORKSPACE_TYPES`).
 - **NULL-scoped rows are General's too.** A row with `list_id IS NULL` or `item_id IS
   NULL` (workspace-wide automations and their webhook URLs, automation runs with no item) is
   visible only with General access: `and_(is NULL, general)`. `Automation` has its own criteria:

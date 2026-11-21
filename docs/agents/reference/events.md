@@ -40,13 +40,6 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `automation.secret_rotated` | An automation's incoming-webhook secret was rotated. |
 | `automation.updated` | An automation rule changed (or was turned on or off). |
 
-## capacity
-
-| Type | Meaning |
-|---|---|
-| `capacity.reset` | An account's capacity went back to the defaults for its kind. |
-| `capacity.set` | An account's capacity changed (hours a day, tasks a day or work days); one event per field, the first one makes the row. |
-
 ## channel
 
 | Type | Meaning |

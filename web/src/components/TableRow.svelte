@@ -2,7 +2,7 @@
   // One spreadsheet row of the Table layout. Cells show plain text until the row is hovered or
   // focused; then the editors mount (status and priority selects, date pickers, pickers for
   // people and tags), so a few hundred rows stay cheap.
-  import { blockedTitle, dueLabel, formatEstimate, isOpen, isOverdue, openBlockers, parseEstimate } from '../lib/format';
+  import { blockedTitle, dueLabel, isOpen, isOverdue, openBlockers } from '../lib/format';
   import { priorityLabel } from '../lib/priority';
   import { board } from '../lib/store.svelte';
   import type { Item, Priority } from '../lib/types';
@@ -27,23 +27,12 @@
   let menuOpen = $state(false);
   let editingTitle = $state(false);
   let titleDraft = $state('');
-  let editingEstimate = $state(false);
-  let estimateDraft = $state('');
 
   function saveTitle() {
     if (!editingTitle) return;
     editingTitle = false;
     const t = titleDraft.trim();
     if (t && t !== item.title) void board.update(item.id, { title: t });
-  }
-
-  function saveEstimate() {
-    if (!editingEstimate) return;
-    editingEstimate = false;
-    const t = estimateDraft.trim();
-    const m = t ? parseEstimate(t) : null;
-    if (t && m === null) return board.flash('Estimates look like 90, 45m, 1.5h, 1h 30m or 2d');
-    if (m !== (item.estimate_minutes ?? null)) void board.setEstimate(item.id, m);
   }
 
   const save = (changes: Record<string, unknown>) => void board.update(item.id, changes);
@@ -191,34 +180,6 @@
           <TagEditor tags={item.tags} onchange={(tags) => save({ tags })} />
         {:else}
           {#each item.tags as t (t)}<TagPill name={t} />{/each}
-        {/if}
-      {:else if c.kind === 'estimate'}
-        {#if editingEstimate}
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            class="field-text"
-            aria-label="Time estimate"
-            autofocus
-            bind:value={estimateDraft}
-            onblur={saveEstimate}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') saveEstimate();
-              if (e.key === 'Escape') {
-                e.stopPropagation();
-                editingEstimate = false;
-              }
-            }}
-          />
-        {:else}
-          <button
-            class="field-show"
-            class:empty={!item.estimate_minutes}
-            aria-label="Edit time estimate"
-            onclick={() => {
-              estimateDraft = formatEstimate(item.estimate_minutes);
-              editingEstimate = true;
-            }}>{formatEstimate(item.estimate_minutes)}</button
-          >
         {/if}
       {/if}
     </td>

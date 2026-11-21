@@ -83,7 +83,6 @@ def test_csv_export(client, alex, todo, make_account):
         title='Comma, "quote"',
         tags=["a", "b"],
         assignees=["agent"],
-        estimate_minutes=60,
         body_md="line one\nline two",
     )
     r = client.get(f"{API}/export", params={"format": "csv"}, headers=alex)
@@ -97,7 +96,6 @@ def test_csv_export(client, alex, todo, make_account):
     assert row["title"] == 'Comma, "quote"' and row["list"] == "Todo"
     assert row["section"] == "Personal" and row["status_kind"] == "open"
     assert row["assignees"] == "agent" and row["tags"] == "a; b"
-    assert row["estimate_minutes"] == "60"
     assert row["created_by"] == "alex" and row["description"] == "line one\nline two"
 
 

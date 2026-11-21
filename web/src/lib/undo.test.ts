@@ -31,7 +31,6 @@ describe('revertPatch', () => {
   });
 
   it('refuses what it cannot restore', () => {
-    expect(revertPatch(before, { estimate_minutes: 30 })).toBeNull();
     expect(revertPatch({ ...before, status: null }, { status: 'st2' })).toBeNull();
   });
 

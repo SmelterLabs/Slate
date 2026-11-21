@@ -106,16 +106,6 @@ def test_list_limited_admin_token_is_not_an_admin_for_doc_threads(client, alex, 
     assert r.status_code == 200, r.text
 
 
-def test_capacity_of_another_account_needs_an_admin_token(client, alex, world):
-    member, _ = world["account"]("member2", "member")
-    me = _me(client, alex)
-    write_only = _token(client, alex, me, scopes=("write",))
-    url = f"{API}/accounts/{member['id']}/capacity"
-    r = client.patch(url, json={"tasks_per_day": 3}, headers=write_only)
-    assert r.status_code == 403, r.text
-    assert client.patch(url, json={"tasks_per_day": 3}, headers=alex).status_code == 200
-
-
 # --- Personal events --------------------------------------------------------------------------
 
 # Push keys are only length-checked: an uncompressed point (65 bytes) and 16 bytes.

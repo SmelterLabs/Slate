@@ -8,7 +8,7 @@ move), as the caller, with the usual access checks, and writes its own event who
 `session_ref` is `revert:<event id>`. That event is the record; there is no `item.reverted`.
 
 What can be reverted: `item.updated` on a plain field (title, priority, dates, waiting on,
-acceptance, estimate, kind, external ref, position, the description, the tags),
+acceptance, kind, external ref, position, the description, the tags),
 `item.status_changed`, `item.assigned` and `item.moved`. The field's current value must still
 be the event's `after`: if someone changed it again since, `Conflict` ("changed since") says so
 and nothing is written. Anything else (a creation, a comment, a report...) is `Invalid`.
@@ -37,7 +37,6 @@ FIELDS = {
     "due_date_only": "due_date_only",
     "waiting_on_account_id": "waiting_on_account_id",
     "acceptance_md": "acceptance_md",
-    "estimate_minutes": "estimate_minutes",
     "kind": "kind",
     "external_ref": "external_ref",
     "position": "position",
