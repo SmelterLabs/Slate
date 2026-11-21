@@ -19,6 +19,9 @@ describe('needOf', () => {
   it('an agent blocked on my card with nobody named', () => {
     expect(needOf(item({ created_by: ME, agent: flag('blocked') }), ME, accounts)).toBe('blocked');
   });
+  it('an answered agent (its reply is in, an open Ask for it) needs nobody until it picks it up', () => {
+    expect(needOf(item({ created_by: ME, open_asks: ['sc'], agent: flag('blocked') }), ME, accounts)).toBeNull();
+  });
   it('an agent blocked on someone else is not mine', () => {
     expect(needOf(item({ created_by: ME, waiting_on_account_id: 'guest', agent: flag('blocked') }), ME, accounts)).toBeNull();
   });

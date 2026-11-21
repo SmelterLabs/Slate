@@ -2,7 +2,7 @@
 // plain items. Deliberately narrow so the count stays worth trusting:
 //   waiting  - someone (usually an agent reporting blocked) is waiting on me
 //   asked    - an open Ask (assigned comment) is addressed to me
-//   blocked  - an agent on my card reported blocked without naming anyone
+//   blocked  - an agent on my card reported blocked without naming anyone (not once answered)
 //   review   - an agent on my card reported "Ready for review"
 // Not counted: agents still working, dependency blocks (they clear themselves), overdue dates
 // (the Overdue column and Today count already say so), and anything waiting on someone else.
@@ -44,7 +44,9 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
     item.assignees.some((a) => a.id === me) ||
     (item.created_by ? accounts[item.created_by]?.kind : undefined) !== 'person';
   const flag = item.agent;
-  if (flag?.state === 'blocked' && !item.waiting_on_account_id && mine) return 'blocked';
+  // Its reply is in (an open Ask for the agent): "Answered" until it picks it up, nothing to do.
+  const answered = !!flag && !!item.open_asks?.includes(flag.by);
+  if (flag?.state === 'blocked' && !item.waiting_on_account_id && !answered && mine) return 'blocked';
   if (item.open_asks?.includes(me)) return 'asked';
   if (flag?.state === 'review' && mine) return 'review';
   return null;
