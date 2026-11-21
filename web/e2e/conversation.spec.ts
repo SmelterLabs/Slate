@@ -48,12 +48,15 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   // Alex (the banner; the badge would only repeat it).
   await api('POST', `/work/${item.id}/finish`, {
     run_id: taken.lease.run_id,
-    outcome: 'blocked',
+    outcome: 'ask',
+    question: 'Does the login say done?',
     waiting_on: me.account.handle,
     reply: 'I started the login. Sign in here: https://login.example/abc and tell me when done.',
   }, agent);
   await expect(bubble).toHaveCount(0);
-  await expect(tw.locator('[data-banner="waiting"]')).toContainText('Agent is waiting on you');
+  const waitBox = tw.locator('[data-banner="waiting"]');
+  await expect(waitBox).toContainText('Agent asks');
+  await expect(waitBox.locator('[data-waiting-question]')).toHaveText('Does the login say done?');
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('Sign in here');
 

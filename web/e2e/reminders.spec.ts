@@ -109,7 +109,7 @@ test('notification settings follow the account', async ({ page }) => {
     .poll(async () => (await api<{ prefs: Record<string, unknown> }>('GET', '/me')).prefs)
     .toMatchObject({
       digest_hour: 6,
-      push_reasons: ['reply', 'chat', 'assigned', 'waiting', 'due', 'unblocked', 'nudge', 'reminder', 'digest', 'health', 'access', 'comment', 'watching'],
+      push_reasons: ['reply', 'chat', 'assigned', 'waiting', 'failed', 'due', 'unblocked', 'nudge', 'reminder', 'digest', 'health', 'access', 'comment', 'watching'],
     });
   await expect(panel.getByText('Upcoming reminders')).toBeVisible();
   await panel.getByRole('button', { name: 'Close' }).click();

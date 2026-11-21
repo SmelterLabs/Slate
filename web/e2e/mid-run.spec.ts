@@ -47,8 +47,7 @@ test('a message sent mid-run is marked seen, and Stop reaches the run', async ({
   expect((await beat()).stop?.by).toBe(me.account.handle);
   await api('POST', `/work/${item.id}/finish`, {
     run_id: taken.lease.run_id,
-    outcome: 'blocked',
-    waiting_on: me.account.handle,
+    outcome: 'answered',
     reply: 'Stopped as asked. The draft is half done.',
   }, agent);
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);

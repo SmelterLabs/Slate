@@ -22,7 +22,7 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
 
   // Live: reports arrive over the stream and the pill follows.
   await api('POST', `/items/${review.id}/report`, { state: 'review', note: 'Draft is ready' }, agent);
-  await api('POST', `/items/${stuck.id}/report`, { state: 'blocked', waiting_on: 'alex', note: 'Need the VIN' }, agent);
+  await api('POST', `/items/${stuck.id}/report`, { state: 'blocked', waiting_on: 'alex', question: 'What is the VIN?' }, agent);
   const pill = page.locator('.nb-pill');
   await expect(pill).toBeVisible();
   // Red: something is blocked on Alex.
@@ -85,6 +85,7 @@ test('waiting on you: the card shows the question at the top, and Answer goes to
   await api('POST', `/items/${card.id}/report`, {
     state: 'blocked',
     waiting_on: 'alex',
+    question: 'Should I leave those details unopened?',
     reply: `**Status so far.**\n\n${long}\n\nTo finish: opening the details was declined; should I leave those details unopened? Sign-out is unconfirmed.`,
   }, agent);
   // Alex stops the agent's run: the badge goes, the wait stays (the case that showed nothing).
@@ -102,10 +103,8 @@ test('waiting on you: the card shows the question at the top, and Answer goes to
   await page.locator(`.nb-pop [data-item="${card.id}"] .nd-main`).click();
 
   const banner = page.locator('[data-banner="waiting"]');
-  await expect(banner).toContainText('Agent is waiting on you');
-  await expect(banner.locator('[data-waiting-question]')).toHaveText(
-    'To finish: opening the details was declined; should I leave those details unopened?',
-  );
+  await expect(banner).toContainText('Agent asks');
+  await expect(banner.locator('[data-waiting-question]')).toHaveText('Should I leave those details unopened?');
 
   await banner.locator('[data-answer]').click();
   await expect(page.locator('article.comment.lit')).toContainText('should I leave those details unopened?');
@@ -114,6 +113,28 @@ test('waiting on you: the card shows the question at the top, and Answer goes to
   // Answering (a comment by Alex) clears the wait, and the banner with it.
   await page.keyboard.type('Leave them unopened.');
   await page.keyboard.press('Enter');
+  await expect(banner).toHaveCount(0);
+});
+
+test('a wait a person set, with no structured ask, still shows the banner from the thread', async ({ page }) => {
+  const { listId } = seed();
+  const handle = `pat${Date.now().toString(36)}`;
+  const pat = await api<{ id: string }>('POST', '/accounts', { handle, display_name: 'Pat', kind: 'person' });
+  const token = (await api<{ token: string }>('POST', `/accounts/${pat.id}/tokens`, { scopes: ['write'] })).token;
+  const card = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Person-wait card' });
+  await api('POST', `/items/${card.id}/comments`, { body_md: 'The quote is attached. Can you sign it off?' }, token);
+  await api('PATCH', `/items/${card.id}`, { waiting_on_account_id: 'alex' }, token);
+  expect((await api<{ ask: unknown }>('GET', `/items/${card.id}`)).ask ?? null).toBeNull();
+
+  await signIn(page);
+  await page.goto(`/#/list/${listId}?task=${card.id}`);
+  const banner = page.locator('.tw [data-banner="waiting"]');
+  await expect(banner).toContainText('Pat is waiting on you');
+  await expect(banner.locator('[data-waiting-question]')).toHaveText('Can you sign it off?');
+  await expect(banner.locator('[data-answer-option]')).toHaveCount(0);
+
+  // Not waiting on me ends the wait, and the box goes (nothing left on Alex for later specs).
+  await banner.locator('[data-not-waiting]').click();
   await expect(banner).toHaveCount(0);
 });
 
@@ -127,7 +148,7 @@ test('waiting on you while the agent is still blocked: one box, not two', async 
   await api('POST', `/items/${card.id}/report`, {
     state: 'blocked',
     waiting_on: 'alex',
-    reply: 'Which registrar holds the domain?',
+    question: 'Which registrar holds the domain?',
     url: 'https://example.com/runs/1',
   }, agent);
 
@@ -135,7 +156,7 @@ test('waiting on you while the agent is still blocked: one box, not two', async 
   await page.goto(`/#/list/${listId}?task=${card.id}`);
   const tw = page.locator('.tw');
   const banner = tw.locator('[data-banner="waiting"]');
-  await expect(banner).toContainText('Agent is waiting on you');
+  await expect(banner).toContainText('Agent asks');
   await expect(banner.locator('[data-waiting-question]')).toHaveText('Which registrar holds the domain?');
   // The agent's blocked badge would repeat the same sentence: the banner carries its parts.
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
