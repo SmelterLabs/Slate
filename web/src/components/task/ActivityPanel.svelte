@@ -380,7 +380,7 @@
               <p class="ask-q" data-ask-question>{c.ask.question}</p>
               {#if c.ask.options.length}
                 <div class="ask-opts">
-                  {#each c.ask.options as option (option)}
+                  {#each c.ask.options as option}
                     {#if !c.resolved_at && c.assignee_id === task.me}
                       <button class="ask-opt" data-answer-option={option} onclick={() => void task.answer(c.id, option)}>{option}</button>
                     {:else}
