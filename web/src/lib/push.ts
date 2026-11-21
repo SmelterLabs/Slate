@@ -36,6 +36,7 @@ export const PUSH_REASONS: { key: string; label: string }[] = [
   { key: "assigned", label: "I am assigned a task" },
   { key: "waiting", label: "Someone is waiting on me" },
   { key: "failed", label: "An agent could not run a task" },
+  { key: "stalled", label: "An agent stopped without finishing a task" },
   { key: "due", label: "My task is due or overdue" },
   { key: "unblocked", label: "My task is no longer blocked" },
   { key: "nudge", label: "An agent I look after has a task to start" },
@@ -62,6 +63,7 @@ export const DEFAULT_PUSH_REASONS = [
   "health",
   "access",
   "failed",
+  "stalled",
   "watching",
 ];
 
@@ -77,6 +79,7 @@ export const NOTIFY_GROUPS: { key: string; label: string; reasons: string[] }[] 
   { key: "assigned", label: "I'm assigned a task", reasons: ["assigned", "nudge"] },
   { key: "waiting", label: "Someone is waiting on me", reasons: ["waiting", "unblocked"] },
   { key: "failed", label: "An agent could not run", reasons: ["failed"] },
+  { key: "stalled", label: "An agent stopped without finishing", reasons: ["stalled"] },
   { key: "due", label: "Due dates, reminders and my day", reasons: ["due", "reminder", "digest"] },
   {
     key: "watching",

@@ -14,6 +14,7 @@ export type Reason =
   | 'assigned'
   | 'waiting'
   | 'failed'
+  | 'stalled'
   | 'due'
   | 'unblocked'
   | 'nudge'
@@ -59,6 +60,7 @@ export const REASON_LABEL: Record<Reason, string> = {
   assigned: 'Assigned to you',
   waiting: 'Waiting on you', // the page says "Waiting on <your first name>" (lib/words.ts)
   failed: 'Could not run',
+  stalled: 'Stalled',
   due: 'Due',
   unblocked: 'Ready to start',
   nudge: 'Start your agent',

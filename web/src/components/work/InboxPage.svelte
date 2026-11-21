@@ -50,6 +50,7 @@
     assigned: 'user',
     waiting: 'hourglass',
     failed: 'alert',
+    stalled: 'clock',
     due: 'clock',
     unblocked: 'play',
     nudge: 'robot',
