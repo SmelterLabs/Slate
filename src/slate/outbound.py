@@ -1,4 +1,4 @@
-"""Slate's outbound POST: webhook deliveries, automation `webhook` actions and Web Push.
+"""Slate's outbound POST: automation `webhook` actions and Web Push.
 
     post(url, body, headers, *, timeout, transport=None) -> Reply(status, headers)
     sign(secret, body) / signed_headers(secret, body, now=None)
@@ -6,7 +6,7 @@
 One function, so every sender gets the same limits:
 
 - **Resolve once, connect to what was checked.** The host is looked up once
-  (`service.webhooks.check_target`). With private targets off (`SLATE_WEBHOOK_PRIVATE_TARGETS`,
+  (`check_target`). With private targets off (`SLATE_OUTBOUND_PRIVATE_TARGETS`,
   the default) every answer must be a public address, and a failed lookup is an error, never
   a pass. The connection then goes to exactly those addresses (`_Pinned`): the request's Host
   header and the TLS server name stay the URL's name, but a resolver that answers differently
@@ -16,7 +16,7 @@ One function, so every sender gets the same limits:
   so a receiver that drips one byte at a time cannot hold a sender past it.
 - **The answer is drained, never kept:** at most `RESPONSE_CAP_BYTES` of the body are read and
   thrown away; the caller gets the status and the headers. Echoing a receiver's body into a
-  delivery log would let a subscriber read whatever its URL points at.
+  delivery log would let a caller read whatever its URL points at.
 - No redirects, no proxies from the environment (the connection is made directly).
 
 Tests pass an `httpx.MockTransport` as `transport`; the target check still runs, and nothing
@@ -27,17 +27,93 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
+import socket
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpcore
 import httpx
 
-from slate.service import webhooks
+from slate.service.errors import Invalid
+from slate.settings import settings
 
 RESPONSE_CAP_BYTES = 64 * 1024
+_PRIVATE_SUFFIXES = (".ts.net", ".local", ".internal", ".lan", ".home.arpa")
+
+
+def is_private_host(host: str) -> bool:
+    """Whether a literal address or a host name is private, without resolving it."""
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    host = host.lower().rstrip(".")
+    return host == "localhost" or "." not in host or host.endswith(_PRIVATE_SUFFIXES)
+
+
+_PRIVATE_REFUSED = (
+    "url points at a private address, which this Slate does not allow (set "
+    "SLATE_OUTBOUND_PRIVATE_TARGETS=true for a receiver on this host or network)"
+)
+
+
+def validate_url(url: str) -> str:
+    """https to any public host. Private targets (a private IP, localhost, a bare name, a
+    tailnet or .local name) only with `SLATE_OUTBOUND_PRIVATE_TARGETS`, and then over plain
+    http too. Judged by the name here; `check_target()` resolves it at send time."""
+    url = (url or "").strip()
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise Invalid("url must be an absolute http(s) URL")
+    if len(url) > 2000:
+        raise Invalid("url is longer than 2000 characters")
+    private = is_private_host(parts.hostname)
+    if private and not settings.outbound_private_targets:
+        raise Invalid(_PRIVATE_REFUSED)
+    if parts.scheme == "http" and not private:
+        raise Invalid("plain http is allowed only to private addresses; use https")
+    return url
+
+
+class LookupFailed(OSError):
+    """The target's name did not resolve: a network error, retried like one."""
+
+
+def _lookup(host: str) -> list[str]:
+    """Every address `host` resolves to, in the resolver's order (an IP literal is itself)."""
+    infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+def check_target(url: str) -> list[str]:
+    """Send-time check of a validated URL; returns the addresses to connect to.
+
+    The name is resolved here, once, and the sender connects to exactly these addresses
+    (`slate.outbound`), so a name that answers differently a second time cannot reach another
+    host. With private targets off, the host must still be public *and* every address it
+    resolves to must be public (a name can be pointed at 127.0.0.1 after it was saved):
+    `Invalid` otherwise. A lookup that fails raises `LookupFailed` (fail closed)."""
+    host = urlsplit(url).hostname or ""
+    if not settings.outbound_private_targets and is_private_host(host):
+        raise Invalid(_PRIVATE_REFUSED)
+    try:
+        addresses = _lookup(host)
+    except (OSError, UnicodeError) as exc:  # UnicodeError: a name IDNA cannot encode
+        raise LookupFailed(f"could not resolve {host}: {exc}") from None
+    if not addresses:
+        raise LookupFailed(f"could not resolve {host}")
+    if not settings.outbound_private_targets:
+        for address in addresses:
+            # A link-local IPv6 answer carries %scope.
+            if not ipaddress.ip_address(address.split("%")[0]).is_global:
+                raise Invalid(
+                    f"{host} resolves to a private address, which this Slate does not allow"
+                )
+    return addresses
 
 
 @dataclass(frozen=True)
@@ -161,7 +237,7 @@ def post(
     """POST once. Raises `Invalid` when the target is refused (a private address: final),
     `httpx.HTTPError` for network errors and an overrun deadline (worth a retry)."""
     deadline = time.monotonic() + timeout
-    addresses = webhooks.check_target(url)
+    addresses = check_target(url)
     if transport is None:
         transport = _PinnedTransport(addresses, deadline)
     with (

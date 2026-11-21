@@ -14,7 +14,7 @@ never again. Lose it and you make a new one.
 |---|---|
 | `read` | every read: items, check-in, events, the stream, `GET /agents` |
 | `write` | `read`, plus every change to items, lists, comments, reports, batch |
-| `admin` | `write`, plus accounts and tokens, webhooks of others |
+| `admin` | `write`, plus accounts and tokens |
 
 Scopes nest (`admin` > `write` > `read`); a token with too little gets `403`
 `token lacks 'write' scope`. Give an agent `write` unless it only watches (`read`) or manages

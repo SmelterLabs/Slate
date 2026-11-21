@@ -75,7 +75,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   about 333 KB per check-in.
 - **Hand to an agent** (`task/HandOff.svelte`): one atomic `POST /batch` of `item assign` (adds the
   agent) and `item comment` (`@agent <instructions>`). No endpoint of its own: the agent sees it
-  through its inbox, stream or webhook.
+  through its inbox or stream.
 - **Board:** `AgentBadge.svelte` (card and task window), `AgentsPage.svelte` at `#/agents` (a page,
   not a scope: `parseRoute` returns `page: 'agents'` and the selected scope is left alone), store
   `lib/agents.svelte.ts` fed by the board store's `#apply`. The badge dims a `working` flag older
@@ -500,7 +500,7 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   the account that posted them, and nothing of a workspace agent to a guest. Each post is also
   handed to open boards as an **id-less** `item.activity` message through `bus.publish_live`,
   which reaches only subscribers that asked (`bus.subscribe(live=True)`: `/events/stream`), so
-  the engines, long-polls, `/checkin/stream`, `GET /events`, webhooks and history never see it
+  the engines, long-polls, `/checkin/stream`, `GET /events` and history never see it
   (`docs/live-stream.md`). It is deliberately not an event: a turn starts a tool every few
   seconds, and product rule 3 would make each one a history line. Posts count against the
   token's write bucket, so a runner batches (`tests/test_live_activity.py`).

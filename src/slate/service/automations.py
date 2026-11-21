@@ -3,7 +3,7 @@
 A rule (`automations` row) has a scope (one list, one section, or everywhere), one trigger,
 any number of conditions (all must hold) and one or more actions. The engine reads the event
 log after a cursor (`engine_cursors` row `automations`), so it sees exactly what every board,
-webhook and agent sees, in commit order, and resumes after a restart.
+agent sees, in commit order, and resumes after a restart.
 
 Vocabulary (also served by `catalog()` so the board and agents build rules from one list):
 
@@ -30,7 +30,7 @@ Rules of the engine:
 - A run is logged in `automation_runs` (bookkeeping, not an event), with one result per
   action. Runs older than `RUN_KEEP` are pruned as the engine goes.
 - The `webhook` action is the one that leaves Slate: a JSON POST (`{automation, event, item}`)
-  signed like webhook deliveries (`outbound.signed_headers`) with the
+  signed (`outbound.signed_headers`) with the
   rule's own secret (made when the rule first gets a webhook action, shown once, rotatable),
   sent outside any write transaction, one attempt, logged in the run.
 """
@@ -47,7 +47,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from slate import crypto
+from slate import crypto, outbound
 from slate.dates import LOCAL
 from slate.ids import new_id
 from slate.models import (
@@ -69,7 +69,6 @@ from slate.service import comments as comments_svc
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
 from slate.service import tags as tags_svc
-from slate.service import webhooks as webhooks_svc
 from slate.service.core import Actor, apply_change, event_payload, jsonable
 from slate.service.errors import Invalid, NotFound, ServiceError, Unavailable
 
@@ -255,7 +254,7 @@ def _clean_params(
                 raise Invalid(f"{label} must be between -1 and 3650")
             out[name] = int(value)
         elif kind == "url":
-            out[name] = webhooks_svc.validate_url(_text(value, label))
+            out[name] = outbound.validate_url(_text(value, label))
         elif kind == "agent_state":
             text = _text(value, label).lower()
             if text not in AGENT_STATES:
@@ -883,7 +882,7 @@ def run_rule(
         try:
             if kind == "webhook":
                 if send is None:
-                    raise Invalid("webhooks are not being sent (engine not running)")
+                    raise Invalid("automation webhook actions are unavailable (engine not running)")
                 author = session.get(Account, rule.created_by)
                 if author is None:
                     raise Invalid("the rule's author no longer exists")

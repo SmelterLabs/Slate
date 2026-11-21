@@ -1291,8 +1291,8 @@ def request_run(
     now: datetime | None = None,
 ) -> Any:
     """Ask the item's agent assignees to run it now: one `item.run_requested` event
-    (`after = {for, reason}`), which reaches their agent streams as a `work` hint and webhooks
-    like any event. Agents whose `wake` is pull or manual have no runner to hint: the event also
+    (`after = {for, reason}`), which reaches their agent streams as a `work` hint.
+    For agents whose `wake` is pull or manual, the event also
     carries `nudge` and `notify` (nudge_fields), and those people get a `nudge` inbox entry.
     `Invalid` when no agent is assigned, or it is done, cancelled or archived. `Conflict` (409)
     while an agent is working on it (a live lease, or with none a fresh `working` badge): the

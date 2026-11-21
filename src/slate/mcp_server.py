@@ -432,7 +432,7 @@ def _http_backend(ctx: Any) -> Backend:
     ref = request.headers.get("x-slate-session-ref")
     if ref is not None and len(ref) > SESSION_REF_MAX:
         # The same limit as REST's header and the `session_ref` argument: the ref rides on
-        # every event the call writes (History, audit, the live stream, webhooks).
+        # every event the call writes (History, audit, the live stream).
         raise ToolError(f"X-Slate-Session-Ref must be at most {SESSION_REF_MAX} characters")
     return LocalBackend(token, session_ref=ref)
 

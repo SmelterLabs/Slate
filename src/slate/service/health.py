@@ -7,14 +7,14 @@
   details are `summary()`, served unauthenticated at `GET /health` for agents and uptime checks.
 - `pollers`: each scheduler hook (slate.monitor.pollers): last run, last success, the error,
   failures in a row, and whether a run is stuck (`STUCK_AFTER`) or overdue.
-- `engines`: the asyncio engines (scheduler, webhooks, automations, push, email): whether each
+- `engines`: the asyncio engines (scheduler, automations, push, email): whether each
   runs, and for the event-log engines whether their steps fail (slate.monitor.engines).
 - `agents`: calls per token over the last hour: errors, error rate, slow calls, average and
   worst time; `recent_errors` and `slow_calls` are examples.
 - `latency`: request percentiles over the kept samples of every route (slate.fastlane), and
   the slowest routes by p95.
 - `automations`: failed and partial runs in the last day (the run log).
-- `queues`: webhook, push and email deliveries waiting, webhook deliveries failed, and how far
+- `queues`: push and email deliveries waiting, and how far
   each event-log engine is behind.
 - `db`: the database and WAL size, free disk, row counts.
 
@@ -46,7 +46,6 @@ from slate.models import (
     Attachment,
     Automation,
     AutomationRun,
-    Delivery,
     DocFile,
     EmailDelivery,
     EngineCursor,
@@ -77,7 +76,6 @@ POLLERS: dict[str, tuple[str, timedelta]] = {
 }
 ENGINES: dict[str, str] = {
     "scheduler": "Scheduler",
-    "webhooks": "Webhook delivery",
     "automations": "Automations engine",
     "push": "Push notifications",
     "email": "Email notifications",
@@ -91,7 +89,7 @@ CURSORS: dict[str, str] = {
 STUCK_AFTER = timedelta(minutes=5)
 LAG_CAP = 10_000  # count at most this many events behind
 LAG_WARN = 1_000
-WEBHOOKS_PENDING_WARN = 200
+NOTIFICATIONS_PENDING_WARN = 200
 ERROR_RATE_WARN = 0.2  # with at least ERROR_RATE_MIN_CALLS calls in the hour
 ERROR_RATE_MIN_CALLS = 10
 DISK_WARN = 1024**3
@@ -199,8 +197,7 @@ def _engines() -> list[dict[str, Any]]:
             status, detail = "ok", "Running"
         elif st["state"] == "off":
             why = st["detail"] or "turned off"
-            # Webhooks refusing to start for want of a key is a misconfiguration, not a choice.
-            status = "warn" if key == "webhooks" and "SECRET_KEY" in why else "off"
+            status = "off"
             detail = f"Off: {why}"
         else:
             status, detail = "fail", f"Stopped: {st['detail']}"
@@ -324,23 +321,7 @@ def _lag(session: Session, cursor_name: str) -> int | None:
     return session.scalar(select(func.count()).select_from(q.limit(LAG_CAP).subquery())) or 0
 
 
-def _queues(session: Session, now: datetime) -> dict[str, Any]:
-    pending = (
-        session.scalar(
-            select(func.count())
-            .select_from(Delivery)
-            .where(Delivery.state.in_(("pending", "sending")))
-        )
-        or 0
-    )
-    failed = (
-        session.scalar(
-            select(func.count())
-            .select_from(Delivery)
-            .where(Delivery.state == "failed", Delivery.at >= now - timedelta(days=1))
-        )
-        or 0
-    )
+def _queues(session: Session) -> dict[str, Any]:
     waiting = {
         name: session.scalar(
             select(func.count()).select_from(model).where(model.state == "pending")
@@ -349,8 +330,6 @@ def _queues(session: Session, now: datetime) -> dict[str, Any]:
         for name, model in (("push_pending", PushDelivery), ("email_pending", EmailDelivery))
     }
     return {
-        "webhooks_pending": pending,
-        "webhooks_failed_24h": failed,
         **waiting,
         "engine_lag": {name: _lag(session, cur) for name, cur in CURSORS.items()},
     }
@@ -525,13 +504,9 @@ def _checks(r: dict[str, Any], uptime: float) -> list[dict[str, Any]]:
     q = r["queues"]
     behind = {k: v for k, v in q["engine_lag"].items() if v is not None and v >= LAG_WARN}
     bits = []
-    if q["webhooks_pending"] >= WEBHOOKS_PENDING_WARN:
-        bits.append(f"{q['webhooks_pending']} webhook deliveries waiting")
     for key, what in (("push_pending", "push notifications"), ("email_pending", "emails")):
-        if q[key] >= WEBHOOKS_PENDING_WARN:
+        if q[key] >= NOTIFICATIONS_PENDING_WARN:
             bits.append(f"{q[key]} {what} waiting")
-    if q["webhooks_failed_24h"]:
-        bits.append(f"{q['webhooks_failed_24h']} webhook deliveries failed today")
     bits += [f"{ENGINES.get(k, k)} {v} events behind" for k, v in behind.items()]
     out.append(
         _check("queues", "Queues", "warn" if bits else "ok", "; ".join(bits) or "Nothing waiting")
@@ -568,7 +543,7 @@ def report(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
             "slowest": sorted(fastlane.latency()["routes"], key=lambda x: -x["p95_ms"])[:5],
         },
         "automations": _automations(session, now),
-        "queues": _queues(session, now),
+        "queues": _queues(session),
         "db": _db(session),
         "backups": _backups(),
     }

@@ -22,7 +22,6 @@ from slate.service import (
     sections,
     sessions,
     trash,
-    webhooks,
     work,
 )
 from slate.service.core import Actor, apply_change
@@ -142,38 +141,6 @@ def test_completing_before_overdue_stops_overdue(db, world):
     assert [e.type for e in _due_events(db, item.id)] == ["item.due"]
 
 
-def test_one_due_soon_per_distinct_lead(db, world):
-    actor = world["actor"]
-    webhooks.create_webhook(db, actor, url="https://a.example.com", events=["item.due_soon"])
-    webhooks.create_webhook(
-        db, actor, url="https://b.example.com", events=["*"], filter={"due_lead_hours": 2}
-    )
-    webhooks.create_webhook(
-        db, actor, url="https://c.example.com", events=["item.due"], filter={"due_lead_hours": 48}
-    )  # does not want due_soon, so 48 is not a lead
-    item = _item(db, world)
-    _walk(db, DUE - timedelta(hours=50), DUE, timedelta(minutes=30))
-    soon = [e.after_json.get("lead_hours") for e in _due_events(db, item.id)]
-    assert soon[:2] == [24, 2]
-    assert [e.type for e in _due_events(db, item.id)][2:] == ["item.due"]
-
-
-def test_item_created_inside_the_window_gets_every_lead_once(db, world):
-    actor = world["actor"]
-    webhooks.create_webhook(db, actor, url="https://a.example.com", events=["item.due_soon"])
-    webhooks.create_webhook(
-        db,
-        actor,
-        url="https://b.example.com",
-        events=["item.due_soon"],
-        filter={"due_lead_hours": 2},
-    )
-    item = _item(db, world)
-    due.emit_due_events(db, now=DUE - timedelta(hours=1))
-    due.emit_due_events(db, now=DUE - timedelta(minutes=30))
-    assert [e.after_json["lead_hours"] for e in _due_events(db, item.id)] == [24, 2]
-
-
 def test_moving_the_due_date_later_starts_over(db, world):
     item = _item(db, world)
     due.emit_due_events(db, now=DUE + timedelta(hours=2))  # due + overdue
@@ -197,26 +164,6 @@ def test_due_events_do_not_touch_updated_at(db, world):
     due.emit_due_events(db, now=DUE)
     db.expire_all()
     assert db.get(Item, item.id).updated_at == before
-
-
-def test_due_events_reach_webhook_subscribers(db, world, monkeypatch):
-    import httpx
-
-    seen = []
-    monkeypatch.setattr(
-        notify, "transport", httpx.MockTransport(lambda r: seen.append(r) or httpx.Response(204))
-    )
-    webhooks.create_webhook(db, world["actor"], url="https://a.example.com", events=["item.due"])
-    d = notify.Dispatcher()
-    d.start()
-    item = _item(db, world)
-    due.emit_due_events(db, now=DUE)
-    d.fan_out_once()
-    d.send_due_once()
-    [req] = seen
-    assert req.headers["X-Slate-Event"] == "item.due"
-    body = req.read().decode()
-    assert item.id in body and '"handle":"slate"' in body
 
 
 def test_due_events_are_a_scheduler_hook_after_recurrence(db, world):

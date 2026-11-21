@@ -4,7 +4,7 @@ Two surfaces, one table: a *review thread* is anchored (a span of a page's text,
 or a spot on a file) and can be resolved; *discussion* is the unanchored conversation. Every
 comment is stamped with the revision it was written on, stays when the doc moves on, and is
 marked outdated when the current revision differs. Mentions and Asks ride on `doc.mentioned`,
-so the inbox, check-in, push and webhooks hear them as they hear a page mention.
+so the inbox, check-in and push hear them as they hear a page mention.
 """
 
 from __future__ import annotations

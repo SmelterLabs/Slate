@@ -1,4 +1,4 @@
-"""In-process event bus: the fan-out from committed changes to live consumers (SSE, webhooks).
+"""In-process event bus: committed changes for the live stream and notification engines.
 
 `publish()` is synchronous and thread-safe, because service functions run in FastAPI's
 threadpool. Each subscriber owns a bounded asyncio queue on its own loop; publish hands the

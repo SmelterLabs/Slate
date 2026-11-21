@@ -16,10 +16,10 @@ a restart is itself a health event: the first scheduler tick runs at once):
   poller that alerted works again, so the scheduler can record `health.alert` /
   `health.recovered` (service/health.py).
 - `engines`: the same record per event-log engine step (`slate.engine.run` reports each step
-  of the automations, push, email and webhook engines), so an engine whose every step fails is
+  of the automations, push and email engines), so an engine whose every step fails is
   visible and alerts like a poller.
 - `tasks`: the long-running asyncio engines started by `slate.app.lifespan` (scheduler,
-  webhook dispatcher, automations, push, email), so a crashed engine is visible.
+  automations, push, email), so a crashed engine is visible.
 
 Nothing here touches the database; service/health.py turns it into the report.
 """

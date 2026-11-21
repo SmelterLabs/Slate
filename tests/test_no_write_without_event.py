@@ -47,7 +47,6 @@ from slate.service import (
     trash,
     views,
     watchers,
-    webhooks,
     work,
 )
 from slate.service.core import Actor
@@ -234,25 +233,7 @@ READS = {
         "get_view",
         "list_views",
     },
-    "slate.service.webhooks": {
-        "view",
-        "check_target",
-        "private_targets",
-        "list_webhooks",
-        "get_webhook",
-        "list_deliveries",
-        "validate_url",
-        "lead_hours",
-        "wants_type",
-    },
-    "slate.service.deliveries": {
-        "item_summary",
-        "delivery_body",
-        "matches",
-        "latest_event_id",
-        "retryable",
-    },
-    "slate.service.due": {"active_leads", "pending_stages"},
+    "slate.service.due": {"pending_stages"},
     "slate.service.automations": {
         "catalog",
         "clean_trigger",
@@ -480,15 +461,6 @@ INFRASTRUCTURE = {
     "slate.service.links": {"settle"},
     # Engine cursors and the rows a walk queues are bookkeeping (no events).
     "slate.service.cursors": {"engine_cursor", "follow"},
-    # Bookkeeping: write only `deliveries` rows (core.BOOKKEEPING_MODELS), the delivery log itself.
-    "slate.service.deliveries": {
-        "fan_out",
-        "claim_due",
-        "recover_claimed",
-        "prepare_attempt",
-        "record_attempt",
-        "prune",
-    },
 }
 
 
@@ -583,11 +555,6 @@ def _file_doc(db, actor):
     doc = _doc(db, actor, kind="file", title="Spec")
     docs.add_revision(db, actor, doc.id, filename="s.pdf", data=b"%PDF", note="first")
     return doc
-
-
-def _webhook(db, actor):
-    hook, _ = webhooks.create_webhook(db, actor, url="https://h.example.com", events=["*"])
-    return hook
 
 
 def _rule(db, actor):
@@ -747,15 +714,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "add_favorite": lambda db, a, p: _pin(db, a),
         "remove_favorite": lambda db, a, p: favorites.remove_favorite(db, a, _pin(db, a).id),
         "reorder_favorites": lambda db, a, p: _reorder(db, a),
-    },
-    "slate.service.webhooks": {
-        "create_webhook": lambda db, a, p: _webhook(db, a),
-        "update_webhook": lambda db, a, p: webhooks.update_webhook(
-            db, a, _webhook(db, a).id, {"events": ["item.due"]}, by=p
-        ),
-        "create_test_delivery": lambda db, a, p: webhooks.create_test_delivery(
-            db, a, _webhook(db, a).id, by=p
-        ),
     },
     # Both act as the `slate` system account, not the caller: covered in tests/test_due_events.py.
     "slate.service.due": {"system_actor": None, "emit_due_events": None, "retry_failed_runs": None},

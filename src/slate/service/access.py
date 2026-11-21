@@ -83,7 +83,6 @@ from slate.models import (
     ShareLevel,
     Token,
     View,
-    Webhook,
     WorkspaceSetting,
     utcnow,
 )
@@ -468,7 +467,7 @@ _BOUND_KEYS = (ACCESS_KEY, "slate_connection_event_access", "slate_connection_ev
 def reading_as(session: Session, who: Account | Access) -> Iterator[Access]:
     """`with access.reading_as(session, who):` reads as `who` (an account, or an access already
     computed) would, through its read filter, for background work done on its behalf (a push
-    it is sent, a webhook it owns, an automation it wrote), then restores the session."""
+    it is sent, an automation it wrote), then restores the session."""
     saved = {k: session.info[k] for k in _BOUND_KEYS if k in session.info}
     if isinstance(who, Access):
         found = who
@@ -502,7 +501,7 @@ PERSONAL_PREFIXES = (
     "push.",
     "session.",
     "token.",
-    "webhook.",
+    "webhook.",  # Historical subscription events remain private.
 )
 PERSONAL_TYPES = ("account.prefs_changed", "account.digest", "channel.read", "item.read")
 
@@ -512,9 +511,9 @@ def is_personal(type_: str) -> bool:
 
 
 def _owner_tables() -> list[Any]:
-    from slate.models import Favorite, PushSubscription, Webhook
+    from slate.models import Favorite, PushSubscription
 
-    return [Token.__table__, Webhook.__table__, Favorite.__table__, PushSubscription.__table__]
+    return [Token.__table__, Favorite.__table__, PushSubscription.__table__]
 
 
 def _view_events(c: Any, me: str) -> Any:
@@ -1133,12 +1132,6 @@ def check_object(
         return
     if isinstance(obj, InboxState | InboxMark):
         return
-    if isinstance(obj, Webhook):
-        # A webhook hears what its *account* can read (the gate in deliveries.fan_out knows
-        # no token), so a token narrowed below its account may not subscribe one.
-        if access.limited:
-            raise Forbidden("a list-limited token cannot subscribe webhooks; use an unlimited one")
-        return
     if isinstance(obj, Automation):
         # A rule acts on every item in its scope as the system agent, so its scope must be
         # one the caller may edit; a rule for the whole workspace would reach private lists.
@@ -1364,7 +1357,7 @@ _REACH_TYPES = ("share.", "account.role_changed", "list.", "section.")
 
 class EventGate:
     """Decides, event by event, whether a live payload may go to one caller (SSE stream,
-    webhook owner, push target). Same rules as the read filter; remembers item -> list so a
+    push target). Same rules as the read filter; remembers item -> list so a
     busy stream costs one lookup per new item. Recomputes itself when shares, roles, privacy
     or the list tree change."""
 

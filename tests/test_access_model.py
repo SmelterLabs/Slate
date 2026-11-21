@@ -111,11 +111,11 @@ def test_list_limited_admin_token_is_not_an_admin_for_doc_threads(client, alex, 
 # Push keys are only length-checked: an uncompressed point (65 bytes) and 16 bytes.
 P256 = base64.urlsafe_b64encode(b"\x04" + b"k" * 64).rstrip(b"=").decode()
 PUSH_AUTH = base64.urlsafe_b64encode(b"a" * 16).rstrip(b"=").decode()
-PERSONAL = ("account.prefs_changed", "push.", "webhook.", "token.", "favorite.", "inbox.")
+PERSONAL = ("account.prefs_changed", "push.", "token.", "favorite.", "inbox.")
 
 
 def _personal_history(client, alex, world) -> None:
-    """alex changes prefs, adds a device, a webhook and a favorite, and reads the inbox."""
+    """alex changes prefs, adds a device and a favorite, and reads the inbox."""
     me = _me(client, alex)
     r = client.patch(f"{API}/me/prefs", json={"email_to": "alex@example.com"}, headers=alex)
     assert r.status_code == 200, r.text
@@ -129,15 +129,6 @@ def _personal_history(client, alex, world) -> None:
         headers=alex,
     )
     assert r.status_code in (200, 201), r.text
-    r = client.post(
-        f"{API}/webhooks",
-        json={"url": "https://rx.example.com/hook?key=K-123", "events": ["item.due"]},
-        headers=alex,
-    )
-    assert r.status_code == 201, r.text
-    hook = r.json()["id"]
-    r = client.patch(f"{API}/webhooks/{hook}", json={"disabled": True}, headers=alex)
-    assert r.status_code == 200, r.text
     fav = client.post(
         f"{API}/favorites", json={"kind": "list", "target_id": world["todo"]["id"]}, headers=alex
     )
@@ -199,14 +190,11 @@ def test_member_never_reads_another_accounts_personal_events(client, alex, world
         assert r.status_code == 200, r.text
         rows = r.json().get("events") or r.json().get("entries")
         assert _personal(rows, me, member["id"]) == [], path
-    assert "K-123" not in client.get(f"{API}/events", params={"limit": 500}, headers=mh).text
     assert _gate_passes(db, member["id"], me) == []
     # The account itself and an admin see them.
     own = client.get(f"{API}/events", params={"limit": 500}, headers=alex).json()["events"]
-    assert {"account.prefs_changed", "push.subscribed", "webhook.created"} <= set(
-        _personal(own, me)
-    )
-    assert "webhook.disabled" in _gate_passes(db, me, me)
+    assert {"account.prefs_changed", "push.subscribed"} <= set(_personal(own, me))
+    assert "push.subscribed" in _gate_passes(db, me, me)
     # Once something is private the member is restricted: the same rule, the same answer.
     client.patch(f"{API}/sections/{world['work']['id']}", json={"private": True}, headers=alex)
     rows = client.get(f"{API}/events", params={"limit": 500}, headers=mh).json()["events"]

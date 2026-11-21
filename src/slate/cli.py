@@ -1,5 +1,4 @@
-"""`slate` command line: run the server, migrate, regenerate the agent docs, check webhook
-targets before an upgrade."""
+"""`slate` command line: serve, migrate, generate agent docs and inspect automation targets."""
 
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser(
         "check-targets",
-        help="list webhooks and automations that point at a private address (exit 1 if any)",
+        help="list enabled automation actions pointing at a private address (exit 1 if any)",
     )
 
     args = parser.parse_args(argv)
@@ -56,26 +55,36 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def check_targets() -> int:
-    """`slate check-targets`: which webhooks and automation webhook actions would stop
-    delivering with `SLATE_WEBHOOK_PRIVATE_TARGETS` off (the default). Prints each one; exit
-    1 when there is any, so a deploy script can stop."""
-    from slate import db
-    from slate.service import webhooks
+    """List enabled automation actions whose URL names a private address."""
+    from urllib.parse import urlsplit
+
+    from sqlalchemy import select
+
+    from slate import db, outbound
+    from slate.models import Automation
     from slate.settings import settings
 
+    found = []
     with db.SessionLocal() as session:
-        found = webhooks.private_targets(session)
+        rules = (
+            select(Automation).where(Automation.enabled.is_(True)).order_by(Automation.created_at)
+        )
+        for rule in session.scalars(rules):
+            for action in rule.actions_json or []:
+                url = action.get("url") if action.get("type") == "webhook" else None
+                if url and outbound.is_private_host(urlsplit(url).hostname or ""):
+                    found.append((rule.id, rule.name, url))
     if not found:
-        print("No webhook or automation points at a private address.")
+        print("No enabled automation points at a private address.")
         return 0
-    state = "allowed" if settings.webhook_private_targets else "REFUSED"
+    state = "allowed" if settings.outbound_private_targets else "REFUSED"
     print(f"{len(found)} target(s) on a private address ({state} by this server's settings):")
-    for row in found:
-        print(f"  {row['kind']:<10} {row['id']}  {row['name']}: {row['url']}")
-    if not settings.webhook_private_targets:
+    for rule_id, name, url in found:
+        print(f"  automation {rule_id}  {name}: {url}")
+    if not settings.outbound_private_targets:
         print(
             "These will not deliver. For receivers on this host or network, set "
-            "SLATE_WEBHOOK_PRIVATE_TARGETS=true in .env; otherwise point them at a public https "
+            "SLATE_OUTBOUND_PRIVATE_TARGETS=true in .env; otherwise point them at a public https "
             "address or disable them."
         )
     return 1

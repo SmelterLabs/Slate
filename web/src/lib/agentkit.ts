@@ -8,7 +8,7 @@ export type Scope = 'read' | 'write' | 'admin';
 export const SCOPES: { key: Scope; label: string; text: string }[] = [
   { key: 'read', label: 'Read', text: 'Sees everything, changes nothing. For watchers and reporters.' },
   { key: 'write', label: 'Write', text: 'Works tasks: claim, report, comment, file, complete. The usual choice.' },
-  { key: 'admin', label: 'Admin', text: 'Also manages accounts, tokens and webhooks. Rarely needed.' },
+  { key: 'admin', label: 'Admin', text: 'Also manages accounts and tokens. Rarely needed.' },
 ];
 
 export interface TokenLimit {

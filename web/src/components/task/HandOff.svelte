@@ -1,7 +1,7 @@
 <script lang="ts">
   // "Hand to an agent": assign an agent and tell it what to do, in one atomic POST /batch
   // (assign + an @mention comment). The agent's check-in (GET /checkin) then shows "assigned" and
-  // "mentioned"; its webhook, if any, fires too. Its reports come back as the badge above.
+  // "mentioned".. Its reports come back as the badge above.
   import { untrack } from 'svelte';
   import { ApiError, post } from '../../lib/api';
   import { draftKey } from '../../lib/drafts';

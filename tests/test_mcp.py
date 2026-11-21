@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 from contextlib import asynccontextmanager
 
@@ -15,7 +13,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import select
 
-from slate import mcp_server, mcp_tools, notify
+from slate import mcp_server, mcp_tools
 from slate.app import create_app
 from slate.db import SessionLocal
 from slate.models import Event, Source
@@ -35,7 +33,6 @@ TOOLS = {
     "slate_section",
     "slate_tag",
     "slate_recurrence",
-    "slate_webhook",
     "slate_account",
     "slate_today",
     "slate_events",
@@ -435,10 +432,9 @@ async def test_errors_are_tool_results_with_plain_english_detail(alex, make_acco
             await call(client, "slate_section", "create", name="X", audience="ai")
         )
         assert ok(await call(client, "slate_section", "list")) == []
-        assert "write" in err(await call(client, "slate_webhook", "list"))  # as in REST
 
 
-# --- recurrences and webhooks ----------------------------------------------------------------
+# --- recurrences ----------------------------------------------------------------
 
 
 async def exercise_automations(mcp, todo: dict) -> None:
@@ -899,55 +895,6 @@ async def test_recurrence_rules_through_mcp(alex):
     assert {e.source for e in created} == {Source.mcp}
 
 
-async def test_webhooks_through_mcp(alex, monkeypatch):
-    seen: list[httpx.Request] = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200)
-
-    monkeypatch.setattr(notify, "transport", httpx.MockTransport(handle))
-    async with http_mcp(alex) as client:
-        made = ok(
-            await call(
-                client,
-                "slate_webhook",
-                "create",
-                url="https://agent.example.com/slate",
-                events=["item.due"],
-                filter={"assignee_me": True},
-            )
-        )
-        secret = made["secret"]
-        assert secret.startswith("whsec_")
-        assert made["filter"] == {"assignee_me": True, "due_lead_hours": 24}
-
-        listed = await call(client, "slate_webhook", "list")
-        assert [h["id"] for h in ok(listed)] == [made["id"]]
-        assert secret not in listed.content[0].text
-
-        updated = ok(
-            await call(client, "slate_webhook", "update", id=made["id"], events=["item.assigned"])
-        )
-        assert updated["events"] == ["item.assigned"] and "secret" not in updated
-
-        sent = ok(await call(client, "slate_webhook", "test", id=made["id"]))
-        assert (sent["state"], sent["status_code"], sent["attempt"]) == ("ok", 200, 1)
-        [req] = seen
-        want = hmac.new(secret.encode(), req.content, hashlib.sha256).hexdigest()
-        assert req.headers["X-Slate-Signature"] == f"sha256={want}"
-
-        ok(await call(client, "slate_webhook", "test", id=made["id"]))
-        page = ok(await call(client, "slate_webhook", "deliveries", id=made["id"], limit=1))
-        assert len(page["deliveries"]) == 1 and page["next_offset"] == 1
-
-        off = ok(await call(client, "slate_webhook", "update", id=made["id"], disabled=True))
-        assert off["disabled_at"] is not None
-        assert "bogus" in err(
-            await call(client, "slate_webhook", "create", url="https://a.example.com", bogus=1)
-        )
-
-
 def test_bad_or_missing_token_is_401(alex):
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
     headers = {"Accept": "application/json, text/event-stream"}
@@ -1151,16 +1098,6 @@ async def test_stdio_mode_end_to_end_against_the_rest_api(client, alex, todo):
             await call(mcp, "slate_recurrence", "adopt", id=rule["id"], item_id=dated["id"])
         )
         assert adopted["recurrence_id"] == rule["id"]
-        hook = ok(
-            await call(
-                mcp, "slate_webhook", "create", url="https://a.example.com", events=["item.due"]
-            )
-        )
-        assert hook["secret"].startswith("whsec_")
-        assert [h["id"] for h in ok(await call(mcp, "slate_webhook", "list"))] == [hook["id"]]
-        ok(await call(mcp, "slate_webhook", "update", id=hook["id"], disabled=True))
-        page = ok(await call(mcp, "slate_webhook", "deliveries", id=hook["id"], limit=5))
-        assert page["deliveries"] == []
         assert ok(await call(mcp, "slate_account", "me"))["account"]["handle"] == "alex"
         assert ok(await call(mcp, "slate_account", "list"))
         acct = ok(

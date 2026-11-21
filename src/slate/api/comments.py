@@ -30,7 +30,7 @@ def list_comments(item_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     "/items/{item_id}/comments", status_code=status.HTTP_201_CREATED, response_model=CommentOut
 )
 def add_comment(item_id: str, body: CommentIn, auth: WriteAuth, session: DbSession) -> dict:
-    """`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it).
+    """`@handle` in the body mentions that account in their inbox.
     `assignee` makes it an Ask: addressed to that account, open until explicitly resolved.
     Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for
     compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE:

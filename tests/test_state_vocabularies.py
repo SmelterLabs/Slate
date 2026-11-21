@@ -13,12 +13,9 @@ from slate.api import agents as agents_api
 from slate.api import chat as chat_api
 from slate.api import inbox as inbox_api
 from slate.api import schemas
-from slate.api import webhooks as webhooks_api
 from slate.api import work as work_api
 from slate.models import (
     AgentState,
-    Delivery,
-    DeliveryState,
     EmailDelivery,
     PushDelivery,
     SendState,
@@ -46,7 +43,6 @@ VOCABULARIES = [
         [(work_api.LeaseOut, "state"), (agents_api.PlanLeaseOut, "state")],
     ),
     (set(turns.STATES), [(chat_api.AgentTurnOut, "state")]),
-    ({s.value for s in DeliveryState}, [(webhooks_api.DeliveryOut, "state")]),
     ({s.value for s in SendState}, []),
 ]
 
@@ -79,7 +75,7 @@ def test_the_badge_states_are_the_reports_that_set_a_flag():
 
 @pytest.mark.parametrize(
     ("model", "states"),
-    [(Delivery, DeliveryState), (PushDelivery, SendState), (EmailDelivery, SendState)],
+    [(PushDelivery, SendState), (EmailDelivery, SendState)],
 )
 def test_a_queue_row_refuses_a_state_outside_its_vocabulary(model, states):
     row = model()

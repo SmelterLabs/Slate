@@ -95,8 +95,6 @@ export interface HealthReport {
   latency: { samples: number; p50_ms?: number; p95_ms?: number; p99_ms?: number; max_ms?: number; slowest: HealthRoute[] };
   automations: { failed_24h: number; partial_24h: number; recent: HealthRun[] };
   queues: {
-    webhooks_pending: number;
-    webhooks_failed_24h: number;
     engine_lag: Record<string, number | null>;
   };
   db: { path: string; bytes: number | null; wal_bytes: number | null; disk_free_bytes: number | null; events: number; items: number; blob_bytes: number };

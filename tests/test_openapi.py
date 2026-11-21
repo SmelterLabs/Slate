@@ -62,3 +62,21 @@ def test_openapi_has_every_core_route(client):
 def test_item_query_documents_every_filter(client):
     op = client.get("/openapi.json").json()["paths"]["/api/v1/items"]["get"]
     assert {p["name"] for p in op["parameters"] if p["in"] == "query"} == ITEM_FILTERS
+
+
+def test_webhook_subscription_routes_return_404(client, alex):
+    root = "/api/v1/webhooks"
+    detail = f"{root}/Ab12Cd34Ef56"
+    routes = [
+        ("GET", root),
+        ("POST", root),
+        ("GET", detail),
+        ("PATCH", detail),
+        ("GET", f"{detail}/deliveries"),
+        ("POST", f"{detail}/test"),
+    ]
+
+    for method, path in routes:
+        response = client.request(method, path, headers=alex, json={})
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
