@@ -243,7 +243,7 @@
       >
     {/if}
     {#if show.has('assignees') && item.assignees.length}
-      <span class="pill people"><Avatars people={item.assignees} /></span>
+      <span class="pill people"><Avatars people={item.assignees} named /></span>
     {/if}
     {#if showList && show.has('list') && board.lists[item.list_id]}
       <span class="pill muted-pill list-chip" title="List"><Icon name="list" />{board.lists[item.list_id].name}</span>

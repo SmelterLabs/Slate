@@ -49,7 +49,7 @@ Nothing is hard-coded:
 
 - the title (two lines, then "…");
 - small counts: ≡ for a description, subtasks, comments, checklist progress and attachments;
-- pills: the due date ("Today, 4:00 pm", "Sun", "Nov 1"; red once overdue, and past a week "Aug 2 · 82d late"), the priority flag, tags, status, assignees (🤖 for agents), its list (in Everything and sections), who it is waiting on, and **Recurring**.
+- pills: the due date ("Today, 4:00 pm", "Sun", "Nov 1"; red once overdue, and past a week "Aug 2 · 82d late"), the priority flag, tags, status, assignees (🤖 and the agent's name for agents), its list (in Everything and sections), who it is waiting on, and **Recurring**.
 
 **Comment dots.** A dot in a card's bottom-right corner means someone commented since you last opened it: **gray** when only agents did, **blue** when a person did, **pulsing blue** when someone mentioned you or asked you a question. Your own comments and field changes never light it. Opening the card clears it on every device; reading the comment in the Inbox does not.
 
