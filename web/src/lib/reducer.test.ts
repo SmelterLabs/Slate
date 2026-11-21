@@ -250,6 +250,16 @@ describe('applyEvent', () => {
     const d = data(item());
     expect(applyEvent(d, ev({ type: 'item.run_failed', after: { agent_id: 'AGENT', failures: 3, note: 'Boom' } })).refetch).toEqual(['I1']);
   });
+  it('clears a stale ask whenever waiting_on_account_id changes, not only when cleared', () => {
+    const ask = { comment_id: 'C1', question: 'Start now?', options: ['Yes', 'No'], by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
+    const d1 = data(item({ waiting_on_account_id: 'me', ask }));
+    applyEvent(d1, ev({ field: 'waiting_on_account_id', before: 'me', after: null }));
+    expect(d1.items.I1.ask).toBeNull();
+    const d2 = data(item({ waiting_on_account_id: 'me', ask }));
+    applyEvent(d2, ev({ field: 'waiting_on_account_id', before: 'me', after: 'other' }));
+    expect(d2.items.I1.waiting_on_account_id).toBe('other');
+    expect(d2.items.I1.ask).toBeNull();
+  });
   it('keeps agent_threads current from a report, per agent, and past done', () => {
     const d = data(item());
     const thread = { ref: 'sess-1', url: 'hermes://chat/sess-1?profile=agent' };

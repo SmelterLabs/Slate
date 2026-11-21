@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deviceLabel, missedHint, NOTIFY_GROUPS, PUSH_REASONS } from './push';
+import { DEFAULT_PUSH_REASONS, deviceLabel, missedHint, NOTIFY_GROUPS, PUSH_REASONS } from './push';
 
 const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 const WIN_EDGE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Edg/130.0';
@@ -17,8 +17,9 @@ describe('missedHint', () => {
 });
 
 describe('failed reason', () => {
-  it('is listed for push and in the notifications grid', () => {
+  it('is listed for push, in the fallback defaults, and in the notifications grid', () => {
     expect(PUSH_REASONS.map((r) => r.key)).toContain('failed');
+    expect(DEFAULT_PUSH_REASONS).toContain('failed');
     expect(NOTIFY_GROUPS.flatMap((g) => g.reasons)).toContain('failed');
   });
 });
