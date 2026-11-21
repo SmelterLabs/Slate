@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { mount, unmount } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
+import type { Attention } from '../../lib/attention';
+import type { Item } from '../../lib/types';
 
 const { answer, askItem, boardState } = vi.hoisted(() => {
-  const askItem = {
+  const askItem: Item = {
     id: 'I1',
     list_id: 'L1',
     parent_id: null,
@@ -36,7 +38,7 @@ const { answer, askItem, boardState } = vi.hoisted(() => {
     answer: vi.fn(async () => true),
     askItem,
     boardState: {
-      needsMe: [{ item: askItem, need: 'waiting' as const }],
+      needsMe: [{ item: askItem, need: 'waiting' }] as Attention[],
       me: { account: { id: 'me', display_name: 'Alex' } },
       now: new Date('2026-10-29T12:00:00Z'),
       lists: { L1: { name: 'Home' } },
@@ -77,7 +79,7 @@ describe('NeedsPanel ask row', () => {
       {
         item: {
           ...askItem,
-          ask: { ...askItem.ask, options: [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'] },
+          ask: { ...askItem.ask!, options: [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'] },
         },
         need: 'waiting',
       },

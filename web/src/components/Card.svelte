@@ -20,6 +20,8 @@
   import Icon from './Icon.svelte';
   import PriorityPicker from './PriorityPicker.svelte';
   import RunNow from './RunNow.svelte';
+  import StalledBadge from './StalledBadge.svelte';
+  import StandingLine from './StandingLine.svelte';
   import { RUN_TITLE } from '../lib/runmode';
   import { DEPENDS_ON, LEAVES, waitingOn } from '../lib/words';
   import { needOf } from '../lib/attention';
@@ -160,8 +162,11 @@
 
   <span class="card-title" class:clamped={config.title_lines > 0}>{item.title}</span>
 
+  {#if item.standing}<span class="card-standing"><StandingLine standing={item.standing} /></span>{/if}
+
   {#if item.agent}<span class="card-agent"><AgentBadge flag={item.agent} {item} /></span>{/if}
-  {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed'}<span class="card-agent"
+  {#if item.stalled}<span class="card-agent"><StalledBadge {item} /></span>{/if}
+  {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed' && !item.stalled}<span class="card-agent"
       ><RunNow {item} /></span
     >{/if}
 
@@ -317,6 +322,11 @@
   }
   .dep-name {
     font-weight: 500;
+  }
+  .card-standing {
+    display: flex;
+    min-width: 0;
+    margin: 2px 0 1px;
   }
   .card-agent {
     display: flex;
