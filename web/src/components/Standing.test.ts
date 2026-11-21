@@ -52,6 +52,7 @@ describe('Standing line and stalled mark on Card, ItemRow, and TableRow', () => 
     const cardItem = item({
       id: 'I1',
       title: 'Invoice client',
+      due_at: '2026-10-28T10:00:00Z',
       assignees: [{ id: 'sc', handle: 'my-agent', display_name: 'My Agent', kind: 'agent' }],
       standing,
       stalled: true,
@@ -65,7 +66,8 @@ describe('Standing line and stalled mark on Card, ItemRow, and TableRow', () => 
 
     const stalled = target.querySelector('[data-stalled]');
     expect(stalled?.textContent).toContain('Stalled');
-    expect(stalled?.querySelector('[data-stalled-run]')?.textContent).toContain('Run now');
+    const runBtn = stalled?.querySelector<HTMLButtonElement>('[data-stalled-run] button.run-now');
+    expect(runBtn?.textContent).toContain('Run now');
     await unmount(app);
 
     // Other account's move shows their name; null move_id shows no move mark.

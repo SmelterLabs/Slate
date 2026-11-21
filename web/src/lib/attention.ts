@@ -49,7 +49,10 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
   const answered = !!flag && !!item.open_asks?.includes(flag.by);
   if (flag?.state === 'blocked' && !item.waiting_on_account_id && !answered && mine) return 'blocked';
   if (item.open_asks?.includes(me)) return 'asked';
-  if (flag?.state === 'review' && mine) return 'review';
+  if (flag?.state === 'review') {
+    const reviewer = item.standing?.move_id;
+    if (reviewer ? reviewer === me : mine) return 'review';
+  }
   if (item.stalled && (item.created_by === me || item.assignees.some((a) => a.id === me && a.kind === 'person'))) return 'stalled';
   return null;
 }

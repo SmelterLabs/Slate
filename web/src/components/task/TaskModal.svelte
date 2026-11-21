@@ -96,7 +96,7 @@
       : null,
   );
   const stalled = $derived(
-    d
+    d && isOpen(d)
       ? d.id in board.items && board.items[d.id].stalled !== undefined
         ? !!board.items[d.id].stalled
         : !!d.stalled

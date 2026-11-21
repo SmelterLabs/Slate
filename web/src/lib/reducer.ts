@@ -178,8 +178,14 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     }
     case 'item.status_changed': {
       const status = it ? statusOf(data, it.list_id, ev.after) : undefined;
-      if (it && status) it.status = { ...status };
-      else fx.refetch.push(id);
+      if (it && status) {
+        it.status = { ...status };
+        const hadStalled = !!it.stalled;
+        if (status.kind === 'done' || status.kind === 'cancelled') it.stalled = false;
+        if (it.standing || hadStalled) fx.refetch.push(id);
+      } else {
+        fx.refetch.push(id);
+      }
       // Items waiting on this one hear item.blocked / item.unblocked of their own.
       break;
     }
@@ -299,7 +305,10 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
-        if (ev.field === 'waiting_on_account_id') it.ask = null;
+        if (ev.field === 'waiting_on_account_id') {
+          it.ask = null;
+          if (it.standing) fx.refetch.push(id);
+        }
         if (ev.field === 'list_id' || ev.field === 'parent_id') fx.refetch.push(id);
       } else {
         fx.refetch.push(id);

@@ -35,6 +35,13 @@ describe('needOf', () => {
   it("review on another person's card is theirs", () => {
     expect(needOf(item({ created_by: 'guest', agent: flag('review') }), ME, accounts)).toBeNull();
   });
+  it('review with standing.move_id routes to the named reviewer rather than the filer', () => {
+    const forGuest = { line: 'Check draft', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: 'guest' };
+    const forMe = { line: 'Check draft', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: ME };
+    expect(needOf(item({ created_by: ME, agent: flag('review'), standing: forGuest }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, agent: flag('review'), standing: forGuest }), 'guest', accounts)).toBe('review');
+    expect(needOf(item({ created_by: 'guest', agent: flag('review'), standing: forMe }), ME, accounts)).toBe('review');
+  });
   it('a structured ask waiting on me is a need', () => {
     const ask = { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'], by_id: 'sc', at: '2026-10-29T10:00:00Z' };
     expect(needOf(item({ created_by: 'guest', waiting_on_account_id: ME, agent: flag('blocked'), ask }), ME, accounts)).toBe('waiting');

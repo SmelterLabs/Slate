@@ -303,6 +303,17 @@ describe('applyEvent', () => {
     applyEvent(d, ev({ type: 'item.run_requested', after: {} }));
     expect(d.items.I1.stalled).toBe(false);
   });
+  it('refetches standing on manual wait change, reassignment, close and reopen, and clears stalled on close', () => {
+    const standing = { line: 'Draft ready', by_id: 'AGENT', at: '2026-10-29T10:00:00Z', move_id: 'me' };
+    const d = data(item({ standing, stalled: true }));
+    expect(applyEvent(d, ev({ field: 'waiting_on_account_id', before: null, after: 'other' })).refetch).toEqual(['I1']);
+    expect(applyEvent(d, ev({ type: 'item.assigned', field: 'assignees', after: ['other'] })).refetch).toEqual(['I1']);
+    const fxClose = applyEvent(d, ev({ type: 'item.status_changed', field: 'status_id', before: 'st_open', after: 'st_done' }));
+    expect(d.items.I1.stalled).toBe(false);
+    expect(fxClose.refetch).toEqual(['I1']);
+    const fxReopen = applyEvent(d, ev({ type: 'item.status_changed', field: 'status_id', before: 'st_done', after: 'st_open' }));
+    expect(fxReopen.refetch).toEqual(['I1']);
+  });
   it('clears a stale ask whenever waiting_on_account_id changes, not only when cleared', () => {
     const ask = { comment_id: 'C1', question: 'Start now?', options: ['Yes', 'No'], by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
     const d1 = data(item({ waiting_on_account_id: 'me', ask }));

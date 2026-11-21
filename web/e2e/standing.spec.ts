@@ -14,7 +14,8 @@ test('standing: finish with status shows on the row without a reload', async ({ 
 
   await signIn(page);
   await page.goto(`/#/list/${listId}`);
-  const row = page.locator(`[data-item="${created.id}"]`);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const row = page.locator(`[role="row"][data-item="${created.id}"]`);
   await expect(row).toBeVisible();
 
   const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: created.id }, agent);
