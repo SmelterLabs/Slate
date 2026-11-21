@@ -72,14 +72,14 @@ start builds the image: a few minutes), waits up to 60 s for `http://127.0.0.1:1
 and prints the health JSON. Expected health (the values here are placeholders; yours differ):
 
 ```json
-{"ok": true, "version": "0.1.0", "rev": "42", "commit": "abc1234", "db": "ok", "scheduler_last_tick_age_s": 12.3, "webhooks_enabled": true, "board": "/assets/index-<hash>.js", "min_runner_protocol": 3}
+{"ok": true, "version": "0.1.0", "rev": "42", "commit": "abc1234", "db": "ok", "scheduler_last_tick_age_s": 12.3, "board": "/assets/index-<hash>.js", "min_runner_protocol": 3}
 ```
 
 `scheduler_last_tick_age_s` should stay under ~2× `SLATE_SCHEDULER_INTERVAL_SECONDS` (60 s).
-`webhooks_enabled` is true once the secret key is set. `board` names the board bundle being
+`board` names the board bundle being
 served; open boards reload when it changes.
 
-Back up the secret key now: losing it makes every stored webhook secret unreadable. Store it
+Back up the secret key now: losing it invalidates automation signing secrets and Web Push keys. Store it
 in your secrets manager, piping
 `grep '^SLATE_SECRET_KEY=' /opt/slate/.env | cut -d= -f2` straight into its store command;
 never echo it.
@@ -178,11 +178,11 @@ Pass: HTTP 200 and `"isError":false` with `"handle":"my-agent"` in the result te
 (or `... deploy.sh v0.2.0`). It refuses to run over local edits in the checkout. Migrations
 run automatically at container start.
 
-**Before a deploy that changes what webhooks may reach** (any time
-`SLATE_WEBHOOK_PRIVATE_TARGETS` is changed): `docker exec slate slate check-targets`. It lists
-every webhook and automation that points at a private address (loopback, LAN, tailnet, bare
+**Before a deploy that changes what outbound requests may reach** (any time
+`SLATE_OUTBOUND_PRIVATE_TARGETS` is changed): `docker exec slate slate check-targets`. It lists
+enabled automation actions that point at a private address (loopback, LAN, tailnet, bare
 names) and exits 1 if there is any; those stop delivering unless `.env` has
-`SLATE_WEBHOOK_PRIVATE_TARGETS=true`. Run it against the live container before the update,
+`SLATE_OUTBOUND_PRIVATE_TARGETS=true`. Run it against the live container before the update,
 read the list, then decide: set the flag, or move those receivers to a public https address.
 
 **Before a deploy that adds a migration:** `deploy.sh` takes a `pre-deploy-<stamp>.db` backup

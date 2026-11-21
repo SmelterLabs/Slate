@@ -2,7 +2,7 @@
 
 # Event types
 
-Every change in Slate is one event. The same shape comes from `GET /events`, the SSE stream (`event:` = type, `id:` = event id), check-in news (plus `why`, `item_title`) and webhooks (plus `item` and `actor` summaries):
+Every change in Slate is one event. The same shape comes from `GET /events`, the SSE stream (`event:` = type, `id:` = event id), check-in news (plus `why`, `item_title`):
 
 ```json
 {"id": "0Vb3...", "type": "item.updated", "item_id": "Ab12Cd34Ef56", "subject_id": "Ab12Cd34Ef56", "actor_id": "Xy98...", "source": "api", "field": "title", "before": "Old", "after": "New", "session_ref": "run-42", "at": "2026-10-24T01:02:03.456Z"}
@@ -37,7 +37,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 |---|---|
 | `automation.created` | An automation rule was created. |
 | `automation.deleted` | An automation rule was deleted. |
-| `automation.secret_rotated` | An automation's incoming-webhook secret was rotated. |
+| `automation.secret_rotated` | An automation's signing secret was rotated. |
 | `automation.updated` | An automation rule changed (or was turned on or off). |
 
 ## channel
@@ -132,7 +132,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
-| `item.activity` | Not a stored event: lines an agent's run posted about what it is doing now (`after.lines` = `[{at, text}]`). It has no `id`, reaches only `/events/stream`, and is never replayed, polled, sent to a webhook or kept in history. |
+| `item.activity` | Not a stored event: lines an agent's run posted about what it is doing now (`after.lines` = `[{at, text}]`). It has no `id`, reaches only `/events/stream`, and is never replayed, polled or kept in history. |
 | `item.archived` | An item was archived. |
 | `item.assigned` | Assignees changed (`before`/`after` = sorted handles). Check-in news `assigned`/`unassigned`. |
 | `item.attachment_added` | A file was attached. |
@@ -272,13 +272,3 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `view.created` | A saved view was created. |
 | `view.unarchived` | A saved view was restored. |
 | `view.updated` | A saved view's filters, grouping or layout changed. |
-
-## webhook
-
-| Type | Meaning |
-|---|---|
-| `webhook.created` | A webhook subscription was created. |
-| `webhook.disabled` | A webhook subscription was disabled. |
-| `webhook.enabled` | A webhook subscription was enabled. |
-| `webhook.test` | `POST /webhooks/{id}/test` sent a test delivery. |
-| `webhook.updated` | A webhook subscription's url, events or filter changed. |

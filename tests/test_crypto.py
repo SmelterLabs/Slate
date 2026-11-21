@@ -1,4 +1,4 @@
-"""Webhook secrets are encrypted at rest with SLATE_SECRET_KEY (AES-GCM), never hashed."""
+"""Automation signing secrets use AES-GCM encryption at rest with SLATE_SECRET_KEY."""
 
 from __future__ import annotations
 

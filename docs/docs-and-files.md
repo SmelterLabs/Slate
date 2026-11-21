@@ -49,8 +49,8 @@ list. The same tree also holds **file docs**.
   separate table rather than `comments.item_id` nullable: Asks on tasks drive the agent work loop
   (`WAKE_TYPES`, `/work/next`, Today), the check-in and the inbox all assume an item; a doc comment
   would have reached into every one of them. Instead doc mentions and Asks ride on
-  **`doc.mentioned`** (the page-mention event, with `comment_id` and `asked`), so inbox,
-  check-in, push (`"X asked you in <doc>"`, url `#/docs/<id>?comment=<id>`) and webhooks route them
+  **`doc.mentioned`** (the page-mention event, with `comment_id` and `asked`), so the inbox,
+  check-in and push (`"X asked you in <doc>"`, url `#/docs/<id>?comment=<id>`) route them
   with no rules of their own. A push agent mentioned or asked on a page also gets a doc turn
   (`service/docwake.py`, `docs/agents-work-loop.md` "Doc mentions wake an agent"): its runner
   answers with a comment in the thread; no task or item run starts. Events:
@@ -246,7 +246,7 @@ list. The same tree also holds **file docs**.
 - **Mentions**: a save (create or update) that adds `@handle`s the body did not have records
   `doc.mentioned` (`after` = `{doc_id, title, mentions, excerpt}`; autosave resends the body, so
   only new handles count). It is in the inbox's and the check-in's `MENTION_TYPES` (inbox entries
-  carry `doc_id`, `item_title` = the page title), webhooks' "about me" filter and push
+  carry `doc_id`, `item_title` = the page title) and push
   (`/#/docs/<id>`). Opening a page reads its inbox entries (`inbox.readDoc`). A push agent
   named by a new mention is also woken (`doc.mentioned_agent`, a doc turn) and its answer starts
   a discussion thread on the page.

@@ -18,7 +18,7 @@ in threads. Edits wake only newly added explicit mentions (service/chatwake.py).
 
 - `post` writes `message.posted`; `after` is the message plus `mentions` (handles of accounts
   `@mentioned`) and, for a reply, `thread_followers` (account ids of the thread's earlier
-  authors). The inbox, check-in, push and webhooks read those two to route a mention or a reply
+  authors). The inbox, check-in and push read those two to route a mention or a reply
   (service/inbox.py `reason_for`, service/checkin.py `why`). `@channel` is not a thing.
 - `edit` (author only) writes `message.edited` with `after.mentions` = only the handles the
   edit added; `delete` (the author, or an owner or admin) blanks the body (`message.deleted`).

@@ -17,7 +17,7 @@ Why an ETag can be this cheap: every change to anything a read shows is an event
 rule 3), and event ids are time-ordered, so `max(events.id)` names the state of the whole
 database. The tag is a hash of that cursor, the URL and the caller's token (some reads are per
 account). Reads that also depend on the clock (`/today`, `stale=true`, recurrence previews) or
-on bookkeeping rows written without an event (token `last_used_at`, webhook deliveries) are not
+on bookkeeping rows written without an event (token `last_used_at`, notification deliveries) are not
 in `CACHEABLE`, and a long-poll (`wait=`) is never tagged.
 
 The cursor is read *before* the route runs, so a snapshot read with cursor C plus

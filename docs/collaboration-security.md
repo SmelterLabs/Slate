@@ -21,8 +21,7 @@ Projection is read-only: stored events and actors are never edited and no event 
 The shared serializer covers Inbox, check-in and REST/SSE replay; Audit JSON/CSV uses the
 same snapshot helper. Live SSE projects a new recipient-specific dictionary, never mutating
 the bus payload. Push reprojects on delivery/retry after fresh recipient authorization.
-Queued webhook bodies are immutable: boolean-only webhook gates suppress an unsafe or
-now-empty digest instead of sending the original bytes. Export contains documents
+Export contains documents
 and tasks, not digest events; its current-access gate is checked with the other surfaces in
 `tests/test_collaboration_security_final.py`.
 
@@ -109,4 +108,4 @@ paragraph separators, and invalid tails after the text budget is exhausted.
 
 ## Test coverage
 
-The tests use synthetic in-memory databases and fake push/webhook senders.
+The tests use synthetic in-memory databases and fake push senders.

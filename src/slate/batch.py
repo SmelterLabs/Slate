@@ -28,10 +28,9 @@ builds). Read ops (`get`, `query`, ...) and `$ref` lookups always see the state 
 their point in the batch: `$t.status.name` is the status right after op `t`.
 
 Filing several items in one batch is several separate `POST /items`; it never creates children
-(AGENTS.md rule 1). Webhook tests (network I/O) cannot run inside a batch, nor can a batch,
-nor can a long-poll: an op with `wait` above 0 (`checkin`, `work next`, `work finish` with
-`next.wait`) is refused before it runs, atomic or not. A wait inside an atomic batch would
-hold the write lock while it slept.
+(AGENTS.md rule 1). A batch cannot contain another batch or a long-poll. An op with `wait` above
+0 (`checkin`, `work next`, `work finish` with `next.wait`) is refused before it runs. An atomic
+batch would hold the write lock while it waited.
 """
 
 from __future__ import annotations
@@ -48,10 +47,8 @@ from slate.service.core import Actor, apply_change
 from slate.service.errors import Forbidden, Invalid, ServiceError
 
 MAX_OPS = 100
-# Actions that talk to another server (the webhook test) must not hold the write lock an
-# atomic batch takes, and nested batches are refused.
+# Nested batches are refused.
 EXCLUDED = {
-    ("slate_webhook", "test"),
     ("slate_batch", "run"),
 }
 _REF = re.compile(r"^\$([a-z][a-z0-9_]{0,31})((?:\.[A-Za-z0-9_]+)*)$")

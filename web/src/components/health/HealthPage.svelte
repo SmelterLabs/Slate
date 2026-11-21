@@ -276,8 +276,6 @@
     <div class="health-block">
       <h2>Queues and storage</h2>
       <div class="health-tiles">
-        <div class="health-tile"><span class="muted small">Webhooks waiting</span><strong>{report.queues.webhooks_pending}</strong></div>
-        <div class="health-tile"><span class="muted small">Webhooks failed today</span><strong>{report.queues.webhooks_failed_24h}</strong></div>
         {#each Object.entries(report.queues.engine_lag) as [k, v] (k)}
           <div class="health-tile"><span class="muted small">{LAG_LABEL[k] ?? k} behind</span><strong>{v === null ? '—' : `${v} events`}</strong></div>
         {/each}

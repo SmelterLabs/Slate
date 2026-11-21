@@ -11,7 +11,8 @@ history, never a board column.
 Side effects, each its own ordinary event in the same transaction:
 
 - `note` (with `comment`, the default) is also posted as a comment by the agent, so the report
-  reads as conversation in the task window and `@mentions` in it reach their webhooks.
+  reads as conversation in the task window and `@mentions` in it reach the
+  mentioned accounts' inboxes.
 - `done` moves the item to its list's first done-kind status unless `complete=False` or it is
   already done or cancelled.
 - `blocked` with `waiting_on` (a handle) sets the item's `waiting_on_account_id`. Waiting on a

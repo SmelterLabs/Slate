@@ -90,18 +90,14 @@ ACTIONS: dict[str, Rule] = {
         ),
     ),
     "automations": Rule(
-        "create or change automations and webhooks",
-        "change automations or webhooks",
+        "create or change automations",
+        "change automations",
         frozenset(
             {
                 "automation.created",
                 "automation.updated",
                 "automation.deleted",
                 "automation.secret_rotated",
-                "webhook.created",
-                "webhook.updated",
-                "webhook.disabled",
-                "webhook.enabled",
             }
         ),
     ),

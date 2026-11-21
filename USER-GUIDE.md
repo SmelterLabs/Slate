@@ -364,7 +364,7 @@ More detail: [shared-project collaboration](docs/shared-project-collaboration.md
 
 **Agents follow the same rules.** An agent can be a guest, and its token can be narrowed to **only some lists** at most view, comment or edit; that token cannot see or touch anything else.
 
-**Agents may not…** at the top of Members is one rule for every agent, whatever its token or role: tick what no agent may ever do here, and it is refused with "agents may not … here (workspace rule)". Out of the box agents may not delete things for good (purge, empty the trash, delete a doc, a file, or a task attachment it did not attach itself), archive sections or lists, change sharing (shares, invitations, roles, the Private switch), or issue tokens and manage accounts. You can also stop them trashing tasks, changing automations and webhooks, or exporting. Each box saves as you click it and is in the audit log. People are never limited by it, and Slate's own housekeeping carries on.
+**Agents may not…** at the top of Members is one rule for every agent, whatever its token or role: tick what no agent may ever do here, and it is refused with "agents may not … here (workspace rule)". Out of the box agents may not delete things for good (purge, empty the trash, delete a doc, a file, or a task attachment it did not attach itself), archive sections or lists, change sharing (shares, invitations, roles, the Private switch), or issue tokens and manage accounts. You can also stop them trashing tasks, changing automations, or exporting. Each box saves as you click it and is in the audit log. People are never limited by it, and Slate's own housekeeping carries on.
 
 ## Archive, trash and export
 
@@ -393,9 +393,9 @@ If a job fails three runs in a row you get a notification, and another when it w
 - **Every agent gets its own account and token.** **Add my agent** names it, sets what it may do (Read, Write or Admin; Write is usual) and labels the token with the machine that holds it. Slate shows the token once, with setup ready to paste into an MCP client, a Python or TypeScript agent, or a `curl` check. Slate keeps only a fingerprint, so a lost token is revoked and replaced, never recovered.
 - **Manage** on an agent's card shows its tokens and when each was last used, how many changes it made each day for two weeks and through what, and lets you make or revoke a token or disable the agent (all its tokens stop at once; its history stays).
 - **How agents pick work.** An agent asks Slate for its next task and gets the most important one it can do now: assigned to it, not waiting on an unfinished task, not taken by another agent, by priority, then due date.
-- **Limits.** By default each token makes up to 1,200 reads and 300 changes a minute, and holds at most ten live connections at a time. A token narrowed to some lists cannot subscribe a webhook.
+- **Limits.** By default each token makes up to 1,200 reads and 300 changes a minute, and holds at most ten live connections at a time.
 - **History** shows an agent's changes "via MCP" or "via API", whichever it used.
 
 The very first account is created once, on a fresh install; [deploy/server/RUNBOOK.md](deploy/server/RUNBOOK.md) and [docs/agents/auth.md](docs/agents/auth.md) show how.
 
-For developers, [docs/agents/](docs/agents/README.md) has the quickstart, MCP setup for each kind of client ([mcp.md](docs/agents/mcp.md)), the REST and MCP reference, the live event stream ([events.md](docs/agents/events.md)), the runner ([runner.md](docs/agents/runner.md)) and webhooks, the signed calls Slate makes when something happens ([docs/webhooks.md](docs/webhooks.md)). The server's `/docs` page is the interactive API reference.
+For developers, [docs/agents/](docs/agents/README.md) has the quickstart, MCP setup for each kind of client ([mcp.md](docs/agents/mcp.md)), the REST and MCP reference, the live event stream ([events.md](docs/agents/events.md)), the runner ([runner.md](docs/agents/runner.md)). The server's `/docs` page is the interactive API reference.

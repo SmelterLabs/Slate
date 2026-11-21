@@ -17,7 +17,7 @@ README). The internals:
   `CACHEABLE` get a weak `ETag` = hash(cursor, path, query, Authorization). A matching
   `If-None-Match` from an authenticated caller is a `304` before the route runs. This is only
   correct because every visible change is an event (rule 3): **a new GET route whose answer depends
-  on the clock or on bookkeeping rows (token `last_used_at`, deliveries) must stay out of
+  on the clock or on bookkeeping rows (token `last_used_at`, notification receipts) must stay out of
   `CACHEABLE`**; a new event-backed read can join it.
 - **`GET /items` extras** (`api/items.py`, `service/items.query_items`): `fields` (projection,
   validated against `ItemOut`; `parse_fields()` is shared with MCP), `limit`/`offset`,
@@ -30,9 +30,8 @@ README). The internals:
   new MCP action is batchable for free**. Atomic mode wraps every op in one outer `apply_change()`
   (inner service blocks join it; one commit; publishes only on success); `BatchFailed(index, cause)`
   maps to the cause's HTTP status plus `failed_op` (`api.status_of()`). Non-atomic rolls back the
-  failed op only. `EXCLUDED` holds actions that must not run under the write lock (webhook test does
-  network I/O) and nested batches; `_prepare` refuses any op with `wait` above 0 (a long-poll
-  would sleep holding the lock), and `longpoll.wait_*` refuse to wait inside a change. A
+  failed op only. `EXCLUDED` refuses nested batches.
+  Batch rejects waiting actions, and `longpoll.wait_*` refuses to wait inside a change. A
   rollback or commit under an open `apply_change()` fails the change (`ChangeRolledBack`), so
   a batch never answers `ok` for writes that were thrown away. `$ref.path` substitution only replaces strings that are exactly a
   ref expression *and* name an earlier ref; anything else stays literal. **Views after commit**

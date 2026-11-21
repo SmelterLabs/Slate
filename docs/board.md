@@ -126,7 +126,7 @@ A comment is new when it was written after the account's `item_reads.read_at` fo
 after the account was created), and the account's own comments never count. A dot clears only when
 the account opens the card; reading the comment in the Inbox leaves it. `POST /items/{id}/read`
 records one `item.read` event whose subject is the account and which has no `item_id`, so it
-stays out of the item's history and webhooks.
+stays out of the item's history.
 `board.open(id)` clears the dot locally and sends `POST /items/{id}/read` (writes nothing when
 nothing is new); a reload while the card is open reads its dot at once. The upper right corner is
 the complete circle and ⋯, so the dot shares the corner with the copy-ID button

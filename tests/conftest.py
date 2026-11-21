@@ -14,7 +14,7 @@ os.environ.setdefault("SLATE_PUSH_ENABLED", "false")
 os.environ.setdefault("SLATE_TIMEZONE", "America/Chicago")
 # Tests hammer the API far faster than any agent; the rate-limit tests turn limits back on.
 os.environ.setdefault("SLATE_RATE_LIMIT_ENABLED", "false")
-# A fixed test-only key (32 bytes, hex) so webhook secrets can be encrypted in tests.
+# A fixed test-only key (32 bytes, hex) for automation signing and Web Push.
 os.environ.setdefault("SLATE_SECRET_KEY", "00" * 16 + "11" * 16)
 # Receivers in tests are on example.com names behind a mock transport; private targets stay
 # off (the default) so tests/test_security_regressions.py can check the refusal.
@@ -51,12 +51,12 @@ PUBLIC_TEST_ADDRESS = "93.184.215.14"
 
 @pytest.fixture(autouse=True)
 def no_dns(monkeypatch):
-    """Outbound senders resolve a target's name once (service.webhooks._lookup); tests never
+    """Outbound senders resolve a target's name once (outbound._lookup); tests never
     ask a real resolver. An IP literal resolves to itself; a test that needs another answer
-    patches `webhooks._lookup` itself."""
+    patches `outbound._lookup` itself."""
     import ipaddress
 
-    from slate.service import webhooks
+    from slate import outbound
 
     def lookup(host: str) -> list[str]:
         try:
@@ -64,7 +64,7 @@ def no_dns(monkeypatch):
         except ValueError:
             return [PUBLIC_TEST_ADDRESS]
 
-    monkeypatch.setattr(webhooks, "_lookup", lookup)
+    monkeypatch.setattr(outbound, "_lookup", lookup)
 
 
 ROOT = Path(__file__).resolve().parents[1]

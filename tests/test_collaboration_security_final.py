@@ -112,7 +112,7 @@ def test_historical_digest_surfaces_revalidate_nested_items(
     gate = access.EventGate(account["id"])
     gate.load(db)
     payload = event_payload(original)
-    # Boolean consumers (webhook fan-out) must not accept an unsanitized mixed payload.
+    # Boolean consumers must not accept an unsanitized mixed payload.
     assert not gate.allows(db, payload)
 
 
@@ -255,28 +255,6 @@ def test_digest_live_projection_is_per_recipient(client, alex, todo, db, monkeyp
     assert replay[0]["after"] == projected["after"]
     owner_id = client.get(API + "/me", headers=alex).json()["account"]["id"]
     assert _gate_check(access.EventGate(owner_id), payload) == payload
-
-
-def test_queued_webhook_digest_is_suppressed_after_revoke(client, alex, todo, db, monkeypatch):
-    from slate.models import Delivery, Source
-    from slate.service import deliveries, webhooks
-    from slate.service.core import Actor
-
-    account, _, event_id, now = setup_digest(client, alex, todo, db, monkeypatch, True)
-    hook, _ = webhooks.create_webhook(
-        db,
-        Actor(account["id"], Source.api),
-        url="https://rx.example.com/slate",
-        events=["account.digest"],
-    )
-    original = deliveries.delivery_body(db, db.get(Event, event_id))
-    row = Delivery(webhook_id=hook.id, event_id=event_id, attempt=2, state="sending", body=original)
-    db.add(row)
-    db.commit()
-    assert deliveries.prepare_attempt(db, row.id, now=now) is None
-    db.refresh(row)
-    assert row.state == "skipped"
-    assert row.body == original
 
 
 def test_snapshot_counts_never_reuse_unverifiable_totals(client, alex, todo, db):

@@ -22,9 +22,6 @@ it:
   (handles). A mention is `@handle` of a real account (`comments.MENTION_RE`). `item.commented`'s
   `after` carries `mentions`; an edit that adds a mention records `item.mentioned {comment_id,
   mentions}` for the new ones only.
-- **Webhook routing**: `assignee_me` also matches when the subscriber watches the item, or is in
-  `mentions` of an `item.commented`/`item.mentioned` event (`deliveries.matches`). There is no
-  separate filter key for either.
 - **Checklists**: tables `checklists` and `checklist_items` (entries carry `item_id` too, so counts
   need no join). `POST /items/{id}/checklists {name, items[]}`, `PATCH|DELETE /checklists/{id}`,
   `POST /checklists/{id}/items`, `PATCH|DELETE /checklist-items/{id}` (`done`, `title`, `assignee`,

@@ -233,7 +233,7 @@ def test_failed_automation_runs_and_queues(client, alex, todo):
     assert run["name"] == "Ping receiver" and run["detail"] == "webhook: HTTP 500"
     check = next(c for c in body["checks"] if c["key"] == "automations")
     assert check["status"] == "warn"
-    assert body["queues"]["webhooks_pending"] == 0
+    assert "push_pending" in body["queues"] and "email_pending" in body["queues"]
 
 
 async def test_slate_health_over_mcp_counts_the_call(alex):

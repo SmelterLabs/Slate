@@ -61,7 +61,6 @@ from slate.api import settings as settings_api
 from slate.api import tags as tags_api
 from slate.api import today as today_api
 from slate.api import views as views_api
-from slate.api import webhooks as webhooks_api
 from slate.api import work as work_api
 from slate.api.accounts import AccountPatch, TokenIn, me_view
 from slate.api.auth import Auth
@@ -103,7 +102,6 @@ from slate.api.schemas import (
     WatchIn,
 )
 from slate.api.views import ViewPatch
-from slate.api.webhooks import WebhookPatch
 from slate.api.work import FinishIn, FinishOut, HeartbeatIn, NextIn, NextOut
 from slate.batch import Later
 from slate.service import items, work
@@ -447,10 +445,6 @@ class RecurrenceRef(P):
     id: str = Field(description="Recurrence rule id")
 
 
-class WebhookRef(P):
-    id: str = Field(description="Webhook id")
-
-
 class ShareScope(P):
     scope_kind: Literal["section", "list"]
     scope_id: str
@@ -779,7 +773,7 @@ ITEM_ACTIONS = {
     "watch": bind(
         items_api.watch,
         "add a watcher (you, or `account`): watchers hear about every change to the item "
-        "(check-in `watching`, inbox, an assignee_me webhook)",
+        "(check-in `watching`, inbox)",
         with_id(WatchIn, "id", "Item id"),
     ),
     "unwatch": bind(
@@ -911,31 +905,6 @@ RECURRENCE_ACTIONS = {
         recurrences_api.run_now,
         "spawn everything due within the rule's lead window now",
         RecurrenceRef,
-    ),
-}
-
-# Webhooks: every action needs `write`, like /api/v1/webhooks ---------------------------------
-
-WEBHOOK_ACTIONS = {
-    "list": bind(webhooks_api.list_webhooks, "your webhooks (an admin sees everyone's)"),
-    "create": bind(
-        webhooks_api.create_webhook,
-        "subscribe a URL to event types; the reply holds the signing secret, shown only once",
-    ),
-    "update": bind(
-        webhooks_api.update_webhook,
-        "change url, events, filter (replaced whole) or disabled",
-        with_id(WebhookPatch, "id", "Webhook id"),
-    ),
-    "deliveries": bind(
-        webhooks_api.list_deliveries,
-        "the delivery log, newest first",
-        query_model(webhooks_api.list_deliveries, id=(str, Field(description="Webhook id"))),
-    ),
-    "test": bind(
-        webhooks_api.test_webhook,
-        "send a webhook.test delivery now (one attempt) and return its outcome",
-        WebhookRef,
     ),
 }
 
@@ -1754,7 +1723,7 @@ TOOLS: dict[str, ToolSpec] = {
             "slate_comment",
             "Slate comments",
             "Comments are the conversation on an item; @handle mentions an account and reaches "
-            "its inbox and assignee_me webhook. Use it to ask someone something, answer, or react; "
+            "their inbox. Use it to ask someone something, answer, or react; "
             "for progress on work you hold, slate_item report shows it on the card.",
             {"action": "add", "params": {"id": "Ab12Cd34Ef56", "body_md": "Done, @alex"}},
             COMMENT_ACTIONS,
@@ -1889,21 +1858,6 @@ TOOLS: dict[str, ToolSpec] = {
                 },
             },
             RECURRENCE_ACTIONS,
-        ),
-        ToolSpec(
-            "slate_webhook",
-            "Slate webhooks",
-            "Webhooks POST signed events to your URL so you are woken instead of polling. Use it "
-            "to register, inspect or test your own doorbell.",
-            {
-                "action": "create",
-                "params": {
-                    "url": "https://agent.example/slate",
-                    "events": ["item.assigned", "item.due"],
-                    "filter": {"assignee_me": True},
-                },
-            },
-            WEBHOOK_ACTIONS,
         ),
         ToolSpec(
             "slate_account",

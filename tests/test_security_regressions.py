@@ -1,5 +1,5 @@
-"""Security regressions: owner protection, automation and webhook permissions, cache
-boundaries, recurrence limits, private webhook targets and push endpoints."""
+"""Security regressions: owner protection, automation permissions, cache
+boundaries, recurrence limits, private outbound targets and push endpoints."""
 
 from __future__ import annotations
 
@@ -168,44 +168,7 @@ def test_cached_views_do_not_cross_access_boundaries(client, alex, world):
     assert full[world["milk"]["id"]]["blocked_by"] == [world["secret"]["id"]]
 
 
-# --- Webhooks and crypto -------------------------------------------------------------------
-
-
-def test_limited_token_cannot_subscribe_a_webhook(client, alex, world):
-    member, _ = world["account"]("member", "member")
-    tok = _post(
-        client,
-        f"/accounts/{member['id']}/tokens",
-        {"scopes": ["write"], "limit": {"list_ids": [world["todo"]["id"]]}},
-        alex,
-    )
-    narrow = {"Authorization": f"Bearer {tok['token']}"}
-    body = {"url": "https://rx.example.com/x", "events": ["*"]}
-    assert client.post(f"{API}/webhooks", json=body, headers=narrow).status_code == 403
-    _, wide = world["account"]("mia", "member")
-    assert client.post(f"{API}/webhooks", json=body, headers=wide).status_code == 201
-
-
-def test_disabled_account_webhook_hears_nothing(client, alex, world, db):
-    from sqlalchemy import select
-
-    from slate import notify
-    from slate.models import Delivery
-
-    member, mh = world["account"]("member", "member")
-    hook = _post(client, "/webhooks", {"url": "https://rx.example.com/x", "events": ["*"]}, mh)
-    d = notify.Dispatcher()
-    d.start()
-    _post(client, "/items", {"list_id": world["todo"]["id"], "title": "Before"}, alex)
-    assert d.fan_out_once() >= 1
-    r = client.patch(f"{API}/accounts/{member['id']}", json={"disabled": True}, headers=alex)
-    assert r.status_code == 200, r.text
-    _post(client, "/items", {"list_id": world["todo"]["id"], "title": "After"}, alex)
-    d.fan_out_once()
-    bodies = [
-        row.body for row in db.scalars(select(Delivery).where(Delivery.webhook_id == hook["id"]))
-    ]
-    assert any("Before" in b for b in bodies) and not any("After" in b for b in bodies)
+# --- Signing secrets -------------------------------------------------------------------
 
 
 def test_decrypt_rejects_garbage_with_a_clear_error():
@@ -214,67 +177,6 @@ def test_decrypt_rejects_garbage_with_a_clear_error():
     for blob in ("v1:not-base64!!", "v1:QUJD", "v1:"):
         with pytest.raises(crypto.SecretKeyError):
             crypto.decrypt(blob, aad="x")
-
-
-def _delivery_world(db):
-    from slate.models import Source
-    from slate.service import accounts, lists, sections, webhooks
-    from slate.service.core import Actor
-
-    alex, _, _ = accounts.bootstrap(db, handle="alex", display_name="Alex")
-    actor = Actor(account_id=alex.id, source=Source.api)
-    section = sections.create_section(db, actor, name="P", audience="personal")
-    todo = lists.create_list(db, actor, section_id=section.id, name="Todo")
-    hook, _ = webhooks.create_webhook(db, actor, url="https://rx.example.com/x", events=["*"])
-    return actor, todo, hook
-
-
-def _one_attempt(db, monkeypatch, rx):
-    import httpx
-
-    from slate import notify
-    from slate.models import utcnow
-    from slate.service import items
-
-    monkeypatch.setattr(notify, "transport", httpx.MockTransport(rx))
-    d = notify.Dispatcher()
-    d.start()
-    actor, todo, _ = _delivery_world(db)
-    items.create_item(db, actor, list_id=todo.id, title="x")
-    assert d.fan_out_once() >= 1
-    ids = d.claim(1)
-    assert ids
-    return notify.attempt(ids[0], clock=utcnow)
-
-
-def test_webhook_attempt_reads_a_bounded_amount_of_the_response(monkeypatch, db):
-    import httpx
-
-    from slate import outbound
-
-    pulled = {"chunks": 0}
-
-    def endless():
-        while True:
-            pulled["chunks"] += 1
-            yield b"x" * 4096
-
-    row = _one_attempt(db, monkeypatch, lambda r: httpx.Response(500, content=endless()))
-    assert row.status_code == 500 and row.error.startswith("HTTP 500")
-    assert len(row.error) < 400
-    assert pulled["chunks"] <= outbound.RESPONSE_CAP_BYTES // 4096 + 1
-
-
-def test_webhook_attempt_records_errors_that_are_not_httpx_errors(monkeypatch, db):
-    def boom(request):
-        raise UnicodeError("label too long")  # what idna raises for a bad hostname
-
-    row = _one_attempt(db, monkeypatch, boom)
-    assert row.state != "sending", row.state
-    assert "UnicodeError" in (row.error or "")
-
-
-# --- Recurrence rules that hang or flood, and a rule moved into a list ---------------------
 
 
 def _rule_post(client, h, todo, **fields):
@@ -391,38 +293,17 @@ def test_attachment_content_type_must_be_a_media_type(client, alex, world):
         "https://x.local/h",
     ],
 )
-def test_private_webhook_targets_are_refused_unless_allowed(client, alex, world, url, monkeypatch):
+def test_private_automation_targets_are_refused_unless_allowed(client, alex, url, monkeypatch):
     from slate.settings import settings
 
-    body = {"url": url, "events": ["*"]}
-    r = client.post(f"{API}/webhooks", json=body, headers=alex)
-    assert r.status_code == 422 and "private address" in r.json()["detail"], r.text
     rule = {
         "name": "x",
         "trigger": {"type": "task_created"},
         "actions": [{"type": "webhook", "url": url}],
     }
     assert client.post(f"{API}/automations", json=rule, headers=alex).status_code == 422
-    monkeypatch.setattr(settings, "webhook_private_targets", True)
-    assert client.post(f"{API}/webhooks", json=body, headers=alex).status_code == 201
-
-
-def test_a_public_name_that_resolves_to_a_private_address_is_refused_at_send_time(monkeypatch, db):
-    from slate import automator
-    from slate.service import webhooks
-
-    monkeypatch.setattr(webhooks, "_lookup", lambda host: ["127.0.0.1"])
-    row = _one_attempt(db, monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("sent")))
-    assert row.state == "failed" and "private address" in row.error  # final: no retry
-    ok, detail = automator.send("https://rx.example.com/x", {"automation": {"id": "a"}}, "s")
-    assert ok is False and "private address" in detail
-
-
-def test_delivery_errors_never_echo_the_receivers_answer(monkeypatch, db):
-    import httpx
-
-    row = _one_attempt(db, monkeypatch, lambda r: httpx.Response(500, text="internal secret 42"))
-    assert row.error == "HTTP 500"
+    monkeypatch.setattr(settings, "outbound_private_targets", True)
+    assert client.post(f"{API}/automations", json=rule, headers=alex).status_code == 201
 
 
 def test_db_path_is_only_for_authenticated_callers(client, alex):
@@ -506,10 +387,8 @@ def test_check_targets_lists_private_receivers(client, alex, world, monkeypatch,
     from slate.settings import settings
 
     assert cli.main(["check-targets"]) == 0
-    assert "No webhook" in capsys.readouterr().out
-    monkeypatch.setattr(settings, "webhook_private_targets", True)
-    hook = _post(client, "/webhooks", {"url": "http://127.0.0.1:9000/h", "events": ["*"]}, alex)
-    _post(client, "/webhooks", {"url": "https://public.example.com/h", "events": ["*"]}, alex)
+    assert "No enabled automation" in capsys.readouterr().out
+    monkeypatch.setattr(settings, "outbound_private_targets", True)
     rule = _post(
         client,
         "/automations",
@@ -520,11 +399,20 @@ def test_check_targets_lists_private_receivers(client, alex, world, monkeypatch,
         },
         alex,
     )
-    monkeypatch.setattr(settings, "webhook_private_targets", False)
+    _post(
+        client,
+        "/automations",
+        {
+            "name": "Send update",
+            "trigger": {"type": "task_created"},
+            "actions": [{"type": "webhook", "url": "https://public.example.com/h"}],
+        },
+        alex,
+    )
+    monkeypatch.setattr(settings, "outbound_private_targets", False)
     assert cli.main(["check-targets"]) == 1
     out = capsys.readouterr().out
-    assert "2 target(s)" in out and "REFUSED" in out
-    assert f"webhook    {hook['id']}  alex: http://127.0.0.1:9000/h" in out
+    assert "1 target(s)" in out and "REFUSED" in out
     assert f"automation {rule['id']}  Tell the runner: http://homeserver:8642/hook" in out
     assert "public.example.com" not in out
-    assert "SLATE_WEBHOOK_PRIVATE_TARGETS=true" in out
+    assert "SLATE_OUTBOUND_PRIVATE_TARGETS=true" in out

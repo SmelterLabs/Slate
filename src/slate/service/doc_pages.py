@@ -9,7 +9,7 @@ live task card on the board (inline, a chip), `[[doc:<id>]]` links another page.
 
 Writes: `doc.created`, `doc.updated` (field `title`, `icon`, `body_md` or `version_no`),
 `doc.version_restored`, `doc.mentioned` (when a save adds `@handle`s the page did not have,
-`after` = `{doc_id, title, mentions, excerpt}`, so the inbox, check-in, push and webhooks hear
+`after` = `{doc_id, title, mentions, excerpt}`, so the inbox, check-in and push hear
 about it like a comment mention; only newly added handles count, and a push agent among them is
 woken for a doc turn).
 """
