@@ -87,7 +87,9 @@ def test_run_while_an_agent_is_working_on_it_says_who_has_it(client, alex, todo,
     # Blocked or finished: Run now is allowed again.
     r = client.post(
         f"{API}/work/{item['id']}/finish",
-        json=run_fields(client, ch, item["id"], **{"outcome": "review"}),
+        json=run_fields(
+            client, ch, item["id"], **{"outcome": "review", "status": "Check the result"}
+        ),
         headers=ch,
     )
     assert r.status_code == 200, r.text

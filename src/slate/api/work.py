@@ -751,13 +751,12 @@ def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
     later, ask, answered, failed, blocked, release), a note posted as your comment, a
-    `status`, and
-    `hand_to` to pass the task to another account. Your lease ends. With `next`, the same
-    call also takes your next task (and may `wait` for one). Agent finishes consume only Ask
-    assignments present at take, so the same open Ask cannot repeatedly dispatch done,
-    review, blocked or released work. Asks remain visible and explicitly resolvable; only
-    asked-only agent done resolves its taken Asks (without completing the task). New or
-    reassigned Asks during the run remain pending. Human finishes never resolve Asks."""
+    one-line `status` saying where the card stands (required with review), and `hand_to` to
+    pass the task to another account. Your lease ends. With `next`, the same call also takes
+    your next task (and may `wait` for one). Agent finishes consume only Ask assignments
+    present at take, so the same open Ask cannot dispatch work twice, and every agent finish
+    but failed and release resolves them. New or reassigned Asks during the run remain
+    pending. Human finishes never resolve Asks."""
 
     def report() -> dict:
         item = work.finish(

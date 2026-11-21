@@ -41,7 +41,7 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   `push.process()` follows the event log from the `engine_cursors` row `push` (like automations),
   asks `inbox.reason_for` per subscribed account, filters by prefs `push_reasons` (default mention,
   reply, chat, assigned, waiting, due, unblocked, nudge, reminder, digest, health, access, failed,
-  watching: `push.DEFAULT_REASONS`), and POSTs one
+  stalled, watching: `push.DEFAULT_REASONS`), and POSTs one
   encrypted JSON `{title, body, url, tag}` per device (tag = item id, so a busy task replaces its
   notification) through `outbound.post`, like webhooks: besides the `SLATE_PUSH_ENDPOINT_HOSTS`
   allowlist (even `["*"]`), the endpoint must resolve to public addresses unless
@@ -109,7 +109,9 @@ and `tests/test_push_retry.py`.
   "<Agent> asks on: <title>" as its body; any other `waiting` entry reads "<Agent> is waiting on
   you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
   failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
-  A failed run before that, and the take that retries it, push nothing.
+  A failed run before that, and the take that retries it, push nothing. A `stalled` entry
+  (`item.stalled`) reads "<Agent> stopped without finishing: <title>". A badge Slate clears as
+  stale pushes nothing.
 
 ## Email notifications and the waiting bell
 

@@ -31,7 +31,7 @@ def test_done_settles_taken_agent_asks_only(client, alex, todo, make_account, as
     ).is_success
     _finish(client, ch, item["id"], outcome="done", reply="First answer")
     rows = _asks(client, alex, item)
-    assert rows[old["id"]]["resolved_by_id"] == (None if assigned else agent["id"])
+    assert rows[old["id"]]["resolved_by_id"] == agent["id"]  # the turn answered it
     assert rows[new["id"]]["resolved_at"] is None
     assert rows[human["id"]]["resolved_at"] is None
     got = _next(client, ch)
@@ -43,18 +43,25 @@ def test_done_settles_taken_agent_asks_only(client, alex, todo, make_account, as
 
 @pytest.mark.parametrize("outcome", ["review", "ask", "blocked", "release"])
 @pytest.mark.parametrize("assigned", [False, True])
-def test_non_done_finishes_leave_asks_visible_without_repeating_turn(
+def test_non_done_finishes_settle_the_turn_without_repeating_it(
     client, alex, todo, make_account, outcome, assigned
 ):
+    """Every finish but failed and release answers the Asks the turn took; release leaves them
+    open (visible). Either way the same Ask does not start the turn again."""
     agent, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"] if assigned else [])
     ask = _comment(client, alex, item["id"], "Please check", assignee="agent")
     _next(client, ch)
-    options = {"waiting_on": "alex", "question": "Who checks it?"} if outcome == "ask" else {}
+    options = {
+        "ask": {"waiting_on": "alex", "question": "Who checks it?"},
+        "review": {"status": "Check the summary"},
+    }.get(outcome, {})
     _finish(client, ch, item["id"], outcome=outcome, reply="Needs a person", **options)
-    assert _asks(client, alex, item)[ask["id"]]["resolved_at"] is None
+    released = outcome == "release"
+    assert (_asks(client, alex, item)[ask["id"]]["resolved_at"] is None) == released
     assert _next(client, ch)["item"] is None
-    assert item["id"] in [i["id"] for i in client.get(f"{API}/today", headers=ch).json()["asked"]]
+    asked = [i["id"] for i in client.get(f"{API}/today", headers=ch).json()["asked"]]
+    assert (item["id"] in asked) == released
     new = _comment(client, alex, item["id"], "Continue with this answer", assignee="agent")
     got = _next(client, ch)
     assert got["item"]["id"] == item["id"]
@@ -71,7 +78,9 @@ def test_reassigned_ask_and_mid_turn_report_are_not_swallowed(client, alex, todo
     assert client.post(
         f"{API}/items/{item['id']}/report",
         headers=ch,
-        json=run_fields(client, ch, item["id"], **{"state": "review"}),
+        json=run_fields(
+            client, ch, item["id"], **{"state": "review", "status": "Check the result"}
+        ),
     ).is_success
     assert client.patch(
         f"{API}/comments/{ask['id']}", headers=alex, json={"assignee": "other"}

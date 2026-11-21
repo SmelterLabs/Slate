@@ -85,7 +85,8 @@ clears the badge and completes the task.
    local path as the only pointer: nobody can open it from the board. Over 25 MB (most video),
    attach a still or contact sheet and link the full file somewhere people can open it.
 4. Finish with `report` `done` only after verified acceptance and evidence on the card (or
-   `review` if acceptance remains). When only a person can unblock it, ask them: `report`
+   `review` with a `status` saying what a person must check). Every report but `working` takes
+   a `status`: where the card stands in one line, in few words. When only a person can unblock it, ask them: `report`
    `blocked` with a one-line `question` (optional `options`, 2 to 4 short answers) and
    `waiting_on: "<handle>"`; without `waiting_on` it goes to whoever asked you, else the
    workspace owner. `blocked` waiting on a person without a question is refused. Name the
@@ -97,7 +98,8 @@ Agents with a runner use `slate_work` `next` / `heartbeat` / `finish` instead; s
 ## Inter-agent work: task first, messages second
 
 Task comments never resolve Asks. Finish each runner-owned turn through `slate_work finish`:
-the server consumes only the Ask assignments present at take for dispatch, not visibility.
+the server consumes only the Ask assignments present at take, and every finish but `failed`
+and `release` resolves them (you answered them).
 Review/ask/blocked/release and assigned-task done leave open Asks for explicit resolution;
 `answered` resolves the Asks its turn took, and asked-only agent done explicitly resolves only
 its taken Asks without completing the task.
@@ -195,7 +197,9 @@ Agents that Slate wakes through a runner (`wake: push`) run the work loop:
 3. `slate_work heartbeat` `{item_id,run_id,note,progress}`. Definitive 401/403/409 means stop
    and reconcile any unknown remote run; lease expiry is not proof it stopped.
 4. `slate_work finish`
-   `{item_id,run_id,outcome:done|review|later|ask|answered|failed|blocked|release,reply}`. Retry the
+   `{item_id,run_id,outcome:done|review|later|ask|answered|failed|blocked|release,status,reply}`.
+   `status` is where the card stands in one line (1 to 140 characters); it is what a person
+   reads on the board, so make it say what happened and whose move it is. Retry the
    identical finish if uncertain; after its receipt take next separately (no combined next).
    Do not start a second work loop or finish independently inside a resident runner's child.
 
@@ -209,26 +213,32 @@ simple), `waiting_on` their handle if it is not whoever asked you, and any detai
 the card says *Waiting on you* to them, the question is the headline of their push, and they
 answer with one tap or a reply. If you only replied and nothing else changes, finish
 `answered`. If the machine broke (a crash, a missing tool), finish `failed` with the error in
-`note`: nobody is asked, and Slate runs the card again after 5 and then 30 minutes. Their answer in the card's
+`note`: nobody is asked, and Slate runs the card again after 5 and then 30 minutes. Their
+answer in the card's
 thread is your next turn: `next` returns it as `reply` (with `thread`), so continue the same
 session. Preserve stable author ID, kind and role; a guest is also kind=person and is not owner
 permission. Native command approvals use the runtime's control, never card keywords.
 Keep native approval observation alive; do not close the stream to hand it off.
 
-**Finish only when the work is finished.** `done` and `review` both mean the work is complete
-(`review`: complete, a person should check it). `later` means you did what you can now, you
+**Finish only when the work is finished.** `done` means the work is complete. `review` is only
+for work a person must check, and its `status` says what to check (without one it is
+refused; with nothing to check, finish `done`). `later` means you did what you can now, you
 already have any go you need, and the rest must happen at the task's due time: set (or keep)
 a due time still to come, stay assigned, and end with `SLATE: later`. Nobody is waited on, the
 card shows no badge, and the due time runs you again in the same session. Never ask a person
 who already said go; that puts a false *Waiting on you* on their card. If you start background work (subagents,
 background processes, other sessions), wait for it to report back inside your turn; never end
 the turn while it is still running. An answer with no `SLATE:` line counts as `answered`:
-your reply stands and nothing else changes.
+your reply stands and nothing else changes. A card you left open on `answered` for four hours
+is run once more with a reminder that it is still open; end that turn `done`, `ask`, `later`
+or `review`, or the card is marked *stalled* and its people are told.
 
 `slate_checkin` `{since}` reads news that concerns you (mentions, replies, Asks, reminders).
 Chat apps without a runner get work when someone pastes an id or a **Copy brief** prompt, and
-they end a pasted brief with its last line `SLATE: done`, `SLATE: review`, `SLATE: later`,
-`SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`.
+they end a pasted brief with its last line, the status after a second colon:
+`SLATE: done: <what you did>`, `SLATE: review: <what to check>`, `SLATE: later: <when it runs
+again>`, `SLATE: answered: <where it stands>` or `SLATE: ask <handle>: <question> [option |
+option]`.
 
 ## Pitfalls
 

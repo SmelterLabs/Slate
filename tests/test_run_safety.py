@@ -93,7 +93,9 @@ def test_stale_finish_cannot_touch_new_attempt(client, alex, todo, make_account)
     old = first["lease"]["run_id"]
     assert (
         client.post(
-            path + "/finish", headers=h, json={"run_id": old, "outcome": "review"}
+            path + "/finish",
+            headers=h,
+            json={"run_id": old, "outcome": "review", "status": "Check the result"},
         ).status_code
         == 200
     )
@@ -122,7 +124,10 @@ def test_control_changes_fence_current_work(client, alex, todo, make_account, ac
             json={"status": "Done"} if action == "close" else {"assignees": []},
         )
     assert r.is_success
-    for suffix, body in [("heartbeat", {}), ("finish", {"outcome": "review"})]:
+    for suffix, body in [
+        ("heartbeat", {}),
+        ("finish", {"outcome": "review", "status": "Check the result"}),
+    ]:
         r = client.post(
             f"{API}/work/{item['id']}/{suffix}", headers=h, json={"run_id": proof, **body}
         )

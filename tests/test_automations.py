@@ -460,7 +460,15 @@ def test_agent_reported_trigger_moves_the_card_when_the_agent_changes_state(
         trigger={"type": "agent_reported"},
         actions=[{"type": "add_tag", "tag": "touched"}],
     )
-    reports.report(db, bot_actor, item.id, state="review", note="Fixed", comment=False)
+    reports.report(
+        db,
+        bot_actor,
+        item.id,
+        state="review",
+        status="Check the result",
+        note="Fixed",
+        comment=False,
+    )
     assert automations.process(db) == 1
     assert "touched" in _view(db, item.id)["tags"]
 

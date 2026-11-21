@@ -949,8 +949,9 @@ def finish(
 ) -> Item:
     """Report back on a task in one transaction and give up the lease.
 
-    `outcome`: `done` (completes it, or moves it to `status`), `review` (badge stays: ready for
-    a person), `later` (you did what you can now and the rest waits for the task's due time:
+    `outcome`: `done` (completes it), `review` (badge stays: something a person must check,
+    said in `status`; `waiting_on` names the person, by default whoever asked this turn, else
+    the owner), `later` (you did what you can now and the rest waits for the task's due time:
     no badge, nobody waited on, you stay assigned and the due time runs you again; the task
     needs a due time still to come), `ask` (the only way to stop the card on a person: a
     one-line `question`, optional `options`, `waiting_on` a person, by default whoever asked
@@ -961,15 +962,18 @@ def finish(
     consecutive failure records `item.run_failed` instead), `blocked` (waiting on an agent or
     on nobody), `release` (give it
     up: you are un-assigned, so it goes back to its other assignees or the pool). `note` is
-    posted as a comment (unless `comment=false`); `status` sets a
-    status by name or id; `hand_to` (a handle) assigns the task to that account in place of
-    you, so an agent's next `/work/next` picks it up. `reply` is your answer for this turn,
-    posted as one plain comment by you instead of the note (card conversation); `thread` is your
-    own session for this task (service/reports.py). If you already reported this outcome with a
-    comment of your own since you took the task, nothing is posted again (one answer per turn).
-    Agent finishes consume only Ask assignments present at take, for every outcome, without
-    hiding or resolving them. The existing asked-only `done` exception explicitly resolves
-    those taken Asks instead of completing the task. Human finishes never resolve Asks.
+    posted as a comment (unless `comment=false`); `status` is where the card stands in one line
+    (service/reports.py; derived when absent); `hand_to` (a handle) assigns the task to that
+    account in place of you, so an agent's next `/work/next` picks it up. `reply` is your answer
+    for this turn, posted as one plain comment by you instead of the note (card conversation);
+    `thread` is your own session for this task (service/reports.py). If you already reported
+    this outcome with a comment of your own since you took the task, nothing is posted again
+    (one answer per turn).
+    Agent finishes consume only Ask assignments present at take, for every outcome, and every
+    agent finish but `failed` and `release` resolves them (`reason: "answered"`): the turn
+    answered them. An asked-only `done` answers instead of completing the task. Human finishes
+    never resolve Asks. A turn Slate started because the card stalled (`due.poke_stalled`)
+    that ends `answered` again sets `stalled` (`item.stalled`); any other finish clears it.
     A plain comment or report is not a work finish. Legacy takes without a boundary settle
     no Asks; a subsequent take establishes one."""
     if outcome not in OUTCOMES:

@@ -1374,7 +1374,13 @@ async def test_report_and_agents_roster_through_mcp(alex, make_account):
     async with http_mcp(agent) as client:
         out = ok(
             await call(
-                client, "slate_item", "report", id=item["id"], state="review", note="Have a look"
+                client,
+                "slate_item",
+                "report",
+                id=item["id"],
+                state="review",
+                status="Check the result",
+                note="Have a look",
             )
         )
         assert out["agent"] == {

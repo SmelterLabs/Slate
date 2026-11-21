@@ -117,7 +117,12 @@ def test_heartbeat_url_updates_the_badge_live_and_finish_can_set_it(
     pr = "https://review.example.com/x/y/1"
     r = client.post(
         f"{API}/work/{item['id']}/finish",
-        json={"outcome": "review", "url": pr, "run_id": got["lease"]["run_id"]},
+        json={
+            "outcome": "review",
+            "status": "Check the result",
+            "url": pr,
+            "run_id": got["lease"]["run_id"],
+        },
         headers=ch,
     )
     assert r.status_code == 200, r.text

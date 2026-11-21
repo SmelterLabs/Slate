@@ -33,10 +33,11 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
   their own cursor.
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
-  scheduler (ten hooks on one tick: recurrences, due events and failed-run retries, reminders,
-  digest, trash purge, lease expiry, chat-turn expiry, doc-turn expiry, session-expiry notices,
-  the sweep of unsent chat files), the webhook dispatcher, the automations engine, the push
-  engine and the email engine; a thread warms the item cache. Every one must be idempotent on restart.
+  scheduler (ten hooks on one tick: recurrences, due events with failed-run retries, stale
+  badges and stalled cards, reminders, digest, trash purge, lease expiry, chat-turn expiry,
+  doc-turn expiry, session-expiry notices, the sweep of unsent chat files), the webhook
+  dispatcher, the automations engine, the push engine and the email engine; a thread warms the
+  item cache. Every one must be idempotent on restart.
 
 ### Modules
 
@@ -83,8 +84,8 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
-| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage and the retries of failed runs; reminders and the digest. |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
+| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/cursors.py` | Engine cursors and the event walk push and email share. |

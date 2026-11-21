@@ -24,6 +24,13 @@ Side effects, each its own ordinary event in the same transaction:
   (`ASK_ADVICE`); waiting on an agent, or on nobody, needs none. A later report does not clear
   the wait; the person's answer (service/comments.py) or a PATCH does, and closing the item
   (done or cancelled, including a `done` report) clears it.
+- **Standing**: an agent's every report but `working` says where the card stands, in one
+  line: `status` (checked at the API, 1 to STATUS_MAX characters), else the first line of
+  `reply`, else of `note` (`standing_line`), else the state's label; an ask's question is its
+  status. Stored on `items.standing_*`, kept after the card closes, carried as `after.status`.
+  `review` needs a `status` (what the person should check; REVIEW_ADVICE) and its `waiting_on`
+  names the person it is for (`items.review_for`, default as for an ask); it does not set who
+  the card waits on. The item view computes whose move it is (`items._move_id`).
 - `failed` (the run broke) sets a badge nobody is told about; the work loop retries the card
   (service/work.py).
 - `working` with `assign_me` adds the agent to the assignees if it is not already there.

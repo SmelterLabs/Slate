@@ -26,7 +26,24 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `blocked` waiting on an agent, or on nobody, needs no question. An agent's `PATCH` (or bulk
   update) of `waiting_on_account_id` to a person is refused the same way
   (`reports.refuse_person_wait`, at the route); a person's is not. `failed` is the badge of a
-  run that broke (below, "Failed runs"): nobody is told. A note is also posted as a comment (`comment=false` to skip); the board's feed
+  run that broke (below, "Failed runs"): nobody is told.
+- **Standing** (one line of truth on every card): report and finish take `status`, one line of
+  plain text, 1 to 140 characters (checked at the API: `schemas.STATUS_FIELD`). Without it
+  `reports.report` derives it, the one place that does: the first non-empty line of `reply`,
+  else of `note`, Markdown marks and link targets taken out, cut to 140
+  (`reports.standing_line`), else the state's label. An ask's question is its status (a
+  `status` with an ask is refused). Only an agent's report other than `working` sets it
+  (`items.standing_line`, `standing_by`, `standing_at`); it is part of the `item.reported` and
+  `item.work_finished` events that caused it (`after.status`) and writes no event of its own.
+  The item view's `standing` is `{line, by_id, at, move_id}` (null before any agent report) and
+  stays after the card closes. `move_id`, whose move it is, is computed in `items._move_id`:
+  who the card waits on; else, for a `review` flag, the person the review is for
+  (`items.review_for`); else nobody on a done or cancelled card; else its first agent
+  assignee; else its first person assignee (assignees by handle); else null.
+- **Review needs something to check**: `review` without `status` is refused (`REVIEW_ADVICE`:
+  finish `done`, or say what to check). Its optional `waiting_on` is the person who checks it
+  (default: whoever asked this turn, else the owner); it does not set who the card waits on.
+  A bare closing line `SLATE: review` is `done`. A note is also posted as a comment (`comment=false` to skip); the board's feed
   folds that echo away (`agents.svelte.ts` `isReportEcho`). A status change settles the flag in
   the same change (`lists._settle_agent_flag` -> `reports.clear_flag`, recorded as an `idle`
   report by the mover): a person's move clears a `review` flag, and a move to a done or cancelled
@@ -215,7 +232,8 @@ Slate stays the doorbell: it never launches an agent.
 - **`answered` finish** (`outcome: "answered"`, `reply` required, closing line `SLATE:
   answered`): the agent replied and nothing else changes. Its reply is posted, its own badge is
   cleared (an `idle` report), status, assignees and `waiting_on` are untouched, the Asks this
-  turn took (`turn_asks`) are resolved with `reason: "answered"`, and the lease ends. The card
+  turn took (`turn_asks`) are resolved with `reason: "answered"` (as on every agent finish but
+  `failed` and `release`), and the lease ends. The card
   is then not offered to that agent again (`eligible()`: its newest `item.work_finished` on the
   card says `answered`, `work._last_outcome`) until someone asks it something there or presses
   Run now, so an open card it only answered on does not loop.
@@ -233,6 +251,22 @@ Slate stays the doorbell: it never launches an agent.
   failures, note, notify}`) in the same change and nothing retries it; `notify` is the card's
   person assignees and watchers, else the workspace owners, told as inbox and push reason
   `failed` ("<Agent> could not run: <title>"). Run now starts the count over.
+- **Stale badges** (`due.clear_stale_badges`, on the due tick): a `working` badge with no lease
+  and no report for `work.STALE_AFTER` (30 minutes) is cleared, an `idle` report by `slate`
+  with `after.reason: "stale"`. It reaches nobody (`inbox.reason_for`).
+- **Stalled cards** (`due.poke_stalled`, on the due tick): a card is stalled when it is open,
+  has an agent assignee, waits on nobody, has no `review`, `blocked` or `failed` badge, is not
+  blocked by another card, has no start or due time still to come, has no lease, and that
+  agent's newest finish on it was `answered` at least `work.STALL_AFTER` (4 hours) ago with no
+  Run now since. The first time, Slate pokes the agent: `item.run_requested` by `slate` with
+  `after.reason: "stalled"`, setting `run_requested_at`, so the work loop hands the card out
+  once; the brief for that run ends with `brief.STALLED_RULE` (the card is still open; end
+  `done`, `ask`, `later` or `review`). If that run ends `answered` too (`work._poked`: the
+  item's newest Run now is the poke and came after the agent's previous finish), the finish sets
+  `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
+  {agent_id, notify}`, `notify` as for `item.run_failed`), the inbox and push reason `stalled`
+  ("<Agent> stopped without finishing: <title>"). No further poke. Run now (`request_run`), a
+  new Ask for an agent (`comments._assign`) or any finish other than `answered` clears it.
 - **Run stage** (`service/due.py`): for an item with agent assignees, `pending_stages` adds a stage
   `run` at `run_at - 1 µs` (so it sorts before `due` when they coincide) that records
   `item.run_requested` by `slate` with `reason: "due"` (and `due_at`). It rides on
@@ -312,7 +346,8 @@ item's assignees and `waiting_on`.
 - **Agents**: `comment.assigned` is a `work.WAKE_TYPES` hint. `work.eligible()` includes pending,
   unconsumed Ask assignments (why `asked`), even on done cards. Taking an asked-only item does not
   assign the agent (`reports.report(no_assign=True)`, lease `asked_only`); `finish done`
-  answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
+  answers instead of completing (`complete=False`). Every agent finish but `failed` and
+  `release` resolves its taken Asks (`reason: "answered"`). Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
   pending `asks` within that take; new/reassigned Asks wait for the next turn. An asked-only finish
   `ask` or `blocked` may wait only on the author of an Ask the take answered
@@ -400,8 +435,10 @@ The agent-facing version is `docs/agents/pull-agents.md`.
 - **The `SLATE:` line** (`brief.closing_line`, applied in `comments._apply_closing_line`): only when
   `add_comment(closing_line=True)`, which REST and MCP (`slate_item comment`, `slate_comment add`)
   pass. Slate's own comments (report notes) never do, so a note can't re-trigger. An agent author is
-  reported through `reports.report(state, comment=False, complete=<assigned>)`; `answered`
-  clears its own badge only; `ask <handle>: <question> [a | b]` is a `blocked` report with the
+  reported through `reports.report(state, comment=False, complete=<assigned>)` with the
+  comment as its reply (so the standing is derived from it) and the text after a second colon
+  (`SLATE: done: Sent the invoice.`) as its `status`; a bare `SLATE: review` is `done`;
+  `answered` clears its own badge only; `ask <handle>: <question> [a | b]` is a `blocked` report with the
   question, and the comment itself becomes the ask (addressed to the person, `ask_json` set). A
   person gets `done` → the list's done status (`reports.done_status`); the rest change nothing.
   `Invalid`/`Conflict`/`NotFound` are swallowed after the comment commits. A comment with no

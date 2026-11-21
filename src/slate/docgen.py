@@ -117,13 +117,17 @@ EVENT_DOCS: dict[str, str] = {
     "idle (`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
     "`again` true when it already waited on them, which makes this report their inbox "
-    "`waiting` entry; `question` and `options` when it is an ask of a person). Drives the live "
-    "badge. A `failed` report is nobody's inbox entry.",
+    "`waiting` entry; `question` and `options` when it is an ask of a person; `status` = the "
+    "card's new standing line, on an agent's report other than working; `reason` `stale` when "
+    "Slate cleared a working badge nothing ran behind). Drives the live badge. A `failed` or "
+    "`stale` report is nobody's inbox entry.",
     "item.run_requested": "Run now: the item's agent assignees are asked to start on it now "
     "(`after.for` = their account ids, `after.reason` = `now` when someone pressed Run now, "
     "`due` when the scheduler reached the run time of an agent's task: 06:00 workspace time "
     "on the day for a date-only due date, else the due time; `retry` when it offers a failed "
-    "run to its agent again, 5 and then 30 minutes after it failed). A `work` hint on each "
+    "run to its agent again, 5 and then 30 minutes after it failed; `stalled` when its agent "
+    "last finished the open card `answered` four hours ago and Slate runs it once more). A "
+    "`work` hint on each "
     "agent's "
     "stream; "
     "a runner takes it with `POST /work/next {item_id}`.",
@@ -131,6 +135,11 @@ EVENT_DOCS: dict[str, str] = {
     "a row (`after.agent_id`, `failures`, `note` = the last failure's words, `notify` = who is "
     "told: the card's person assignees and watchers, else the owners, as inbox and push "
     "reason `failed`). No retry follows; Run now starts the count over.",
+    "item.stalled": "The item's agent stopped without finishing: Slate ran the open card again "
+    "after it ended `answered`, and that run ended `answered` too (`after.agent_id`, `notify` "
+    "= who is told: the card's person assignees and watchers, else the owners, as inbox and "
+    "push reason `stalled`). The item's `stalled` is true until Run now, a new Ask for the "
+    "agent, or a finish other than answered.",
     "item.stop_requested": "Stop: someone asked the agent working on the item to stop "
     "(`after.for` = the account holding the lease). A `control` message on that agent's "
     "stream and `stop` on its next heartbeat; the run ends with the agent's own finish.",
@@ -163,11 +172,12 @@ EVENT_DOCS: dict[str, str] = {
     "answer (`GET /comments/{id}/run`). "
     "An agent finished a taken turn (`after.through` = its work-start "
     "event id, `outcome`; with `failed`, `note` = what broke and `failures` = the "
-    "consecutive failed finishes). Earlier Ask assignments no longer dispatch that agent; they "
-    "remain "
-    "visible until resolved. New/reassigned Asks remain pending. With `reconciled` when the "
-    "attempt was settled without a finish: the agent's reconcile, a person's Clear, or (actor "
-    "`system`, `runtime_state` `unknown`) a lease that ran out on a closed card.",
+    "consecutive failed finishes; `status` = the card's standing line). Every finish but failed "
+    "and release resolves the Asks its turn took. Earlier Ask assignments no longer dispatch "
+    "that agent; they remain visible until resolved. New/reassigned Asks remain pending. With "
+    "`reconciled` when the attempt was settled without a finish: the agent's reconcile, a "
+    "person's Clear, or (actor `system`, `runtime_state` `unknown`) a lease that ran out on a "
+    "closed card.",
     "comment.assigned": "A comment was addressed to an account: an Ask, open until resolved "
     "(`after.assignee` handle, `assignee_id`, `comment_id`; `assignee` null when taken off; "
     "`reply` true when it is the waited-on person's answer to an agent that reported the item "
