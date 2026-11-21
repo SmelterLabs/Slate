@@ -53,6 +53,17 @@ describe('needOf', () => {
   });
 });
 
+describe('attention with reference lists', () => {
+  it('a reference list card never needs me, even waiting or asked', () => {
+    const items = [
+      item({ id: 'w', list_id: 'L2', created_by: ME, waiting_on_account_id: ME }),
+      item({ id: 'a', list_id: 'L2', created_by: 'guest', open_asks: [ME] }),
+      item({ id: 'n', list_id: 'L1', created_by: ME, waiting_on_account_id: ME }),
+    ];
+    expect(attention(items, ME, accounts, new Set(['L2'])).map((x) => x.item.id)).toEqual(['n']);
+  });
+});
+
 describe('attention', () => {
   it('most urgent first, then the oldest flag', () => {
     const list = attention(

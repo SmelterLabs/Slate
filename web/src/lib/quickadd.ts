@@ -396,6 +396,16 @@ function join(when: When): string | null {
   return when.time ? `${when.date}T${when.time}` : when.date;
 }
 
+/** A list note's first line as quick-add help: the first non-empty line, markdown marks off. */
+export function noteHelp(noteMd: string | null | undefined): string | null {
+  if (!noteMd) return null;
+  for (const line of noteMd.split('\n')) {
+    const text = line.replace(/^[\s#>*-]+/, '').replace(/[*_`]/g, '').trim();
+    if (text) return text;
+  }
+  return null;
+}
+
 export function parseQuickAdd(text: string, now: Date = new Date()): QuickAdd {
   const out: QuickAdd = {
     title: '',

@@ -48,7 +48,7 @@ export function bucketOf(item: Item, now: Date): Bucket {
 const byDue = (a: Item, b: Item) =>
   (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999') || a.title.localeCompare(b.title);
 
-export function myWork(items: Item[], meId: string, now: Date): MyWork {
+export function myWork(items: Item[], meId: string, now: Date, referenceLists: ReadonlySet<string> = new Set()): MyWork {
   const buckets = Object.fromEntries(BUCKETS.map((b) => [b.key, [] as Item[]])) as Record<Bucket, Item[]>;
   const waitingOnMe: Item[] = [];
   const blocked: Item[] = [];
@@ -58,7 +58,7 @@ export function myWork(items: Item[], meId: string, now: Date): MyWork {
   const weekAgo = now.getTime() - 7 * 86_400_000;
   let openCount = 0;
   for (const it of items) {
-    if (it.archived_at) continue;
+    if (it.archived_at || referenceLists.has(it.list_id)) continue; // reference lists are not work
     const mine = it.assignees.some((a) => a.id === meId);
     if (isOpen(it)) {
       if (mine) {
