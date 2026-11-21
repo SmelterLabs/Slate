@@ -33,10 +33,11 @@ def add_comment(item_id: str, body: CommentIn, auth: WriteAuth, session: DbSessi
     """`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it).
     `assignee` makes it an Ask: addressed to that account, open until explicitly resolved.
     Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for
-    compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later` or `SLATE:
-    blocked waiting_on <handle>` also reports back on the task (from an agent: its report,
-    later clearing its badge until the due time; from a person, done completes it and blocked
-    sets who it waits on)."""
+    compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE:
+    answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the
+    task (from an agent: its report, later clearing its badge until the due time, ask making
+    this comment its question; from a person, done completes it and the rest change
+    nothing)."""
     comment = comments.add_comment(
         session,
         auth.actor,
@@ -74,6 +75,20 @@ def delete_comment(comment_id: str, auth: WriteAuth, session: DbSession) -> Resp
 def resolve(comment_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Close an Ask: for its assignee, its author or an admin. Idempotent."""
     return _out(session, comments.resolve_comment(session, auth.actor, comment_id))
+
+
+class AnswerIn(BaseModel):
+    option: str = Field(min_length=1, description="One of the ask's options, exactly")
+
+
+@router.post("/comments/{comment_id}/answer", response_model=CommentOut)
+def answer(comment_id: str, body: AnswerIn, auth: WriteAuth, session: DbSession) -> dict:
+    """Answer an agent's question (a comment with `ask`) with one of its options, for the
+    person asked or an admin: posts your comment whose text is the option, the card stops
+    waiting on the person, the question is resolved (`reason: answered`) and the agent is
+    woken with your reply, as a typed reply does. Returns your new comment. 422 for an option
+    it does not offer, 409 when it was already answered."""
+    return _out(session, comments.answer(session, auth.actor, comment_id, option=body.option))
 
 
 class RunLine(BaseModel):

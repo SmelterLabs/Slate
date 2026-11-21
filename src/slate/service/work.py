@@ -22,11 +22,14 @@ Which task: `eligible()` in SQL, best first.
   (waiting on a person), reported `blocked` by you in the last `BLOCKED_PAUSE` (unless someone
   has since asked you something on it: a reply, below), and held by another account (a live
   lease, or with no lease a badge younger than `reports.CLAIM_FRESH`; a parked `blocked` or
-  `review` badge with no lease does not hold the card against an Ask for you). A Run now
-  pressed after the last report overrides waiting on someone, `review` and the blocked pause:
-  whoever pressed it wants the agent to go on. A pending Ask for the account (not consumed by a
-  work finish) overrides the same and a done status too: a question is answered now, whatever
-  the card says.
+  `review` badge with no lease does not hold the card against an Ask for you; a `failed`
+  badge holds nothing), `failed` (the run broke) until its retry time comes, and your own
+  last finish on it `answered` (you replied; nothing is left for you until someone asks you
+  something or presses Run now). A Run now
+  pressed after the last report (the scheduler's retry is one) overrides waiting on someone,
+  `review`, `failed` and the blocked pause: whoever pressed it wants the agent to go on. A
+  pending Ask for the account (not consumed by a work finish) overrides the same and a done
+  status too: a question is answered now, whatever the card says.
 
 Reply turns: when a task is `blocked` by an agent and waiting on a person, that person's next
 comment on it is a reply to the agent (comments.add_comment): it is addressed to the agent as
@@ -83,6 +86,7 @@ from slate.models import (
     Status,
     StatusKind,
     Tag,
+    Watcher,
     WorkLease,
     utcnow,
 )
@@ -97,11 +101,16 @@ DEFAULT_LEASE = 15 * 60
 MIN_LEASE = 60
 MAX_LEASE = 24 * 60 * 60
 TRIES = 5  # candidates tried per call when other agents win the race for them
-OUTCOMES = ("done", "review", "later", "blocked", "release")
+OUTCOMES = ("done", "review", "later", "ask", "answered", "failed", "blocked", "release")
 CONTEXT_ENTRIES = 10
 # A task you reported blocked stays out of your `next` this long (unless the badge is cleared),
 # so a failing task is not retried at once; one waiting on someone else stays out until then.
 BLOCKED_PAUSE = timedelta(hours=1)
+# A `failed` finish is offered to the same agent again this long after its first and second
+# consecutive failure (the scheduler's `due.retry_failed_runs`); the third gives up
+# (`item.run_failed`, told to people once). Run now starts the count over.
+RETRY_AFTER = (timedelta(minutes=5), timedelta(minutes=30))
+GIVE_UP_AFTER = len(RETRY_AFTER) + 1
 # A lease is `working` until its time runs out, then `expired`: the task stays held until the
 # agent reconciles or a person clears the badge (`docs/state-machines.md`).
 LEASE_STATES = ("working", "expired")
@@ -215,6 +224,7 @@ def eligible(
         Item.agent_state.is_not(None),
         Item.agent_state_by.is_not(None),
         Item.agent_state_by != account_id,
+        Item.agent_state != AgentState.failed,
         or_(
             and_(lease.item_id.is_not(None), lease.until >= now),
             and_(
@@ -245,6 +255,8 @@ def eligible(
             asked,
         ),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.review, pressed, asked),
+        or_(Item.agent_state.is_(None), Item.agent_state != AgentState.failed, pressed, asked),
+        or_(_last_outcome(account_id) != "answered", pressed, asked),
         pressed
         | not_(
             and_(
@@ -273,6 +285,23 @@ def eligible(
         Item.position,
         Item.created_at,
         Item.id,
+    )
+
+
+def _last_outcome(account_id: str) -> Any:
+    """SQL: the outcome of the account's newest finish on the item ('' when none)."""
+    return func.coalesce(
+        select(Event.after_json["outcome"].as_string())
+        .where(
+            Event.type == "item.work_finished",
+            Event.item_id == Item.id,
+            Event.actor_id == account_id,
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery(),
+        "",
     )
 
 
@@ -910,14 +939,22 @@ def finish(
     url: str | None = None,
     reply: str | None = None,
     thread: Any = None,
+    question: str | None = None,
+    options: list[str] | None = None,
 ) -> Item:
     """Report back on a task in one transaction and give up the lease.
 
     `outcome`: `done` (completes it, or moves it to `status`), `review` (badge stays: ready for
     a person), `later` (you did what you can now and the rest waits for the task's due time:
     no badge, nobody waited on, you stay assigned and the due time runs you again; the task
-    needs a due time still to come), `blocked` (with `waiting_on`: lands in that person's
-    Today), `release` (give it
+    needs a due time still to come), `ask` (the only way to stop the card on a person: a
+    one-line `question`, optional `options`, `waiting_on` a person, by default whoever asked
+    this turn, else the owner; service/reports.py), `answered` (your `reply` is posted, your
+    badge is cleared, nothing else changes, and the Asks this turn took are resolved),
+    `failed` (the machine broke: `note` is stored on `item.work_finished`, never posted; the
+    badge is `failed`, nobody is told, and the card is retried, `RETRY_AFTER`; the third
+    consecutive failure records `item.run_failed` instead), `blocked` (waiting on an agent or
+    on nobody), `release` (give it
     up: you are un-assigned, so it goes back to its other assignees or the pool). `note` is
     posted as a comment (unless `comment=false`); `status` sets a
     status by name or id; `hand_to` (a handle) assigns the task to that account in place of
@@ -932,17 +969,27 @@ def finish(
     no Asks; a subsequent take establishes one."""
     if outcome not in OUTCOMES:
         raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
-    if hand_to is not None and outcome in ("done", "later"):
+    if hand_to is not None and outcome not in ("review", "blocked", "release"):
         raise Invalid(f"hand_to goes with review, blocked or release, not {outcome}")
-    if waiting_on is not None and outcome != "blocked":
-        raise Invalid("waiting_on goes with blocked")
+    if waiting_on is not None and outcome not in ("ask", "blocked"):
+        raise Invalid("waiting_on goes with ask or blocked")
+    if (question is not None or options) and outcome != "ask":
+        raise Invalid("question and options go with ask")
+    if outcome == "ask" and question is None:
+        raise Invalid("ask needs a question: one line")
+    if outcome == "answered" and not (reply or "").strip():
+        raise Invalid("answered needs your reply")
+    if outcome == "failed" and not (note or "").strip():
+        raise Invalid("failed needs a note: what broke, in the machine's words")
     item = get_item(session, item_id)
     target = resolve_account(session, hand_to) if hand_to else None
     if target is not None and target.id == actor.account_id:
         raise Invalid("hand_to names you; pick another account")
     if outcome == "later":
         check_later(item)
-    state = {"release": "idle", "later": "idle"}.get(outcome, outcome)
+    state = {"release": "idle", "later": "idle", "answered": "idle", "ask": "blocked"}.get(
+        outcome, outcome
+    )
     payload = dict(
         item_id=item_id,
         outcome=outcome,
@@ -955,6 +1002,8 @@ def finish(
         url=url,
         reply=reply,
         thread=thread,
+        # Only an ask carries them, so a retried finish of any other outcome digests the same.
+        **({"question": question, "options": options} if outcome == "ask" else {}),
     )
     actor = reports.with_thread_ref(session, actor, reports.check_thread(thread))
     with apply_change(session, actor) as cx:
@@ -981,21 +1030,24 @@ def finish(
             and waiting_on
             and not _waits_on_asker(session, asks, waiting_on)
         ):
-            # Only asked, not its card: it may wait on whoever asked it, nobody else. Blocked on
-            # a third person ("someone else's job") is just its answer: no badge, no waiting-on.
+            # Only asked, not its card: it may wait on whoever asked it, nobody else. Asking or
+            # blocking on a third person ("someone else's job") is just its answer: no badge, no
+            # waiting-on, the question (if any) posted as plain words.
             state, waiting_on = "idle", None
+            reply, question, options = reply or question, None, None
         if row is not None and state in ("review", "blocked") and _ended(session, item, row):
             # The agent closed the card itself during this run: a closed card carries no flag
-            # and waits on nobody. Its answer is still posted.
+            # and waits on nobody. Its answer (an ask's question too) is still posted.
             state, waiting_on = "done", None
+            reply, question, options = reply or question, None, None
         reports.report(
             session,
             actor,
             item.id,
             state=state,
-            note=note,
+            note=reports.first_line(note or "") if outcome == "failed" else note,
             progress=progress,
-            comment=comment and target is None,
+            comment=comment and target is None and outcome != "failed",
             complete=status is None and not answering,
             _finishing=True,
             run_id=run_id,
@@ -1003,6 +1055,8 @@ def finish(
             url=url,
             reply=reply,
             thread=thread,
+            question=question,
+            options=options,
         )
         changes: dict[str, Any] = {}
         if status is not None:
@@ -1018,10 +1072,16 @@ def finish(
             changes["assignees"] = [a for a in current if a != actor.account_id]
         if changes:
             update_item(session, actor, item.id, changes)
-        if start is not None or run_id:
+        if start is not None or run_id or outcome == "failed":
             if answering and outcome == "done" and _is_agent(session, actor.account_id):
                 for ask in asks:
                     comments.resolve_comment(session, actor, ask.id)
+            if outcome == "answered":
+                for ask in asks:
+                    comments.resolve_comment(session, actor, ask.id, reason="answered")
+            failed = {}
+            if outcome == "failed":
+                failed = {"note": note, "failures": _failures(session, actor.account_id, item) + 1}
             log = _keep_run_log(session, actor, item.id, start)
             cx.record(
                 "item.work_finished",
@@ -1031,15 +1091,79 @@ def finish(
                     "outcome": outcome,
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),
+                    **failed,
                     **({"steps": log.steps, "comment_id": log.comment_id} if log else {}),
                 },
                 covers=[log] if log else [],
             )
+            if failed.get("failures", 0) >= GIVE_UP_AFTER:
+                cx.record(
+                    "item.run_failed",
+                    item_id=item.id,
+                    after={
+                        "agent_id": actor.account_id,
+                        **failed,
+                        "notify": _told_of_failure(session, item.id),
+                    },
+                )
         if row is not None:
             session.delete(row)
     liveactivity.live.clear(item.id)  # the run is over: its box is empty for the next one
     session.refresh(item)
     return item
+
+
+def _failures(session: Session, account_id: str, item: Item) -> int:
+    """The account's consecutive `failed` finishes on the item: back to its last other finish,
+    or to the last Run now a person pressed (which starts the count over)."""
+    count = 0
+    for ev in session.scalars(
+        select(Event)
+        .where(
+            Event.item_id == item.id,
+            or_(
+                and_(Event.type == "item.work_finished", Event.actor_id == account_id),
+                Event.type == "item.run_requested",
+            ),
+        )
+        .order_by(Event.id.desc())
+        .limit(50)
+    ):
+        after = ev.after_json if isinstance(ev.after_json, dict) else {}
+        if ev.type == "item.run_requested":
+            if after.get("reason") == "now":
+                break
+        elif after.get("outcome") == "failed":
+            count += 1
+        else:
+            break
+    return count
+
+
+def _told_of_failure(session: Session, item_id: str) -> list[str]:
+    """Who hears that Slate gave up on a run: the card's person assignees and watchers, else
+    the workspace owners."""
+    people = (
+        select(Account.id)
+        .where(Account.kind == AccountKind.person, Account.disabled_at.is_(None))
+        .where(
+            or_(
+                Account.id.in_(
+                    select(ItemAssignee.account_id).where(ItemAssignee.item_id == item_id)
+                ),
+                Account.id.in_(select(Watcher.account_id).where(Watcher.item_id == item_id)),
+            )
+        )
+        .order_by(Account.id)
+    )
+    found = list(session.scalars(people))
+    return found or list(
+        session.scalars(
+            select(Account.id)
+            .where(Account.role == Role.owner, Account.disabled_at.is_(None))
+            .order_by(Account.id)
+        )
+    )
 
 
 def _keep_run_log(

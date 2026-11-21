@@ -33,10 +33,10 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
   their own cursor.
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
-  scheduler (ten hooks on one tick: recurrences, due events, reminders, digest, trash purge, lease
-  expiry, chat-turn expiry, doc-turn expiry, session-expiry notices, the sweep of unsent chat
-  files), the webhook dispatcher, the automations engine, the push engine and the email engine; a
-  thread warms the item cache. Every one must be idempotent on restart.
+  scheduler (ten hooks on one tick: recurrences, due events and failed-run retries, reminders,
+  digest, trash purge, lease expiry, chat-turn expiry, doc-turn expiry, session-expiry notices,
+  the sweep of unsent chat files), the webhook dispatcher, the automations engine, the push
+  engine and the email engine; a thread warms the item cache. Every one must be idempotent on restart.
 
 ### Modules
 
@@ -83,8 +83,8 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the work loop and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
-| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events and the run stage; reminders and the digest. |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
+| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage and the retries of failed runs; reminders and the digest. |
 | `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/cursors.py` | Engine cursors and the event walk push and email share. |
@@ -265,8 +265,9 @@ service error is 400, and a failed batch takes its cause's status. The body is
   `lists.move_item_to_status()` stamps `completed_at` on entering a `done`-kind status and clears it
   on leaving; entering done or cancelled also clears `waiting_on_account_id`, and entering done
   makes the next occurrence of a recur-when-done rule. A person's move clears a review flag, and
-  closing the card clears a review or blocked flag whoever closes it. `set_statuses()` uses the
-  same function for items it moves, and re-stamps items on a kept status whose kind crosses done.
+  closing the card clears a review, blocked or failed flag whoever closes it. `set_statuses()`
+  uses the same function for items it moves, and re-stamps items on a kept status whose kind
+  crosses done.
 - `assignees` (handles or ids) and `tags` (names; unknown tags are created, each a `tag.created`)
   are whole-set replacements, one event naming before/after.
 - Archive is soft and cascades to subtasks (both ways). Hard `DELETE /items/{id}` is an undo:
@@ -520,7 +521,7 @@ section titles or bold paragraph labels that code comments cite as `ARCHITECTURE
 
 | Topic | File |
 |---|---|
-| Agents: reports, presence, the work loop and agent stream, Run now and the due gate, the runner, Asks, wake modes and Copy brief, the card conversation, chat and doc mentions that wake an agent, the agent plan, pickup evidence ("Agent reports", "Agent work loop and agent stream", "Run now, the due gate and the runner") | `docs/agents-work-loop.md` |
+| Agents: reports, presence, the work loop and agent stream, run endings (ask, answered, failed and its retries), Run now and the due gate, the runner, Asks, wake modes and Copy brief, the card conversation, chat and doc mentions that wake an agent, the agent plan, pickup evidence ("Agent reports", "Agent work loop and agent stream", "Run now, the due gate and the runner") | `docs/agents-work-loop.md` |
 | Agent kit: onboarding, Add my agent, the generated reference, Python/TypeScript clients, the Slate skill installer, chat apps, agent connections and the portable install, the optional adapters | `docs/agent-kit.md` |
 | Live event stream and polling: the write lock, the replay/subscribe seam, slow consumers ("Live event stream and polling"; "Event types" is above, in this file; the board's side is `docs/board.md`, "Live stream and catch-up") | `docs/live-stream.md` |
 | Webhooks and due events: design, signatures, retries, retention, targets | `docs/webhooks.md` |

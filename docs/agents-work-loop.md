@@ -7,17 +7,30 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
 ## Agent reports, presence, roster and rate limits
 
 - **Reports** (`service/reports.py`, `POST /items/{id}/report`, MCP `slate_item report`): an agent
-  says `working | blocked | review | done | idle` with an optional `note` and `progress`. The
-  current flag lives in `items.agent_state/_by/_at`, `agent_note`, `agent_progress`
-  and every report is one `item.reported` event (`after = {state, note, progress,
-  by}`), so history has every report. It is a flag beside the status, never a status (rule 4).
-  `done` clears the flag and, with `complete` (default), moves the item to the list's first done
-  status; `idle` clears it only. `blocked` + `waiting_on` sets `waiting_on_account_id`; `assign_me`
-  adds the reporter. A note is also posted as a comment (`comment=false` to skip); the board's feed
+  says `working | blocked | review | failed | done | idle` with an optional `note` and
+  `progress`. The current flag lives in `items.agent_state/_by/_at`, `agent_note`,
+  `agent_progress` and every report is one `item.reported` event (`after = {state, note,
+  progress, by}`), so history has every report. It is a flag beside the status, never a status
+  (rule 4). `done` clears the flag and, with `complete` (default), moves the item to the list's
+  first done status; `idle` clears it only. `blocked` + `waiting_on` sets
+  `waiting_on_account_id`; `assign_me` adds the reporter. **Asking a person**
+  (`reports.report` owns the rule, so finish, report, the closing line and MCP all get it):
+  `blocked` waiting on a person needs a `question` (one line, 1 to 200 characters; `options`: 2
+  to 4 answers of 1 to 40), and without one it is refused 422 ("use ask with a one-line
+  question"). With a question and no `waiting_on`, it waits on the person whose Ask started the
+  turn, else the workspace owner (`brief.default_ask`). The ask posts one comment by the agent
+  (the `reply`, else the question) addressed to the person as an Ask with `comments.ask_json =
+  {question, options}`; the badge note is the question; `item.reported.after` carries
+  `question` and `options`. The item view's `ask` (`comments.asks_of`) is `{comment_id,
+  question, options, by_id, at}` while the card waits on that person through an open ask.
+  `blocked` waiting on an agent, or on nobody, needs no question. An agent's `PATCH` (or bulk
+  update) of `waiting_on_account_id` to a person is refused the same way
+  (`reports.refuse_person_wait`, at the route); a person's is not. `failed` is the badge of a
+  run that broke (below, "Failed runs"): nobody is told. A note is also posted as a comment (`comment=false` to skip); the board's feed
   folds that echo away (`agents.svelte.ts` `isReportEcho`). A status change settles the flag in
   the same change (`lists._settle_agent_flag` -> `reports.clear_flag`, recorded as an `idle`
   report by the mover): a person's move clears a `review` flag, and a move to a done or cancelled
-  status clears a `review` or `blocked` flag whoever makes it, an agent included. A `working` flag
+  status clears a `review`, `blocked` or `failed` flag whoever makes it, an agent included. A `working` flag
   is never cleared by a status change, and an agent's own move that does not close the card leaves
   the flag to its next report.
 - **Presence** (`slate/presence.py`): in memory only. `auth.require()` marks `api`, the MCP local
@@ -90,12 +103,15 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   lists they may edit (`access.EDIT`). Skipped: not a task, closed, archived (or its list/section),
   `links.blocked_item_ids()` (the same "open blocker" rule as the item view; the dependency thread
   keeps it the source of truth), `start_at` in the future, `waiting_on` someone else, `review`
-  badge, the caller's own `blocked` badge younger than `BLOCKED_PAUSE` (1 h, so a failing task is
-  not retried in a loop), and held by another account (a live lease; with no lease, a badge younger
-  than `reports.CLAIM_FRESH`, except that a parked `blocked`/`review` badge never holds a card
-  against an open Ask for the caller; `reports._check_claim` applies the same rule at the take).
-  An open Ask for the caller overrides the `review` badge and `waiting_on` someone else, as Run
-  now does, and is the only way a done or cancelled card is eligible, so a follow-up question on
+  badge, the caller's own `blocked` badge younger than `BLOCKED_PAUSE` (1 h, so a blocked task is
+  not retried in a loop), the caller's own last finish `answered` (until a new Ask or Run now),
+  a `failed` badge until its retry time (the scheduler's retry and Run
+  now both set `run_requested_at`, which is the override), and held by another account (a live
+  lease; with no lease, a badge younger than `reports.CLAIM_FRESH`, except that a parked
+  `blocked`/`review` badge never holds a card against an open Ask for the caller and a `failed`
+  badge holds nothing; `reports._check_claim` applies the same rule at the take).
+  An open Ask for the caller overrides the `review` and `failed` badges and `waiting_on` someone
+  else, as Run now does, and is the only way a done or cancelled card is eligible, so a follow-up question on
   an answered card is taken at once.
   Order: own before pool, priority, due (nulls last), position, created. **Every NOT branch tests
   for NULL first**: `NOT (lease.account_id = me)` is NULL for an item without a lease and would drop
@@ -129,8 +145,9 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   closed, archived or unassigned; stop execution") once the card is done, cancelled, archived or
   no longer the holder's, so the runner stops the command. The holder's own close is not that
   stop (`work._closed_it`: the card's latest `item.status_changed` is by the lease's account):
-  its run keeps its lease and its finish posts the answer and gives the lease up; a `review` or
-  `blocked` outcome then leaves no flag and no waiting-on, because a closed card needs nobody.
+  its run keeps its lease and its finish posts the answer and gives the lease up; a `review`,
+  `ask` or `blocked` outcome then leaves no flag and no waiting-on, because a closed card needs
+  nobody (an ask's question is posted as a plain comment).
   A lease that runs out on a closed card (done or cancelled; not an Ask turn taken on a card
   that was done already) is settled by the scheduler instead of quarantined
   (`work._settle_closed`): `item.work_finished` by `system` (reconciled, expired,
@@ -179,10 +196,43 @@ Slate stays the doorbell: it never launches an agent.
   completes nothing; the due gate then holds the task until its run time, and the run stage
   wakes the agent again. `work.check_later` refuses it (422) unless the task's run time is still
   to come, because otherwise nothing would run it again (or the gate would hand it straight
-  back); `waiting_on` and `hand_to` are refused with it. The resident runner turns a refused
-  `later` into the same fenced finish `blocked` on the owner with a note, so the answer is kept
-  and a person sees the task needs a time. This is the honest ending for "scheduled, nothing
-  needed from you": `blocked` there puts a false *Waiting on you* on the person's card.
+  back); `waiting_on` and `hand_to` are refused with it. The resident runner sends `later` on a
+  card with no due time still to come as `answered`, so the answer is kept and nobody is asked
+  anything. This is the honest ending for "scheduled, nothing needed from you".
+- **`ask` finish** (`outcome: "ask"`, `question`, optional `options` and `waiting_on`,
+  closing line `SLATE: ask alex: <question> [a | b]`): the only way an agent stops a card on a
+  person. `work.finish` maps it to a `blocked` report with the question (above, "Asking a
+  person"). An agent only asked something on a card may ask whoever asked it, nobody else (the
+  third-person rule below).
+- **Answering an ask** (`comments.answer`, `POST /comments/{id}/answer {option}`, MCP
+  `slate_comment answer`): the person asked (or an admin) picks one of the options. It posts a
+  comment by them whose text is the option, addressed to the agent (the reply path below for the
+  person waited on; an explicit Ask to the agent for an admin), and `comments._answered` makes
+  the card stop waiting on the person and resolves their open asks on it (`comment.resolved`,
+  `reason: "answered"`), so the item's `ask` is null. A typed reply by the person does the same
+  through `add_comment`'s reply branch. 422 for an option it does not offer; 409 once answered;
+  403 for anyone else.
+- **`answered` finish** (`outcome: "answered"`, `reply` required, closing line `SLATE:
+  answered`): the agent replied and nothing else changes. Its reply is posted, its own badge is
+  cleared (an `idle` report), status, assignees and `waiting_on` are untouched, the Asks this
+  turn took (`turn_asks`) are resolved with `reason: "answered"`, and the lease ends. The card
+  is then not offered to that agent again (`eligible()`: its newest `item.work_finished` on the
+  card says `answered`, `work._last_outcome`) until someone asks it something there or presses
+  Run now, so an open card it only answered on does not loop.
+- **Failed runs** (`outcome: "failed"`, `note` required): the machine broke and no person is
+  asked anything. The note (up to 4000 characters) is stored on `item.work_finished` (`after.note`,
+  and `after.failures` = the agent's consecutive failed finishes on the card, counted by
+  `work._failures` back to its last other finish or the last Run now a person pressed) and is
+  never posted. The badge is `failed` with the note's first line; `waiting_on` is untouched; the
+  lease ends; nobody gets an inbox entry or a pop-up (`inbox.reason_for` drops `item.reported`
+  into or out of `failed`). Retry (`work.RETRY_AFTER`, 5 then 30 minutes after the failed finish):
+  the scheduler's due tick runs `due.retry_failed_runs`, which records `item.run_requested` by
+  `slate` (`after = {for: [the agent], reason: "retry"}`) and sets `run_requested_at`, once per
+  failure, so the work loop and the agent stream hand the card out as for Run now. The third
+  consecutive failure (`work.GIVE_UP_AFTER`) records `item.run_failed` (`after = {agent_id,
+  failures, note, notify}`) in the same change and nothing retries it; `notify` is the card's
+  person assignees and watchers, else the workspace owners, told as inbox and push reason
+  `failed` ("<Agent> could not run: <title>"). Run now starts the count over.
 - **Run stage** (`service/due.py`): for an item with agent assignees, `pending_stages` adds a stage
   `run` at `run_at - 1 µs` (so it sorts before `due` when they coincide) that records
   `item.run_requested` by `slate` with `reason: "due"` (and `due_at`). It rides on
@@ -265,9 +315,10 @@ item's assignees and `waiting_on`.
   answers instead of completing (`complete=False`), explicitly resolving only its taken Asks. Every
   agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
   pending `asks` within that take; new/reassigned Asks wait for the next turn. An asked-only finish
-  `blocked` may wait only on the author of an Ask the take answered (`work._waits_on_asker`);
-  naming anyone else turns it into an `idle` report with no `waiting_on`, so the answer is a
-  comment and the card gets no badge and no wait.
+  `ask` or `blocked` may wait only on the author of an Ask the take answered
+  (`work._waits_on_asker`); naming anyone else turns it into an `idle` report with no
+  `waiting_on`, so the answer (an ask's question included) is a comment and the card gets no
+  badge and no wait.
 - **Board**: Composer "Ask…" select (people and agents) turns Send into "Ask <name>";
   `ActivityPanel` shows "Asked X · Open/Resolved" (`data-ask`) for all Asks, plus Resolve for the
   assignee or author. Typing uses the work-finish receipt, not merely unresolved state. Reducer
@@ -308,8 +359,8 @@ read is still the agent's next turn, exactly as before.
 `POST /items/{id}/stop` (MCP `slate_item stop`) records `item.stop_requested` with `after.for` =
 the account holding the lease; 409 when no live lease exists, and a second press in the same run
 returns the first event. Slate does not take the lease away: the heartbeat answer carries `stop`
-(`{by, by_id, at}`), the runner ends its command, and the agent's own finish (blocked, waiting on
-whoever pressed Stop) ends the run. A Stop also settles every message sent before it, so an
+(`{by, by_id, at}`), the runner ends its command, and the agent's own finish (`answered`, saying
+where it stopped) ends the run. A Stop also settles every message sent before it, so an
 unread message does not start the run again; what the person writes after Stop is the next
 turn. Both the stop and the seen marks are derived from events after the take's
 `item.work_started`, so a new run starts clean with no state to reset.
@@ -349,11 +400,12 @@ The agent-facing version is `docs/agents/pull-agents.md`.
 - **The `SLATE:` line** (`brief.closing_line`, applied in `comments._apply_closing_line`): only when
   `add_comment(closing_line=True)`, which REST and MCP (`slate_item comment`, `slate_comment add`)
   pass. Slate's own comments (report notes) never do, so a note can't re-trigger. An agent author is
-  reported through `reports.report(state, comment=False, complete=<assigned>)`. A person gets
-  `done` → the list's done status (`reports.done_status`) and `blocked waiting_on X` →
-  `waiting_on`; `review` changes nothing.
-  `Invalid`/`Conflict` are swallowed after the comment commits. An unknown handle drops
-  `waiting_on`.
+  reported through `reports.report(state, comment=False, complete=<assigned>)`; `answered`
+  clears its own badge only; `ask <handle>: <question> [a | b]` is a `blocked` report with the
+  question, and the comment itself becomes the ask (addressed to the person, `ask_json` set). A
+  person gets `done` → the list's done status (`reports.done_status`); the rest change nothing.
+  `Invalid`/`Conflict`/`NotFound` are swallowed after the comment commits. A comment with no
+  line changes nothing (the runner, not Slate, treats an answer with no line as `answered`).
 - **Adapters** (`integrations/`, rule 5): `hermes/run_task.py` for Hermes Agent (one gateway
   `api_server` session per card, see below) and
   `runner-example/run_task.py` (a worked example for an agent service reached over HTTP: one
@@ -404,7 +456,8 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   an agent) is a reply when it is plain or explicitly addressed to that same agent; a comment
   addressed to anyone else is not a reply. A reply is addressed to that agent as an Ask
   (`comment.assigned` with
-  `after.reply = true`) and clears `waiting_on` in the same change. The Ask does the rest: it is a
+  `after.reply = true`) and, in the same change, clears `waiting_on` and resolves the agent's
+  open asks of that person on the card (`comments._answered`). The Ask does the rest: it is a
   `WAKE_TYPES` hint (the agent stream adds `comment_id` and `reply` to the hint), puts the task in
   the agent's scope, ends the blocked pause (`eligible()`: an open Ask for you skips
   `BLOCKED_PAUSE`), and `/work/next` returns the newest person-written open Ask as `reply`. Replies
@@ -414,15 +467,17 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   need the matching proof; a missing lease is never recreated from a badge. Definitive control loss
   stops local execution and preserves unknown remote state for reconciliation.
 - **Run now after the last report** (`eligible()` `pressed`: `run_requested_at > agent_state_at`)
-  overrides `waiting_on` someone else, the `review` badge and the blocked pause. **Run now while
+  overrides `waiting_on` someone else, the `review` and `failed` badges and the blocked pause, and
+  starts a failed run's retry count over. **Run now while
   working** is 409 (`work._refuse_if_working`: a live lease, or a fresh working badge without one)
   with "My Agent already has it (working 4 min)". `take()` keeps `claimed_at` while the same
   account holds the lease, so that age is the run's, not the last heartbeat's.
-- **Waiting on you**: the `waiting_on_account_id` change is inbox reason `waiting`. A
-  blocked report that waits on the same person again (no field change) carries `after.waiting_on`
-  and `after.again = true` and is the `waiting` entry instead (`inbox.reason_for`; the inbox
-  pre-filter uses `json_extract(after_json, '$.waiting_on')`). The push reads "<Agent> needs you on:
-  <title>" with the agent's note when the item is blocked by the event's actor.
+- **Waiting on you**: the `waiting_on_account_id` change is inbox reason `waiting`. An ask
+  that waits on the same person again (no field change) carries `after.waiting_on` and
+  `after.again = true` and is the `waiting` entry instead (`inbox.reason_for`; the inbox
+  pre-filter uses `json_extract(after_json, '$.waiting_on')`). The ask's own `comment.assigned`
+  (`after.ask`) is not also a `mention`. The push's headline is the question, its body "<Agent>
+  asks on: <title>", when the card has an open ask (`comments.asks_of`).
 - **Author kinds**: comment views carry `author_handle` and `author_kind` (`person`, `agent`,
   `guest` = a person with the guest role; `comments.authors_of`), so adapters can keep non-person
   comments out of the user's turn (the prompt-injection boundary is the adapter's).
@@ -477,8 +532,8 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   a reply without the line must not send a card to review while its agent is still waiting on
   background subagents. The gateway adapter asks again in the same session up to `HERMES_NUDGES`
   (default 2) times (wait for background work, then end with the line); still no line, or the
-  CLI/runner-example adapters: `blocked` waiting on the ask with a "Paused" note, so the card
-  reads *Waiting on Alex* (never working, never review) and a reply continues the same session.
+  CLI/runner-example adapters: `answered`, so the reply stands, nobody is asked anything and a
+  person's next comment continues the same session.
   The brief's `RUN_RULE` also tells agents to wait for background work before answering.
 - Tests: `tests/test_card_conversation.py`, `tests/test_clients.py` (runner reply/thread),
   `integrations/hermes/test_hermes_adapter.py`, `web/src/lib/conversation.test.ts`,

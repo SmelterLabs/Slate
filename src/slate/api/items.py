@@ -225,8 +225,11 @@ def get_item(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 @router.patch("/items/{item_id}", response_model=ItemOut)
 def update_item(item_id: str, body: ItemPatch, auth: WriteAuth, session: DbSession) -> dict:
     """Send only what changes; `null` clears a field. `status` by id or name; `assignees`
-    (handles) and `tags` (names) replace the whole set."""
-    item = items.update_item(session, auth.actor, item_id, body.model_dump(exclude_unset=True))
+    (handles) and `tags` (names) replace the whole set. An agent may not set
+    `waiting_on_account_id` to a person (422): it asks instead (finish `ask`)."""
+    changes = body.model_dump(exclude_unset=True)
+    reports.refuse_person_wait(session, auth.actor, changes.get("waiting_on_account_id"))
+    item = items.update_item(session, auth.actor, item_id, changes)
     return items.views(session, [item])[0]
 
 
@@ -262,7 +265,8 @@ def bulk_update(body: BulkIn, auth: WriteAuth, session: DbSession) -> list[dict]
     archive, trash (true/false, sent alone: to the trash and back), list_id (move to another
     list; subtasks follow their parent) and status_kind (each item gets its own list's first
     status of that kind, so one call works across lists). All or nothing; one event per item
-    per changed field."""
+    per changed field. An agent may not set `waiting_on_account_id` to a person (422)."""
+    reports.refuse_person_wait(session, auth.actor, body.changes.get("waiting_on_account_id"))
     updated = items.bulk_update(session, auth.actor, body.ids, body.changes)
     return items.views(session, updated)
 
@@ -383,7 +387,9 @@ def report(item_id: str, body: ReportIn, auth: WriteAuth, session: DbSession) ->
     """An agent says what it is doing: `working`, `blocked` or `review` put a live badge on the
     card (who, note, progress); `done` clears it and completes the item (unless
     `complete: false`); `idle` just clears it. The note is also posted as your comment.
-    `blocked` + `waiting_on: alex` puts the item in that person's Today "waiting on me"."""
+    `blocked` with a `question` (and `waiting_on: alex`) asks that person: the card waits on
+    them and lands in their Today "waiting on me". `blocked` waiting on a person without a
+    question is refused (422)."""
     item = reports.report(session, auth.actor, item_id, **body.model_dump())
     return items.views(session, [item])[0]
 
@@ -401,8 +407,8 @@ def run(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
 def stop(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
     """Stop: ask the agent working on the item to stop what it is doing. Records
     `item.stop_requested` (`after.for` = the account running it), which reaches its runner at
-    once; the run ends when the agent finishes it (blocked, waiting on you, saying where it
-    stopped), and a reply or Run now carries on. Pressing it again during the same run returns
+    once; the run ends when the agent finishes it (answered, saying where it stopped), and
+    a reply or Run now carries on. Pressing it again during the same run returns
     the first request. 409 when no agent is working on the item."""
     return event_payload(work.request_stop(session, auth.actor, item_id))
 
@@ -419,14 +425,14 @@ def get_brief(
     session: DbSession,
     ask: Annotated[
         str | None,
-        Query(description="Handle a blocked agent should wait on (default: you, or the owner)"),
+        Query(description="Handle an agent's question goes to (default: you, or the owner)"),
     ] = None,
 ) -> Any:
     """The task as one paste-ready prompt for an agent in another product's chat ("Copy
     brief"): title, due date, description, checklists and recent comments, then the run rule,
     which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the
-    rest waits for the due time) or `SLATE: blocked waiting_on <ask>`. Post that answer back as
-    a comment and the line reports on the task. `ask` (a handle) defaults to you, or the
-    workspace owner."""
+    rest waits for the due time), `SLATE: answered` or `SLATE: ask <ask>: <question>
+    [option | option]`. Post that answer back as a comment and the line reports on the task.
+    `ask` (a handle) defaults to you, or the workspace owner."""
     who = ask or brief_svc.default_ask(session, auth.actor.account_id)
     return {"text": brief_svc.brief(session, item_id, ask=who), "ask": who}

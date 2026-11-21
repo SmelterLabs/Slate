@@ -16,7 +16,7 @@ def test_ask_is_taken_over_another_agents_parked_blocked_badge(client, alex, tod
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent2"])
     assert _next(client, bh)["item"]["id"] == item["id"]
-    _finish(client, bh, item["id"], outcome="blocked", reply="Need a password", waiting_on="alex")
+    _finish(client, bh, item["id"], outcome="ask", question="Need a password", waiting_on="alex")
     ask = _comment(client, alex, item["id"], "Agent, can you help here?", assignee="agent")
     got = _next(client, ch)
     assert got["item"] is not None and got["item"]["id"] == item["id"]
