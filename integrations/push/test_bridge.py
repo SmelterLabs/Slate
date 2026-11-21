@@ -187,6 +187,19 @@ def test_waiting_is_at_least_severity_3_and_leads_with_the_question(tmp_path):
     assert "noise" not in low["body"]
 
 
+def test_stalled_is_a_default_reason_and_says_who_stopped(tmp_path):
+    assert "stalled" in DEFAULT_REASONS.split(",")
+    fake = Fake()
+    b = make(tmp_path, fake, reasons=set(DEFAULT_REASONS.split(",")))
+    b.run_once()
+    row = _alert("stalled", "I4", {"agent_id": "ag1"}, title="Print labels")
+    row["event"]["at"] = "2026-11-06T12:01:00Z"
+    fake.inbox = [row]
+    assert b.run_once() == 1
+    assert fake.alerts[0]["title"] == "Slate: My Agent stopped without finishing"
+    assert fake.alerts[0]["severity"] == 2
+
+
 def test_failed_is_a_default_reason_and_says_who_could_not_run(tmp_path):
     assert "failed" in DEFAULT_REASONS.split(",")
     fake = Fake()

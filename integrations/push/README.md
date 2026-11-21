@@ -14,8 +14,9 @@ Each alert is `POST <--broker><--alert-path>` (default path `/v1/alert`) with
 If your broker wants another shape, change `Bridge.publish`.
 
 Reasons sent (`--reasons`, default): mention, reply, assigned, waiting, due, unblocked, nudge,
-reminder, health, access, failed (no chat, no daily digest). A waiting alert's body is the
-question, then the card title. A failed alert is titled `Slate: <who> could not run`. Titles
+reminder, health, access, failed, stalled (no chat, no daily digest). A waiting alert's body
+is the question, then the card title. A failed alert is titled `Slate: <who> could not run`.
+A stalled alert is titled `Slate: <who> stopped without finishing`. Titles
 start `Slate:` so a broker rule can cap or mute them. A tap opens the card in the Slate inbox.
 
 The token is an ordinary `read` token of the account whose inbox it relays (never an admin

@@ -46,8 +46,11 @@ log = logging.getLogger("slate-push")
 
 TIER = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
 # Card push reasons, without chat and the daily digest, plus `failed` (a run the agent
-# could not finish). A routine digest is not an alert.
-DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed"
+# could not finish) and `stalled` (it stopped without finishing). A routine digest is not
+# an alert.
+DEFAULT_REASONS = (
+    "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed,stalled"
+)
 
 Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
 
@@ -85,6 +88,7 @@ def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
         "health": "Slate health",
         "access": "Guest access ending",
         "failed": f"{who} could not run",
+        "stalled": f"{who} stopped without finishing",
         "comment": f"{who} commented",
         "status": f"{who} changed the status",
     }
