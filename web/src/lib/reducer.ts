@@ -45,6 +45,8 @@ const SCALARS = new Set([
   'archived_at',
   'list_id',
   'parent_id',
+  'parked_until',
+  'parked_note',
 ]);
 
 // Event types whose `field` / `after` are a column and its new value.
@@ -73,6 +75,9 @@ function fromSnapshot(data: BoardData, snap: Record<string, unknown>): Item | nu
     blocked: false,
     comment_count: 0,
     ask: null,
+    later: false,
+    parked_until: (snap.parked_until as string | null) ?? null,
+    parked_note: (snap.parked_note as string | null) ?? null,
   };
 }
 
@@ -243,6 +248,13 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     case 'item.run_failed': // the card's failed badge comes from the item view
       fx.today = false;
       if (it) fx.refetch.push(id);
+      break;
+    case 'item.unparked':
+      if (it) {
+        it.parked_until = null;
+        it.parked_note = null;
+        fx.refetch.push(id);
+      }
       break;
     case 'item.due_soon': // the scheduler's notices: `field` is due_at but `after` is
     case 'item.due': // {due_at, ...}, not a new value, and nothing on the item changed

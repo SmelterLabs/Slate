@@ -337,4 +337,16 @@ describe('applyEvent', () => {
     const d = { items: { I1: item() }, lists: { L1: LIST } };
     expect(applyEvent(d, ev({ type: 'tag.deleted', item_id: null })).tags).toBe(true);
   });
+
+  it('patches parked fields and clears them on item.unparked', () => {
+    const d = data(item());
+    applyEvent(d, ev({ field: 'parked_until', before: null, after: '2026-11-20' }));
+    applyEvent(d, ev({ field: 'parked_note', before: null, after: 'Bank review' }));
+    expect(d.items.I1.parked_until).toBe('2026-11-20');
+    expect(d.items.I1.parked_note).toBe('Bank review');
+    const fx = applyEvent(d, ev({ type: 'item.unparked', after: { note: 'Bank review' } }));
+    expect(d.items.I1.parked_until).toBeNull();
+    expect(d.items.I1.parked_note).toBeNull();
+    expect(fx.refetch).toEqual(['I1']);
+  });
 });

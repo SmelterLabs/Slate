@@ -72,9 +72,13 @@ export function blockedTitle(blockers: Item[]): string {
   return blockers.length ? `Depends on: ${blockers.map((b) => b.title).join(', ')}` : 'Depends on an open task';
 }
 
+export function isParked(item: Pick<Item, 'parked_until' | 'parked_note'>): boolean {
+  return !!item.parked_until;
+}
+
 export function isOverdue(item: Item, now: Date = new Date()): boolean {
   return (
-    isOpen(item) && !item.archived_at && !!item.due_at && new Date(item.due_at) < now
+    isOpen(item) && !item.archived_at && !isParked(item) && !!item.due_at && new Date(item.due_at) < now
   );
 }
 

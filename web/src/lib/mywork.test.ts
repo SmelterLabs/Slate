@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { item } from './fixtures';
+import { LIST, item } from './fixtures';
+import { isOverdue } from './format';
 import { bucketOf, myWork } from './mywork';
 
 // Thursday 2026-10-22, 15:00 in Chicago.
@@ -42,5 +43,27 @@ describe('myWork', () => {
     expect(w.doneRecently.map((i) => i.id)).toEqual(['e']);
     expect(w.waitingOnMe.map((i) => i.id)).toEqual(['g']);
     expect(w.openCount).toBe(3);
+  });
+
+  it('excludes later, parked, and reference-list cards from My Work and never marks parked cards overdue', () => {
+    const parked = item({
+      id: 'p',
+      assignees: [ME],
+      status: OPEN,
+      due_at: '2026-10-01T22:00:00Z',
+      parked_until: '2026-11-15',
+      parked_note: 'Vendor reply',
+    });
+    const later = item({ id: 'l', assignees: [ME], status: OPEN, due_at: '2026-12-01T22:00:00Z', later: true });
+    const refCard = item({ id: 'r', list_id: 'L_REF', assignees: [ME], status: OPEN, due_at: '2026-10-22T22:00:00Z' });
+    const normal = item({ id: 'n', assignees: [ME], status: OPEN, due_at: '2026-10-22T22:00:00Z' });
+    const lists = { L1: LIST, L_REF: { ...LIST, id: 'L_REF', reference: true } };
+
+    expect(isOverdue(parked, NOW)).toBe(false);
+    const w = myWork([parked, later, refCard, normal], 'me', NOW, lists);
+    expect(w.buckets.today.map((i) => i.id)).toEqual(['n']);
+    expect(w.buckets.overdue).toEqual([]);
+    expect(w.buckets.later).toEqual([]);
+    expect(w.openCount).toBe(1);
   });
 });

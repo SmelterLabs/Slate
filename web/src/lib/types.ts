@@ -5,6 +5,13 @@ export type Priority = 'urgent' | 'high' | 'normal' | 'low';
 export type AccountKind = 'person' | 'agent';
 export type Source = 'ui' | 'api' | 'mcp' | 'system';
 
+export interface NextStep {
+  item_id: string;
+  title: string;
+  assignee_ids: string[];
+  due_at: string;
+}
+
 export interface Section {
   whiteboard_url?: string | null;
   id: string;
@@ -16,6 +23,10 @@ export interface Section {
   archived_at: string | null;
   /** Hidden from members unless shared with them (owners and admins still see it). */
   private?: boolean;
+  /** Whether this section is tracked as a project with a computed next step. */
+  project?: boolean;
+  /** Server-computed next actionable step for a project section, or null. */
+  next_step?: NextStep | null;
 }
 
 export interface Status {
@@ -38,6 +49,8 @@ export interface List {
   private?: boolean;
   /** `tasks` (a board) or `drawer` (a list of documents). */
   kind?: 'tasks' | 'drawer';
+  /** Reference lists hold non-work items excluded from My Work, counts, and next-step. */
+  reference?: boolean;
   statuses: Status[];
 }
 
@@ -185,6 +198,11 @@ export interface Item {
   /** In the trash since (also sets archived_at); purge_at is when it goes for good. */
   trashed_at?: string | null;
   purge_at?: string | null;
+  /** Server-computed for the caller: open card whose start/due is beyond lead_days. */
+  later?: boolean;
+  /** Parked waiting on an outside party until this date (YYYY-MM-DD or ISO). */
+  parked_until?: string | null;
+  parked_note?: string | null;
 }
 
 export type AgentState = 'working' | 'blocked' | 'review' | 'failed';
@@ -423,6 +441,10 @@ export interface Prefs {
   last_view?: Record<string, string>;
   /** Per view key: unsaved toolbar changes, as the settings that differ from the saved view. */
   view_drafts?: Record<string, Record<string, unknown>>;
+  /** Hide open cards due more than this many days away (default 14; 0 turns off). */
+  lead_days?: number;
+  /** Weekly sweep day for old overdue cards (0 = Monday .. 6 = Sunday; default 4, Friday). */
+  sweep_weekday?: number;
 }
 
 export interface Me {

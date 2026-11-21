@@ -3,8 +3,8 @@
 
 import { workspaceDay } from './quickadd';
 import { addDays } from './when';
-import { isOpen } from './format';
-import type { Item } from './types';
+import { isOpen, isParked } from './format';
+import type { Item, List } from './types';
 
 export type Bucket = 'overdue' | 'today' | 'tomorrow' | 'week' | 'later' | 'none';
 
@@ -48,7 +48,7 @@ export function bucketOf(item: Item, now: Date): Bucket {
 const byDue = (a: Item, b: Item) =>
   (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999') || a.title.localeCompare(b.title);
 
-export function myWork(items: Item[], meId: string, now: Date): MyWork {
+export function myWork(items: Item[], meId: string, now: Date, lists: Record<string, List> = {}): MyWork {
   const buckets = Object.fromEntries(BUCKETS.map((b) => [b.key, [] as Item[]])) as Record<Bucket, Item[]>;
   const waitingOnMe: Item[] = [];
   const blocked: Item[] = [];
@@ -58,9 +58,10 @@ export function myWork(items: Item[], meId: string, now: Date): MyWork {
   const weekAgo = now.getTime() - 7 * 86_400_000;
   let openCount = 0;
   for (const it of items) {
-    if (it.archived_at) continue;
+    if (it.archived_at || lists[it.list_id]?.reference) continue;
     const mine = it.assignees.some((a) => a.id === meId);
     if (isOpen(it)) {
+      if (it.later || isParked(it)) continue;
       if (mine) {
         buckets[bucketOf(it, now)].push(it);
         openCount++;
