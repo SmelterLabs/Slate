@@ -42,6 +42,9 @@ const { answer, askItem, boardState } = vi.hoisted(() => {
       lists: { L1: { name: 'Home' } },
       accountName: (id: string) => (id === 'sc' ? 'My Agent' : undefined),
       open: vi.fn(),
+      canRun: () => true,
+      runLabel: () => 'Run now',
+      runAction: vi.fn(),
     },
   };
 });
@@ -87,6 +90,24 @@ describe('NeedsPanel ask row', () => {
     expect(buttons).toHaveLength(4);
     expect(buttons[0].textContent.trim()).toBe(longOpt);
     expect(buttons[1].textContent.trim()).toBe(longOpt);
+    await unmount(app);
+  });
+
+  it('shows a stalled row with a Run now action', async () => {
+    boardState.needsMe = [
+      {
+        item: { ...askItem, id: 'I2', ask: null, agent: null, waiting_on_account_id: null, stalled: true },
+        need: 'stalled',
+      },
+    ];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const row = target.querySelector('[data-item="I2"]');
+    expect(row?.getAttribute('data-need')).toBe('stalled');
+    const runBtn = row?.querySelector<HTMLButtonElement>('[data-stalled-run]');
+    expect(runBtn?.textContent?.trim()).toBe('Run now');
+    runBtn?.click();
+    expect(boardState.runAction).toHaveBeenCalled();
     await unmount(app);
   });
 });

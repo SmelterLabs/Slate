@@ -2772,3 +2772,6 @@ a.nav-heading,
 .needs-mark.need-asked {
   --tone: var(--need-asked);
 }
+.needs-mark.need-stalled {
+  --tone: var(--need-stalled);
+}
