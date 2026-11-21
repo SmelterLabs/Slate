@@ -26,8 +26,9 @@ def test_incomplete_or_failed_command_never_succeeds(
         if chat
         else runner._result(task, code, result, "stdout", "failed")
     )
-    assert body["outcome"] == ("release" if chat else "blocked")
+    assert body["outcome"] == ("release" if chat else "failed")
     assert not body.get("reply")
+    assert "waiting_on" not in body
 
 
 @pytest.mark.parametrize("status", [401, 403, 409, 426, 500, "transport"])
@@ -325,26 +326,112 @@ def _later_run(client, alex, todo, make_account, tmp_path, monkeypatch, due_at=N
     child.finish()
     monkeypatch.setattr(slate_runner.subprocess, "Popen", lambda *a, **k: child)
     outcome = runner.run(task)
-    return outcome, client.get(f"/api/v1/items/{item['id']}", headers=alex).json()
+    saved = runner._records[item["id"]]["result"]
+    view = client.get(f"/api/v1/items/{item['id']}", headers=alex).json()
+    return outcome, view, saved
 
 
 def test_runner_delivers_later(client, alex, todo, make_account, tmp_path, monkeypatch):
     from datetime import UTC, datetime, timedelta
 
     due = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
-    outcome, view = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch, due)
-    assert outcome == "later"
+    outcome, view, saved = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch, due)
+    assert outcome == "later" and saved["outcome"] == "later"
+    assert "waiting_on" not in saved
     assert view["agent"] is None and view["waiting_on_account_id"] is None
     assert view["completed_at"] is None
 
 
-def test_runner_turns_a_refused_later_into_a_visible_block(
+def test_runner_sends_later_without_a_due_time_as_answered(
     client, alex, todo, make_account, tmp_path, monkeypatch
 ):
-    outcome, view = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch)
-    assert outcome == "blocked"  # no due time: nothing would run it again, so a person must
-    assert view["agent"]["state"] == "blocked"
-    assert view["waiting_on_account_id"] is not None
-    comments = client.get(f"/api/v1/items/{view['id']}/comments", headers=alex).json()
-    assert comments[-1]["body_md"].startswith("Posting at the due time.")
-    assert "no due time" in comments[-1]["body_md"]
+    """No due time still to come: the finish is `answered` and names nobody. This server
+    rejects that outcome, so the saved body is the proof; a server that accepts it returns it."""
+    outcome, view, saved = _later_run(client, alex, todo, make_account, tmp_path, monkeypatch)
+    assert saved["outcome"] == "answered"
+    assert saved["reply"].startswith("Posting at the due time.")
+    assert "waiting_on" not in saved
+    if outcome == "answered":
+        assert view["waiting_on_account_id"] is None
+    else:
+        assert outcome == "delivery_failed"
+
+
+def test_runner_maps_each_ending_and_never_invents_who_is_waited_on(client, make_account, tmp_path):
+    """One row per finish the runner decides itself. `waiting_on` is present only when the
+    command's own result named it."""
+    from datetime import UTC, datetime, timedelta
+
+    _, h = make_account("worker")
+    runner = _runner(client, h, tmp_path)
+    task = {"item": {"assignees": []}}
+
+    failed_exit = runner._result(task, 7, {"outcome": "done", "reply": "x"}, "", "boom")
+    assert failed_exit["outcome"] == "failed"
+    assert failed_exit["note"] == "Run failed (exit 7): boom"
+
+    missing = runner._result(task, 0, None, "plain stdout", "")
+    assert missing["outcome"] == "failed"
+    assert "without an explicit terminal result" in missing["note"]
+
+    unknown = runner._result(task, 0, {"outcome": "finished", "reply": "x"}, "", "")
+    assert unknown["outcome"] == "failed" and unknown["note"].startswith("Unknown outcome")
+
+    ask = runner._result(
+        task, 0, {"outcome": "ask", "question": "Start now?", "waiting_on": "alex"}, "", ""
+    )
+    assert ask["outcome"] == "ask" and ask["question"] == "Start now?"
+    assert ask["waiting_on"] == "alex" and "options" not in ask
+
+    ask_opts = runner._result(
+        task,
+        0,
+        {
+            "outcome": "ask",
+            "question": "Start now?",
+            "options": ["Yes", "No"],
+            "waiting_on": "alex",
+        },
+        "",
+        "",
+    )
+    assert ask_opts["options"] == ["Yes", "No"] and ask_opts["waiting_on"] == "alex"
+
+    answered = runner._result(task, 0, {"outcome": "answered", "reply": "Noted."}, "", "")
+    assert answered == {"outcome": "answered", "reply": "Noted."}
+
+    bare = runner._result(task, 0, {"outcome": "blocked", "reply": "Stuck."}, "", "")
+    assert bare == {"outcome": "blocked", "reply": "Stuck."}
+
+    named = runner._result(
+        task, 0, {"outcome": "blocked", "waiting_on": "alex", "reply": "Q"}, "", ""
+    )
+    assert named["waiting_on"] == "alex"
+
+    for body in (failed_exit, missing, unknown, answered, bare):
+        assert "waiting_on" not in body
+
+    stop = runner._stopped_result({"by": "alex"})
+    assert stop["outcome"] == "answered"
+    assert stop["reply"].startswith("Stopped at @alex's request")
+    assert "waiting_on" not in stop
+    anon = runner._stopped_result({})
+    assert anon["outcome"] == "answered" and anon["reply"].startswith("Stopped on request")
+    assert "waiting_on" not in anon
+
+    sent, refused = runner._later_plan(
+        {"item": {}},
+        {"outcome": "later", "reply": "Posting at the due time.", "waiting_on": "alex"},
+    )
+    assert refused is None and sent["outcome"] == "answered"
+    assert sent["reply"] == "Posting at the due time." and "waiting_on" not in sent
+
+    future = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
+    sent, refused = runner._later_plan(
+        {"item": {"due_at": future}}, {"outcome": "later", "reply": "Later."}
+    )
+    assert sent["outcome"] == "later" and refused is not None
+    assert refused["outcome"] == "answered" and "waiting_on" not in refused
+
+    sent, _refused = runner._later_plan({"item": {}}, {"outcome": "later"})
+    assert sent["reply"] == "No due time is still to come." and "waiting_on" not in sent

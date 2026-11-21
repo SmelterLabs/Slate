@@ -53,15 +53,17 @@ in its environment could be expanded into the command line, so an `exec` that na
 - the runner heartbeats every `lease/3` seconds anyway, so the task stays yours.
 
 When it exits, the last stdout line that is a JSON object with `outcome` is the result:
-`{"outcome": "done|review|later|blocked|release", "reply": "...", "waiting_on": "alex",
+`{"outcome": "done|review|later|ask|answered|failed|blocked|release", "reply": "...",
+"question": "...", "options": ["Yes", "No"], "waiting_on": "alex",
 "url": "...", "thread": {"ref": "..."}}`. `reply` is the agent's answer for this
 turn, one comment on the card (the card is the conversation); `note` is the older, labelled
-form. A task that waits on someone's answer comes back with `reply` (their comment) and
-`thread` on stdin when they answer. An explicit valid result and exit zero are both required
-for success. Missing results and nonzero exits report blocked (chat: release, never stdout).
-A `blocked` result that names nobody waits on the agent's owner, unless it carries
-`"resumable": true`: the run stopped short of needing anyone (a step limit), the card waits on
-no one, and Run now carries on.
+form, and for `failed` it is the machine's words (stored on the finish, not posted).
+`ask` is the only ending that waits on a person. A task that waits on someone's answer comes
+back with `reply` (their comment) and `thread` on stdin when they answer. An explicit valid
+result and exit zero are both required for success. A non-zero exit, a missing result or an
+unknown outcome is `failed` with that machine text as `note` (chat and doc: `release`, and
+nothing from stdout is posted). The runner never adds anyone as `waiting_on`. `later` on a
+card with no due time still to come is sent as `answered`.
 The retained per-attempt proof is sent on heartbeat/finish and in env `SLATE_RUN_ID`.
 
 While a task runs, what a person does on its card reaches the command through the control file
@@ -75,7 +77,7 @@ carries the news:
   settles it. A message never marked seen is the agent's next turn, as if sent after the run.
 - `{"stop": {"by": "alex"}}`: someone pressed Stop. The command ends its agent's run and prints
   its result; one still running after `STOP_WAIT` seconds is stopped locally. Either way the
-  task finishes blocked, waiting on whoever pressed Stop.
+  task finishes `answered`: the reply is posted and nobody is waited on.
 `SLATE_WORK_KINDS` (a comma list of task, chat, doc; default all three) restricts admission
 before a lease is taken; connection setup must configure this to the adapter's actually
 supported work kinds. A server too old for `doc` refuses it (422): the runner then drops `doc`
@@ -99,7 +101,8 @@ once a minute) is settled, and its record is forgotten. A record a dead process 
 or `running` is unknown remote state, read as `reconciliation_required` on start.
 
 `--once`: take one task (`--item` for a given one), run it, exit. Exit codes: 0 the task
-finished done, review or later; 1 it finished blocked or released; 2 nothing was free; 3 an error.
+finished done, review or later; 1 it finished ask, answered, failed, blocked or released;
+2 nothing was free; 3 an error.
 
 Docs: docs/agents/runner.md. Tested in tests/test_clients.py.
 """
@@ -119,6 +122,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -145,10 +149,13 @@ REPLY_MAX = 19000
 CHAT_PREFIX = "chat:"
 DOC_PREFIX = "doc:"
 WORK_KINDS = ("task", "chat", "doc")
+OUTCOMES = ("done", "review", "later", "ask", "answered", "failed", "blocked", "release")
 RESULT_KEYS = (
     "outcome",
     "note",
     "reply",
+    "question",
+    "options",
     "thread",
     "waiting_on",
     "url",
@@ -329,7 +336,6 @@ class Runner:
         self._control: dict[str, dict[str, Any]] = {}
         self.pending: deque[str | None] = deque()
         self.stopping = threading.Event()
-        self._me: dict[str, Any] | None = None
         self._workers = 0
         self._records: dict[str, dict[str, Any]] = {}
         self._cursor: str | None = None
@@ -361,11 +367,6 @@ class Runner:
                 detail = r.text
             raise SlateHTTPError(r.status_code, detail)
         return r.json() if r.content else None
-
-    def me(self) -> dict[str, Any]:
-        if self._me is None:
-            self._me = self.call("GET", "/me")
-        return self._me
 
     # --- cursor -----------------------------------------------------------------------------
 
@@ -593,7 +594,6 @@ class Runner:
             "sent": set(),
             "stop": None,
             "stop_deadline": None,
-            "stopped_here": False,
             "kick": threading.Event(),
         }
 
@@ -624,17 +624,14 @@ class Runner:
                 with control["path"].open("a", encoding="utf-8") as f:
                     f.writelines(json.dumps(line) + "\n" for line in lines)
 
-    def _stopped_result(self, task: dict[str, Any], stop: dict[str, Any]) -> dict[str, Any]:
-        """The finish for a run a person stopped whose command gave no result of its own."""
-        who = stop.get("by") or self._owner(task)
-        body: dict[str, Any] = {
-            "outcome": "blocked",
+    def _stopped_result(self, stop: dict[str, Any]) -> dict[str, Any]:
+        """The finish for a run a person stopped. The reply is posted; nobody is waited on."""
+        who = stop.get("by")
+        return {
+            "outcome": "answered",
             "reply": (f"Stopped at @{who}'s request" if who else "Stopped on request")
             + " before it finished. Reply here to carry on, or press Run now.",
         }
-        if who:
-            body["waiting_on"] = who
-        return body
 
     def _lost_execution(self, key: str) -> None:
         self._record(key, state="reconciliation_required", remote_state="unknown")
@@ -794,7 +791,6 @@ class Runner:
                     deadline = control["stop_deadline"]
                     if deadline is not None and time.monotonic() >= deadline:
                         if not ended.is_set():
-                            control["stopped_here"] = True
                             self.log(
                                 f"{item_id} still running {STOP_WAIT:.0f}s after Stop; ending it"
                             )
@@ -824,13 +820,19 @@ class Runner:
             with output_lock:
                 output_closed.set()
         stop = (self._control.get(item_id) or {}).get("stop")
-        stopped_here = bool((self._control.get(item_id) or {}).get("stopped_here"))
         self._close_control(item_id)
         with self._state_lock:
             if item_id in self._interrupted:
                 return "reconciliation_required"
-        if stop is not None and (stopped_here or result is None or proc.returncode != 0):
-            body = self._stopped_result(task, stop)
+        if stop is not None:
+            # A person pressed Stop: the run ends answered, whichever result the command printed.
+            body = self._stopped_result(stop)
+            if result is not None and proc.returncode == 0:
+                said = str(result.get("reply") or result.get("note") or "").strip()
+                if said:
+                    body["reply"] = said if len(said) <= REPLY_MAX else said[: REPLY_MAX - 1] + "…"
+                if isinstance(result.get("thread"), dict):
+                    body["thread"] = result["thread"]
         else:
             body = self._result(task, proc.returncode, result, "".join(plain), "".join(errors))
         body["run_id"] = self._records[item_id]["run_id"]
@@ -839,25 +841,35 @@ class Runner:
         if ref is not None:
             path = f"/work/{ref[0]}/finish"
             body.update(ref[1])
-        return self._deliver(item_id, path, body, refused=self._later_refused(task, body))
+        body, refused = self._later_plan(task, body)
+        return self._deliver(item_id, path, body, refused=refused)
 
-    def _later_refused(self, task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any] | None:
-        """What to report when Slate refuses `later` (the task has no due time still to come,
-        so nothing would run it again): the same fenced finish, blocked on the owner, so the
-        agent's answer is not lost and a person sees that it needs a time."""
+    def _later_plan(
+        self, task: dict[str, Any], body: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """`later` needs a due time still to come. Without one it is sent as `answered`.
+        A `later` that still looks open keeps a same-proof `answered` body for a 422: the
+        server is the judge of a date-only run time, and that refusal must not wait on anyone."""
         if body.get("outcome") != "later":
-            return None
-        why = (
-            "(The agent said it would carry on at the due time, but this task has no due time "
-            "still to come. Set one, or reply here.)"
-        )
+            return body, None
         said = str(body.get("reply") or body.get("note") or "").strip()
-        out = {**body, "outcome": "blocked", "reply": f"{said}\n\n{why}".strip()}
-        out.pop("note", None)
-        who = self._owner(task)
-        if who:
-            out["waiting_on"] = who
-        return out
+        answered = {k: v for k, v in body.items() if k not in ("waiting_on", "note")}
+        answered["outcome"] = "answered"
+        answered["reply"] = said or "No due time is still to come."
+        due = (task.get("item") or {}).get("due_at")
+        still = False
+        if isinstance(due, str) and due:
+            try:
+                when = datetime.fromisoformat(due.replace("Z", "+00:00"))
+            except ValueError:
+                when = None
+            if when is not None:
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=UTC)
+                still = when > datetime.now(UTC)
+        if not still:
+            return answered, None
+        return body, answered
 
     def _give_back(self, key: str, proof: str) -> None:
         """Release a grant for a key this runner is still busy with, without touching its
@@ -1017,21 +1029,16 @@ class Runner:
             return self._chat_result(code, result, out, err)
         if result is not None and code == 0:
             body = {k: result[k] for k in RESULT_KEYS if result.get(k) is not None}
-            if body.get("outcome") not in ("done", "review", "later", "blocked", "release"):
-                body = {"outcome": "blocked", "note": f"Unknown outcome in result: {result}"}
+            if body.get("outcome") not in OUTCOMES:
+                body = {"outcome": "failed", "note": f"Unknown outcome in result: {result}"}
         elif code == 0:
             body = {
-                "outcome": "blocked",
+                "outcome": "failed",
                 "note": "Command exited without an explicit terminal result",
             }
         else:
             note = _tail(err) or _tail(out) or f"exited with code {code}"
-            body = {"outcome": "blocked", "note": f"Run failed (exit {code}): {note}"}
-        resumable = bool(result and code == 0 and result.get("resumable") is True)
-        if body["outcome"] == "blocked" and not body.get("waiting_on") and not resumable:
-            who = self._owner(task)
-            if who:
-                body["waiting_on"] = who
+            body = {"outcome": "failed", "note": f"Run failed (exit {code}): {note}"}
         if body.get("note"):
             body["note"] = _tail(str(body["note"]), NOTE_MAX)
         else:
@@ -1082,20 +1089,6 @@ class Runner:
         else:
             body.pop("note", None)
         return body
-
-    def _owner(self, task: dict[str, Any]) -> str | None:
-        """Who a failed run waits on: the account's `prefs.owner`, else the first person
-        assigned to the task."""
-        try:
-            owner = (self.me().get("prefs") or {}).get("owner")
-        except SlateHTTPError:
-            owner = None
-        if owner:
-            return str(owner)
-        for a in task["item"].get("assignees") or []:
-            if a.get("kind") == "person":
-                return a.get("handle")
-        return None
 
     # --- the loop ---------------------------------------------------------------------------
 
