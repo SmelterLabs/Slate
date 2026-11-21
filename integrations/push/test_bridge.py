@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bridge import DEFAULT_REASONS, Bridge, tier_for  # noqa: E402
+from bridge import DEFAULT_REASONS, Bridge  # noqa: E402
 
 
 def entry(eid: str, at: str, reason: str = "assigned", item: str | None = "I1") -> dict:
@@ -30,7 +30,6 @@ def entry(eid: str, at: str, reason: str = "assigned", item: str | None = "I1") 
 class Fake:
     def __init__(self) -> None:
         self.inbox: list[dict] = []
-        self.priorities = {"I1": "urgent", "I2": "low", "I3": None}
         self.alerts: list[dict] = []
         self.urls: list[str] = []
         self.broker_status = 200
@@ -52,8 +51,7 @@ class Fake:
                 return self.roster_status, None
             account = {"id": "A1", "handle": "my-agent", "display_name": "My Agent"}
             return 200, [{"account": account}]
-        item = url.rsplit("/", 1)[1]
-        return 200, {"id": item, "priority": self.priorities.get(item)}
+        raise AssertionError(f"Unexpected request: {method} {url}")
 
 
 def make(tmp_path, fake, reasons=("assigned", "mention"), **kw):
@@ -65,15 +63,9 @@ def make(tmp_path, fake, reasons=("assigned", "mention"), **kw):
         "https://board",
         tmp_path / "s.json",
         set(reasons),
-        2,
-        fake,
+        send=fake,
         **kw,
     )
-
-
-def test_tiers_follow_the_card_flag_and_never_exceed_4():
-    assert [tier_for(p, 2) for p in ("urgent", "high", "normal", "low")] == [4, 3, 2, 1]
-    assert tier_for(None, 2) == 2
 
 
 def test_first_run_sets_cursor_without_replaying_backlog(tmp_path):
@@ -85,7 +77,7 @@ def test_first_run_sets_cursor_without_replaying_backlog(tmp_path):
     fake.inbox.append(entry("e2", "2026-11-06T10:01:00Z"))
     assert b.run_once() == 1
     a = fake.alerts[0]
-    assert a["severity"] == 4
+    assert a["severity"] == 2  # Older server.
     assert a["title"] == "Slate: My Agent assigned you"
     assert a["click_url"] == "https://board/#/inbox?task=I1"
     assert fake.urls == ["http://push/v1/alert"]
@@ -101,19 +93,21 @@ def test_the_alert_path_is_configurable(tmp_path):
     assert fake.urls == ["http://push/hooks/slate"]
 
 
-def test_card_tier_unflagged_and_cardless(tmp_path):
+def test_server_levels_and_reason_filter(tmp_path):
     fake = Fake()
     b = make(tmp_path, fake, reasons=("assigned", "health"))
     b.run_once()
     fake.inbox = [
-        entry("e1", "2026-11-06T10:01:00Z", item="I2"),
-        entry("e2", "2026-11-06T10:02:00Z", item="I3"),
-        entry("e3", "2026-11-06T10:03:00Z", reason="health", item=None),
-        entry("e4", "2026-11-06T10:04:00Z", reason="watching"),  # not a chosen reason
+        dict(entry(f"e{level}", f"2026-11-06T10:0{level}:00Z"), loudness=level)
+        for level in range(5)
+    ] + [
+        entry("e5", "2026-11-06T10:05:00Z", reason="health", item=None),
+        dict(entry("e6", "2026-11-06T10:06:00Z", reason="watching"), loudness=4),
     ]
-    assert b.run_once() == 3
-    assert [a["severity"] for a in fake.alerts] == [1, 2, 2]
-    assert fake.alerts[2]["click_url"] == "https://board/#/inbox"
+    assert b.run_once() == 4
+    assert [a["severity"] for a in fake.alerts] == [2, 3, 4, 2]
+    assert fake.alerts[-1]["click_url"] == "https://board/#/inbox"
+    assert b.run_once() == 0
 
 
 def test_failed_publish_is_retried_not_lost(tmp_path):
@@ -167,21 +161,26 @@ def _alert(reason: str, item: str, after: dict | None, title: str = "Pay the wat
     }
 
 
-def test_waiting_is_at_least_severity_3_and_leads_with_the_question(tmp_path):
+def test_waiting_uses_server_loudness_and_leads_with_the_question(tmp_path):
     fake = Fake()
     b = make(tmp_path, fake, reasons=("waiting", "failed"))
     b.run_once()
     fake.inbox = [
-        _alert("waiting", "I2", {"question": "Start the import now?\nmore", "body_md": "noise"}),
-        _alert("waiting", "I1", {"question": "Ship it?"}),
+        dict(
+            _alert(
+                "waiting", "I2", {"question": "Start the import now?\nmore", "body_md": "noise"}
+            ),
+            loudness=2,
+        ),
+        dict(_alert("waiting", "I1", {"question": "Ship it?"}), loudness=4),
     ]
     # A second pass needs a later timestamp than the cursor the first inbox wrote.
     fake.inbox[0]["event"]["at"] = "2026-11-06T12:01:00Z"
     fake.inbox[1]["event"]["at"] = "2026-11-06T12:02:00Z"
     assert b.run_once() == 2
     low, urgent = fake.alerts
-    assert low["severity"] == 3  # the card is low (tier 1); waiting is at least 3
-    assert urgent["severity"] == 4  # urgent stays at the cap
+    assert low["severity"] == 2
+    assert urgent["severity"] == 4
     assert low["body"] == "Start the import now?\nPay the water bill"
     assert urgent["body"].startswith("Ship it?\n")
     assert "noise" not in low["body"]
@@ -197,4 +196,35 @@ def test_failed_is_a_default_reason_and_says_who_could_not_run(tmp_path):
     fake.inbox = [row]
     assert b.run_once() == 1
     assert fake.alerts[0]["title"] == "Slate: My Agent could not run"
-    assert fake.alerts[0]["severity"] == 2  # unflagged card, and failed is not raised
+    assert fake.alerts[0]["severity"] == 2
+
+
+def test_escalation_reuses_original_wording_and_item(tmp_path):
+    fake = Fake()
+    b = make(tmp_path, fake, reasons=("waiting",))
+    original = dict(_alert("waiting", "I1", {"question": "Ship it?"}), loudness=3)
+    fake.inbox = [original]
+    b.run_once()
+    fake.inbox.append(
+        {
+            "reason": "waiting",
+            "loudness": 4,
+            "event": {
+                "id": "E2",
+                "at": "2026-11-06T14:00:00Z",
+                "type": "inbox.escalated",
+                "subject_id": "P1",
+                "actor_id": "system",
+                "after": {"event_id": original["event"]["id"], "reason": "waiting", "minutes": 120},
+            },
+        }
+    )
+    assert b.run_once() == 1
+    assert fake.alerts == [
+        {
+            "severity": 4,
+            "title": "Slate: Still waiting: My Agent is waiting on you",
+            "body": "Ship it?\nPay the water bill",
+            "click_url": "https://board/#/inbox?task=I1",
+        }
+    ]

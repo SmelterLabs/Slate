@@ -5,10 +5,12 @@
 
 import { get, post } from './api';
 import { chatHref } from './chat';
+import { describe, type HistoryContext } from './history';
 import { board } from './store.svelte';
 import type { SlateEvent } from './types';
 
 export type Reason =
+  | 'chat'
   | 'mention'
   | 'reply'
   | 'assigned'
@@ -34,6 +36,9 @@ export interface InboxEntry {
   read: boolean;
   item_title: string | null;
   list_id: string | null;
+  loudness?: number;
+  /** The event an escalation refers to, when still present in the inbox. */
+  originalEvent?: SlateEvent;
   /** The chat channel, for a mention or reply in chat (then there is no item). */
   channel?: string | null;
   /** The doc page, for a mention in a doc (then there is no item). */
@@ -54,6 +59,7 @@ export interface InboxGroup {
 }
 
 export const REASON_LABEL: Record<Reason, string> = {
+  chat: 'Chat message',
   mention: 'Mentioned you',
   reply: 'Replied to you',
   assigned: 'Assigned to you',
@@ -74,18 +80,43 @@ export const REASON_LABEL: Record<Reason, string> = {
   watching: 'On a task you watch',
 };
 
+export function linkEscalations(entries: InboxEntry[]): InboxEntry[] {
+  const byId = new Map(entries.map((e) => [e.event.id, e]));
+  return entries.map((entry) => {
+    if (entry.event.type !== 'inbox.escalated') return entry;
+    const { event_id } = (entry.event.after ?? {}) as { event_id?: string };
+    const original = event_id ? byId.get(event_id) : undefined;
+    if (!original) return entry;
+    return {
+      ...entry,
+      originalEvent: original.event,
+      item_title: entry.item_title ?? original.item_title,
+      list_id: entry.list_id ?? original.list_id,
+      channel: entry.channel ?? original.channel,
+      doc_id: entry.doc_id ?? original.doc_id,
+    };
+  });
+}
+
+export function describeEntry(entry: InboxEntry, ctx: HistoryContext): string {
+  if (entry.event.type !== 'inbox.escalated') return describe(entry.event, ctx);
+  const wording = entry.originalEvent ? describe(entry.originalEvent, ctx) : REASON_LABEL[entry.reason];
+  return `Still waiting: ${wording}`;
+}
+
 export function groupEntries(entries: InboxEntry[]): InboxGroup[] {
   const groups = new Map<string, InboxGroup>();
   for (const e of entries) {
     const channel = e.channel ?? null;
     const docId = e.doc_id ?? null;
+    const itemId = e.event.item_id ?? e.originalEvent?.item_id ?? null;
     const key =
-      e.event.item_id ??
+      itemId ??
       (channel ? `chat:${channel}` : docId ? `doc:${docId}` : e.reason === 'health' ? 'health' : e.event.id);
     let g = groups.get(key);
     if (!g) {
       g = {
-        itemId: e.event.item_id,
+        itemId,
         title:
           e.item_title ??
           (e.event.type === 'account.digest'
@@ -147,7 +178,7 @@ class Inbox {
 
   async refresh() {
     try {
-      this.entries = await get<InboxEntry[]>('/inbox?limit=200');
+      this.entries = linkEscalations(await get<InboxEntry[]>('/inbox?limit=200'));
       this.unread = this.entries.filter((e) => !e.read).length;
       this.loaded = true;
       // Chat entries need no marking here: the server reads them with their message
@@ -184,8 +215,10 @@ class Inbox {
     if (!g.channel) void this.readEvents(g.entries.map((e) => e.event.id));
     if (g.channel) {
       // A chat mention or reply: open the channel at the newest one's thread.
-      const after = (g.entries[0].event.after ?? {}) as { id?: string; parent_id?: string | null };
-      location.hash = chatHref(g.channel, after.parent_id ?? after.id ?? g.entries[0].event.subject_id);
+      const event = g.entries[0].originalEvent ?? g.entries[0].event;
+      const after = (event.after ?? {}) as { id?: string; parent_id?: string | null };
+      const thread = event.type === 'inbox.escalated' ? null : (after.parent_id ?? after.id ?? event.subject_id);
+      location.hash = chatHref(g.channel, thread);
     } else if (g.docId) {
       location.hash = `#/docs/${g.docId}`;
     } else if (g.entries.some((e) => e.reason === 'health')) {
@@ -202,6 +235,9 @@ class Inbox {
   }
 
   readItem(itemId: string) {
+    const linked = this.entries.filter((e) => !e.event.item_id && e.originalEvent?.item_id === itemId);
+    const unread = linked.filter((e) => !e.read).map((e) => e.event.id);
+    if (unread.length) void this.readEvents(unread);
     if (this.entries.some((e) => e.event.item_id === itemId && !e.read)) {
       void this.#mark('read', { item_id: itemId });
     }
@@ -222,7 +258,10 @@ class Inbox {
   }
 
   clearGroup(g: InboxGroup) {
-    return this.#mark('clear', g.itemId ? { item_id: g.itemId } : { event_ids: g.entries.map((e) => e.event.id) });
+    if (!g.itemId) return this.#mark('clear', { event_ids: g.entries.map((e) => e.event.id) });
+    const linked = this.entries.filter((e) => !e.event.item_id && e.originalEvent?.item_id === g.itemId);
+    if (linked.length) void this.#mark('clear', { event_ids: linked.map((e) => e.event.id) });
+    return this.#mark('clear', { item_id: g.itemId });
   }
 
   clearAll() {

@@ -4,7 +4,7 @@ vi.mock('./store.svelte', () => ({ board: {} }));
 vi.mock('./api', () => ({ get: vi.fn(), post: vi.fn() }));
 
 import { ev } from './fixtures';
-import { groupEntries, type InboxEntry } from './inbox.svelte';
+import { describeEntry, groupEntries, linkEscalations, type InboxEntry } from './inbox.svelte';
 
 const entry = (id: string, item: string | null, read = false): InboxEntry => ({
   event: ev({ id, item_id: item, at: `2026-10-23T1${id}:00:00Z` }),
@@ -28,5 +28,19 @@ describe('groupEntries', () => {
     const g = groupEntries([entry('1', null), entry('2', null)]);
     expect(g).toHaveLength(2);
     expect(g[0].title).toBe('A deleted item');
+  });
+
+  it('shows an escalation as the original entry and keeps its card destination', () => {
+    const original = entry('1', 'a');
+    const escalated: InboxEntry = {
+      ...entry('2', null),
+      event: ev({ id: '2', item_id: null, type: 'inbox.escalated', after: { event_id: '1', reason: 'comment', minutes: 120 } }),
+    };
+    const [group] = groupEntries(linkEscalations([escalated, original]));
+    expect(group.itemId).toBe('a');
+    expect(group.title).toBe('Item a');
+    expect(group.entries.map((e) => e.event.id)).toEqual(['2', '1']);
+    const ctx = { name: () => 'Alex', title: () => undefined, status: () => undefined, now: new Date('2026-10-23T12:30:00Z') };
+    expect(describeEntry(group.entries[0], ctx)).toBe(`Still waiting: ${describeEntry(group.entries[1], ctx)}`);
   });
 });

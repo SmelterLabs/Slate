@@ -43,6 +43,8 @@
   const mailReasons = $derived(new Set(board.prefs.email_reasons ?? DEFAULT_EMAIL_REASONS));
   const digestOn = $derived(board.prefs.digest ?? board.me?.account.kind !== 'agent');
   const digestHour = $derived(board.prefs.digest_hour ?? 7);
+  const quietHours = $derived(board.prefs.quiet_hours ?? null);
+  const escalateAfter = $derived(board.prefs.escalate_after_minutes ?? 120);
   const renudge = $derived(board.prefs.chat_renudge_minutes ?? 10);
   const RENUDGE_CHOICES: { minutes: number; label: string }[] = [
     { minutes: 0, label: 'Never' },
@@ -144,6 +146,10 @@
       if (!out.ok) throw new Error(out.error ?? 'The email could not be sent');
       board.flash(`Test email sent to ${mailTo}`);
     });
+  }
+
+  function saveQuietTime(key: 'from' | 'to', value: string) {
+    if (quietHours && value) void board.setPrefs({ quiet_hours: { ...quietHours, [key]: value } });
   }
 
   function close() {
@@ -263,6 +269,53 @@
       >
         {#each RENUDGE_CHOICES as c (c.minutes)}<option value={c.minutes}>{c.label}</option>{/each}
       </select>
+    </label>
+  </section>
+
+  <section class="ns-block" aria-label="Quiet hours and phone alerts">
+    <h3><Icon name="clock" size={15} /> Quiet hours</h3>
+    <div class="inline ns-quiet">
+      <label class="ns-check">
+        <input
+          type="checkbox"
+          aria-label="Enable quiet hours"
+          checked={quietHours !== null}
+          onchange={(e) => void board.setPrefs({
+            quiet_hours: e.currentTarget.checked ? { from: '22:00', to: '07:00' } : null,
+          })}
+        />
+        Use quiet hours
+      </label>
+      {#if quietHours}
+        <label class="inline">
+          From
+          <input type="time" aria-label="Quiet hours from" required value={quietHours.from}
+            onchange={(e) => saveQuietTime('from', e.currentTarget.value)} />
+        </label>
+        <label class="inline">
+          To
+          <input type="time" aria-label="Quiet hours to" required value={quietHours.to}
+            onchange={(e) => saveQuietTime('to', e.currentTarget.value)} />
+        </label>
+      {/if}
+    </div>
+    <p class="muted small">Uses the workspace time zone. The highest-priority alerts still come through.</p>
+    <label class="inline ns-quiet">
+      <span>If I have not answered, alert my phone after</span>
+      <input
+        type="number"
+        aria-label="If I have not answered, alert my phone after"
+        aria-describedby="ns-escalation-help"
+        min="0"
+        step="1"
+        required
+        value={escalateAfter}
+        onchange={(e) => {
+          const field = e.currentTarget;
+          if (field.checkValidity()) void board.setPrefs({ escalate_after_minutes: field.valueAsNumber });
+        }}
+      />
+      <span id="ns-escalation-help" class="muted small">minutes (0 turns this off)</span>
     </label>
   </section>
 
@@ -416,5 +469,12 @@
     margin-top: 8px;
     gap: 8px;
     flex-wrap: wrap;
+  }
+  .ns-quiet {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ns-quiet input[type='number'] {
+    width: 6em;
   }
 </style>

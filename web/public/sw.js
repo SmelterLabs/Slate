@@ -91,7 +91,7 @@ self.addEventListener('fetch', (e) => {
 });
 
 // Push: Slate's server sends one encrypted JSON notification per inbox entry (service/push.py
-// notification_for): {title, body, url, tag}. One tag per task, so a busy task replaces its
+// notification_for): {title, body, url, tag, silent}. One tag per task, so a busy task replaces its
 // last notification instead of stacking.
 self.addEventListener('push', (e) => {
   let n = {};
@@ -104,7 +104,8 @@ self.addEventListener('push', (e) => {
     self.registration.showNotification(n.title || 'Slate', {
       body: n.body || '',
       tag: n.tag || undefined,
-      renotify: Boolean(n.tag),
+      silent: n.silent,
+      renotify: Boolean(n.tag) && n.silent !== true,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
       data: { url: n.url || '/#/inbox' },

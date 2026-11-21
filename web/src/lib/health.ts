@@ -80,6 +80,9 @@ export interface HealthRoute {
 }
 
 export interface HealthReport {
+  pushes_failed_1d?: number;
+  push_registrations_removed_7d?: number;
+  questions_open_over_24h?: number;
   status: Exclude<HealthStatus, 'off'>;
   at: string;
   version: string;

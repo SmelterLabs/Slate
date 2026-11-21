@@ -12,6 +12,8 @@ let listeners: Record<string, (e: unknown) => void>;
 let down: boolean;
 let opened: string[];
 let posted: unknown[];
+type PushOptions = NotificationOptions & { renotify?: boolean };
+let notifications: PushOptions[];
 
 const key = (req: string | { url: string }) => (typeof req === 'string' ? req : new URL(req.url).pathname);
 
@@ -21,6 +23,7 @@ beforeEach(() => {
   down = false;
   opened = [];
   posted = [];
+  notifications = [];
   const cache = {
     put: async (req: string | { url: string }, res: Response) => void store.set(key(req), res),
     match: async (req: string | { url: string }) => store.get(key(req))?.clone(),
@@ -41,6 +44,9 @@ beforeEach(() => {
     Set,
     self: {
       location: { origin: ORIGIN },
+      registration: {
+        showNotification: async (_title: string, options: PushOptions) => void notifications.push(options),
+      },
       addEventListener: (t: string, f: (e: unknown) => void) => (listeners[t] = f),
       clients: {
         matchAll: async () => [],
@@ -63,6 +69,19 @@ async function go(path: string): Promise<string> {
 }
 
 describe('service worker', () => {
+  it('honours silent pushes and keeps the existing behavior when silent is omitted', async () => {
+    for (const payload of [{ tag: 'task', silent: true }, { tag: 'task', silent: false }, { tag: 'task' }]) {
+      await new Promise<void>((done) =>
+        listeners.push({ data: { json: () => payload }, waitUntil: (p: Promise<void>) => void p.then(done) }),
+      );
+    }
+    expect(notifications.map((options) => [options.silent, options.renotify])).toEqual([
+      [true, false],
+      [false, true],
+      [undefined, true],
+    ]);
+  });
+
   it('keeps the board as the shell, whatever other page the server answers', async () => {
     await go('/');
     store.set('/assets/index-abc.js', new Response('js'));

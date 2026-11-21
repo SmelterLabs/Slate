@@ -5,18 +5,9 @@ Optional adapter (stdlib only). It reads the account's inbox through Slate's pub
 (`POST <broker><alert-path>`, default path `/v1/alert`) with a bearer key. Slate knows nothing
 about it; deleting this folder breaks nothing in `tests/`.
 
-Payload: `{"severity": 1-4, "title": "Slate: ...", "body": "...", "click_url": "..."}`.
-Severity = the card's priority flag:
-
-    urgent -> 4    (e.g. a persistent popup and a phone push)
-    high   -> 3    (e.g. a toast with sound)
-    normal -> 2    (e.g. a silent toast)
-    low    -> 1    (e.g. log only)
-
-A card with no flag, or an entry with no card (a health alert, a guest's expiring access),
-goes out at `--default-tier` (2). A `waiting` alert is at least 3 (the card's tier when that
-is higher), and never above 4. Nothing above 4 is ever sent. What each level does is up to
-your broker.
+Payload: `{"severity": 2-4, "title": "Slate: ...", "body": "...", "click_url": "..."}`.
+Severity follows the inbox entry's server-provided loudness. Levels 0 and 1 are skipped.
+An entry from an older server without loudness uses level 2.
 
 State (`--state`, JSON) holds the cursor: the newest inbox time already handled and the event
 ids at that time. The first run only records the cursor, so the backlog is never replayed. An
@@ -44,7 +35,6 @@ from typing import Any
 
 log = logging.getLogger("slate-push")
 
-TIER = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
 # Card push reasons, without chat and the daily digest, plus `failed` (a run the agent
 # could not finish). A routine digest is not an alert.
 DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed"
@@ -62,12 +52,8 @@ def http(method: str, url: str, headers: dict[str, str], body: bytes | None) -> 
         return e.code, None
 
 
-def tier_for(priority: str | None, default: int) -> int:
-    return TIER.get(priority or "", default)
-
-
 def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
-    """(title, body) for the alert. The title starts "Slate:" so broker rules can mute it."""
+    """The inbox entry's headline and body before adding the broker prefix."""
     reason = entry["reason"]
     ev = entry["event"]
     after = ev.get("after") if isinstance(ev.get("after"), dict) else {}
@@ -76,6 +62,7 @@ def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
     heads = {
         "mention": f"{who} mentioned you",
         "reply": f"{who} replied",
+        "chat": f"{who} wrote",
         "assigned": f"{who} assigned you",
         "waiting": f"{who} is waiting on you",
         "due": "Overdue" if ev.get("type") == "item.overdue" else "Due now",
@@ -93,8 +80,8 @@ def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
         question = str(after.get("question") or "").splitlines()
         first = question[0].strip() if question else ""
         body = f"{first}\n{thing}" if first else thing
-        return f"Slate: {head}"[:80], body[:260]
-    return f"Slate: {head}"[:80], (f"{thing}: {text}" if text else thing)[:260]
+        return head, body
+    return head, f"{thing}: {text}" if text else thing
 
 
 class Bridge:
@@ -107,7 +94,6 @@ class Bridge:
         board_url: str,
         state_path: Path,
         reasons: set[str],
-        default_tier: int = 2,
         send: Http = http,
         alert_path: str = "/v1/alert",
     ) -> None:
@@ -118,7 +104,6 @@ class Bridge:
         self.board = board_url.rstrip("/")
         self.state_path = state_path
         self.reasons = reasons
-        self.default_tier = default_tier
         self.send = send
         self.names: dict[str, str] = {}
 
@@ -160,12 +145,6 @@ class Bridge:
                     self.names[a["id"]] = a.get("display_name") or a.get("handle") or "Someone"
         return self.names.get(account_id, "Someone")
 
-    def priority(self, item_id: str | None) -> str | None:
-        if not item_id:
-            return None
-        status, data = self.send("GET", f"{self.slate}/items/{item_id}", self.auth, None)
-        return (data or {}).get("priority") if status == 200 else None
-
     # --- one pass ----------------------------------------------------------------------------
 
     def run_once(self) -> int:
@@ -180,12 +159,25 @@ class Bridge:
             log.info("first run: cursor at %r, %d not replayed", newest, len(entries))
             return 0
         sent = 0
+        by_id = {e["event"]["id"]: e for e in entries}
+        read_entries_loaded = False
         for e in entries:
             ev = e["event"]
             if ev["at"] < state["at"] or (ev["at"] == state["at"] and ev["id"] in state["ids"]):
                 continue
-            if e["reason"] in self.reasons:
-                self.publish(e)
+            severity = e.get("loudness", 2)
+            if e["reason"] in self.reasons and 2 <= severity <= 4:
+                original = None
+                if ev.get("type") == "inbox.escalated":
+                    original_id = ev["after"]["event_id"]
+                    if original_id not in by_id and not read_entries_loaded:
+                        by_id.update(
+                            (entry["event"]["id"], entry)
+                            for entry in self._get("/inbox?limit=200") or []
+                        )
+                        read_entries_loaded = True
+                    original = by_id.get(original_id)
+                self.publish(e, severity, original)
                 sent += 1
             if ev["at"] != state["at"]:
                 state = {"at": ev["at"], "ids": []}
@@ -193,19 +185,20 @@ class Bridge:
             self.save(state)
         return sent
 
-    def publish(self, e: dict[str, Any]) -> None:
+    def publish(self, e: dict[str, Any], severity: int, original: dict[str, Any] | None) -> None:
         ev = e["event"]
-        item_id = ev.get("item_id")
-        severity = tier_for(self.priority(item_id), self.default_tier)
-        if e["reason"] == "waiting":
-            severity = min(4, max(3, severity))
-        title, body = wording(e, self.name(ev["actor_id"]))
+        source = original or e
+        item_id = ev.get("item_id") or source["event"].get("item_id")
+        head, body = wording(source, self.name(source["event"]["actor_id"]))
+        if ev.get("type") == "inbox.escalated":
+            head = f"Still waiting: {head}" if original else "Still waiting"
+        title = f"Slate: {head}"[:80]
         click = f"{self.board}/#/inbox?task={item_id}" if item_id else f"{self.board}/#/inbox"
-        payload = {"severity": severity, "title": title, "body": body, "click_url": click}
+        payload = {"severity": severity, "title": title, "body": body[:260], "click_url": click}
         status, data = self.send("POST", self.target, self.kauth, json.dumps(payload).encode())
         if not 200 <= status < 300:
             raise RuntimeError(f"Push broker refused alert ({status}); retrying next pass")
-        log.info("tier %d %s -> %s", severity, title, (data or {}).get("id"))
+        log.info("severity %d %s -> %s", severity, title, (data or {}).get("id"))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -222,8 +215,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--key-file", default="~/.push-key", help="the broker's bearer key")
     p.add_argument("--board-url", required=True, help="the board's public URL, for the tap link")
     p.add_argument("--state", default="~/.slate-push.json")
-    p.add_argument("--reasons", default=DEFAULT_REASONS, help="comma-separated inbox reasons")
-    p.add_argument("--default-tier", type=int, default=2, choices=[1, 2, 3, 4])
+    p.add_argument(
+        "--reasons", default=DEFAULT_REASONS, help="comma-separated inbox reasons to relay"
+    )
     p.add_argument("--interval", type=float, default=20.0)
     p.add_argument("--once", action="store_true")
     a = p.parse_args(argv)
@@ -237,7 +231,6 @@ def main(argv: list[str] | None = None) -> int:
         a.board_url,
         Path(a.state).expanduser(),
         {r.strip() for r in a.reasons.split(",") if r.strip()},
-        a.default_tier,
         alert_path=a.alert_path,
     )
     while True:
