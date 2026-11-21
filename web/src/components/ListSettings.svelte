@@ -11,8 +11,10 @@
     strandedCount,
     type StatusDraft,
   } from '../lib/structure';
-  import type { List, StatusKind } from '../lib/types';
+  import type { Assignee, List, StatusKind } from '../lib/types';
   import { trapFocus } from '../lib/focustrap';
+  import AssigneePicker from './AssigneePicker.svelte';
+  import TagEditor from './TagEditor.svelte';
 
   let { list }: { list: List } = $props();
 
@@ -39,6 +41,26 @@
   let swatchFor = $state<number | null>(null);
   let fallback = $state('');
   let saving = $state(false);
+  // The list's own settings: what belongs here, who owns a new card, its tags, whether it counts.
+  let note = $state(untrack(() => list.note_md ?? ''));
+  let defaultOwnerId = $state<string | null>(untrack(() => list.default_assignee_id ?? null));
+  let defaultTags = $state<string[]>(untrack(() => [...(list.default_tags ?? [])]));
+  let reference = $state(untrack(() => list.reference ?? false));
+  const owner = $derived<Assignee[]>(
+    defaultOwnerId && board.accounts[defaultOwnerId] ? [board.accounts[defaultOwnerId]] : [],
+  );
+  function pickOwner(handles: string[]) {
+    // One default owner: the last account picked in the (multi) account picker wins.
+    defaultOwnerId = handles.length
+      ? (board.pickable.find((a) => a.handle === handles[handles.length - 1])?.id ?? defaultOwnerId)
+      : null;
+  }
+  const settingsChanged = $derived(
+    note !== (list.note_md ?? '') ||
+      defaultOwnerId !== (list.default_assignee_id ?? null) ||
+      JSON.stringify(defaultTags) !== JSON.stringify(list.default_tags ?? []) ||
+      reference !== (list.reference ?? false),
+  );
 
   const problem = $derived(draftProblem(rows));
   const warning = $derived(draftWarning(rows));
@@ -52,6 +74,7 @@
   );
   const changed = $derived(
     name.trim() !== list.name ||
+      settingsChanged ||
       JSON.stringify(rows) !== JSON.stringify(original) ||
       original[defaultIndex]?.id !== list.default_status_id,
   );
@@ -78,6 +101,14 @@
     if (problem || (stranded && !fallback)) return;
     saving = true;
     let ok = true;
+    if (settingsChanged) {
+      ok = await board.updateListSettings(list.id, {
+        note_md: note.trim() ? note : null,
+        default_assignee_id: defaultOwnerId,
+        default_tags: defaultTags,
+        reference,
+      });
+    }
     if (name.trim() && name.trim() !== list.name) await board.renameList(list.id, name.trim());
     if (
       JSON.stringify(rows) !== JSON.stringify(original) ||
@@ -110,6 +141,32 @@
   <label class="field">
     <span class="muted small">Name</span>
     <input aria-label="List name" bind:value={name} />
+  </label>
+
+  <label class="field">
+    <span class="muted small">What belongs here</span>
+    <textarea
+      aria-label="What belongs here"
+      bind:value={note}
+      rows="4"
+      maxlength="2000"
+      placeholder="What belongs in this list, and how a card here is finished"
+    ></textarea>
+  </label>
+
+  <div class="field">
+    <span class="muted small">Default owner</span>
+    <AssigneePicker assignees={owner} onchange={pickOwner} />
+  </div>
+
+  <div class="field">
+    <span class="muted small">Default tags</span>
+    <TagEditor tags={defaultTags} onchange={(t) => (defaultTags = t.slice(0, 5))} />
+  </div>
+
+  <label class="field ref-check">
+    <input type="checkbox" aria-label="Reference list: not counted as work" bind:checked={reference} />
+    <span>Reference list: not counted as work</span>
   </label>
 
   <div class="field" role="radiogroup" aria-label="Kind">

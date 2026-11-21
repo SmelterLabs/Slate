@@ -146,7 +146,7 @@ export class BoardState {
   #tally() {
     void this.rev;
     const now = this.now;
-    const key = `${this.rev}|${now.getTime()}|${workspaceTimezone()}|${Object.keys(this.lists).length}|${this.referenceListIds().join(',')}`;
+    const key = `${this.rev}|${now.getTime()}|${workspaceTimezone()}|${Object.keys(this.lists).length}|${[...this.referenceListIds()].join(',')}`;
     if (key === this.#tallyKey) return;
     this.#tallyKey = key;
     const today = workspaceDay(now);
@@ -198,7 +198,7 @@ export class BoardState {
   get needsMe(): Attention[] {
     void this.rev;
     const me = this.me?.account.id ?? '';
-    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}|${this.referenceListIds().join(',')}`;
+    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}|${[...this.referenceListIds()].join(',')}`;
     if (key !== this.#attnKey) {
       this.#attnKey = key;
       this.#attn = attention([...this.#plain.values()], me, this.accounts, this.referenceListIds());
