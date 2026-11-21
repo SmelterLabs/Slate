@@ -39,6 +39,7 @@ from slate.models import (
 )
 from slate.service.core import event_payload
 from slate.service.items import PRIORITY_RANK
+from slate.service.lists import WORK_LIST
 
 PAGE = 500
 MAX_SCAN = 10_000  # events read per call going forward; past it, has_more and resume
@@ -75,6 +76,7 @@ def queue(session: Session, account_id: str, limit: int | None = None) -> tuple[
         .where(
             Item.archived_at.is_(None),
             List.archived_at.is_(None),
+            WORK_LIST,
             Section.archived_at.is_(None),
             or_(Status.kind.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
         )

@@ -84,7 +84,7 @@ EVENT_DOCS: dict[str, str] = {
     "section.unarchived": "A section was restored.",
     "list.created": "A list was created (with its statuses).",
     "list.updated": "A list changed (`field` = name, slug, position, section_id, "
-    "default_status_id...).",
+    "default_status_id, note_md, default_assignee_id, default_tags, reference, etc.).",
     "list.statuses_changed": "A list's statuses (its columns) were replaced.",
     "list.archived": "A list was archived.",
     "list.unarchived": "A list was restored.",
@@ -296,8 +296,8 @@ EVENT_DOCS: dict[str, str] = {
     "push.subscribed": "A device subscribed to Web Push notifications.",
     "push.unsubscribed": "A device unsubscribed from push.",
     "push.expired": "A push subscription was dropped after the push service refused it.",
-    "settings.changed": "A workspace setting changed; `field` is its key (`agents.denied`: what "
-    "agents may never do), `before`/`after` its values.",
+    "settings.changed": "A workspace setting changed. `field` is its key "
+    "(`agents.denied` or `inbox_list_id`), and `before`/`after` are its values.",
 }
 
 _EVENT_RE = re.compile(r"^[a-z]+(_[a-z]+)*\.[a-z]+(_[a-z]+)*$")

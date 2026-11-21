@@ -135,6 +135,14 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 The thin bar across the top holds your favorites: one click opens a list, a section, a saved view or a task. Star a list or section with the ☆ that appears when you hover it in the menu (or **Add to favorites** in its ⋯, or drag the list onto the bar). Pin a view from its tab's ⋯; a pinned view shows a small ★. Press `s` to star the open task or the card under the pointer. Drag chips to reorder them; hover a chip and click × to remove it. Favorites are yours alone. Archiving a list or view hides its chip until it is restored. On a phone the bar is one sideways-scrolling row, hidden when you have none.
 
+**List settings.** Add a note to say what belongs in the list and how to finish
+its cards. Quick add shows the note's first line, and agents see the full note in
+their briefs. A default owner applies when a new card has no assignees. Default
+tags are added alongside any tags on the new card. Use **Reference list** for
+reading links and notes. You can search for and open its cards. Slate leaves them
+out of work counts and skips due-date alerts for them. Reminders set for a
+specific time still fire.
+
 ## Search, My Work, Needs you and Inbox
 
 **Search everything.** Press **Ctrl K** (⌘K on a Mac), or tap ⌕ on a phone. Type part of a task, list, view or tag. After two letters Slate also searches task descriptions, doc pages, the text inside files, and chat, grouped under **Tasks**, **Docs** and **Chat**: a doc opens on its page, a chat hit opens its thread. Start with `>` for commands (go to Inbox, dark mode, undo, manage tags, health), `#` for tags. If nothing matches, the last row creates the task.

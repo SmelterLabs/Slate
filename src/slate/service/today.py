@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from slate.dates import local_day_bounds
 from slate.models import Comment, Item, List, Section, Status, StatusKind, utcnow
 from slate.service.items import priority_sort_key
+from slate.service.lists import WORK_LIST
 
 
 def today(
@@ -43,6 +44,7 @@ def today(
             Item.archived_at.is_(None),
             List.archived_at.is_(None),
             Section.archived_at.is_(None),
+            WORK_LIST,
             or_(Status.kind.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
             or_(Item.due_at < end, Item.waiting_on_account_id == account_id),
         )
@@ -73,6 +75,7 @@ def today(
             Item.archived_at.is_(None),
             List.archived_at.is_(None),
             Section.archived_at.is_(None),
+            WORK_LIST,
             or_(Status.kind.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
         )
         .order_by(first_ask.c.asked_at, Item.id)

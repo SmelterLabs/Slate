@@ -22,6 +22,7 @@ from slate.models import (
     Section,
     Status,
     StatusKind,
+    WorkspaceSetting,
     utcnow,
 )
 from slate.service import sections
@@ -161,6 +162,36 @@ def _settle_agent_flag(cx: Change, item: Item, *, closed: bool) -> None:
 
 
 LIST_KINDS = ("tasks", "drawer")
+WORK_LIST = List.reference.is_(False)
+INBOX_LIST_KEY = "inbox_list_id"
+
+
+def inbox_list_id(session: Session) -> str | None:
+    setting = session.get(WorkspaceSetting, INBOX_LIST_KEY)
+    return setting.value_json if setting is not None else None
+
+
+def set_inbox_list(session: Session, actor: Actor, list_id: str | None) -> None:
+    """Choose the workspace’s default destination for items with no list."""
+    from slate.service import access
+
+    access.require_admin(session, "choose the inbox list")
+    with apply_change(session, actor) as cx:
+        if list_id is not None:
+            target = require_tasks(get_list(session, list_id))
+            if target.archived_at or sections.get_section(session, target.section_id).archived_at:
+                raise Invalid("the inbox list must be in an active list and section")
+        setting = session.get(WorkspaceSetting, INBOX_LIST_KEY)
+        before = setting.value_json if setting is not None else None
+        if before == list_id:
+            return
+        if setting is None:
+            setting = WorkspaceSetting(key=INBOX_LIST_KEY)
+            session.add(setting)
+        setting.value_json = list_id
+        cx.record(
+            "settings.changed", field=INBOX_LIST_KEY, before=before, after=list_id, covers=[setting]
+        )
 
 
 def require_tasks(lst: List) -> List:
@@ -186,6 +217,7 @@ def create_list(
     position: int | None = None,
     statuses: Sequence[Mapping[str, Any]] | None = None,
     kind: str = "tasks",
+    filing: Mapping[str, Any] | None = None,
 ) -> List:
     """`statuses`, or the default set. `kind = drawer` makes a list of documents (it still
     gets statuses, unused for now)."""
@@ -237,6 +269,8 @@ def create_list(
         )
         session.flush()
         cx.set(lst, "default_status_id", rows[0].id, "list.updated")
+        for field, value in (filing or {}).items():
+            cx.set(lst, field, value, "list.updated")
     return lst
 
 
@@ -251,6 +285,7 @@ def update_list(
     default_status: str | None = None,
     archived: bool | None = None,
     kind: str | None = None,
+    filing: Mapping[str, Any] | None = None,
 ) -> List:
     """Change any of name (slug follows), section, position, default status, archived, kind,
     in one change. Moving to another section puts the list at its end unless `position` is
@@ -299,6 +334,8 @@ def update_list(
                 cx.set(
                     lst, "archived_at", stamp, "list.archived" if archived else "list.unarchived"
                 )
+        for field, value in (filing or {}).items():
+            cx.set(lst, field, value, "list.updated")
     return lst
 
 

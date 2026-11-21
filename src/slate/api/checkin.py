@@ -30,7 +30,7 @@ from slate.api.events import (
 from slate.api.items import parse_fields
 from slate.api.schemas import ItemOut
 from slate.models import Account, Item
-from slate.service import access, checkin, item_cache, items, work
+from slate.service import access, checkin, item_cache, items, lists, work
 
 router = APIRouter(tags=["checkin"])
 
@@ -66,7 +66,15 @@ class NewsOut(BaseModel):
     item_title: str | None
 
 
+class CheckinList(BaseModel):
+    id: str
+    section_id: str
+    name: str
+    note_md: str | None
+
+
 class CheckinOut(BaseModel):
+    lists: list[CheckinList] = Field(description="Visible active lists and their filing notes")
     queue: list[ItemOut] = Field(
         description="Open items assigned to you or waiting on you, most urgent first (the "
         "first `queue_limit`; `fields` trims each)"
@@ -87,6 +95,9 @@ def build(session, account, since: str | None, limit: int, queue_limit: int = QU
     token = item_cache.cache.begin(session)
     out = checkin.checkin(session, account, since=since, limit=limit, queue_limit=queue_limit)
     out["queue"] = item_cache.render(session, out["queue"], items.views, _ITEM, token)
+    out["lists"] = [
+        CheckinList.model_validate(lst, from_attributes=True) for lst in lists.list_lists(session)
+    ]
     return out
 
 

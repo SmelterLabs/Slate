@@ -52,6 +52,7 @@ from slate.service import items as items_svc
 from slate.service import today as today_svc
 from slate.service.core import Actor, apply_change, jsonable
 from slate.service.errors import Forbidden, Invalid, NotFound
+from slate.service.lists import WORK_LIST
 
 MAX_PER_ITEM = 20
 MAX_BEFORE_MINUTES = 60 * 24 * 60  # 60 days
@@ -233,6 +234,7 @@ def fire_reminders(session: Session, *, now: datetime | None = None) -> int:
         .join(Section, Section.id == List.section_id)
         .outerjoin(Status, Status.id == Item.status_id)
         .where(*_open_items_filter())
+        .where(or_(WORK_LIST, Reminder.before_minutes.is_(None)))
     ).all()
     fired = 0
     actor: Actor | None = None

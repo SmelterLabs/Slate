@@ -48,6 +48,12 @@ All drops are optimistic through `#optimistic()` and roll back on refusal. Bulk 
 
 ## Store and reducer
 
+List settings expose a Markdown note (up to 2,000 characters), a default owner,
+up to five default tags and a Reference list toggle. Quick add uses the first line
+of the note as placeholder help. Reference lists carry a Reference label in the
+sidebar and omit open and overdue badges. The board reads these fields from
+`ListOut` and receives changes through `list.updated`.
+
 The store holds **every non-archived item** (`GET /items` with no filter) keyed by id, plus sections, lists (with statuses) and accounts. Boards, the list view, nav counts, the overdue count and the sidebar's Today count (`#tally()`: open per list, overdue, due by end of today, computed once per change) are all derived from that one map, so a single event updates every view. Done items stay in the map; `hiddenAsFinished()` hides done/cancelled items finished before today's midnight in the workspace timezone, client-side only. At 20,000 items the first load is about 1.5 s (`docs/PERFORMANCE.md`); the server answers it from its item cache.
 
 Accounts: `GET /accounts` needs `admin`; with a lower-scoped token the store knows only `/me` plus every assignee it has seen, and unknown actors show as "Someone".

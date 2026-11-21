@@ -96,6 +96,7 @@ READS = {
     "slate.service.sections": {"get_section", "list_sections"},
     "slate.service.lists": {
         "get_list",
+        "inbox_list_id",
         "list_lists",
         "statuses_of",
         "resolve_status",
@@ -862,6 +863,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     },
     "slate.service.lists": {
         "create_list": lambda db, a, p: _list(db, a),
+        "set_inbox_list": lambda db, a, p: lists.set_inbox_list(db, a, _list(db, a).id),
         "update_list": lambda db, a, p: lists.update_list(db, a, _list(db, a).id, name="Later"),
         "set_statuses": lambda db, a, p: lists.set_statuses(
             db, a, _list(db, a).id, [{"name": "todo"}, {"name": "done", "kind": "done"}]

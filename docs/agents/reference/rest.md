@@ -2,7 +2,7 @@
 
 # REST reference
 
-232 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+234 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -34,7 +34,7 @@
 - [data](#data) (3)
 - [health](#health) (1)
 - [search](#search) (1)
-- [settings](#settings) (2)
+- [settings](#settings) (4)
 - [events](#events) (3)
 - [recurrences](#recurrences) (10)
 
@@ -390,16 +390,16 @@ Scope: `write` · MCP: `slate_list create`
 
 Create a list in a section. Without `statuses` it gets To do -> In progress -> Done.
 
-- Body: `ListIn`: `section_id`\*, `name`\*, `position`, `statuses`, `kind`
+- Body: `ListIn`: `note_md`, `default_assignee_id`, `default_tags`, `reference`, `section_id`\*, `name`\*, `position`, `statuses`, `kind`
 - Returns: `201` [ListOut](#listout)
 
 ### `PATCH /lists/{list_id}`
 
 Scope: `write` · MCP: `slate_list update`, `slate_share private`
 
-Rename, reorder, move to another section, set the default status, archive (`archived: true`) / restore, or make it private (owner/admin; `private: true`).
+Rename, reorder, move to another section, set filing defaults, change the note or reference flag, set the default status, archive (`archived: true`) / restore, or make it private (owner/admin; `private: true`).
 
-- Body: `ListPatch`: `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`
+- Body: `ListPatch`: `note_md`, `default_assignee_id`, `default_tags`, `reference`, `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`
 - Returns: `200` [ListOut](#listout)
 
 ### `PUT /lists/{list_id}/statuses`
@@ -1956,6 +1956,23 @@ Find `q` in task titles and descriptions, doc titles, page text and the text ins
 
 ## settings
 
+### `GET /settings/inbox`
+
+Scope: `admin`
+
+Read the workspace's default filing list.
+
+- Returns: `200` [InboxListSetting](#inboxlistsetting)
+
+### `PUT /settings/inbox`
+
+Scope: `admin`
+
+Set or clear the workspace's default filing list (admin).
+
+- Body: `InboxListSetting`: `inbox_list_id`\*
+- Returns: `200` [InboxListSetting](#inboxlistsetting)
+
 ### `GET /settings/agents`
 
 Scope: `admin` · MCP: `slate_account agent_rules`
@@ -2147,7 +2164,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ListOut
 
-`id`: string, `section_id`: string, `name`: string, `slug`: string, `position`: integer, `default_status_id`: string?, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `kind`: `tasks` \| `drawer`, `statuses`: [StatusOut]
+`id`: string, `section_id`: string, `name`: string, `slug`: string, `position`: integer, `default_status_id`: string?, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `kind`: `tasks` \| `drawer`, `note_md`: string?, `default_assignee_id`: string?, `default_tags`: [string], `reference`: boolean, `statuses`: [StatusOut]
 
 ### ItemOut
 
@@ -2267,11 +2284,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### CheckinOut
 
-`queue`: [ItemOut], `queue_total`: integer, `news`: [NewsOut], `next_since`: string?, `has_more`: boolean
+`lists`: [CheckinList], `queue`: [ItemOut], `queue_total`: integer, `news`: [NewsOut], `next_since`: string?, `has_more`: boolean
 
 ### NextOut
 
-`item`: ItemOut?, `lease`: LeaseOut?, `chat`: ChatTurnOut?, `doc`: DocTurnOut?, `resumed`: boolean, `why`: `assigned` \| `waiting_on_you` \| `asked` \| `pool` \| `mentioned`?, `context`: [ActivityOut], `asks`: [CommentOut], `reply`: CommentOut?, `thread`: AgentThreadOut?, `remaining`: integer
+`item`: ItemOut?, `lease`: LeaseOut?, `brief`: string?, `chat`: ChatTurnOut?, `doc`: DocTurnOut?, `resumed`: boolean, `why`: `assigned` \| `waiting_on_you` \| `asked` \| `pool` \| `mentioned`?, `context`: [ActivityOut], `asks`: [CommentOut], `reply`: CommentOut?, `thread`: AgentThreadOut?, `remaining`: integer
 
 ### LeaseOut
 
@@ -2416,6 +2433,10 @@ The fields of each response above (see `/openapi.json` for types).
 ### SearchOut
 
 `q`: string, `hits`: [SearchHit]
+
+### InboxListSetting
+
+`inbox_list_id`: string?
 
 ### AgentRulesOut
 

@@ -58,12 +58,14 @@ from slate.models import (
     InboxState,
     Item,
     ItemAssignee,
+    List,
     Role,
     Watcher,
     utcnow,
 )
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Invalid
+from slate.service.lists import WORK_LIST
 
 WINDOW = timedelta(days=30)
 MAX_ENTRIES = 500
@@ -125,16 +127,26 @@ class Follows:
     assigned: frozenset[str]
     followed: frozenset[str]
     watched: frozenset[str] = frozenset()
+    reference: frozenset[str] = frozenset()
 
 
 def follows(session: Session, account_id: str) -> Follows:
-    assigned = frozenset(
-        session.scalars(select(ItemAssignee.item_id).where(ItemAssignee.account_id == account_id))
-    )
+    assignments = session.execute(
+        select(ItemAssignee.item_id, WORK_LIST)
+        .join(Item, Item.id == ItemAssignee.item_id)
+        .join(List, List.id == Item.list_id)
+        .where(ItemAssignee.account_id == account_id)
+    ).all()
+    assigned = frozenset(item_id for item_id, _ in assignments)
     watching = frozenset(
         session.scalars(select(Watcher.item_id).where(Watcher.account_id == account_id))
     )
-    return Follows(assigned=assigned, followed=assigned | watching, watched=watching)
+    return Follows(
+        assigned=assigned,
+        followed=assigned | watching,
+        watched=watching,
+        reference=frozenset(item_id for item_id, is_work in assignments if not is_work),
+    )
 
 
 def _handles(value: Any) -> list[str]:
@@ -193,7 +205,7 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return None  # a failed run and its retry are quiet until Slate gives up
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
-        return "due" if ev.item_id in f.assigned else None
+        return "due" if ev.item_id in f.assigned and ev.item_id not in f.reference else None
     if ev.type == "item.unblocked":
         still_open = (ev.after_json or {}).get("open", True)
         return "unblocked" if ev.item_id in f.assigned and still_open else None

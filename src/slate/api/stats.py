@@ -11,9 +11,10 @@ from sqlalchemy import func, select
 
 from slate import fastlane
 from slate.api.auth import DbSession, ReadAuth
-from slate.models import Account, Event, Item
+from slate.models import Account, Event, Item, List
 from slate.service import core, health, item_cache
 from slate.service.bus import bus
+from slate.service.lists import WORK_LIST
 from slate.settings import settings
 
 router = APIRouter(tags=["stats"])
@@ -80,7 +81,8 @@ def get_stats(auth: ReadAuth, session: DbSession) -> dict:
         "open_items": session.scalar(
             select(func.count())
             .select_from(Item)
-            .where(Item.completed_at.is_(None), Item.archived_at.is_(None))
+            .join(List, List.id == Item.list_id)
+            .where(Item.completed_at.is_(None), Item.archived_at.is_(None), WORK_LIST)
         )
         or 0,
         "events": session.scalar(select(func.count()).select_from(Event)) or 0,

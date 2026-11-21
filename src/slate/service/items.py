@@ -769,6 +769,11 @@ def _take_pasted(cx: Change, item: Item, body: str) -> str:
 def _insert(cx: Change, item: Item, fields: Mapping[str, Any]) -> Item:
     """Insert a built item; a non-empty body's first version rides on `item.created`."""
     session = cx.session
+    lst = lists_svc.get_list(session, item.list_id)
+    assignees = fields.get("assignees") or (
+        [lst.default_assignee_id] if lst.default_assignee_id else []
+    )
+    tags = [*(fields.get("tags") or []), *lst.default_tags]
     _claim_ref(session, item.external_ref)
     pasted: list = []
     if item.body_md:
@@ -788,10 +793,10 @@ def _insert(cx: Change, item: Item, fields: Mapping[str, Any]) -> Item:
         from slate.service.attachments import attach_pasted
 
         attach_pasted(cx, item, pasted)
-    if fields.get("assignees"):
-        _set_assignees(cx, item, fields["assignees"])
-    if fields.get("tags"):
-        _set_tags(cx, item, fields["tags"])
+    if assignees:
+        _set_assignees(cx, item, assignees)
+    if tags:
+        _set_tags(cx, item, tags)
     return item
 
 
@@ -823,7 +828,9 @@ def create_item(
             raise Invalid("a subtask lives in its parent's list")
         list_id = parent.list_id
     if list_id is None:
-        raise Invalid("list_id is required (or parent_id)")
+        list_id = lists_svc.inbox_list_id(session)
+        if list_id is None:
+            raise Invalid("list_id is required (or parent_id)")
     item = _new_item(session, actor, list_id=list_id, parent=parent, fields=fields)
     with apply_change(session, actor) as cx:
         return _insert(cx, item, fields)

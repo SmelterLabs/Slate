@@ -94,6 +94,7 @@ from slate.service import access, comments, guests, links, reports
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Conflict, Invalid, NotFound
 from slate.service.items import PRIORITY_RANK, get_item, resolve_account, update_item
+from slate.service.lists import WORK_LIST
 
 log = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ def eligible(
             Item.kind == ItemKind.task,
             Item.archived_at.is_(None),
             List.archived_at.is_(None),
+            WORK_LIST,
             Section.archived_at.is_(None),
         )
     )
@@ -1314,6 +1316,8 @@ def request_run(
     with apply_change(session, actor) as cx:
         before = item.run_requested_at
         session.refresh(item)
+        if not session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST)):
+            raise Invalid("reference lists are not offered as work")
         _refuse_if_working(session, item, now)
         if session.get(WorkLease, item.id) is not None:
             raise Conflict("execution state is unknown; reconcile the current run before retrying")
