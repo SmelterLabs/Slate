@@ -92,6 +92,11 @@ class TaskWindow {
     );
   }
 
+  /** Answer a structured ask with one of its options: the server posts the option as my comment. */
+  async answer(id: string, option: string): Promise<boolean> {
+    return (await this.#write(() => post<Comment>(`/comments/${id}/answer`, { option }))) !== null;
+  }
+
   /** Close an Ask (its assignee, its author or an admin). */
   async resolveComment(id: string): Promise<boolean> {
     return (await this.#write(() => post<Comment>(`/comments/${id}/resolve`))) !== null;

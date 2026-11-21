@@ -58,7 +58,7 @@ export function attention(items: Item[], me: string, accounts: Record<string, Ac
     const need = needOf(item, me, accounts);
     if (need) out.push({ item, need });
   }
-  const at = (a: Attention) => a.item.agent?.at ?? a.item.updated_at;
+  const at = (a: Attention) => a.item.ask?.at ?? a.item.agent?.at ?? a.item.updated_at;
   return out.sort((a, b) => RANK[a.need] - RANK[b.need] || at(a).localeCompare(at(b)));
 }
 

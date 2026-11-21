@@ -118,6 +118,7 @@ export const EVENT_TYPES = [
   'item.work_started',
   'item.work_finished',
   'item.run_requested',
+  'item.run_failed',
   'item.stop_requested',
   'automation.created',
   'automation.updated',
