@@ -158,6 +158,9 @@
   .nb-pop :global(.needs) {
     margin: 0;
   }
+  .nb-pop :global(.nd-row.has-opts .nd-title) {
+    white-space: normal;
+  }
   @media (max-width: 720px) {
     /* the phone has the top bar's pill */
     .nb-float {

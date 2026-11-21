@@ -58,6 +58,7 @@
 {#snippet row(a: Attention)}
   <div
     class="nd-row need-{a.need}"
+    class:has-opts={!!a.item.ask?.options.length}
     role="listitem"
     data-item={a.item.id}
     data-need={a.need}
@@ -82,7 +83,7 @@
     <span class="nd-when">{when(a)}</span>
     {#if a.item.ask?.options.length}
       <span class="nd-opts">
-        {#each a.item.ask.options as option (option)}
+        {#each a.item.ask.options as option}
           <button class="nd-act" data-answer-option={option} onclick={(e) => answerAsk(e, a, option)}>{option}</button>
         {/each}
       </span>
@@ -275,15 +276,23 @@
     min-width: 118px;
     text-align: center;
   }
-  .nd-opts {
-    display: inline-flex;
-    gap: 6px;
-    flex: none;
+  .nd-row.has-opts {
     flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .nd-opts {
+    display: flex;
+    gap: 6px;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    min-width: 0;
   }
   .nd-opts .nd-act {
     min-width: 0;
     min-height: 28px;
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
   }
   .nd-act {
     flex: none;
