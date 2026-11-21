@@ -45,20 +45,17 @@ credentials: the selected profile must already be appropriately scoped.
 Settings:
 
 - `HERMES_API_URL`, `HERMES_API_KEY`: gateway and optional bearer key.
-- `HERMES_ASK`: optional blocked-recipient override; otherwise use the authorized brief's
-  structured `ask`, then `owner`. It is not an authority grant.
+- `HERMES_ASK`: passed through to the brief when set. It does not choose who a card waits on.
 - `HERMES_STATE`: base path, default `~/.slate-hermes-approvals.json`.
 - `HERMES_TURN_TIMEOUT`: how long a turn may go without an event from the runtime (a tool
   starting, text, a result), default 3600 seconds. It is not a limit on the turn's length: a
   turn that keeps working is watched until it ends. Keepalives are not events. Each follow-up
-  turn (a nudge, a late message) gets the whole budget again. Not proof of remote stop.
+  turn (a late message the run did not read) gets the whole budget again. Not proof of remote stop.
 - `HERMES_DOWN_GRACE`: gateway-down grace, default 20 seconds.
 - `HERMES_NOTE_EVERY`: progress interval, default 60 seconds.
 - `HERMES_ACTIVITY_EVERY`: on a card turn, each tool the agent starts (with its preview), its
   thinking and its commentary go to the task window's live box, at most one request per this
   many seconds (default 1, minimum 0.2). These lines are not history.
-- `HERMES_NUDGES`: at most two follow-up prompts by default after a confirmed successful
-  runtime turn without a closing marker. No nudge follows an unconfirmed/failed turn.
 - `HERMES_SESSION_LINK`: default **0**, preserving a portable `thread.ref` without a URL.
   Set `1` only when Slate explicitly permits `hermes` links. `HERMES_PROFILE`, otherwise the
   gateway URL's `/p/<profile>`, otherwise `default`, determines the optional Desktop link.
@@ -70,23 +67,24 @@ existing model/provider settings.
 ## Card conversation and truthful outcomes
 
 1. Fetch and validate the authorized `GET /items/{id}/brief` on **every** turn. Any HTTP
-   failure, malformed response or empty text blocks before runtime work. No title-only fallback.
+   failure, malformed response or empty text finishes `failed` before runtime work. No title-only fallback.
 2. Reuse the saved session when it exists. A 404 can create a new session; an authorization
    error cannot. A create the gateway refuses because the card's own session title is already
    held (a previous create that timed out on the runner side still made the session) adopts
-   that session and sends it the brief; a title held for another card still blocks. Emit
+   that session and sends it the brief; a title held for another card is `failed`. Emit
    `thread.ref` promptly, retaining it on runtime failure and brief errors
    when a previous ref is known.
 3. Send the brief on a first turn, or the card reply as quoted data with stable author ID,
    kind, role, handle, comment ID and timestamp. Unknown provenance stays unknown; a person's
    comment is not automatically an owner/admin approval. Ordinary scoped questions still work.
 4. Stream with `author: {id: "bot:slate", name: "Slate", is_bot: true}`. Only a confirmed
-   `run.completed` permits the final `SLATE: done | review | later | blocked waiting_on X` to decide
-   the task outcome. `assistant.completed`, a transcript closing line and transport `done`
+   `run.completed` permits the final `SLATE: done | review | later | answered | ask <handle>: <question>`
+   to decide the task outcome. `assistant.completed`, a transcript closing line and transport `done`
    do not prove execution success. Failure, cancellation, interruption, incomplete status,
-   approval and step/budget limits outrank success text. Missing status means blocked.
-   A step or budget limit is reported `blocked` with `resumable: true` and no `waiting_on`:
-   the card waits on nobody and Run now continues in the same session.
+   approval and step/budget limits finish `failed` (the machine text is `note`) and wait on
+   nobody. An answer with no closing line is `answered`. An old `SLATE: blocked waiting_on`
+   line is not recognized, so that turn is `answered` too. A step or budget limit is `failed`
+   with the limit in `note`; Run now continues in the same session.
 5. The generic runner writes the final reply/outcome to Slate and settles only the take's
    dispatched Asks. Adapters never bulk-resolve Asks or write task status directly.
 
@@ -104,18 +102,18 @@ The gateway adapter watches the runner's control file (`SLATE_CONTROL`, see
   answered (a steer that lands as it finishes is appended and the run goes on to a second
   answer), the card's reply is the first answer followed by the second, not the second alone.
   The run's outcome is the last answer's closing line; when that answer has none (the agent
-  closed the task in the first one and only added to it), the first answer's line stands, so
-  no nudge is sent.
+  closed the task in the first one and only added to it), the first answer's line stands.
+  An answer with no closing line is not asked for one.
 - **Stop** is `POST /v1/runs/{run_id}/stop`, retried each second until the gateway takes it.
-  The cancelled turn is reported `blocked`, waiting on whoever pressed Stop, with the session
-  kept: a reply continues in it. Stop wins over a message still waiting to be steered.
+  The cancelled turn is reported `answered`, waiting on nobody, with the session kept: a reply
+  continues in it. Stop wins over a message still waiting to be steered.
 
 Card text still authorizes nothing: a steered message is quoted data, exactly as a reply is.
 Chat and doc turns, and the CLI adapter, have no mid-run control.
 
 After stream loss, message polling can detect a missing/denied session, gateway restart or
-outage. It **cannot** convert transcript text to success. An observation timeout blocks and
-asks for native inspection; it does not claim the remote turn stopped.
+outage. It **cannot** convert transcript text to success. An observation timeout is `failed`
+and names nobody; it does not claim the remote turn stopped.
 
 ## Approvals and reconciliation: fail closed
 
@@ -143,9 +141,10 @@ Before remote work, the adapter atomically persists an observation marker. Confi
 return clears that marker; an approval replaces it with pending control identity. A crash,
 unconfirmed remote outcome, or failed approval-state write leaves a durable blocker, so a
 later invocation does not blindly replay the turn. Confirmed terminal failures still report
-blocked/release, but retire that turn's observation/control state so an explicit later retry
-can reuse the session. Successful completion permits the normal closing-marker contract.
-Each nudge gets a fresh observation fence before submission. Corrupt/unreadable state blocks.
+`failed` (chat and doc: `release`), but retire that turn's observation/control state so an
+explicit later retry can reuse the session. Successful completion permits the normal
+closing-marker contract. A late message gets a fresh observation fence before submission.
+Corrupt or unreadable state is `failed`.
 
 Health/history preflight errors are definitely unsubmitted and clear the fence, permitting
 an explicit retry after recovery. Native pre-execution HTTP refusals (400/401/403/404/409)
@@ -233,8 +232,9 @@ $HERMES_CLI --profile $HERMES_PROFILE chat --quiet --max-turns $HERMES_MAX_TURNS
 `HERMES_CLI` defaults to `hermes`; profile is omitted when unset. `HERMES_HOME` is removed
 from the child environment so profile selection remains native. Defaults: 50 maximum turns,
 600-second command timeout. Each reply is quoted with provenance, followed by the brief again.
-A zero process exit plus closing marker permits success; nonzero exit overrides any marker.
-No marker, launch failure or timeout blocks. Process termination is not proof that spawned
+A zero process exit plus a closing marker permits that outcome; nonzero exit, launch failure
+or timeout is `failed` with the machine text as `note`. No marker is `answered`. Process
+termination is not proof that spawned
 or remote work stopped. No remote cancellation or cross-turn session reference is supported.
 Keep `run_task.py` beside the CLI adapter for its parser.
 

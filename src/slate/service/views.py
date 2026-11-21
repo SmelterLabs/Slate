@@ -46,7 +46,6 @@ FILTER_FIELDS = {
     "created": {"within_days"},
     "updated": {"within_days"},
     "blocked": {"is"},
-    "estimate": {"empty", "not_empty", "gt", "lt"},
 }
 LAYOUTS = ("board", "list", "table")
 # Layouts the board no longer has. A view saved with one still reads, as a list; a write with one
@@ -75,7 +74,6 @@ SORT_FIELDS = {
     "created",
     "updated",
     "start",
-    "estimate",
 }
 # In the order a board card shows them (web/src/lib/views.ts ALL_CARD_FIELDS).
 CARD_FIELDS = {
@@ -93,7 +91,6 @@ CARD_FIELDS = {
     "list",
     "waiting",
     "recurrence",
-    "estimate",
     "blocked",
 }
 

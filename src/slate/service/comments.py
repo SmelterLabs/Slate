@@ -18,13 +18,20 @@ was already working on the card (`comment.seen`, service/work.py).
 `open_asks()` lists the open ones; check-in news `asked`, Today "Asked of you", the agent
 stream's `work` hint and `/work/next` (why `asked`) read them.
 
+An agent's ask (service/reports.py) is an Ask addressed to a person that carries `ask_json =
+{question, options}` (`ask` on the comment view; its `comment.assigned` has `after.ask = true`,
+and the person hears it as `waiting`, not also as a mention). `asks_of()` gives each card's
+open ask while it waits on that person (the item view's `ask`).
+
 Replies (card conversation): when an agent has reported the item `blocked` and it waits on the
 commenter, a plain comment by that person is the agent's next turn. It is addressed to the
 agent as an Ask (`comment.assigned` with `after.reply = true`, a wake for the agent's runner),
-and the item stops waiting on the person (an ordinary `waiting_on_account_id` change). The Ask
-still needs explicit resolution. A comment by anyone else, or one addressed to someone other
-than that agent, is not a reply; one the person addresses to that agent explicitly (the
-board's Ask picker starts on it) is.
+the item stops waiting on the person (an ordinary `waiting_on_account_id` change), and the
+agent's open asks of that person on the card are resolved (`reason: "answered"`). The Ask the
+reply makes still needs explicit resolution. A comment by anyone else, or one addressed to
+someone other than that agent, is not a reply; one the person addresses to that agent
+explicitly (the board's Ask picker starts on it) is. `answer()` is the same reply with one of
+the ask's options as its text, for the person waited on or an admin.
 
 Comment views carry `author_handle` and `author_kind` (`person`, `agent` or `guest`): an
 adapter passes only a person's comment to its agent as the user's turn, and quotes anything
@@ -32,14 +39,15 @@ else as data.
 
 The `SLATE:` closing line (service/brief.py): with `closing_line=True` (REST and MCP
 replies; never a comment Slate writes itself, like a report's note) a comment whose last line
-is `SLATE: done | review | later | blocked waiting_on <handle>` also reports back on the task, so an
-agent working from inside another product's chat (or the person pasting its answer) can finish
-it. From an agent account it is that agent's report (service/reports.py: done completes the
-task when the agent is assigned; review and blocked set its badge; later clears its badge
-and leaves the task for its due time, which must still be to come). From anyone else, `done`
-completes the task and `blocked waiting_on` sets who it waits on; `review` and `later`
-change nothing.
-A line that cannot apply (no done status, an unknown handle) leaves the comment as it is.
+is `SLATE: done | review | later | answered | ask <handle>: <question> [a | b]` also reports
+back on the task, so an agent working from inside another product's chat (or the person
+pasting its answer) can finish it. From an agent account it is that agent's report
+(service/reports.py: done completes the task when the agent is assigned; review sets its
+badge; later clears its badge and leaves the task for its due time, which must still be to
+come; answered clears its own badge; ask makes this comment the ask). From anyone else,
+`done` completes the task and the rest change nothing. A comment with no closing line changes
+nothing, and a line that cannot apply (no done status, a bad question) leaves the comment as
+it is.
 """
 
 from __future__ import annotations
@@ -57,7 +65,7 @@ from slate.models import Account, Comment, CommentReaction, CommentRun, Event, R
 from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
-from slate.service.errors import Forbidden, Invalid, NotFound
+from slate.service.errors import Conflict, Forbidden, Invalid, NotFound
 from slate.service.items import get_item, resolve_account
 
 MENTION_RE = re.compile(r"(?<![\w@])@([a-z][a-z0-9_-]{1,31})", re.IGNORECASE)
@@ -136,6 +144,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
             "seen_at": seen.get(c.id, (None, None))[0],
             "seen_by_id": seen.get(c.id, (None, None))[1],
             "run_steps": steps.get(c.id),
+            "ask": c.ask_json,
             "reactions": reactions.get(c.id, []),
             "mentions": mentions_in(session, c.body_md),
             "author_handle": authors.get(c.author_id, (None, None))[0],
@@ -169,6 +178,53 @@ def run_steps_of(session: Session, comment_ids: Sequence[str]) -> dict[str, int]
     if guests.viewer_is_guest(session):
         q = q.where(CommentRun.account_id.not_in(guests.workspace_agent_ids(session)))
     return dict(session.execute(q).all())
+
+
+def asks_of(session: Session, items: Sequence[Any]) -> dict[str, dict[str, Any]]:
+    """`{item id: {comment_id, question, options, by_id, at}}`: each card's newest open ask
+    addressed to the person it waits on (a card waiting on nobody, or on someone it did not
+    ask, has none)."""
+    waits = {i.id: i.waiting_on_account_id for i in items if i.waiting_on_account_id}
+    if not waits:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for c in session.scalars(
+        select(Comment)
+        .where(
+            Comment.item_id.in_(waits),
+            Comment.ask_json.is_not(None),
+            Comment.resolved_at.is_(None),
+        )
+        .order_by(Comment.created_at, Comment.id)
+    ):
+        if c.assignee_id == waits[c.item_id]:
+            out[c.item_id] = {
+                "comment_id": c.id,
+                "question": c.ask_json["question"],
+                "options": c.ask_json["options"],
+                "by_id": c.author_id,
+                "at": c.created_at,
+            }
+    return out
+
+
+def _answered(session: Session, cx: Any, item: Any, person_id: str) -> None:
+    """The person answered: the card stops waiting on them and the open asks they were sent
+    on it are resolved (`reason: "answered"`). Inside the caller's change."""
+    asks = session.scalars(
+        select(Comment).where(
+            Comment.item_id == item.id,
+            Comment.assignee_id == person_id,
+            Comment.ask_json.is_not(None),
+            Comment.resolved_at.is_(None),
+        )
+    ).all()
+    for ask in asks:
+        _resolve(cx, ask, cx.actor.account_id, "answered")
+    if item.waiting_on_account_id == person_id:
+        from slate.service.items import update_item
+
+        update_item(session, cx.actor, item.id, {"waiting_on_account_id": None})
 
 
 def reply_target(session: Session, item: Any, author_id: str) -> Account | None:
@@ -216,10 +272,13 @@ def add_comment(
     assignee: str | None = None,
     keep_open: bool = False,
     closing_line: bool = False,
+    ask: dict[str, Any] | None = None,
 ) -> Comment:
     """Post a comment. With `assignee` (a handle or id) it is an Ask for that account.
     Regardless of `keep_open`, leave every Ask open; callers explicitly resolve completed Asks.
-    With `closing_line`, a last line `SLATE: …` also reports back on the task (module doc)."""
+    With `closing_line`, a last line `SLATE: …` also reports back on the task (module doc).
+    `ask` (`{question, options}`, checked by service/reports.py, with `assignee`) makes it an
+    agent's ask."""
     item = get_item(session, item_id)
     body, pasted = split_pasted(_body(body_md))
     # A project's guests never reach a workspace agent (service/guests.py).
@@ -259,6 +318,7 @@ def add_comment(
             author_id=actor.account_id,
             body_md=body,
             created_at=utcnow(),
+            ask_json=ask,
         )
         cx.session.add(comment)
         cx.record(
@@ -274,31 +334,46 @@ def add_comment(
         attach_pasted(cx, item, pasted)
         if replying is not None:
             _assign(cx, comment, replying, reply=True)
-            from slate.service.items import update_item
-
-            update_item(session, actor, item.id, {"waiting_on_account_id": None})
+            _answered(session, cx, item, actor.account_id)
         elif target is not None:
-            _assign(cx, comment, target)
+            _assign(cx, comment, target, ask=ask is not None)
     if closing_line:
-        _apply_closing_line(session, actor, item.id, body)
+        _apply_closing_line(session, actor, comment, body)
     return comment
 
 
-def _apply_closing_line(session: Session, actor: Actor, item_id: str, body: str) -> None:
+def answer(session: Session, actor: Actor, comment_id: str, *, option: str) -> Comment:
+    """Answer an agent's ask with one of its options: a comment by the caller whose text is
+    the option, addressed to the agent (its next turn, as a typed reply is), and the card
+    stops waiting on the person asked. For that person or an admin. Returns the new comment."""
+    ask = get_comment(session, comment_id)
+    if ask.ask_json is None:
+        raise Invalid("this comment is not an agent's question")
+    if ask.resolved_at is not None:
+        raise Conflict("this question was already answered")
+    if option not in ask.ask_json["options"]:
+        raise Invalid("option must be one of: " + ", ".join(ask.ask_json["options"]))
+    if actor.account_id != ask.assignee_id and not access.is_admin(session, actor.account_id):
+        raise Forbidden("only the person asked or an admin can answer it")
+    item = get_item(session, ask.item_id)
+    with apply_change(session, actor) as cx:
+        reply = add_comment(session, actor, item.id, body_md=option, assignee=ask.author_id)
+        if ask.resolved_at is None:  # an admin answering for the person asked
+            _answered(session, cx, item, ask.assignee_id)
+    return reply
+
+
+def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: str) -> None:
     from slate.models import AccountKind, ItemAssignee
     from slate.service import reports
     from slate.service.brief import closing_line
-    from slate.service.errors import Conflict
     from slate.service.items import update_item
 
     line = closing_line(body)
     if line is None:
         return
-    who = line.waiting_on
-    if who is not None and session.scalar(select(Account.id).where(Account.handle == who)) is None:
-        who = None
     account = session.get(Account, actor.account_id)
-    item = get_item(session, item_id)
+    item = get_item(session, comment.item_id)
     try:
         is_agent = account is not None and account.kind == AccountKind.agent
         if is_agent and line.outcome == "later":
@@ -306,6 +381,19 @@ def _apply_closing_line(session: Session, actor: Actor, item_id: str, body: str)
 
             check_later(item)  # parked until its run time; refused (no change) without one
             reports.report(session, actor, item.id, state="idle", comment=False)
+        elif is_agent and line.outcome == "answered":
+            if item.agent_state_by == actor.account_id:
+                reports.report(session, actor, item.id, state="idle", comment=False)
+        elif is_agent and line.outcome == "ask":
+            with apply_change(session, actor) as cx:
+                reports.report(
+                    session, actor, item.id, state="blocked", comment=False,
+                    waiting_on=line.waiting_on, question=line.question,
+                    options=list(line.options),
+                )  # fmt: skip
+                person = session.get(Account, item.waiting_on_account_id)
+                comment.ask_json = reports.check_ask(line.question, list(line.options))
+                _assign(cx, comment, person, ask=True)
         elif is_agent:
             assigned = session.get(ItemAssignee, (item.id, account.id)) is not None
             reports.report(
@@ -315,19 +403,18 @@ def _apply_closing_line(session: Session, actor: Actor, item_id: str, body: str)
                 state=line.outcome,
                 comment=False,
                 complete=assigned,
-                waiting_on=who if line.outcome == "blocked" else None,
             )
         elif line.outcome == "done":
             status = reports.done_status(session, item)
             if status is not None:
                 update_item(session, actor, item.id, {"status": status.id})
-        elif line.outcome == "blocked" and who is not None:
-            update_item(session, actor, item.id, {"waiting_on_account_id": who})
-    except (Invalid, Conflict):
+    except (Invalid, Conflict, NotFound):
         return  # the comment stands; the line could not apply
 
 
-def _assign(cx: Any, comment: Comment, target: Account | None, *, reply: bool = False) -> None:
+def _assign(
+    cx: Any, comment: Comment, target: Account | None, *, reply: bool = False, ask: bool = False
+) -> None:
     before = comment.assignee_id
     comment.assignee_id = target.id if target else None
     if target is not None:
@@ -343,6 +430,7 @@ def _assign(cx: Any, comment: Comment, target: Account | None, *, reply: bool = 
             "assignee_id": target.id if target else None,
             "comment_id": comment.id,
             **({"reply": True} if reply else {}),
+            **({"ask": True} if ask else {}),
         },
         covers=[comment],
     )
@@ -378,8 +466,11 @@ def assign_comment(
     return comment
 
 
-def resolve_comment(session: Session, actor: Actor, comment_id: str) -> Comment:
-    """Close an Ask: for its assignee, its author or an admin. Already resolved: no change."""
+def resolve_comment(
+    session: Session, actor: Actor, comment_id: str, *, reason: str = "resolved"
+) -> Comment:
+    """Close an Ask: for its assignee, its author or an admin. Already resolved: no change.
+    `reason` is `answered` when an agent's finish answered it."""
     comment = get_comment(session, comment_id)
     if comment.assignee_id is None:
         raise Invalid("this comment is not addressed to anyone")
@@ -389,7 +480,7 @@ def resolve_comment(session: Session, actor: Actor, comment_id: str) -> Comment:
     if not mine and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the assignee, the author or an admin can resolve it")
     with apply_change(session, actor) as cx:
-        _resolve(cx, comment, actor.account_id, "resolved")
+        _resolve(cx, comment, actor.account_id, reason)
     return comment
 
 

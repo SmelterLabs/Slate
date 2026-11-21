@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bridge import Bridge, tier_for  # noqa: E402
+from bridge import DEFAULT_REASONS, Bridge, tier_for  # noqa: E402
 
 
 def entry(eid: str, at: str, reason: str = "assigned", item: str | None = "I1") -> dict:
@@ -150,3 +150,51 @@ def test_a_roster_it_cannot_read_still_sends_the_alert(tmp_path):
     ]
     assert b.run_once() == 1
     assert fake.alerts[0]["title"].startswith("Slate: Someone")
+
+
+def _alert(reason: str, item: str, after: dict | None, title: str = "Pay the water bill") -> dict:
+    return {
+        "event": {
+            "id": reason + item,
+            "at": "2026-11-06T12:00:00Z",
+            "type": "item.reported",
+            "item_id": item,
+            "actor_id": "A1",
+            "after": after,
+        },
+        "reason": reason,
+        "item_title": title,
+    }
+
+
+def test_waiting_is_at_least_severity_3_and_leads_with_the_question(tmp_path):
+    fake = Fake()
+    b = make(tmp_path, fake, reasons=("waiting", "failed"))
+    b.run_once()
+    fake.inbox = [
+        _alert("waiting", "I2", {"question": "Start the import now?\nmore", "body_md": "noise"}),
+        _alert("waiting", "I1", {"question": "Ship it?"}),
+    ]
+    # A second pass needs a later timestamp than the cursor the first inbox wrote.
+    fake.inbox[0]["event"]["at"] = "2026-11-06T12:01:00Z"
+    fake.inbox[1]["event"]["at"] = "2026-11-06T12:02:00Z"
+    assert b.run_once() == 2
+    low, urgent = fake.alerts
+    assert low["severity"] == 3  # the card is low (tier 1); waiting is at least 3
+    assert urgent["severity"] == 4  # urgent stays at the cap
+    assert low["body"] == "Start the import now?\nPay the water bill"
+    assert urgent["body"].startswith("Ship it?\n")
+    assert "noise" not in low["body"]
+
+
+def test_failed_is_a_default_reason_and_says_who_could_not_run(tmp_path):
+    assert "failed" in DEFAULT_REASONS.split(",")
+    fake = Fake()
+    b = make(tmp_path, fake, reasons=set(DEFAULT_REASONS.split(",")))
+    b.run_once()
+    row = _alert("failed", "I3", {"note": "exit 1"}, title="Print labels")
+    row["event"]["at"] = "2026-11-06T12:01:00Z"
+    fake.inbox = [row]
+    assert b.run_once() == 1
+    assert fake.alerts[0]["title"] == "Slate: My Agent could not run"
+    assert fake.alerts[0]["severity"] == 2  # unflagged card, and failed is not raised

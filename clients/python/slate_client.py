@@ -266,9 +266,9 @@ class Slate:
     def finish(
         self, item_id: str, outcome: str = "done", note: str | None = None, **kw: Any
     ) -> dict[str, Any]:
-        """Report back in one call: outcome done | review | later | blocked | release; kw: status,
-        hand_to, waiting_on, progress, comment, next={...} (take the next task too).
-        Returns `{item, next}`."""
+        """Report back in one call: outcome done | review | later | ask | answered | failed |
+        blocked | release; kw: status, hand_to, waiting_on, question, options, progress, comment,
+        next={...} (take the next task too). Returns `{item, next}`."""
         body = {"outcome": outcome, **kw}
         if note is not None:
             body["note"] = note
@@ -360,7 +360,7 @@ class Slate:
 
         `task` is what `next()` returns (`task["item"]`, `task["context"]`). `handle` returns
         an optional result note: the task is then finished `done` with it, and the same call
-        takes the next task. If it raises, the task is finished `blocked` with the error. While
+        takes the next task. If it raises, the task is finished `failed` with the error. While
         `handle` runs, a heartbeat keeps the lease every `lease_seconds / 3`. With nothing to
         do, each `next()` waits up to `wait` seconds for work. scope: pool, list_id, tag...
         `once=True` stops when no task is free (for cron jobs and tests).
@@ -398,7 +398,7 @@ class Slate:
             try:
                 result = handle(task)
             except Exception as exc:  # noqa: BLE001 - report only with current execution proof
-                outcome, result = "blocked", f"Failed: {exc}"[:4000]
+                outcome, result = "failed", f"Failed: {exc}"[:4000]
             finally:
                 stop.set()
                 beat.join()
@@ -419,7 +419,7 @@ class Slate:
         """Check in every `interval` seconds; claim each queue item and call `handle(item)`.
 
         `handle` returns an optional result comment; when it returns, the item is reported
-        `done`. If it raises, the item is reported `blocked` with the error and skipped for the
+        `done`. If it raises, the item is finished `failed` with the error and skipped for the
         rest of this run. Items another agent holds are skipped. `on_news` sees each news
         entry. `once=True` does a single pass (for cron jobs and tests).
         """

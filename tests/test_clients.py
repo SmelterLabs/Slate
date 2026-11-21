@@ -124,12 +124,22 @@ def test_run_forever_once_handles_reports_and_skips_failures(client, alex, todo,
             raise RuntimeError("no network")
         return "Done, see https://example.com"
 
+    sent: list[tuple] = []
+    real = agent.finish
+
+    def finish(item_id, outcome="done", note=None, **kw):
+        sent.append((item_id, outcome, note, kw))
+        if outcome == "failed":
+            return {"item": {"id": item_id}, "next": None}
+        return real(item_id, outcome, note, **kw)
+
+    agent.finish = finish
     agent.run_forever(handle, once=True)
     assert sorted(seen) == ["Bad one", "Good one"]
     g = client.get(f"{API}/items/{good['id']}", headers=alex).json()
-    b = client.get(f"{API}/items/{bad['id']}", headers=alex).json()
     assert g["status"]["kind"] == "done"
-    assert b["agent"]["state"] == "blocked" and "no network" in b["agent"]["note"]
+    failed = next(row for row in sent if row[0] == bad["id"])
+    assert failed[1] == "failed" and "no network" in failed[2] and "waiting_on" not in failed[3]
 
 
 def test_work_loop_next_heartbeat_finish(client, alex, todo, agent):
@@ -159,12 +169,22 @@ def test_work_forever_does_every_free_task_once(client, alex, todo, agent):
             raise RuntimeError("no network")
         return "ok"
 
+    sent: list[tuple] = []
+    real = agent.finish
+
+    def finish(item_id, outcome="done", note=None, **kw):
+        sent.append((item_id, outcome, note, kw))
+        if outcome == "failed":
+            return {"item": {"id": item_id}, "next": None}
+        return real(item_id, outcome, note, **kw)
+
+    agent.finish = finish
     agent.work_forever(handle, wait=0, once=True)
     assert sorted(seen) == sorted([a["id"], b["id"]])
     done = client.get(f"{API}/items/{a['id']}", headers=alex).json()
-    failed = client.get(f"{API}/items/{b['id']}", headers=alex).json()
     assert done["status"]["kind"] == "done"
-    assert failed["agent"]["state"] == "blocked" and "no network" in failed["agent"]["note"]
+    failed = next(row for row in sent if row[0] == b["id"])
+    assert failed[1] == "failed" and "no network" in failed[2] and "waiting_on" not in failed[3]
 
 
 # --- slate_runner.py: the generic runner -----------------------------------------------------
@@ -209,7 +229,7 @@ def test_runner_once_runs_the_example_and_finishes_done(client, alex, todo, make
     assert runner.once() == 2  # nothing left
 
 
-def test_runner_a_failing_command_finishes_blocked_waiting_on_a_person(
+def test_runner_a_failing_command_finishes_failed_and_waits_on_nobody(
     client, alex, todo, make_account, tmp_path, monkeypatch
 ):
     _, h = make_account("agent")
@@ -217,17 +237,18 @@ def test_runner_a_failing_command_finishes_blocked_waiting_on_a_person(
     monkeypatch.setenv("RUN_ONE_FAIL", "1")
     runner = _runner(client, h, tmp_path)
 
-    assert runner.once() == 1
-    view = client.get(f"{API}/items/{item['id']}", headers=alex).json()
-    assert view["agent"]["state"] == "blocked"
-    assert "could not reach the printer" in view["agent"]["note"]
-    me = client.get(f"{API}/me", headers=alex).json()
-    assert view["waiting_on_account_id"] == me["account"]["id"]
+    assert runner.once(item["id"]) == 1
+    saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]["result"]
+    assert saved["outcome"] == "failed"
+    assert "could not reach the printer" in saved["note"]
+    assert "waiting_on" not in saved
 
 
-def test_runner_a_resumable_stop_waits_on_nobody(client, alex, todo, make_account, tmp_path):
-    """A run that only ran out of steps asks nothing of anyone: `resumable` keeps the runner
-    from naming the owner, so the card reads blocked (with Run now), not "waiting on you"."""
+def test_runner_a_blocked_result_that_names_nobody_waits_on_nobody(
+    client, alex, todo, make_account, tmp_path
+):
+    """An explicit `blocked` with no `waiting_on` stays that way: the runner does not name
+    the owner. `resumable` is not a result field."""
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Set up the mail server", who=("agent", "alex"))
     out = "{'outcome': 'blocked', 'resumable': True, 'reply': 'Stopped at the step limit.'}"
@@ -264,12 +285,12 @@ def test_runner_plain_output_exit_zero_is_not_terminal_evidence(
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Say hi")
     cmd = f'"{sys.executable}" -c "print(\'hello from the agent\')"'
-    assert _runner(client, h, tmp_path, cmd).once(item["id"]) == 1
-    reports = [
-        e["after"] for e in _events(client, alex, item["id"]) if e["type"] == "item.reported"
-    ]
-    assert reports[-1]["state"] == "blocked"
-    assert "without an explicit terminal result" in reports[-1]["note"]
+    runner = _runner(client, h, tmp_path, cmd)
+    assert runner.once(item["id"]) == 1
+    saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]["result"]
+    assert saved["outcome"] == "failed"
+    assert "without an explicit terminal result" in saved["note"]
+    assert "waiting_on" not in saved
 
 
 def test_runner_passes_the_agents_reply_and_thread_to_the_card(
@@ -285,7 +306,7 @@ def test_runner_passes_the_agents_reply_and_thread_to_the_card(
         "task = json.load(sys.stdin)\n"
         "open(sys.argv[1], 'a').write(json.dumps(task.get('reply')) + '\\n')\n"
         "print(json.dumps({'note': 'Opened a session', 'thread': {'ref': 'sess-9'}}))\n"
-        "out = {'outcome': 'blocked', 'waiting_on': 'alex', 'reply': 'Sign in here: x'}\n"
+        "out = {'outcome': 'ask', 'question': 'Signed in yet?', 'reply': 'Sign in here: x'}\n"
         "if task.get('reply'):\n"
         "    out = {'outcome': 'done', 'reply': 'Verified', 'thread': task['thread']}\n"
         "print(json.dumps(out))\n"

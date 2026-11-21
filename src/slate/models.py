@@ -125,6 +125,7 @@ class AgentState(enum.StrEnum):
     working = "working"
     blocked = "blocked"
     review = "review"
+    failed = "failed"
 
 
 class ItemKind(enum.StrEnum):
@@ -343,8 +344,6 @@ class Item(Base):
     # Due events: the last due_soon/due/overdue emitted, so a restart never repeats it.
     last_due_event: Mapped[str | None] = mapped_column(String(16))
     position: Mapped[int] = mapped_column(Integer, default=0)
-    # ClickUp's "time estimate": planned effort in minutes. Not time tracking.
-    estimate_minutes: Mapped[int | None] = mapped_column(Integer)
     # The latest agent report (`POST /items/{id}/report`): who is on it and how it is going.
     # A flag over the history, never a column of the board; every report is an `item.reported`
     # event. Cleared by a `done` or `idle` report.
@@ -416,6 +415,9 @@ class Comment(Base):
     assignee_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     resolved_by_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
+    # An agent's question to a person (`{"question": str, "options": [str]}`): the Ask a
+    # finish `ask` posts, answered by one of its options or a typed reply. service/reports.py.
+    ask_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class BodyVersion(Base):
@@ -1195,26 +1197,6 @@ for _table, _statements in TRIGGERS.items():
         event.listen(
             Base.metadata.tables[_table], "after_create", DDL(_sql).execute_if(dialect="sqlite")
         )
-
-
-class Capacity(Base):
-    """How much one account (a person or an agent) can take on, for the Box view
-    (service/workload.py). One row per account, made the first time it is set; until then
-    `workload.DEFAULTS` apply.
-
-    `hours_per_day` measures time estimates, `tasks_per_day` plain task counts; null means no
-    limit in that unit.
-    `work_days` lists the weekdays it works, 0 = Monday, as `"0,1,2,3,4"`.
-    """
-
-    __tablename__ = "capacities"
-
-    id: Mapped[str] = _pk()
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), unique=True)
-    hours_per_day: Mapped[float | None] = mapped_column(Float)
-    tasks_per_day: Mapped[int | None] = mapped_column(Integer)
-    work_days: Mapped[str] = mapped_column(String(13), default="0,1,2,3,4")
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
 class WorkLease(Base):

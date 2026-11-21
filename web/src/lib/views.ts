@@ -50,8 +50,7 @@ export type SortField =
   | 'title'
   | 'created'
   | 'updated'
-  | 'start'
-  | 'estimate';
+  | 'start';
 export type CardField =
   | 'description'
   | 'subtasks'
@@ -67,7 +66,6 @@ export type CardField =
   | 'list'
   | 'waiting'
   | 'recurrence'
-  | 'estimate'
   | 'blocked';
 
 export interface SortKey {
@@ -162,15 +160,12 @@ export const ALL_CARD_FIELDS: CardField[] = [
   'list',
   'waiting',
   'recurrence',
-  'estimate',
   'blocked',
 ];
 
 /** What a card shows before anyone customises it: the classic task card, plus Depends on (shown only
  * while the task waits on an open one). */
-export const DEFAULT_CARD_FIELDS: CardField[] = ALL_CARD_FIELDS.filter(
-  (f) => f !== 'start' && f !== 'estimate',
-);
+export const DEFAULT_CARD_FIELDS: CardField[] = ALL_CARD_FIELDS.filter((f) => f !== 'start');
 
 export const CARD_FIELD_NAMES: Record<CardField, string> = {
   description: 'Description icon',
@@ -187,7 +182,6 @@ export const CARD_FIELD_NAMES: Record<CardField, string> = {
   list: 'List',
   waiting: 'Waiting on',
   recurrence: 'Recurring',
-  estimate: 'Time estimate',
   blocked: 'Depends on',
 };
 
@@ -221,7 +215,6 @@ export const SORT_NAMES: Record<SortField, string> = {
   created: 'Created',
   updated: 'Updated',
   start: 'Start date',
-  estimate: 'Time estimate',
 };
 
 /** Display name of a group-by or sort key. */
@@ -429,7 +422,7 @@ function accountIdOf(v: string, ctx: Ctx): string | null {
 // an empty selection/text or half-entered range is a draft, not a predicate.
 const NEEDS_VALUE = new Set([
   'is', 'is_not', 'any', 'all', 'none', 'before', 'after', 'between',
-  'contains', 'gt', 'lt', 'within_days', 'next_n_days',
+  'contains', 'within_days', 'next_n_days',
 ]);
 
 export function isActiveRule(rule: FilterRule): boolean {
@@ -507,14 +500,6 @@ export function matchRule(item: Item, rule: FilterRule, ctx: Ctx, today: string)
     }
     case 'blocked':
       return !!item.blocked === asBool(rule.value);
-    case 'estimate': {
-      const e = item.estimate_minutes ?? null;
-      if (rule.cmp === 'empty') return e === null;
-      if (rule.cmp === 'not_empty') return e !== null;
-      if (!strs[0]) return true;
-      if (e === null) return false;
-      return rule.cmp === 'gt' ? e > Number(strs[0]) : e < Number(strs[0]);
-    }
   }
   return true; // unknown fields never hide anything
 }
@@ -568,8 +553,6 @@ function sortValue(item: Item, field: SortField, ctx?: Ctx): string | number | n
       return item.updated_at;
     case 'manual':
       return item.position;
-    case 'estimate':
-      return item.estimate_minutes ?? null;
   }
 }
 

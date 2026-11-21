@@ -48,8 +48,8 @@ def test_pending_approval_never_turns_card_words_into_authorization(tmp_path, ki
         },
     }
     out, _, _ = go(gw, task=task, env=settings)
-    assert out["outcome"] == "blocked"
-    assert "native" in out["reply"].lower()
+    assert out["outcome"] == "failed"
+    assert "native" in out["note"].lower()
     assert gw.settled == [] and gw.turns == [] and gw.created == []
     assert out["thread"]["ref"] == "sess-old"
     assert run_task.load_pending(settings, "it1") == pending
@@ -61,7 +61,7 @@ def test_pending_approval_cannot_be_rebound_to_replacement_session(tmp_path):
     run_task.save_pending(settings, "it1", pending)
     gw = Gateway(events=complete())
     out, _, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-old"}}, env=settings)
-    assert out["outcome"] == "blocked" and out["thread"]["ref"] == "retired-session"
+    assert out["outcome"] == "failed" and out["thread"]["ref"] == "retired-session"
     assert not gw.created and not gw.turns
     assert run_task.load_pending(settings, "it1") == pending
 
@@ -76,7 +76,7 @@ def test_approval_overrules_closing_line_and_keeps_control_identity(tmp_path):
     }
     gw = Gateway(events=[("approval.request", control), complete()[0]])
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed"
     pending = run_task.load_pending(settings, "it1")
     assert pending["session_id"] == "sess-new"
     assert pending["request_id"] == "p1"
@@ -89,7 +89,7 @@ def test_approval_overrules_closing_line_and_keeps_control_identity(tmp_path):
 def test_runtime_failure_overrules_success_text(tmp_path, terminal):
     gw = Gateway(events=[complete()[0], (terminal, {"status": terminal.split(".")[1]})])
     out, _, _ = go(gw, env=env(tmp_path))
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed"
     assert out["thread"]["ref"] == "sess-new" and len(gw.turns) == 1
 
 
@@ -97,8 +97,8 @@ def test_runtime_failure_overrules_success_text(tmp_path, terminal):
 def test_assistant_finalization_is_not_success_evidence(tmp_path, end):
     gw = Gateway(events=[complete()[0], *end])
     out, _, _ = go(gw, env=env(tmp_path))
-    assert out["outcome"] == "blocked"
-    assert "unconfirmed" in out["reply"].lower()
+    assert out["outcome"] == "failed"
+    assert "unconfirmed" in out["note"].lower()
     assert len(gw.turns) == 1
 
 
@@ -106,10 +106,9 @@ def test_assistant_finalization_is_not_success_evidence(tmp_path, end):
     "status", ["failed", "cancelled", "timeout", "waiting_input", "unknown", "running"]
 )
 def test_example_status_overrules_closing_line(status):
-    out = example.result(
-        status, {"error": "not finished"}, "Partial.\nSLATE: done", "owner", "chat"
-    )
-    assert out["outcome"] == "blocked"
+    out = example.result(status, {"error": "not finished"}, "Partial.\nSLATE: done", "chat")
+    assert out["outcome"] == "failed" and out["note"]
+    assert "waiting_on" not in out and "reply" not in out
 
 
 def no_runtime(req):
@@ -154,7 +153,9 @@ def test_unreadable_brief_never_launches_work(tmp_path, monkeypatch, adapter, re
         emit=lambda _: None,
         **kwargs,
     )
-    assert out["outcome"] == "blocked" and "brief" in out["reply"].lower()
+    assert out["outcome"] == "failed" and "brief" in out["note"].lower()
+    if adapter is example:
+        assert "waiting_on" not in out and "reply" not in out
     if adapter is run_task:
         assert out["thread"]["ref"] == "sess-old"
 
@@ -264,8 +265,8 @@ def test_corrupt_approval_state_blocks_instead_of_becoming_no_approval(tmp_path,
     path.write_text(bad, encoding="utf-8")
     gw = Gateway(events=complete())
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked" and not gw.turns and not gw.created
-    assert "state" in out["reply"].lower()
+    assert out["outcome"] == "failed" and not gw.turns and not gw.created
+    assert "state" in out["note"].lower()
 
 
 def test_unwritable_approval_state_blocks_before_launch(tmp_path, monkeypatch):
@@ -275,23 +276,23 @@ def test_unwritable_approval_state_blocks_before_launch(tmp_path, monkeypatch):
     monkeypatch.setattr(run_task.Path, "replace", fail)
     gw = Gateway(events=complete())
     out, _, _ = go(gw, env=env(tmp_path))
-    assert out["outcome"] == "blocked" and not gw.turns
-    assert "state" in out["reply"].lower()
+    assert out["outcome"] == "failed" and not gw.turns
+    assert "state" in out["note"].lower()
 
 
 def test_unidentified_example_run_is_not_completed(monkeypatch):
     monkeypatch.setattr(example, "get_run", lambda *a: {})
     status, row = example.wait_for(None, "run1", timeout=0, sleep=lambda s: None)
     assert status == "timeout"
-    assert example.result(status, row, "Partial.\nSLATE: done", "owner", "chat")["outcome"] == (
-        "blocked"
-    )
+    out = example.result(status, row, "Partial.\nSLATE: done", "chat")
+    assert out["outcome"] == "failed" and "did not finish" in out["note"]
+    assert "waiting_on" not in out and "reply" not in out
 
 
 def test_failed_runtime_after_completion_text_still_blocks(tmp_path):
     gw = Gateway(events=[*complete(), ("run.failed", {"error": "finalization failed"})])
     out, _, _ = go(gw, env=env(tmp_path))
-    assert out["outcome"] == "blocked" and "finalization failed" in out["reply"]
+    assert out["outcome"] == "failed" and "finalization failed" in out["note"]
 
 
 def test_failed_approval_write_keeps_a_durable_blocker(tmp_path, monkeypatch):
@@ -306,10 +307,10 @@ def test_failed_approval_write_keeps_a_durable_blocker(tmp_path, monkeypatch):
     monkeypatch.setattr(run_task, "save_pending", fail_control_write)
     gw = Gateway(events=[("approval.request", {"prompt_id": "p1", "command": "FAKE_COMMAND"})])
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked" and "could not be saved" in out["reply"]
+    assert out["outcome"] == "failed" and "could not be saved" in out["note"]
     gw.events = complete()
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked" and len(gw.turns) == 1
+    assert out["outcome"] == "failed" and len(gw.turns) == 1
     assert run_task.load_pending(settings, "it1")["session_id"] == "sess-new"
 
 
@@ -325,10 +326,10 @@ def test_unconfirmed_turn_cannot_launch_another_turn(tmp_path):
     settings = env(tmp_path)
     gw = Gateway(events=[complete()[0]])
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed"
     gw.events = complete()
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked" and len(gw.turns) == 1
+    assert out["outcome"] == "failed" and len(gw.turns) == 1
 
 
 class Detailed(Gateway):
@@ -351,7 +352,7 @@ def _strand(tmp_path, gw):
     gw.events = [complete()[0]]
     gw.active = 1
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed"
     assert run_task.load_pending(settings, "it1")["state"] == "unconfirmed_turn"
     return settings
 
@@ -381,11 +382,11 @@ def test_unconfirmed_turn_still_blocks_while_anything_runs_or_unknown(tmp_path):
     settings = _strand(tmp_path, gw)
     gw.events = complete()  # same gateway, an API run still in flight
     out, _, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-new"}}, env=settings)
-    assert out["outcome"] == "blocked" and len(gw.turns) == 1
+    assert out["outcome"] == "failed" and len(gw.turns) == 1
     plain = Gateway(events=complete())  # an older gateway: no /health/detailed
     plain.sessions = gw.sessions
     out, _, _ = go(plain, task={"item": ITEM, "thread": {"ref": "sess-new"}}, env=settings)
-    assert out["outcome"] == "blocked" and not plain.turns
+    assert out["outcome"] == "failed" and not plain.turns
 
 
 @pytest.mark.parametrize("adapter", [run_task, cli, example])
@@ -404,7 +405,7 @@ def test_confirmed_failed_turn_can_be_explicitly_retried(tmp_path, reason):
     settings = env(tmp_path)
     gw = Gateway(events=[("run.failed", {"turn_exit_reason": reason})])
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed"
     assert run_task.load_pending(settings, "it1") is None
     gw.events = complete()
     out, _, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-new"}}, env=settings)

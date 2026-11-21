@@ -118,6 +118,7 @@ export const EVENT_TYPES = [
   'item.work_started',
   'item.work_finished',
   'item.run_requested',
+  'item.run_failed',
   'item.stop_requested',
   'automation.created',
   'automation.updated',
@@ -153,6 +154,4 @@ export const EVENT_TYPES = [
   'doc.pinned_to_top',
   'doc.unpinned_from_top',
   'doc.mentioned',
-  'capacity.set',
-  'capacity.reset',
 ];

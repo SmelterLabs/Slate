@@ -22,7 +22,11 @@ Read: `reports.flag_of(item)`. Shown: the card's badge, `agent` on the item view
 | Report | Effect on the flag |
 |---|---|
 | `working`, `blocked`, `review` | sets it (who, when, note, progress, link) |
+| `failed` | sets it: the run broke; nobody is told, and the work loop retries the card |
 | `done`, `idle` | clears it; `done` also moves the card to its list's first done status |
+
+A `blocked` report that waits on a person must carry a question (an ask; its note is the
+question). Waiting on an agent, or on nobody, needs none.
 
 Every report is one `item.reported` event. Besides an agent's own report, the flag changes
 when: a lease runs out (`working` becomes `blocked`, by `slate`); a person moves the card (a
@@ -50,7 +54,23 @@ records that this happened; a person's Clear settles a lease only once it carrie
 anyone. A lease that runs out on a closed card is not quarantined: the scheduler settles it
 (`item.work_finished`, reconciled) and deletes the row, since a closed card is not run again.
 
-A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `blocked`, `release`.
+A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answered`,
+`failed`, `blocked`, `release`.
+
+| Outcome | Badge | Who the card waits on | Also |
+|---|---|---|---|
+| `done` | cleared | cleared (the card closes) | completes the card |
+| `review` | `review` | unchanged | |
+| `later` | cleared | unchanged | needs a run time still to come |
+| `ask` | `blocked`, note = the question | the person asked | the question is an Ask to them |
+| `answered` | cleared | unchanged | the turn's Asks resolve (`answered`); not offered again until a new Ask or Run now |
+| `failed` | `failed`, note = what broke | unchanged | retried at 5 and 30 minutes; the third failure is `item.run_failed` |
+| `blocked` | `blocked` | an agent, or nobody | |
+| `release` | cleared | unchanged | un-assigns the agent |
+
+A failed run is offered again only when its retry time has come (`work.RETRY_AFTER`, the
+scheduler's `item.run_requested` with `reason: "retry"`) or someone presses Run now, which also
+starts the count over (`work._failures`).
 
 ## Chat and doc turns (an agent mentioned in a channel or on a page)
 

@@ -2,7 +2,7 @@
 
 The board as a whole, structure editing, the views engine, the three layouts (Board, List, Table),
 the favorites bar, and the ClickUp
-parity pieces (dependencies, estimates, tags). The board's module map and test recipe are in
+parity pieces (dependencies and tags). The board's module map and test recipe are in
 `docs/board.md`; the task window is `docs/task-window.md`; look and phone rules are
 `docs/design-system.md`.
 
@@ -121,8 +121,7 @@ Details across the layouts; all board-side, nothing on the server.
   colours) and red when `cardDue` says overdue (`.card.cu.overdue`). The copy-ID square is
   `opacity: 0` until hover, focus-within or focus.
 - **List**: the Due column is 150px (110 clips "Tomorrow 11:00 AM"). Grouped by status the Status
-  column goes (`ListLayout` `noStatus` → `ItemRow` prop and `.row.no-status` grids, incl. `.wide`);
-  group headers show the group's summed `estimate_minutes` (`groupMinutes`, `formatEstimate`).
+  column goes (`ListLayout` `noStatus` → `ItemRow` prop and `.row.no-status` grids, incl. `.wide`).
 
 ## ClickUp-style board
 
@@ -139,7 +138,7 @@ view code is in `web/`; the server's part is `comment_count` on `ItemOut` (batch
   memory), `lib/theme.ts`. Styles: `web/src/board.css`, imported after `app.css` by `main.ts`, so it
   refines the base rules without editing them.
 - **View config**: `card_fields` can be `description, subtasks, comments, checklist,
-  attachments, due, start, priority, tags, status, assignees, list, waiting, recurrence, estimate,
+  attachments, due, start, priority, tags, status, assignees, list, waiting, recurrence,
   blocked` (`ALL_CARD_FIELDS` is the order a card shows them; server `CARD_FIELDS` must match).
   The keys `title_lines` (0 = whole title, 1-3) and `collapse_empty` (default true for Everything
   and sections, false for lists; `normalizeConfig` fills it per scope). Checklist and attachment
@@ -171,8 +170,7 @@ draft in prefs `view_drafts`) that still names one reads as `list`, without the 
 `timeline_zoom` settings only they used: the server does it in `views.view_out`, the board in
 `lib/views.withKnownLayout` (through `normalizeConfig` and `lastview.applyDiff`). Writing one of
 those layouts is refused (422); the two old settings are accepted on write and dropped, so a board
-page opened before an upgrade can still save. No migration rewrites stored configs. Capacity
-(`GET /capacities`, `GET /workload/boxes`) stays for agents and the Agents page's capacity editor.
+page opened before an upgrade can still save.
 
 ## Favorites bar
 
@@ -200,13 +198,12 @@ bar, and `s` for the open task or the card under the pointer. The task window ca
 `board.toggleFavorite('item', id)` for a star of its own. CSS: the `/* --- favorites bar ... */`
 block after the shell in `app.css`; phone rows are 40 px tall and the bar hides when empty.
 
-## ClickUp parity: dependencies, estimates, tags, Table
+## ClickUp parity: dependencies, tags, Table
 
-**Schema**: `items.estimate_minutes`; `item_links` (from blocks to, or relates; unique, not self).
+**Schema**: `item_links` (from blocks to, or relates; unique, not self).
 Custom fields and status templates are not part of Slate.
 
-**Estimates.** `PATCH /items/{id}` and `POST /items` take `estimate_minutes` (minutes, null clears).
-Item output carries `estimate_minutes`, `blocked_by`, `blocking`, `related` and `blocked` (waits on
+Item output carries `blocked_by`, `blocking`, `related` and `blocked` (waits on
 an open item).
 
 **Links.** `POST /items/{id}/links {kind: blocks|blocked_by|relates|duplicate_of|duplicated_by,
@@ -238,22 +235,21 @@ repeats an `item.linked`. E2E `e2e/blocked.spec.ts` (desktop and phone).
 **Tags.** `POST /tags/{tag}/merge {into}` retags every item and doc (an `item.updated` or `doc.updated`, field `tags`, for each) and deletes the
 source; `DELETE /tags/{tag}` untags items and docs the same way, then deletes (`tag.deleted`).
 
-**Views.** `layout` includes `table`. Sort key `estimate`; filters `blocked`, `estimate`.
+**Views.** `layout` includes `table`. The `blocked` filter matches items waiting on an open item.
 
-**Board.** `TableView`/`TableRow` (editors mount on hover, totals per group), `EstimatePanel`
-+ `DependenciesPanel` (they take only `item`; the task window mounts them), `TagManager` (nav foot
-"Tags"). `formatEstimate`/`parseEstimate` live in `lib/format.ts`. Store methods are in the
+**Board.** `TableView`/`TableRow` (editors mount on hover, with an item count per group), `DependenciesPanel`
+(the task window passes it `item`), and `TagManager` (nav foot "Tags"). Store methods are in the
 "ClickUp parity" block; CSS is the "ClickUp parity" block in `app.css`. The reducer sets
 `fx.tags` for `tag.*` events and refetches on link changes; an item a status change unblocks
 hears its own `item.unblocked`.
 
 ## How the pieces fit together
 
-- The task window mounts `EstimatePanel` and `DependenciesPanel` at its `<!-- panels -->` marker,
+- The task window mounts `DependenciesPanel` at its `<!-- dependencies -->` marker,
   above the description, and has a ☆ in its header (`board.toggleFavorite('item', id)`).
-- Board cards show `estimate` and `blocked` pills. `ALL_CARD_FIELDS` lists the card fields; server
+- Board cards show a `blocked` pill. `ALL_CARD_FIELDS` lists the card fields; server
   `CARD_FIELDS` must match.
-- The activity column names estimates and dependencies through `HistoryContext.title`
+- The activity column names dependencies through `HistoryContext.title`
   (`lib/history.ts`).
 - Gotcha: `app.css` scopes the shell's grid rules to `.shell > .main` because the task window has
   its own `.main` column; a bare `.main` rule pushes the window's content into an implicit grid row.

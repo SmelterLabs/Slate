@@ -20,8 +20,6 @@
   import AgentConnections from './agents/AgentConnections.svelte';
   import { canManageConnections } from '../lib/connections';
   import ConnectAgent from './agents/ConnectAgent.svelte';
-  import CapacityEditor from './CapacityEditor.svelte';
-  import { capacityOf } from '../lib/workload';
 
   interface Stats {
     routes: { method: string; route: string; count: number; p50_ms: number; p95_ms: number }[];
@@ -31,19 +29,6 @@
   let only = $state<string | null>(null); // filter the feed to one agent
   let connect = $state<{ preset: string | null } | null>(null); // the Connect dialog
   let managing = $state<string | null>(null); // the agent whose usage and tokens are open
-  let sizing = $state<string | null>(null); // the agent whose capacity editor is open
-
-  /** "8h a day · 2 tasks a day · every day": what this agent can take on (GET /workload/boxes). */
-  function capacityText(account: AgentEntry['account']): string {
-    const c = capacityOf(account, board.capacities);
-    const parts = [
-      c.hours_per_day !== null ? `${c.hours_per_day}h a day` : null,
-      c.tasks_per_day !== null ? `${c.tasks_per_day} task${c.tasks_per_day === 1 ? '' : 's'} a day` : null,
-    ].filter(Boolean);
-    const days =
-      c.work_days.length === 7 ? 'every day' : c.work_days.join() === '0,1,2,3,4' ? 'weekdays' : `${c.work_days.length} days a week`;
-    return `${parts.length ? parts.join(' · ') : 'No limit'} · ${days}`;
-  }
   const admin = $derived(canManageConnections(board.me));
   const privatePresence = $derived(!!board.me?.access && !board.me.access.all);
   let stats = $state<Stats | null>(null);
@@ -235,22 +220,6 @@
             {#if a.account.kind === 'agent'}
               <AgentConnections entry={a} {admin} onconnect={() => (connect = { preset: a.account.id })} />
               {#if !privatePresence}<AgentWake account={a.account} wake={a.wake ?? 'push'} {admin} onchange={() => void agents.load()} />{/if}
-            {/if}
-            <div class="agent-capacity">
-              <span class="muted small" title="How much this agent can take on in a day">
-                <Icon name="users" size={13} /> Capacity: {capacityText(a.account)}
-              </span>
-              {#if admin || board.me?.account.id === a.account.id}
-                <button
-                  class="link small"
-                  aria-expanded={sizing === a.account.id}
-                  aria-label="Set capacity for {a.account.display_name}"
-                  onclick={() => (sizing = sizing === a.account.id ? null : a.account.id)}>{sizing === a.account.id ? 'Close' : 'Set'}</button
-                >
-              {/if}
-            </div>
-            {#if sizing === a.account.id}
-              <CapacityEditor account={a.account} onclose={() => (sizing = null)} />
             {/if}
             {#if open}
               <AgentManage
@@ -444,15 +413,6 @@
   }
   .agent.picked {
     outline: 2px solid var(--accent);
-  }
-  .agent-capacity {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .agent-capacity :global(svg) {
-    vertical-align: -2px;
   }
   .agent header {
     display: flex;

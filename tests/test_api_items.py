@@ -28,6 +28,36 @@ def _query(client, h, **params) -> list[str]:
 # --- create: exactly one item ---------------------------------------------------------------
 
 
+def test_workload_routes_are_gone_and_estimate_is_an_unknown_item_field(client, alex, todo):
+    account_id = client.get(f"{API}/me", headers=alex).json()["account"]["id"]
+    capacity_path = f"/accounts/{account_id}/capacity"
+    routes = [
+        ("GET", "/workload/boxes"),
+        ("GET", "/capacities"),
+        ("GET", capacity_path),
+        ("PATCH", capacity_path),
+        ("DELETE", capacity_path),
+    ]
+    statuses = {
+        (method, path): client.request(method, f"{API}{path}", headers=alex, json={}).status_code
+        for method, path in routes
+    }
+    errors = {}
+    for field in ("estimate_minutes", "unknown_field"):
+        response = client.post(
+            f"{API}/items",
+            json={"list_id": todo["id"], "title": "Thing", field: 90},
+            headers=alex,
+        )
+        errors[field] = response.status_code
+        if response.status_code == 422:
+            assert [(e["type"], e["loc"]) for e in response.json()["detail"]] == [
+                ("extra_forbidden", ["body", field])
+            ]
+
+    assert (statuses, errors) == (dict.fromkeys(routes, 404), dict.fromkeys(errors, 422))
+
+
 def test_create_makes_exactly_one_item_and_no_children(client, alex, todo):
     item = _item(
         client, alex, todo["id"], body_md="- step one\n- step two\n- step three", priority="high"
@@ -618,7 +648,6 @@ def test_patch_external_ref_taken_409(client, alex, todo):
         {"position": "abc"},
         {"title": 5},
         {"due_at": 12345},
-        {"estimate_minutes": "lots"},
         {"assignees": "alex"},
         {"tags": "x"},
         {"add_tags": "abc"},

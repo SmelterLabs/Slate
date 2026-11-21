@@ -16,15 +16,14 @@ query is Slate's brief (`GET /items/{id}/brief`). On a reply turn (`reply` on st
 answer on the card, then "continue", then the brief again: nothing persists between turns.
 
 The result comes from the `SLATE:` closing line at the end of the command's stdout (the same
-parser as run_task.py). No line: `blocked` ("Paused", never `review`), waiting on `HERMES_ASK`,
-with the stdout tail as the reply. A non-zero exit or
-a turn longer than `HERMES_TURN_TIMEOUT` seconds: `blocked`, waiting on `HERMES_ASK`, with the
-stderr tail as the reply.
+parser as run_task.py). No line: `answered`, with the stdout as the reply, waiting on nobody.
+A non-zero exit or a turn longer than `HERMES_TURN_TIMEOUT` seconds: `failed`, with the
+machine text as `note`. Nothing adds a person as `waiting_on`.
 
 Env: `HERMES_CLI` (default `hermes`; may hold arguments, e.g. a python interpreter and a
 script), `HERMES_PROFILE` (omitted from the command when unset), `HERMES_MAX_TURNS` (default
-50), `HERMES_TURN_TIMEOUT` (seconds, default 600), `HERMES_ASK` (who a blocked task waits on;
-default the authorized brief's ask, then owner), plus the runner's `SLATE_URL`, `SLATE_TOKEN`.
+50), `HERMES_TURN_TIMEOUT` (seconds, default 600), `HERMES_ASK` (passed to the brief when set),
+plus the runner's `SLATE_URL`, `SLATE_TOKEN`.
 Needs only `httpx`. See README.md: "CLI adapter". Slate itself knows nothing of this file.
 """
 
@@ -42,9 +41,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:  # the gateway adapter beside this file: run_task.py, or a copy named hermes_run_task.py
-    from run_task import PAUSED, REPLY_MAX, closing, emit_stdout, quoted
+    from run_task import ENDINGS, REPLY_MAX, closing, emit_stdout, quoted
 except ImportError:
-    from hermes_run_task import PAUSED, REPLY_MAX, closing, emit_stdout, quoted
+    from hermes_run_task import ENDINGS, REPLY_MAX, closing, emit_stdout, quoted
 
 TAIL = 2000
 CAPABILITIES = {
@@ -82,9 +81,9 @@ def query_for(task: dict[str, Any], brief: str) -> str:
     """The brief on a first turn; on a reply turn the answer, "continue", and the brief again."""
     reply = task.get("reply")
     if not isinstance(reply, dict) or not str(reply.get("body_md") or "").strip():
-        return brief
+        return f"{brief}\n\n{ENDINGS}"
     said = quoted(reply)
-    return f"{said}\n\n{CONTINUE}\n\nThe task, for reference:\n\n{brief}"
+    return f"{said}\n\n{CONTINUE}\n\nThe task, for reference:\n\n{brief}\n\n{ENDINGS}"
 
 
 def _tail(text: str | bytes | None) -> str:
@@ -107,7 +106,6 @@ def run(
     if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip():
         return {"outcome": "release", "note": "Unsupported work: a card item id is required."}
     item_id = item["id"]
-    ask = env.get("HERMES_ASK") or "owner"
     try:
         params = {"ask": env["HERMES_ASK"]} if env.get("HERMES_ASK") else None
         r = slate.get(f"/api/v1/items/{item_id}/brief", params=params)
@@ -115,12 +113,10 @@ def run(
         brief = r.json()["text"]
         if not isinstance(brief, str) or not brief.strip():
             raise ValueError("empty brief")
-        ask = env.get("HERMES_ASK") or r.json().get("ask") or "owner"
     except (httpx.HTTPError, KeyError, ValueError, TypeError):
         return {
-            "outcome": "blocked",
-            "waiting_on": ask,
-            "reply": "Could not read the authorized Slate brief; no runtime turn was started.",
+            "outcome": "failed",
+            "note": "Could not read the authorized Slate brief; no runtime turn was started.",
         }
     timeout = float(env.get("HERMES_TURN_TIMEOUT") or 600)
     emit({"note": "Session started"})
@@ -139,26 +135,29 @@ def run(
     except subprocess.TimeoutExpired as e:
         why = f"The Hermes command ran past {timeout:g} seconds and was stopped."
         tail = _tail(e.stderr)
-        return {"outcome": "blocked", "waiting_on": ask, "reply": f"{why}\n\n{tail}".strip()}
+        return {"outcome": "failed", "note": f"{why}\n\n{tail}".strip()[:4000]}
     except OSError as e:
-        return {"outcome": "blocked", "waiting_on": ask, "reply": f"Could not run Hermes: {e}"}
+        return {"outcome": "failed", "note": f"Could not run Hermes: {e}"[:4000]}
     if done.returncode != 0:
         why = f"The Hermes command exited with {done.returncode}."
         tail = _tail(done.stderr) or _tail(done.stdout)
-        return {"outcome": "blocked", "waiting_on": ask, "reply": f"{why}\n\n{tail}".strip()}
+        return {"outcome": "failed", "note": f"{why}\n\n{tail}".strip()[:4000]}
     found = closing(done.stdout)
-    if found is None:  # not finished as far as anyone can tell: pause, never review
-        return {
-            "outcome": "blocked",
-            "waiting_on": ask,
-            "reply": f"{_tail(done.stdout)}\n\n{PAUSED}".strip(),
-        }
-    outcome, who, body = found
+    if found is None:
+        said = (done.stdout or "").strip()
+        return {"outcome": "answered", "reply": (said[:REPLY_MAX] if said else "Answered.")}
+    outcome, who, body, question, options = found
     out: dict[str, Any] = {"outcome": outcome}
     if body:
         out["reply"] = body[:REPLY_MAX]
-    if outcome == "blocked":
-        out["waiting_on"] = who or ask
+    elif outcome == "answered":
+        out["reply"] = "Answered."
+    if outcome == "ask":
+        out["question"] = question
+        if options:
+            out["options"] = options
+        if who:
+            out["waiting_on"] = who
     return out
 
 

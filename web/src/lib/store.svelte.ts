@@ -12,7 +12,7 @@
 //   stream     sign in and out, start and retry, the live stream and how each event applies
 //   items      item writes: optimistic updates and rollbacks, undo, drops, bulk
 //   run        a task's run control (Run now, Nudge, Copy brief) and its pickup state
-//   editors    sections, lists, statuses, rules, tags, capacity, the favorites bar
+//   editors    sections, lists, statuses, rules, tags, the favorites bar
 //   selection  the multi-select set and the dialogs the board opens
 
 import { BoardSelection } from './board/selection.svelte';

@@ -3,7 +3,7 @@ does its "work", and prints a result line. Copy it and replace the middle with y
 
     python slate_runner.py --url https://slate.example.com --exec "python run_one_example.py"
 
-Env RUN_ONE_FAIL=1 makes it fail (exit 1), to see a blocked finish.
+Env RUN_ONE_FAIL=1 makes it fail (exit 1). The runner reports that as `failed`.
 """
 
 import json
@@ -23,5 +23,6 @@ if os.environ.get("RUN_ONE_FAIL"):
 
 # ... the real work goes here ...
 
-# The result: the last JSON line with "outcome" (done, review, blocked or release).
+# The result: the last JSON line with "outcome"
+# (done, review, later, ask, answered, failed, blocked or release).
 print(json.dumps({"outcome": "done", "note": f"Did: {item['title']}"}))

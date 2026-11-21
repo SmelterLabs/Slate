@@ -4,12 +4,14 @@
 //   another task has to finish  -> "Depends on"
 //   an agent stopped, named nobody -> "Agent blocked"
 //   an agent says the work is done -> "Ready for review"
+//   an agent's run broke        -> "Could not run"
 // The person field in the task window keeps its label "Waiting on"; the dependency picker says
 // "Depends on". What leaving the board does is said once, here, and shown when you press it.
 
 export const DEPENDS_ON = 'Depends on';
 export const AGENT_BLOCKED = 'Agent blocked';
 export const READY_FOR_REVIEW = 'Ready for review';
+export const COULD_NOT_RUN = 'Could not run';
 
 /** The first word of a display name; "someone" when the account is unknown. */
 export function firstName(display: string | null | undefined): string {

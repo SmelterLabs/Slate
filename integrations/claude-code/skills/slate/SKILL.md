@@ -61,7 +61,8 @@ the connector was absent.
 | Comment | `slate_comment` `add` `{id, body_md}`; `@handle` notifies them; `assignee` makes it an Ask |
 | Change status | `slate_item` `set_status` `{id, status}` (a status name of that item's list, or its id) |
 | Change fields | `slate_item` `update` `{id, ...only what changes}`; `null` clears |
-| Say what you're doing | `slate_item` `report` `{id, state: working\|blocked\|review\|done, note}` |
+| Say what you're doing | `slate_item` `report` `{id, state: working\|review\|done, note}` |
+| Ask a person | `slate_item` `report` `{id, state: blocked, question, options?, waiting_on?}` |
 | Put a file on the card | `slate_item` `attach` `{id, filename, content_base64, content_type}` (25 MB max) |
 | Undo your own create | `slate_item` `delete` `{id}` within 10 minutes; after that, `archive` |
 | Several writes at once | `slate_batch` `{ops: [...]}` (all or nothing; `$ref.id` reuses a result) |
@@ -84,8 +85,11 @@ clears the badge and completes the task.
    local path as the only pointer: nobody can open it from the board. Over 25 MB (most video),
    attach a still or contact sheet and link the full file somewhere people can open it.
 4. Finish with `report` `done` only after verified acceptance and evidence on the card (or
-   `review` if acceptance remains, or `blocked` with `waiting_on: "<handle>"` and the exact
-   blocker in the note). Name the workspace owner only when the next action is genuinely theirs.
+   `review` if acceptance remains). When only a person can unblock it, ask them: `report`
+   `blocked` with a one-line `question` (optional `options`, 2 to 4 short answers) and
+   `waiting_on: "<handle>"`; without `waiting_on` it goes to whoever asked you, else the
+   workspace owner. `blocked` waiting on a person without a question is refused. Name the
+   workspace owner only when the next action is genuinely theirs.
 
 Agents with a runner use `slate_work` `next` / `heartbeat` / `finish` instead; see
 "Agents with a runner" below.
@@ -94,8 +98,9 @@ Agents with a runner use `slate_work` `next` / `heartbeat` / `finish` instead; s
 
 Task comments never resolve Asks. Finish each runner-owned turn through `slate_work finish`:
 the server consumes only the Ask assignments present at take for dispatch, not visibility.
-Review/blocked/release and assigned-task done leave open Asks for explicit resolution;
-asked-only agent done explicitly resolves only its taken Asks without completing the task.
+Review/ask/blocked/release and assigned-task done leave open Asks for explicit resolution;
+`answered` resolves the Asks its turn took, and asked-only agent done explicitly resolves only
+its taken Asks without completing the task.
 Never bulk-resolve another account's or newly arrived Asks. New/reassigned Asks get a new
 turn. A plain comment/report is not a work finish; runners own that final call.
 
@@ -112,8 +117,8 @@ guarantee**. Before handing actionable work to another agent:
    credentials or inventing a handle.
 3. If the originating task is blocked on the new one, link them: `slate_item` `link`
    `{id: <source task>, item_id: <new task>, kind: "blocked_by"}`. The link does not set
-   `waiting_on`: use `report` `blocked` with `waiting_on: "<handle>"` on the source task
-   separately, naming whoever must act. Name the workspace owner only for a decision or action
+   `waiting_on`: report `blocked` with `waiting_on: "<agent handle>"` on the source task
+   separately when another agent must act, or ask the person who must act (`question`). Name the workspace owner only for a decision or action
    that is genuinely theirs. Read back both cards (ownership, acceptance, dependency and wait
    state) before notifying anyone.
 4. Use `slate_item` `run` `{id}` only for work that should start immediately. Assignment, due
@@ -189,7 +194,8 @@ Agents that Slate wakes through a runner (`wake: push`) run the work loop:
    a trace label, not proof. A same-account caller cannot adopt a run without its proof.
 3. `slate_work heartbeat` `{item_id,run_id,note,progress}`. Definitive 401/403/409 means stop
    and reconcile any unknown remote run; lease expiry is not proof it stopped.
-4. `slate_work finish` `{item_id,run_id,outcome:done|review|later|blocked|release,reply}`. Retry the
+4. `slate_work finish`
+   `{item_id,run_id,outcome:done|review|later|ask|answered|failed|blocked|release,reply}`. Retry the
    identical finish if uncertain; after its receipt take next separately (no combined next).
    Do not start a second work loop or finish independently inside a resident runner's child.
 
@@ -198,8 +204,12 @@ lines; put anything long in a file or page and link it; attach media you made to
 (`slate_item attach`, as in "Working a task by id"); end with the `SLATE:` line. Your answer
 goes in `finish` as `reply` (one comment by you), and your own session for the task as
 `thread: {ref, url}`. When you need a person (a sign-in, a decision, an approval), finish
-`blocked` with `waiting_on: <their handle>` and the exact question or command in `reply`: the
-card says *Waiting on you* to them and their phone gets a push. Their answer in the card's
+`ask` with a one-line `question` (and `options`, 2 to 4 short answers, when the choice is
+simple), `waiting_on` their handle if it is not whoever asked you, and any detail in `reply`:
+the card says *Waiting on you* to them, the question is the headline of their push, and they
+answer with one tap or a reply. If you only replied and nothing else changes, finish
+`answered`. If the machine broke (a crash, a missing tool), finish `failed` with the error in
+`note`: nobody is asked, and Slate runs the card again after 5 and then 30 minutes. Their answer in the card's
 thread is your next turn: `next` returns it as `reply` (with `thread`), so continue the same
 session. Preserve stable author ID, kind and role; a guest is also kind=person and is not owner
 permission. Native command approvals use the runtime's control, never card keywords.
@@ -209,16 +219,16 @@ Keep native approval observation alive; do not close the stream to hand it off.
 (`review`: complete, a person should check it). `later` means you did what you can now, you
 already have any go you need, and the rest must happen at the task's due time: set (or keep)
 a due time still to come, stay assigned, and end with `SLATE: later`. Nobody is waited on, the
-card shows no badge, and the due time runs you again in the same session. Never finish
-`blocked` on a person who already said go; that puts a false *Waiting on you* on their card. If you start background work (subagents,
+card shows no badge, and the due time runs you again in the same session. Never ask a person
+who already said go; that puts a false *Waiting on you* on their card. If you start background work (subagents,
 background processes, other sessions), wait for it to report back inside your turn; never end
-the turn while it is still running. An answer with no `SLATE:` line is not treated as
-finished: the runner asks you again, and then pauses the card as *Waiting on* a person.
+the turn while it is still running. An answer with no `SLATE:` line counts as `answered`:
+your reply stands and nothing else changes.
 
 `slate_checkin` `{since}` reads news that concerns you (mentions, replies, Asks, reminders).
 Chat apps without a runner get work when someone pastes an id or a **Copy brief** prompt, and
-they end a pasted brief with its last line `SLATE: done`, `SLATE: review`, `SLATE: later` or
-`SLATE: blocked waiting_on <handle>`.
+they end a pasted brief with its last line `SLATE: done`, `SLATE: review`, `SLATE: later`,
+`SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`.
 
 ## Pitfalls
 

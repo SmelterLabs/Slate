@@ -2,7 +2,7 @@
 
 # MCP reference
 
-28 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
+27 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
 
 `*` marks a required param. **REST** is the call the action makes in stdio mode and the route that does the same over HTTP.
 
@@ -14,15 +14,15 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 |---|---|---|---|---|
 | `get` | `read` | `id`\* | `GET /items/{item_id}` | the item with subtasks, comments and last 20 events |
 | `list` | `read` | `list_id`, `section_id`, `status`, `assignee`, `tag`, `external_ref`, `due_before`, `due_after`, `q`, `stale`, `include_archived`, `archived`, `trashed`, `closed`, `order`, `kind`, `blocked`, `changed_since`, `fields`, `limit`, `offset`, `ids`, `open_comment_for` | `GET /items` | items matching every filter given (AND); `fields` trims each item, `changed_since` returns only items changed after an event id, `limit`/`offset` page |
-| `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
-| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
+| `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
+| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
 | `set_status` | `write` | `id`\*, `status`\* | `PATCH /items/{item_id}` | move to a status of its list (done stamps completed_at) |
 | `assign` | `write` | `id`\*, `assignees`\* | `PATCH /items/{item_id}` | set who it is assigned to (replaces the set; to take an item yourself, `report` with assign_me) |
 | `tag` | `write` | `id`\*, `tags`\* | `PATCH /items/{item_id}` | set its tags |
-| `report` | `write` | `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `assign_me`, `url`, `claim`, `reply`, `thread`, `id`\* | `POST /items/{item_id}/report` | say what you are doing on it: state working / blocked / review shows a live badge on the card (with note and progress); done clears it and completes the item; idle clears it. The note is also posted as your comment |
+| `report` | `write` | `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `assign_me`, `url`, `claim`, `reply`, `thread`, `id`\* | `POST /items/{item_id}/report` | say what you are doing on it: state working / blocked / review shows a live badge on the card (with note and progress); done clears it and completes the item; idle clears it. The note is also posted as your comment |
 | `run` | `write` | `id`\* | `POST /items/{item_id}/run` | Run now: ask the item's agent assignees to start on it now (records item.run_requested; their runners take it at once). Refused when no agent is assigned or it is done, cancelled or archived |
-| `stop` | `write` | `id`\* | `POST /items/{item_id}/stop` | Stop: ask the agent working on the item to stop (records item.stop_requested; its runner ends the run, which finishes blocked waiting on you). Refused when no agent is working on it |
-| `brief` | `read` | `ask`, `id`\* | `GET /items/{item_id}/brief` | the task as one paste-ready prompt (title, due, description, checklists, recent comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: review`, `SLATE: later` or `SLATE: blocked waiting_on <handle>`; a comment ending so reports back |
+| `stop` | `write` | `id`\* | `POST /items/{item_id}/stop` | Stop: ask the agent working on the item to stop (records item.stop_requested; its runner ends the run, which finishes answered, saying where it stopped). Refused when no agent is working on it |
+| `brief` | `read` | `ask`, `id`\* | `GET /items/{item_id}/brief` | the task as one paste-ready prompt (title, due, description, checklists, recent comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`; a comment ending so reports back |
 | `comment` | `write` | `id`\*, `body_md`\* | `POST /items/{item_id}/comments` | add a comment |
 | `bulk_update` | `write` | `ids`\*, `changes`\* | `POST /items/bulk` | apply one change to many items at once (all or nothing; up to 500) |
 | `archive` | `write` | `id`\* | `POST /items/{item_id}/archive` | hide it and its subtasks (soft; history stays) |
@@ -57,6 +57,7 @@ Comments are the conversation on an item; @handle mentions an account and reache
 | `add` | `write` | `body_md`\*, `assignee`, `keep_open`, `id`\* | `POST /items/{item_id}/comments` | comment on item id; @handle mentions an account; assignee makes it an Ask (open in their queue until explicitly resolved); replies notify earlier participants but do not resolve Asks; keep_open is accepted for compatibility |
 | `assign` | `write` | `id`\*, `assignee`\* | `PATCH /comments/{comment_id}` | address a comment to an account, or take it off with assignee null (id is the comment id; the author or an admin) |
 | `resolve` | `write` | `id`\* | `POST /comments/{comment_id}/resolve` | close an Ask (id is the comment id; its assignee, author or an admin) |
+| `answer` | `write` | `option`\*, `id`\* | `POST /comments/{comment_id}/answer` | answer an agent's question (a comment with ask) with one of its options: posts your reply, the card stops waiting on you and the agent is woken (id is the comment id; the person asked or an admin) |
 | `edit` | `write` | `id`\*, `body_md`\* | `PATCH /comments/{comment_id}` | edit your own comment (id is the comment id) |
 | `delete` | `write` | `id`\* | `DELETE /comments/{comment_id}` | delete a comment for good (id is the comment id; your own, or anyone's as an admin) |
 | `run` | `read` | `id`\* | `GET /comments/{comment_id}/run` | the run log kept with an agent's answer: what its run did while it worked (id is the comment id; a comment with one carries run_steps) |
@@ -136,18 +137,6 @@ Automations are when-this-then-that rules on a list, section or everywhere: a tr
 | `run` | `write` | `item_id`\*, `id`\* | `POST /automations/{automation_id}/run` | run a rule's actions on one item now (trigger and conditions skipped) |
 | `rotate_secret` | `write` | `id`\* | `POST /automations/{automation_id}/secret` | a new secret for verifying the rule's webhook signatures (shown once) |
 | `runs` | `read` | `id`, `limit` | `GET /automation-runs` | the run log, newest first: what fired, on which item, how each action went |
-
-## `slate_workload`
-
-Who has how much on: the Box view's per-person and per-agent counts (open, in progress, overdue, recently done) and open minutes against this week's capacity. Use boxes before handing work to someone, and set_capacity to say how much you can take on.
-
-| Action | Scope | Params | REST | What |
-|---|---|---|---|---|
-| `boxes` | `read` | `kinds`, `section_id`, `list_id`, `done_days` | `GET /workload/boxes` | the Box view: per person and agent (and unassigned) open, in progress, overdue and recently done counts, with open minutes against this week's capacity |
-| `capacities` | `read` | `kinds` | `GET /capacities` | every person's and agent's capacity (hours a day, tasks a day, days) |
-| `capacity` | `read` | `account_id`\* | `GET /accounts/{account_id}/capacity` | one account's capacity |
-| `set_capacity` | `write` | `hours_per_day`, `tasks_per_day`, `work_days`, `account_id`\* | `PATCH /accounts/{account_id}/capacity` | set your own capacity (or anyone's as an admin): hours_per_day, tasks_per_day (null = no limit) and work_days (0 = Monday) |
-| `reset_capacity` | `write` | `account_id`\* | `DELETE /accounts/{account_id}/capacity` | put an account's capacity back to the defaults for its kind |
 
 ## `slate_reminder`
 
@@ -285,9 +274,9 @@ The agent work loop in three calls: `next` takes your best free task (with a lea
 | `doc_reconcile` | `write` | `run_id`\*, `state`\*, `evidence`\*, `doc_id`\*, `thread_id` | `POST /work/doc/reconcile` | confirm remote doc-turn termination with run proof and actual runtime evidence |
 | `doc_clear` | `write` | `doc_id`\*, `thread_id`, `agent_id`\* | `POST /work/doc/clear` | a person's Clear of an agent's expired doc turn, as chat_clear |
 | `next` | `write` | `kinds`, `run_id`, `lease_seconds`, `pool`, `list_id`, `section_id`, `tag`, `item_id`, `channel`, `thread_id`, `doc_id`, `resume`, `note`, `context`, `wait` | `POST /work/next` | take your next task: the best open one assigned to you or waiting on you (pool: also unassigned ones) that is not blocked, not held by another agent and not waiting on a person; priority order, then due date. It is yours for lease_seconds; item is null when none is free (wait: long-poll for one) |
-| `heartbeat` | `write` | `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`, `item_id`\* | `POST /work/{item_id}/heartbeat` | keep holding the task (the lease runs lease_seconds from now); note/progress update the badge. The answer carries messages (Asks sent to you since the take: read them, then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish blocked waiting_on them). An error saying you do not hold it means stop: another agent has it |
+| `heartbeat` | `write` | `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`, `item_id`\* | `POST /work/{item_id}/heartbeat` | keep holding the task (the lease runs lease_seconds from now); note/progress update the badge. The answer carries messages (Asks sent to you since the take: read them, then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish answered, saying where you stopped). An error saying you do not hold it means stop: another agent has it |
 | `activity` | `write` | `run_id`, `lines`\*, `item_id`\* | `POST /work/{item_id}/activity` | say what you are doing on a task you hold, as it happens (lines: short strings); shown live in the task window, never stored |
-| `finish` | `write` | `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `url`, `reply`, `thread`, `next`, `item_id`\* | `POST /work/{item_id}/finish` | report back in one call: outcome done / review / later (stay assigned, no badge, the due time still to come runs you again) / blocked (waiting_on) / release, a note posted as your comment, a status, hand_to another account; next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, not resolution; asked-only agent done explicitly resolves only its taken Asks. New/reassigned Asks during the run remain pending; humans must explicitly resolve |
+| `finish` | `write` | `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`, `next`, `item_id`\* | `POST /work/{item_id}/finish` | report back in one call (run_id from next's lease): outcome done / review / later (stay assigned, no badge, the due time still to come runs you again) / ask (question, options: the only way to stop the card on a person) / answered (reply: nothing else changes) / failed (note: the machine broke; nobody is asked, Slate retries) / blocked (on an agent or nobody) / release, a note posted as your comment, a status, hand_to another account; next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, not resolution; asked-only agent done explicitly resolves only its taken Asks. New/reassigned Asks during the run remain pending; humans must explicitly resolve |
 | `held` | `read` | — | `GET /work` | the tasks you hold now and when each lease runs out |
 | `plan` | `read` | — | `GET /agents/plan` | what each agent is about to run in the next 24 h, by the same rule as `next`: tasks whose run time comes (reason due), Run now presses (run_requested), open Asks (ask), and the tasks each holds now with their age; soonest first |
 
@@ -311,7 +300,7 @@ Docs are nested Markdown pages (plans, notes, specs, logs) in a list, a section 
 | `version` | `read` | `id`\*, `version_no`\* | `GET /docs/{doc_id}/versions/{version_no}` | one version with its body |
 | `diff` | `read` | `from_version`\*, `to_version`, `id`\* | `GET /docs/{doc_id}/diff` | unified diff of the body between two versions (default to: the current text) |
 | `restore` | `write` | `id`\*, `version_no`\* | `POST /docs/{doc_id}/versions/{version_no}/restore` | put an older version's title and body back (as a new version) |
-| `create_task` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `estimate_minutes`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`, `id`\* | `POST /docs/{doc_id}/tasks` | file one task from the page: replace names the text that becomes its live card (else the card is added at the end); the task links back. Slate rule: create makes exactly one item; use split for subtasks. |
+| `create_task` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `replace`, `occurrence`, `base_revision`, `id`\* | `POST /docs/{doc_id}/tasks` | file one task from the page: replace names the text that becomes its live card (else the card is added at the end); the task links back. Slate rule: create makes exactly one item; use split for subtasks. |
 | `attach` | `write` | `filename`\*, `content_base64`\*, `content_type`, `id`\* | `POST /docs/{doc_id}/files/base64` | upload an image or file into the page; paste the returned markdown into the body |
 | `remove_file` | `write` | `file_id`\* | `DELETE /doc-files/{file_id}` | remove an uploaded file |
 | `upload` | `write` | `filename`\*, `content_base64`\*, `content_type`, `note`\*, `id`\* | `POST /docs/{doc_id}/revisions/base64` | the next revision of a file doc (a PDF, spreadsheet, photo); the previous revision stays, superseded; note says what changed and is required |

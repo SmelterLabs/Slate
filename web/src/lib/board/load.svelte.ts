@@ -1,5 +1,5 @@
 // Loading and the caches: the full REST load behind the stream, the nav, the archived
-// panel, tags, rules, capacities and favorites, refetching single items, and the open
+// panel, tags, rules and favorites, refetching single items, and the open
 // task's detail (the drawer) with its comment dots.
 
 import { ApiError, get, post } from '../api';
@@ -14,7 +14,6 @@ import type {
   Recurrence,
   SavedView,
   Section,
-  Capacity,
   Tag,
 } from '../types';
 import { BoardViews } from './views.svelte';
@@ -44,7 +43,6 @@ export class BoardLoad extends BoardViews {
     void this.loadTags(); // tag colours on chips
     void this.loadCommentDots(); // the dot in a card's corner
     void this.loadRules(); // repeat labels on cards
-    void this.loadCapacities(); // the Agents page
     await this.loadAccounts();
     if (this.selection.kind === 'list' && !this.lists[this.selection.id]) {
       this.selection = { kind: 'everything' };
@@ -173,15 +171,6 @@ export class BoardLoad extends BoardViews {
       return r;
     } catch {
       return null;
-    }
-  }
-
-  async loadCapacities() {
-    try {
-      const list = await get<Capacity[]>('/capacities');
-      this.capacities = Object.fromEntries(list.map((c) => [c.account_id, c]));
-    } catch {
-      /* a token that cannot see capacities gets the defaults on the page */
     }
   }
 

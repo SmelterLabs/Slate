@@ -19,6 +19,9 @@ describe('needOf', () => {
   it('an agent blocked on my card with nobody named', () => {
     expect(needOf(item({ created_by: ME, agent: flag('blocked') }), ME, accounts)).toBe('blocked');
   });
+  it('an answered agent (its reply is in, an open Ask for it) needs nobody until it picks it up', () => {
+    expect(needOf(item({ created_by: ME, open_asks: ['sc'], agent: flag('blocked') }), ME, accounts)).toBeNull();
+  });
   it('an agent blocked on someone else is not mine', () => {
     expect(needOf(item({ created_by: ME, waiting_on_account_id: 'guest', agent: flag('blocked') }), ME, accounts)).toBeNull();
   });
@@ -31,6 +34,16 @@ describe('needOf', () => {
   });
   it("review on another person's card is theirs", () => {
     expect(needOf(item({ created_by: 'guest', agent: flag('review') }), ME, accounts)).toBeNull();
+  });
+  it('a structured ask waiting on me is a need', () => {
+    const ask = { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'], by_id: 'sc', at: '2026-10-29T10:00:00Z' };
+    expect(needOf(item({ created_by: 'guest', waiting_on_account_id: ME, agent: flag('blocked'), ask }), ME, accounts)).toBe('waiting');
+  });
+  it('a failed agent is not a need, whoever filed the card or what wait/ask was left on it', () => {
+    expect(needOf(item({ created_by: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: 'sc', agent: flag('failed') }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, open_asks: [ME], agent: flag('failed') }), ME, accounts)).toBeNull();
   });
   it('working agents, dependency blocks, closed and archived cards never count', () => {
     expect(needOf(item({ created_by: ME, agent: flag('working') }), ME, accounts)).toBeNull();

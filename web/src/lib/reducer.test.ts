@@ -238,6 +238,28 @@ describe('applyEvent', () => {
     expect(d.items.I1.agent).toBeNull();
   });
 
+  it('a failed report sets a failed badge, and an ask report refetches for the full ask', () => {
+    const d = data(item());
+    applyEvent(d, ev({ type: 'item.reported', actor_id: 'AGENT', after: { state: 'failed', note: 'Boom\nmore', by: 'AGENT' } }));
+    expect(d.items.I1.agent?.state).toBe('failed');
+    const fx = applyEvent(d, ev({ type: 'item.reported', actor_id: 'AGENT', after: { state: 'blocked', question: 'Start now?', options: ['Yes', 'No'], waiting_on: 'me' } }));
+    expect(d.items.I1.agent?.state).toBe('blocked');
+    expect(fx.refetch).toEqual(['I1']);
+  });
+  it('item.run_failed refetches the card so its failed badge shows', () => {
+    const d = data(item());
+    expect(applyEvent(d, ev({ type: 'item.run_failed', after: { agent_id: 'AGENT', failures: 3, note: 'Boom' } })).refetch).toEqual(['I1']);
+  });
+  it('clears a stale ask whenever waiting_on_account_id changes, not only when cleared', () => {
+    const ask = { comment_id: 'C1', question: 'Start now?', options: ['Yes', 'No'], by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
+    const d1 = data(item({ waiting_on_account_id: 'me', ask }));
+    applyEvent(d1, ev({ field: 'waiting_on_account_id', before: 'me', after: null }));
+    expect(d1.items.I1.ask).toBeNull();
+    const d2 = data(item({ waiting_on_account_id: 'me', ask }));
+    applyEvent(d2, ev({ field: 'waiting_on_account_id', before: 'me', after: 'other' }));
+    expect(d2.items.I1.waiting_on_account_id).toBe('other');
+    expect(d2.items.I1.ask).toBeNull();
+  });
   it('keeps agent_threads current from a report, per agent, and past done', () => {
     const d = data(item());
     const thread = { ref: 'sess-1', url: 'hermes://chat/sess-1?profile=agent' };
@@ -266,7 +288,6 @@ describe('applyEvent', () => {
       today: false,
       views: false,
       favorites: false,
-      capacities: false,
       tags: false,
     });
   });
@@ -282,7 +303,6 @@ describe('applyEvent', () => {
         today: false,
         views: true,
         favorites: false,
-          capacities: false,
           tags: false,
       });
     }

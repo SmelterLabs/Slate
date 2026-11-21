@@ -14,7 +14,8 @@ Severity = the card's priority flag:
     low    -> 1    (e.g. log only)
 
 A card with no flag, or an entry with no card (a health alert, a guest's expiring access),
-goes out at `--default-tier` (2). Nothing above 4 is ever sent. What each level does is up to
+goes out at `--default-tier` (2). A `waiting` alert is at least 3 (the card's tier when that
+is higher), and never above 4. Nothing above 4 is ever sent. What each level does is up to
 your broker.
 
 State (`--state`, JSON) holds the cursor: the newest inbox time already handled and the event
@@ -44,9 +45,9 @@ from typing import Any
 log = logging.getLogger("slate-push")
 
 TIER = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
-# Same default as Slate's own push reasons (service/push.py DEFAULT_REASONS) without chat and
-# the daily digest: a routine digest is not an alert.
-DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access"
+# Card push reasons, without chat and the daily digest, plus `failed` (a run the agent
+# could not finish). A routine digest is not an alert.
+DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed"
 
 Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
 
@@ -83,10 +84,16 @@ def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
         "reminder": "Reminder",
         "health": "Slate health",
         "access": "Guest access ending",
+        "failed": f"{who} could not run",
         "comment": f"{who} commented",
         "status": f"{who} changed the status",
     }
     head = heads.get(reason, f"{who} changed it")
+    if reason == "waiting":
+        question = str(after.get("question") or "").splitlines()
+        first = question[0].strip() if question else ""
+        body = f"{first}\n{thing}" if first else thing
+        return f"Slate: {head}"[:80], body[:260]
     return f"Slate: {head}"[:80], (f"{thing}: {text}" if text else thing)[:260]
 
 
@@ -190,6 +197,8 @@ class Bridge:
         ev = e["event"]
         item_id = ev.get("item_id")
         severity = tier_for(self.priority(item_id), self.default_tier)
+        if e["reason"] == "waiting":
+            severity = min(4, max(3, severity))
         title, body = wording(e, self.name(ev["actor_id"]))
         click = f"{self.board}/#/inbox?task={item_id}" if item_id else f"{self.board}/#/inbox"
         payload = {"severity": severity, "title": title, "body": body, "click_url": click}

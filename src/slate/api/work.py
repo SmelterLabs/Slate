@@ -16,12 +16,15 @@ from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.chat import MessageOut
 from slate.api.doc_comments import DocCommentOut
 from slate.api.schemas import (
+    OPTIONS_FIELD,
+    QUESTION_FIELD,
     REPLY_FIELD,
     THREAD_FIELD,
     ActivityOut,
     AgentThreadOut,
     CommentOut,
     ItemOut,
+    Option,
 )
 from slate.service import chatwake, comments, docwake, items, reports, work
 from slate.service.core import Actor
@@ -125,7 +128,7 @@ class HeartbeatOut(LeaseOut):
     stop: StopOut | None = Field(
         default=None,
         description="Someone asked this run to stop (`POST /items/{id}/stop`): end it now and "
-        "finish (`blocked`, `waiting_on` them, saying where you stopped). null: carry on",
+        "finish `answered`, saying where you stopped. null: carry on",
     )
     messages: list[CommentOut] = Field(
         default_factory=list,
@@ -286,14 +289,22 @@ class FinishIn(BaseModel):
             )
         return self
 
-    outcome: Literal["done", "review", "later", "blocked", "release"] = Field(
+    outcome: Literal[
+        "done", "review", "later", "ask", "answered", "failed", "blocked", "release"
+    ] = Field(
         description="done completes it; review leaves a 'ready for review' badge; later "
         "keeps it yours with no badge until its due time (which must still be to come) runs "
-        "you again; blocked (with waiting_on) asks someone; release gives it up (un-assigns "
-        "you)"
+        "you again; ask (with question) stops the card on a person, the only way to; answered "
+        "(with reply) posts your reply and changes nothing else; failed (with note) says the "
+        "machine broke: nobody is asked, Slate retries after 5 and 30 minutes, then tells the "
+        "card's people; blocked waits on an agent or on nobody; release gives it up "
+        "(un-assigns you)"
     )
     note: str | None = Field(
-        default=None, max_length=4000, description="What you did; posted as your comment"
+        default=None,
+        max_length=4000,
+        description="What you did; posted as your comment. With failed: what broke, in the "
+        "machine's words (kept on the finish event, never posted)",
     )
     comment: bool = Field(default=True, description="Post the note as a comment")
     progress: int | None = Field(default=None, ge=0, le=100)
@@ -304,7 +315,13 @@ class FinishIn(BaseModel):
         default=None,
         description="Handle to assign the task to in your place (an agent picks it up next)",
     )
-    waiting_on: str | None = Field(default=None, description="With blocked: who you wait on")
+    waiting_on: str | None = Field(
+        default=None,
+        description="With ask: the person you ask (default: whoever asked you this turn, else "
+        "the owner). With blocked: the agent you wait on",
+    )
+    question: str | None = QUESTION_FIELD
+    options: list[Option] | None = OPTIONS_FIELD
     url: str | None = Field(
         default=None,
         max_length=2000,
@@ -732,7 +749,8 @@ def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 @router.post("/work/{item_id}/finish", response_model=FinishOut)
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
-    later, blocked, release), a note posted as your comment, a `status`, and
+    later, ask, answered, failed, blocked, release), a note posted as your comment, a
+    `status`, and
     `hand_to` to pass the task to another account. Your lease ends. With `next`, the same
     call also takes your next task (and may `wait` for one). Agent finishes consume only Ask
     assignments present at take, so the same open Ask cannot repeatedly dispatch done,

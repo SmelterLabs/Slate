@@ -69,12 +69,14 @@ export type Task = {
   context: unknown[];
   remaining: number;
 };
-export type Outcome = 'done' | 'review' | 'later' | 'blocked' | 'release';
+export type Outcome = 'done' | 'review' | 'later' | 'ask' | 'answered' | 'failed' | 'blocked' | 'release';
 export type FinishOptions = {
   run_id?: string;
   status?: string;
   hand_to?: string;
   waiting_on?: string;
+  question?: string;
+  options?: string[];
   progress?: number;
   comment?: boolean;
   next?: NextOptions;
@@ -348,7 +350,7 @@ export class Slate {
   /**
    * The work loop: take a task, `await handle(task)`, report back, take the next one. When it
    * resolves (optionally to a result note) the task is finished done and the same call takes
-   * the next; if it throws, the task is finished blocked with the error. A heartbeat keeps the
+   * the next; if it throws, the task is finished failed with the error. A heartbeat keeps the
    * lease every `lease_seconds / 3` while `handle` runs. With nothing to do, each `next` waits
    * up to `wait` seconds. `once` stops when no task is free. Stop the loop with `signal`.
    */
@@ -384,7 +386,7 @@ export class Slate {
       try {
         note = (await handle({...task, item: task.item, signal: control.signal})) || undefined;
       } catch (e) {
-        outcome = 'blocked';
+        outcome = 'failed';
         note = `Failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 4000);
       } finally {
         clearInterval(beat);
@@ -403,8 +405,7 @@ export class Slate {
    * The older item-shaped loop, now `workForever` underneath: takes each task with
    * `POST /work/next` (long-polling up to `intervalMs`, at most 60 s) and calls `handle(item)`.
    * When it resolves (optionally to a result comment) the task is finished done; if it throws,
-   * it is finished blocked with the error, and the server pauses it for this agent for an hour
-   * (`BLOCKED_PAUSE`) unless someone answers or presses Run now. `onNews` gets the check-in
+   * it is finished failed with the error and nobody is waited on. `onNews` gets the check-in
    * news before each task. `once` does a single pass. Stop the loop with `signal`.
    */
   async runForever(

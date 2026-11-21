@@ -166,7 +166,6 @@ export interface Item {
   checklist_total?: number;
   attachment_count?: number;
   // ClickUp-parity fields; optional so older payloads and fixtures still type-check.
-  estimate_minutes?: number | null;
   blocked_by?: string[];
   blocking?: string[];
   related?: string[];
@@ -177,6 +176,8 @@ export interface Item {
   blocked?: boolean;
   /** The latest agent report while an agent is on it (POST /items/{id}/report). */
   agent?: AgentFlag | null;
+  /** A structured question from an agent while the card waits on a person through it, else null. */
+  ask?: ItemAsk | null;
   /** Each agent's own conversation for this task (its session ref and a link to open it). */
   agent_threads?: AgentThread[];
   /** A Run now (or the due-time run stage) newer than the last take: asked, not picked up. */
@@ -186,18 +187,20 @@ export interface Item {
   purge_at?: string | null;
 }
 
-/** GET /capacities: how much one person or agent can take on (the Agents page). Null = no limit. */
-export interface Capacity {
-  account_id: string;
-  /** False: the defaults for the account's kind apply. */
-  custom: boolean;
-  hours_per_day: number | null;
-  tasks_per_day: number | null;
-  /** Weekdays worked, 0 = Monday. */
-  work_days: number[];
+export type AgentState = 'working' | 'blocked' | 'review' | 'failed';
+
+/** The structured question on the comment that carries an agent's ask. */
+export interface CommentAsk {
+  question: string;
+  options: string[];
 }
 
-export type AgentState = 'working' | 'blocked' | 'review';
+/** An item's open structured ask: the comment, its question, who asked and when. */
+export interface ItemAsk extends CommentAsk {
+  comment_id: string;
+  by_id: string;
+  at: string;
+}
 
 export interface AgentFlag {
   state: AgentState;
@@ -251,6 +254,8 @@ export interface Comment {
   reactions?: Reaction[];
   /** Handles @mentioned in the body. */
   mentions?: string[];
+  /** A structured ask on this comment (its question and tap answers), else null. */
+  ask?: CommentAsk | null;
   /** An Ask: the account it is addressed to; open while resolved_at is null. */
   assignee_id?: string | null;
   resolved_at?: string | null;

@@ -117,7 +117,7 @@ it:
   links, subtasks via `item.created` with a watched `parent_id`, an agent's report when its state
   changes). Description saves collapse to the newest per author and item in the inbox list; push
   sends one per author and item until a 10-minute pause (`cursors.EDIT_QUIET`). When the same actor's
-  change also made the item wait on the account (an agent's blocked reply: comment + report +
+  change also made the item wait on the account (an agent's ask: comment + report +
   `waiting_on`), the follow/watching entries within 2 s are dropped and only `waiting` is told
   (`inbox.waits`/`waiting_covers`, inbox and push). An agent's report that it started
   (`item.reported` with state `working`) is an inbox entry but is never pushed or emailed
@@ -381,7 +381,7 @@ event whose `session_ref` is `revert:<event id>`. That event is the record; ther
 a PATCH.
 
 - **What reverts.** `item.updated` on a plain field (`revert.FIELDS`: title, priority, start/due
-  dates, `due_date_only`, waiting on, acceptance, estimate, kind, external ref, position, the
+  dates, `due_date_only`, waiting on, acceptance, kind, external ref, position, the
   description, the tags), `item.status_changed` (`before` is a status id; "no status before" is
   refused), `item.assigned` (`before` is handles) and `item.moved` (`before` is the list id; a
   subtask that cannot move alone fails as the move would). Anything else is 422 "cannot be

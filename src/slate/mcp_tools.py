@@ -63,7 +63,6 @@ from slate.api import today as today_api
 from slate.api import views as views_api
 from slate.api import webhooks as webhooks_api
 from slate.api import work as work_api
-from slate.api import workload as workload_api
 from slate.api.accounts import AccountPatch, TokenIn, me_view
 from slate.api.auth import Auth
 from slate.api.automations import AutomationPatch, RunNowIn
@@ -106,7 +105,6 @@ from slate.api.schemas import (
 from slate.api.views import ViewPatch
 from slate.api.webhooks import WebhookPatch
 from slate.api.work import FinishIn, FinishOut, HeartbeatIn, NextIn, NextOut
-from slate.api.workload import CapacityIn
 from slate.batch import Later
 from slate.service import items, work
 from slate.service.accounts import Principal
@@ -714,16 +712,16 @@ ITEM_ACTIONS = {
     "stop": bind(
         items_api.stop,
         "Stop: ask the agent working on the item to stop (records item.stop_requested; its "
-        "runner ends the run, which finishes blocked waiting on you). Refused when no agent "
-        "is working on it",
+        "runner ends the run, which finishes answered, saying where it stopped). Refused when "
+        "no agent is working on it",
         ItemRef,
     ),
     "brief": bind(
         items_api.get_brief,
         "the task as one paste-ready prompt (title, due, description, checklists, recent "
         "comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: "
-        "review`, `SLATE: later` or `SLATE: blocked waiting_on <handle>`; a comment ending so "
-        "reports back",
+        "review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> "
+        "[option | option]`; a comment ending so reports back",
         query_model(items_api.get_brief, id=ITEM_ID),
     ),
     "comment": bind(comments_api.add_comment, "add a comment", ItemComment),
@@ -1161,8 +1159,9 @@ WORK_ACTIONS = {
         work_api.heartbeat,
         "keep holding the task (the lease runs lease_seconds from now); note/progress update "
         "the badge. The answer carries messages (Asks sent to you since the take: read them, "
-        "then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish blocked "
-        "waiting_on them). An error saying you do not hold it means stop: another agent has it",
+        "then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish answered, "
+        "saying where you stopped). An error saying you do not hold it means stop: another "
+        "agent has it",
         with_id(HeartbeatIn, "item_id", "The task you hold"),
     ),
     "activity": bind(
@@ -1173,9 +1172,12 @@ WORK_ACTIONS = {
     ),
     "finish": bind(
         work_api.finish,
-        "report back in one call: outcome done / review / later (stay assigned, no badge, the "
-        "due time still to come runs you again) / blocked (waiting_on) / release, a "
-        "note posted as your comment, a status, hand_to another account; "
+        "report back in one call (run_id from next's lease): outcome done / review / later "
+        "(stay assigned, no badge, the due time still to come runs you again) / ask (question, "
+        "options: the only way to stop the card on a person) / answered (reply: nothing else "
+        "changes) / failed (note: the machine broke; nobody is asked, Slate retries) / blocked "
+        "(on an agent or nobody) / release, a note posted as your comment, a status, hand_to "
+        "another account; "
         "next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, "
         "not resolution; asked-only agent done explicitly resolves only its taken Asks. "
         "New/reassigned Asks during the run remain pending; humans must explicitly resolve",
@@ -1277,6 +1279,13 @@ COMMENT_ACTIONS = {
         comments_api.resolve,
         "close an Ask (id is the comment id; its assignee, author or an admin)",
         CommentRef,
+    ),
+    "answer": bind(
+        comments_api.answer,
+        "answer an agent's question (a comment with ask) with one of its options: posts your "
+        "reply, the card stops waiting on you and the agent is woken (id is the comment id; "
+        "the person asked or an admin)",
+        with_id(comments_api.AnswerIn, "id", "The question's comment id"),
     ),
     "edit": bind(
         comments_api.edit_comment, "edit your own comment (id is the comment id)", CommentEdit
@@ -1635,32 +1644,6 @@ DOC_ACTIONS = {
     ),
 }
 
-# Workload -----------------------------------------------------------------------------------
-
-WORKLOAD_ACTIONS = {
-    "boxes": bind(
-        workload_api.get_boxes,
-        "the Box view: per person and agent (and unassigned) open, in progress, overdue and "
-        "recently done counts, with open minutes against this week's capacity",
-    ),
-    "capacities": bind(
-        workload_api.list_capacities,
-        "every person's and agent's capacity (hours a day, tasks a day, days)",
-    ),
-    "capacity": bind(workload_api.get_capacity, "one account's capacity", AccountRef),
-    "set_capacity": bind(
-        workload_api.set_capacity,
-        "set your own capacity (or anyone's as an admin): hours_per_day, tasks_per_day "
-        "(null = no limit) and work_days (0 = Monday)",
-        with_id(CapacityIn, "account_id", "Account id (a person or an agent)"),
-    ),
-    "reset_capacity": bind(
-        workload_api.reset_capacity,
-        "put an account's capacity back to the defaults for its kind",
-        AccountRef,
-    ),
-}
-
 # Reminders ----------------------------------------------------------------------------------
 
 REMINDER_ACTIONS = {
@@ -1845,16 +1828,6 @@ TOOLS: dict[str, ToolSpec] = {
             destructive=True,
         ),
         ToolSpec(
-            "slate_workload",
-            "Slate workload",
-            "Who has how much on: the Box view's per-person and per-agent counts (open, in "
-            "progress, overdue, recently done) and open minutes against this week's capacity. "
-            "Use boxes before handing work to someone, and set_capacity to say how much you "
-            "can take on.",
-            {"action": "boxes", "params": {"kinds": "agents"}},
-            WORKLOAD_ACTIONS,
-        ),
-        ToolSpec(
             "slate_reminder",
             "Slate reminders",
             "Reminders tell an account about an item at a time, or a set time before its due "
@@ -1973,9 +1946,9 @@ TOOLS: dict[str, ToolSpec] = {
                 "action": "finish",
                 "params": {
                     "item_id": "Ab12Cd34Ef56",
+                    "run_id": "the run_id from next's lease",
                     "outcome": "done",
                     "note": "Sent the invoice",
-                    "next": {},
                 },
             },
             WORK_ACTIONS,

@@ -2,7 +2,7 @@
 
 import { shownProgress } from './conversation';
 import { priorityLabel } from './priority';
-import { ago, formatEstimate, shortDate } from './format';
+import { ago, shortDate } from './format';
 import { digestText, leadText, type DigestCounts } from './reminders';
 import type { Priority, SlateEvent } from './types';
 
@@ -121,6 +121,8 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
     }
     case 'comment.seen':
       return 'read a message while working';
+    case 'item.run_failed':
+      return 'could not run';
     case 'item.work_started':
       return 'started working on this';
     case 'item.work_finished': {
@@ -194,6 +196,8 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
           return `is blocked on this${pct}`;
         case 'review':
           return `marked this ready for review${pct}`;
+        case 'failed':
+          return 'could not run';
         case 'done':
           return 'finished this';
         default:
@@ -288,8 +292,6 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return 'moved this to another list';
     case 'occurrence_at':
       return 'moved the occurrence date';
-    case 'estimate_minutes':
-      return ev.after ? `set the estimate to ${formatEstimate(Number(ev.after))}` : 'cleared the estimate';
     default:
       return `changed ${String(ev.field ?? 'this').replace(/_/g, ' ')}`;
   }

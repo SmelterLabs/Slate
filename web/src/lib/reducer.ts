@@ -24,8 +24,6 @@ export interface Effects {
   tags: boolean;
   /** Someone's favorites changed: the store reloads them if they are this board's. */
   favorites: boolean;
-  /** Someone's capacity changed: reload the capacities. */
-  capacities: boolean;
 }
 
 // Columns an `item.updated` event may carry that map one-to-one onto `Item`.
@@ -47,7 +45,6 @@ const SCALARS = new Set([
   'archived_at',
   'list_id',
   'parent_id',
-  'estimate_minutes',
 ]);
 
 // Event types whose `field` / `after` are a column and its new value.
@@ -75,6 +72,7 @@ function fromSnapshot(data: BoardData, snap: Record<string, unknown>): Item | nu
     related: [],
     blocked: false,
     comment_count: 0,
+    ask: null,
   };
 }
 
@@ -92,7 +90,6 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     views: false,
     tags: false,
     favorites: false,
-    capacities: false,
   };
   const kind = ev.type.split('.')[0];
 
@@ -106,10 +103,6 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
   }
   if (kind === 'favorite') {
     fx.favorites = true;
-    return fx;
-  }
-  if (kind === 'capacity') {
-    fx.capacities = true;
     return fx;
   }
   if (kind === 'section' || kind === 'list') {
@@ -219,8 +212,12 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         note?: string | null;
         progress?: number | null;
         url?: string | null;
+        question?: string;
         thread?: { ref?: string; url?: string | null } | null;
       };
+      // An ask report carries the question but not the comment id the answer button needs:
+      // the item view supplies the full ask.
+      if (typeof r.question === 'string') fx.refetch.push(id);
       // A new or changed thread rides on the report: keep the row's agent_threads current so
       // the task window's session links live on after the badge clears (done).
       if (r.thread?.ref) {
@@ -228,7 +225,7 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.agent_threads = [...rest, { account_id: ev.actor_id, ref: r.thread.ref, url: r.thread.url ?? null }];
       }
       it.agent =
-        r.state === 'working' || r.state === 'blocked' || r.state === 'review'
+        r.state === 'working' || r.state === 'blocked' || r.state === 'review' || r.state === 'failed'
           ? {
               state: r.state,
               by: ev.actor_id,
@@ -242,6 +239,10 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     }
     case 'item.run_requested': // Run now: the store shows "Requested…" (store.runRequested)
       fx.today = false;
+      break;
+    case 'item.run_failed': // the card's failed badge comes from the item view
+      fx.today = false;
+      if (it) fx.refetch.push(id);
       break;
     case 'item.due_soon': // the scheduler's notices: `field` is due_at but `after` is
     case 'item.due': // {due_at, ...}, not a new value, and nothing on the item changed
@@ -261,6 +262,7 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
+        if (ev.field === 'waiting_on_account_id') it.ask = null;
         if (ev.field === 'list_id' || ev.field === 'parent_id') fx.refetch.push(id);
       } else {
         fx.refetch.push(id);

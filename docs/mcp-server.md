@@ -15,7 +15,7 @@ schemas, set annotations per tool and build `isError` results ourselves. SDK doc
 
 **Tools.** Twenty-eight, mostly one per resource (`mcp_tools.TOOLS`, in this order): `slate_item`,
 `slate_comment`, `slate_chat`, `slate_checklist`, `slate_view`, `slate_favorite`,
-`slate_automation`, `slate_workload`, `slate_reminder`, `slate_inbox`, `slate_list`,
+`slate_automation`, `slate_reminder`, `slate_inbox`, `slate_list`,
 `slate_section`, `slate_tag`, `slate_recurrence`, `slate_webhook`, `slate_account`, `slate_today`,
 `slate_checkin`, `slate_work`, `slate_doc`, `slate_agents`, `slate_health`, `slate_batch`,
 `slate_events`, `slate_share`, `slate_audit`, `slate_export`, `slate_search`. Arguments are

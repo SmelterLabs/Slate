@@ -46,8 +46,8 @@ the news) and appends one JSON line per event to the file named in env `SLATE_CO
   while working", and this run's finish settles it.
 - `{"stop": {"by": "alex", "at": "..."}}`: someone pressed Stop. The command ends its agent's
   run and prints its result line. A command still running 30 seconds later is stopped by the
-  runner. Either way the task finishes blocked, waiting on the person who pressed Stop, and a
-  reply or Run now carries on.
+  runner. Either way the task finishes `answered`: the reply is posted and nobody is waited
+  on. A reply or Run now carries on.
 
 A command that never reads the file loses nothing: a message it did not mark seen is the
 agent's next turn when this run ends, as if it had been sent afterwards, and Stop still ends
@@ -152,8 +152,8 @@ branch.
 - **Run now** on the card (or `POST /items/{id}/run`, MCP `slate_item run`): at once, even
   before its run time. The runner takes exactly the task that was pressed
   (`POST /work/next {"item_id": ...}`).
-- **An answer on the card**: when the agent finished `blocked` waiting on a person, that
-  person's next comment on the card is the agent's next turn. It arrives as a `work` hint
+- **An answer on the card**: when the agent finished `ask` (or `blocked` waiting on a person),
+  that person's next comment on the card is the agent's next turn. It arrives as a `work` hint
   (`type: comment.assigned`, `comment_id`, `reply: true`) and `/work/next` hands it back as
   `reply`.
 - **A chat mention**: a person @mentions the agent in a channel or a thread. The hint carries
@@ -200,9 +200,11 @@ Answer on the card the way you would text the person who owns the task: a few li
 long in a file or a note and link it. End with the `SLATE:` line. Your answer for the turn is
 `reply` in the result (one comment by you on the card); the `SLATE:` line is the outcome.
 `done` and `review` both mean the work is finished; background work you started must report
-back before you answer. The bundled adapters treat an answer with no `SLATE:` line as not
-finished: the Hermes gateway adapter asks again in the same session (`HERMES_NUDGES`), and a
-run that still has no line finishes `blocked` with a "Paused" note, never `review`.
+back before you answer. An answer with no `SLATE:` line is `answered`: the text is the
+comment and nobody is waited on. The lines are `SLATE: done`, `SLATE: review`, `SLATE: later`,
+`SLATE: answered`, and `SLATE: ask alex: your one-line question? [Yes | No]` (the bracketed
+choices are optional). An old `SLATE: blocked waiting_on alex` is not a closing line, so that
+turn is `answered` too.
 
 Keep one session per task in your own runtime and tell Slate its id as `thread: {"ref": ...,
 "url": ...}` on your first progress line (`url` is the badge's Open link; http(s), or a desktop
@@ -324,21 +326,28 @@ released.
 {"outcome": "done", "reply": "Sent the invoice.", "thread": {"ref": "sess_42"}}
 ```
 
-`outcome` is `done`, `review`, `later` (you did what you can now and already have any go you
-need; the rest runs at the task's due time, which must still be to come: no badge, nobody waited
-on, you stay assigned; a `later` Slate refuses comes back blocked on the owner with a note),
-`blocked` (add `"waiting_on": "alex"` with your question in `reply`: the card reads *Waiting on
-you* and that person gets a push) or `release`. On a card you were
-only *asked* on (not assigned), `blocked` may wait only on the person who asked you; blocked on
-anyone else is taken as your plain answer, with no badge and no waiting-on, because it is not
-your card. `note` (a labelled comment in place of `reply`) works too. `status` and `hand_to`
-work as in `POST /work/{id}/finish`. A `blocked` result that names nobody waits on the
-agent's owner; add `"resumable": true` when the run stopped short of needing anyone (a step
-limit), and the card waits on no one and offers Run now.
+`outcome` is one of:
 
-**No result line.** Exit zero without an explicit result is not completion. Failed process
-exit outranks success-shaped stdout. Failed/missing results remain blocked/released with a
-visible explanation; successful-looking prose is not proof the objective was achieved.
+- `done` or `review`: the work is finished.
+- `later`: you did what you can now and already have any go you need; the rest runs at the
+  task's due time, which must still be to come. No badge, nobody waited on, you stay assigned.
+  A `later` with no due time still to come is sent as `answered`.
+- `ask`: the only ending that waits on a person. `question` is one line; `options` is an
+  optional list of 2 to 4 short choices; `waiting_on` is that person's handle. `reply`, when
+  you set it, is the comment; otherwise the question is.
+- `answered`: you replied and nothing else changes. `reply` is the comment. Nobody is waited on.
+- `failed`: the machine broke. `note` is the machine's words (stored on the finish, not posted).
+  Nobody is waited on.
+- `blocked` or `release`: passed through when the command says so. The runner never adds
+  `waiting_on` on its own. To stop a card on a person, use `ask`.
+
+`status` and `hand_to` work as in `POST /work/{id}/finish`. `question` and `options` pass
+through on `ask`.
+
+**No result line.** Exit zero without an explicit result is not completion. A non-zero exit,
+a missing result or an unknown outcome is `failed`, with that machine text as `note`. Chat and
+doc turns stay `release` and post nothing from stdout. Successful-looking prose is not proof
+the objective was achieved.
 
 ## Example command
 
@@ -418,5 +427,6 @@ For remote-runtime adapters, stop/restart **only while their turns are idle**: e
 local adapter is not proof that a remote agent turn was cancelled. A takeover of an active
 remote turn needs adapter-specific reconciliation; do not blindly replay its prompt.
 
-`--once` exits 0 when the task finished done or review, 1 when blocked or released, 2 when
-nothing was free, 3 on an error (bad token, Slate unreachable).
+`--once` exits 0 when the task finished done, review or later, 1 when it finished ask,
+answered, failed, blocked or released, 2 when nothing was free, 3 on an error (bad token,
+Slate unreachable, or a finish the server refused).

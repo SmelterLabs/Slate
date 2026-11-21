@@ -141,10 +141,10 @@ def test_brief_is_the_task_as_one_prompt_ending_with_the_rule(client, alex, todo
     # The agent is told to use its own memory: look for related past work, save what it learns.
     assert "check your memory and past sessions" in text
     assert "save anything worth remembering" in text
-    assert "SLATE: blocked waiting_on alex" in text and r.json()["ask"] == "alex"
+    assert "SLATE: ask alex: <one-line question>" in text and r.json()["ask"] == "alex"
 
     other = client.get(f"{API}/items/{item['id']}/brief", params={"ask": "member"}, headers=alex)
-    assert "waiting_on member" in other.json()["text"]
+    assert "SLATE: ask member:" in other.json()["text"]
     # An agent asking gets the workspace owner as who to wait on.
     assert client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["ask"] == "alex"
     # No acceptance criteria: no "Done means:" block.
@@ -193,9 +193,9 @@ async def test_mcp_item_brief(alex):
 def test_closing_line_parse():
     assert closing_line("All booked.\n\nSLATE: done") == closing_line("SLATE: DONE.")
     assert closing_line("x\n`SLATE: review`").outcome == "review"
-    line = closing_line("Two questions...\nSLATE: blocked waiting_on @Alex")
-    assert (line.outcome, line.waiting_on) == ("blocked", "alex")
-    assert closing_line("SLATE: blocked waiting on alex").waiting_on == "alex"
+    line = closing_line("Two questions...\nSLATE: ask @Alex: Which date? [Fri | Sat]")
+    assert (line.outcome, line.waiting_on, line.options) == ("ask", "alex", ("Fri", "Sat"))
+    assert closing_line("SLATE: blocked waiting on alex") is None  # no question
     assert closing_line("SLATE: done\nthanks") is None  # not the last line
     assert closing_line("SLATE: finished") is None
     assert closing_line("") is None
@@ -215,12 +215,14 @@ def test_an_agents_comment_ending_slate_done_completes_its_task(client, alex, to
     assert view["completed_at"] is not None and view["agent"] is None
 
 
-def test_an_agent_blocked_line_badges_and_waits_on_the_person(client, alex, todo, make_account):
+def test_an_agent_ask_line_badges_and_waits_on_the_person(client, alex, todo, make_account):
     _, gh = make_account("agent2")
     item = _item(client, alex, todo["id"], assignees=["agent2"])
-    _comment(client, gh, item["id"], "Which date?\nSLATE: blocked waiting_on alex")
+    said = _comment(client, gh, item["id"], "Two dates work.\nSLATE: ask alex: Which date?")
     view = _view(client, alex, item["id"])
     assert view["agent"]["state"] == "blocked"
+    assert view["ask"]["comment_id"] == said["id"]
+    assert view["ask"]["question"] == "Which date?"
     assert view["waiting_on_account_id"] == _me(client, alex)["id"]
     assert view["completed_at"] is None
 
@@ -236,12 +238,10 @@ def test_a_person_pasting_an_answer(client, alex, todo, make_account):
     _agent(client, alex, "agent3", "manual")
     make_account("member", kind="person")
     item = _item(client, alex, todo["id"], assignees=["agent3"])
-    _comment(
-        client, alex, item["id"], "Agent3 says: need the budget\nSLATE: blocked waiting_on member"
-    )
+    _comment(client, alex, item["id"], "Agent3 says: budget?\nSLATE: ask member: Budget?")
     view = _view(client, alex, item["id"])
-    assert view["agent"] is None  # a person's line sets no agent badge
-    assert view["waiting_on_account_id"] is not None
+    assert view["agent"] is None  # a person's ask line changes nothing
+    assert view["waiting_on_account_id"] is None
     _comment(client, alex, item["id"], "SLATE: review")  # nothing to change
     assert _view(client, alex, item["id"])["completed_at"] is None
     _comment(client, alex, item["id"], "Agent3: done, invite sent\nSLATE: done")
@@ -251,8 +251,8 @@ def test_a_person_pasting_an_answer(client, alex, todo, make_account):
 def test_a_line_that_cannot_apply_leaves_the_comment(client, alex, todo, make_account):
     _, gh = make_account("agent2")
     item = _item(client, alex, todo["id"], assignees=["agent2"])
-    _comment(client, gh, item["id"], "Stuck\nSLATE: blocked waiting_on nobody_here")
-    assert _view(client, alex, item["id"])["agent"]["state"] == "blocked"
+    _comment(client, gh, item["id"], "Stuck\nSLATE: ask nobody_here: Which one?")
+    assert _view(client, alex, item["id"])["agent"] is None
     assert _view(client, alex, item["id"])["waiting_on_account_id"] is None
 
 

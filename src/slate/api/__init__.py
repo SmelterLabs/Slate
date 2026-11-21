@@ -37,7 +37,6 @@ from slate.api import (
     views,
     webhooks,
     work,
-    workload,
 )
 from slate.service import errors
 
@@ -71,7 +70,6 @@ MODULES = (
     reminders,
     docs,
     doc_comments,
-    workload,
     data,
     health,
     search,

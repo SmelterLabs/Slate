@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, describeRrule, dueLabel, formatEstimate, hiddenAsFinished, isOverdue, parseEstimate } from './format';
+import { ago, describeRrule, dueLabel, hiddenAsFinished, isOverdue } from './format';
 import { describe as describeEvent } from './history';
 import { renderMarkdown } from './markdown';
 import { LIST, ev, item } from './fixtures';
@@ -40,19 +40,6 @@ describe('dates', () => {
       true,
     );
     expect(hiddenAsFinished(item(), NOW)).toBe(false);
-  });
-});
-
-describe('estimates', () => {
-  it('reads and writes estimates', () => {
-    expect(parseEstimate('90')).toBe(90);
-    expect(parseEstimate('1h 30m')).toBe(90);
-    expect(parseEstimate('1.5h')).toBe(90);
-    expect(parseEstimate('2d')).toBe(960);
-    expect(parseEstimate('soon')).toBeNull();
-    expect(formatEstimate(90)).toBe('1h 30m');
-    expect(formatEstimate(45)).toBe('45m');
-    expect(formatEstimate(120)).toBe('2h');
   });
 });
 
@@ -110,7 +97,6 @@ describe('history lines', () => {
       'Alex created this from a recurring rule · 2 min ago automatically',
     ],
     [{ actor_id: 'nobody', field: 'body_md' }, 'Someone edited the description · 2 min ago via MCP'],
-    [{ field: 'estimate_minutes', after: 90 }, 'Agent set the estimate to 1h 30m · 2 min ago via MCP'],
     [
       { type: 'item.linked', field: 'links', after: { kind: 'blocked_by', item_id: 'I_deck' } },
       'Agent made this depend on “Plan the deck” · 2 min ago via MCP',

@@ -140,7 +140,7 @@ test('a long blocked badge stays inside its card and keeps the agent name', asyn
   await api(
     'POST',
     `/items/${item.id}/report`,
-    { state: 'blocked', waiting_on: 'alex', note: 'Need a decision', url: 'https://example.com/session/1' },
+    { state: 'blocked', waiting_on: 'alex', question: 'Need a decision', url: 'https://example.com/session/1' },
     agent,
   );
 

@@ -13,7 +13,7 @@ The task reaches the agent as one message headed `<task title> · <slate id>`, f
 | Start a run | `POST /runs` | `{agent_id, text, idempotency_key}` → `{run_id, url?}`. The key (≤200 chars) is the item id plus the take's `claimed_at`, so a retry of the same take starts one run. |
 | Read a run | `GET /runs/{run_id}` | → `{status, reply?, error?}` |
 
-Status values: `queued`, `running`, `waiting_input`, `completed`, `failed`, `cancelled`. `reply` is the agent's final text. Auth is an optional `Authorization: Bearer <RUNNER_API_TOKEN>`. A 401/403 blocks the task with a note to check the token; any other error blocks it with the service's own `message` (or the response text), never a traceback.
+Status values: `queued`, `running`, `waiting_input`, `completed`, `failed`, `cancelled`. `reply` is the agent's final text. Auth is an optional `Authorization: Bearer <RUNNER_API_TOKEN>`. A 401/403 reports `failed` with a note to check the token. Other HTTP errors report `failed` with the service's `message` or response text.
 
 ## Capability and safety contract
 
@@ -26,20 +26,23 @@ credentials, network access or a runtime turn:
 
 This is an offline declaration, not live readiness or server negotiation. Section/agent chat
 work is **unsupported** and returns `release` before any lookup or launch. An absent item ID
-also releases. Any HTTP failure, invalid JSON or empty authorized brief blocks before a run is
-started; no title-only fallback exists.
+also releases. An HTTP failure, invalid JSON or empty text when fetching the authorized
+brief reports `failed` before a run starts.
 
-Runtime status outranks answer text. Only `completed` permits the closing marker to report
-done/review. Failed, cancelled, waiting, timeout or unknown status blocks even if the text
-says `SLATE: done`. A completed run without a closing marker also blocks with a "Paused" note.
+Runtime status takes precedence over answer text. For a completed run, the last line may be
+`SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered`, or
+`SLATE: ask alex: Start the import now? [Yes | No | Not yet]`. An ask names the person and
+includes a one-line question. The bracketed options are optional. A reply without a recognized
+closing line is `answered`. An empty reply, service-side wait for input, failed or cancelled run,
+timeout, or unknown status reports `failed` with a machine note and leaves the card's wait alone.
 
 No approval settlement or remote stop is implemented. Use the service's own controls and
 confirm the exact run's terminal state before retrying unknown work. Adapter exit, timeout
 and local process termination are not evidence that a remote run stopped.
 
 The generic runner finishes each take through Slate, so the adapter makes no Ask-resolution
-calls. A finish consumes only the take's Ask dispatches, leaving questions visible until
-explicitly resolved; new or reassigned Asks during a run remain pending.
+calls. An `answered` finish resolves the Asks the agent took with that turn. New or reassigned
+Asks during a run remain pending.
 
 ## Set up
 
@@ -56,14 +59,14 @@ python clients/python/slate_runner.py --url $SLATE_URL --token-env SLATE_TOKEN \
     --exec "python integrations/runner-example/run_task.py" --state ~/.slate-runner-my-agent.json
 ```
 
-Optional: `RUNNER_AGENT_URL` (the Open link; default `<RUNNER_API_URL>/agents/<agent id>`), `RUNNER_ASK` (who a blocked task waits on; default: the brief's, which is the workspace owner), `RUNNER_TURN_TIMEOUT` (seconds, default 3600).
+Optional settings include `RUNNER_AGENT_URL` (the Open link, default `<RUNNER_API_URL>/agents/<agent id>`), `RUNNER_ASK` (the suggested recipient in the brief, which defaults to the owner), and `RUNNER_TURN_TIMEOUT` (seconds, default 3600).
 
 ## What a run does
 
-1. Validates the card input and fetches a nonempty authorized brief (`GET /items/{id}/brief`); a failure blocks without runtime work.
+1. Validates the card input and fetches a nonempty authorized brief (`GET /items/{id}/brief`).
 2. Starts a run with the title line plus the brief (or, on a later turn, the quoted card reply).
 3. Prints a progress line with `url` = the agent's page.
-4. Polls `GET /runs/{run_id}` every 5 s until it is `completed`, `failed`, `cancelled` or `waiting_input`, or the timeout passes.
-5. Prints the result: only after confirmed completion does `SLATE: done | review | later | blocked waiting_on X` decide the outcome. The remaining reply is the card comment.
+4. Polls `GET /runs/{run_id}` every 5 s until it reports a known ending or the timeout passes.
+5. Prints the result. For a completed run with a reply, the closing line selects the outcome and the remaining reply becomes the card comment.
 
 Tests: `test_runner_example.py` runs against a fake service (`httpx.MockTransport`). CI runs `uv run pytest -q integrations` as its own step.

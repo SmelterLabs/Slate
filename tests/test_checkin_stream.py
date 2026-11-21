@@ -244,7 +244,7 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
         "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.05)\n"
         "out = {'outcome': 'done', 'reply': 'Verified by isolated queue test'}\n"
         "if item['title'] == 'Queue 0':\n"
-        "    out.update(outcome='blocked', waiting_on='alex', reply='Test needs a person')\n"
+        "    out.update(outcome='ask', question='Is this right?', reply='Test needs a person')\n"
         "print(json.dumps(out))\n"
     )
     async with _client(live) as client:

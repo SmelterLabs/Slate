@@ -13,7 +13,6 @@ export const REVERTABLE_FIELDS = new Set([
   'due_date_only',
   'waiting_on_account_id',
   'acceptance_md',
-  'estimate_minutes',
   'kind',
   'external_ref',
   'position',

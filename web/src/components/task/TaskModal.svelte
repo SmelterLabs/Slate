@@ -9,7 +9,7 @@
   // dock button parks the whole window on the right third or quarter of the screen (no scrim
   // then: the board beside it stays usable) or back in the center.
   // On a card an agent is on, the conversation is the action: the reference fields (assignees,
-  // dates, tags, list, repeats, estimate, dependencies) fold into one Details line once any is
+  // dates, tags, list, repeats, dependencies) fold into one Details line once any is
   // set, and on the phone the thread comes straight after the title instead of under them.
   import { onDestroy } from 'svelte';
   import { api } from '../../lib/api';
@@ -30,7 +30,6 @@
   import Reminders from './Reminders.svelte';
   import DatePicker from '../DatePicker.svelte';
   import DependenciesPanel from '../DependenciesPanel.svelte';
-  import EstimatePanel from '../EstimatePanel.svelte';
   import Menu, { type MenuEntry } from '../Menu.svelte';
   import Dropdown from '../Dropdown.svelte';
   import MovePicker from '../MovePicker.svelte';
@@ -41,7 +40,7 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from './Icon.svelte';
-  import { ago, formatEstimate, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { ago, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
   import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
   import PriorityPicker from './PriorityPicker.svelte';
@@ -105,10 +104,14 @@
   // the last line of a long comment (the "Needs you" pill's Answer lands here).
   const waitQ = $derived.by(() => {
     if (!d || !task.me || d.waiting_on_account_id !== task.me) return null;
+    const live = board.items[d.id];
+    const ask = live && live.ask !== undefined ? live.ask : (d.ask ?? null);
+    if (ask) return { structured: true, by: ask.by_id, commentId: ask.comment_id, question: ask.question, options: ask.options as string[] };
     const feed = task.activity ?? [];
     const comments = [...d.comments, ...feed.flatMap((e) => (e.comment ? [e.comment] : []))];
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
-    return waitingQuestion(d, comments, events, task.me);
+    const q = waitingQuestion(d, comments, events, task.me);
+    return q ? { structured: false, ...q, options: [] as string[] } : null;
   });
 
   // The agent that asked is still flagged blocked: its badge would say the banner's sentence a
@@ -131,7 +134,6 @@
     for (const t of d.tags.slice(0, 3)) out.push(`#${t}`);
     if (d.tags.length > 3) out.push(`+${d.tags.length - 3}`);
     if (d.recurrence_id) out.push('Repeats');
-    if (d.estimate_minutes) out.push(formatEstimate(d.estimate_minutes));
     const deps = (d.blocked_by?.length ?? 0) + (d.blocking?.length ?? 0) + (d.related?.length ?? 0);
     if (deps) out.push(`${deps} link${deps > 1 ? 's' : ''}`);
     return out;
@@ -491,24 +493,50 @@
 
         {#if waitQ}
           <div class="banner waiting" data-banner="waiting">
-            <div class="wq-head">
-              <Icon name="hourglass" size={13} />
-              <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
-              {#if waitFlag}
-                <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
-                {#if waitUrl}<span class="wq-meta">·</span><a
-                    class="wq-open"
-                    data-waiting-open
-                    href={waitUrl}
-                    target={/^https?:/i.test(waitUrl) ? '_blank' : null}
-                    rel="noopener noreferrer"
-                    title="Open where the agent is working">Open ↗</a
-                  >{/if}
-              {/if}
-            </div>
-            {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
-            {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
+            {#if waitQ.structured}
+              <p class="wq-heading" data-waiting-question data-ask-question>{waitQ.question}</p>
+              <div class="wq-head wq-sub">
+                <Icon name="hourglass" size={13} />
+                <span>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} asks</span>
+                {#if waitFlag}
+                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
+                  {#if waitUrl}<span class="wq-meta">·</span><a
+                      class="wq-open"
+                      data-waiting-open
+                      href={waitUrl}
+                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
+                      rel="noopener noreferrer"
+                      title="Open where the agent is working">Open ↗</a
+                    >{/if}
+                {/if}
+              </div>
+            {:else}
+              <div class="wq-head">
+                <Icon name="hourglass" size={13} />
+                <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
+                {#if waitFlag}
+                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
+                  {#if waitUrl}<span class="wq-meta">·</span><a
+                      class="wq-open"
+                      data-waiting-open
+                      href={waitUrl}
+                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
+                      rel="noopener noreferrer"
+                      title="Open where the agent is working">Open ↗</a
+                    >{/if}
+                {/if}
+              </div>
+              {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
+              {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
+            {/if}
             <div class="wq-actions">
+              {#each waitQ.options as option}
+                <button
+                  class="primary"
+                  data-answer-option={option}
+                  onclick={() => waitQ.commentId && void task.answer(waitQ.commentId, option)}>{option}</button
+                >
+              {/each}
               <button class="primary" data-answer onclick={() => task.reveal(waitQ.commentId)}>Answer</button>
               <button class="link" data-not-waiting onclick={() => save({ waiting_on_account_id: null })}>Not waiting on me</button>
               {#if waitFlag}
@@ -641,9 +669,8 @@
             </div>
           {/if}
         </div>
-        <!-- panels: estimate, dependencies -->
+        <!-- dependencies -->
         <div class="panels">
-          <EstimatePanel item={d} />
           <DependenciesPanel item={d} />
         </div>
         {/if}
@@ -977,11 +1004,22 @@
     border-color: color-mix(in srgb, var(--danger) 40%, transparent);
     border-left: 3px solid var(--danger);
   }
+  .wq-heading {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
   .wq-head {
     display: flex;
     align-items: center;
     gap: 6px;
     color: var(--danger);
+  }
+  .wq-sub {
+    margin-bottom: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
   }
   .wq-meta {
     color: var(--muted);
@@ -1003,6 +1041,10 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+  .wq-actions button {
+    min-height: 28px;
   }
   .banner.trashed {
     background: color-mix(in srgb, var(--danger) 12%, transparent);

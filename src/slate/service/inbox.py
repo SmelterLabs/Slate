@@ -6,9 +6,14 @@ Nothing is copied into a notifications table. An entry is an event, chosen for o
 - `mention`  — an explicit @mention, or a task Ask addressed to the account (no watch needed)
 - `reply`    — a reply in a chat thread, task discussion, or doc thread the account joined
 - `assigned` — the account was added to an item's assignees
-- `waiting`  — an item was marked waiting on the account, or an agent reported it blocked
-  waiting on the account again (`item.reported` with `after.waiting_on` and `after.again`:
-  the first time, the `waiting_on_account_id` change is the entry)
+- `waiting`  — an item was marked waiting on the account, or an agent asked the account
+  again (`item.reported` with `after.waiting_on` and `after.again`: the first time, the
+  `waiting_on_account_id` change is the entry). An ask's own Ask (`comment.assigned` with
+  `after.ask`) is not also a `mention`.
+- `failed`   — Slate gave up running a card after its agent's run failed three times in a row
+  (`item.run_failed`, `after.notify`: the card's person assignees and watchers, else the
+  owners). A `failed` report before that is nobody's news, and neither is the take that
+  retries it.
 - `due`      — a due or overdue nudge on an item assigned to the account
 - `unblocked` — an open item assigned to the account no longer waits on anything
 - `nudge`    — a task is due for (or Run now was pressed on) an agent no runner wakes (`wake`
@@ -157,8 +162,14 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         return None
     if ev.type == "item.run_requested":
         return "nudge" if account.id in ((ev.after_json or {}).get("notify") or []) else None
+    if ev.type == "item.run_failed":
+        return "failed" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "comment.assigned":
-        return "mention" if (ev.after_json or {}).get("assignee_id") == account.id else None
+        after = ev.after_json or {}
+        # An agent's ask is told as `waiting` (its wait), not also as a mention.
+        return (
+            "mention" if after.get("assignee_id") == account.id and not after.get("ask") else None
+        )
     if ev.type in MENTION_TYPES and account.handle in _handles(ev.after_json):
         return "mention"
     if ev.type == "item.commented" and account.id in ((ev.after_json or {}).get("reply_to") or []):
@@ -178,6 +189,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         after = ev.after_json if isinstance(ev.after_json, dict) else {}
         if after.get("waiting_on") == account.id and after.get("again"):
             return "waiting"
+        if "failed" in (after.get("state"), (ev.before_json or {}).get("state")):
+            return None  # a failed run and its retry are quiet until Slate gives up
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
         return "due" if ev.item_id in f.assigned else None
@@ -242,6 +255,7 @@ REASONS = (
     "digest",
     "health",
     "access",
+    "failed",
     *sorted(FOLLOW_REASONS),
 )
 SAME_CHANGE = timedelta(seconds=2)
@@ -367,6 +381,7 @@ def _candidates(account: Account, f: Follows, state: InboxState | None, *, unrea
         (Event.type == "comment.assigned") & (after("$.assignee_id") == me),
         (Event.field == "waiting_on_account_id") & (after("$") == me),
         (Event.type == "item.run_requested") & _in_after("$.notify", me),
+        (Event.type == "item.run_failed") & _in_after("$.notify", me),
         (Event.type == "item.reported") & (after("$.waiting_on") == me),
         (Event.type == "item.watched") & Event.field.is_(None) & (after("$") == me),
         (Event.type == "item.unwatched") & (func.json_extract(Event.before_json, "$") == me),

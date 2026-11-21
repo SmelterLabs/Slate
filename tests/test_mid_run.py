@@ -104,7 +104,7 @@ def test_stop_reaches_the_running_agent_and_only_a_running_one(client, alex, tod
     assert client.post(f"{API}/items/{item['id']}/stop", headers=alex).json()["id"] == ev["id"]
     assert len(_events(client, alex, item["id"], "item.stop_requested")) == 1
 
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Stopped as asked")
+    _finish(client, ch, item["id"], outcome="answered", reply="Stopped as asked")
     assert client.post(f"{API}/items/{item['id']}/stop", headers=alex).status_code == 409
     # The next run starts clean: the old stop is not carried into it.
     client.post(f"{API}/items/{item['id']}/run", headers=alex)
@@ -120,9 +120,9 @@ def test_stop_settles_what_was_sent_before_it_and_a_later_message_carries_on(
     _next(client, ch)
     _comment(client, alex, item["id"], "Never read", assignee="agent")
     client.post(f"{API}/items/{item['id']}/stop", headers=alex)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Stopped")
+    _finish(client, ch, item["id"], outcome="answered", reply="Stopped")
     assert _next(client, ch)["item"] is None  # the unread message does not restart the run
-    after = _comment(client, alex, item["id"], "Carry on, but skip step 2")
+    after = _comment(client, alex, item["id"], "Carry on, but skip step 2", assignee="agent")
     got = _next(client, ch)
     assert got["item"]["id"] == item["id"] and got["reply"]["id"] == after["id"]
 
