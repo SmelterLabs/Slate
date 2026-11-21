@@ -10,7 +10,7 @@ vi.mock('../../lib/store.svelte', () => ({
 
 import HealthPage from './HealthPage.svelte';
 
-it('shows each available notification count, including zero, and omits absent counts', async () => {
+it('shows notification counts including zero and omits absent or null counts', async () => {
   const base = {
     status: 'ok', at: '2026-11-21T14:00:00Z', uptime_s: 0,
     checks: [], pollers: [], engines: [], scheduler: { enabled: false },
@@ -20,7 +20,10 @@ it('shows each available notification count, including zero, and omits absent co
   };
   get.mockResolvedValueOnce({
     ...base, pushes_failed_1d: 0, push_registrations_removed_7d: 3, questions_open_over_24h: 5,
-  }).mockResolvedValueOnce({ ...base, questions_open_over_24h: 1 });
+  }).mockResolvedValueOnce({ ...base, pushes_failed_1d: null, questions_open_over_24h: 1 })
+    .mockResolvedValueOnce({
+      ...base, pushes_failed_1d: null, push_registrations_removed_7d: null, questions_open_over_24h: null,
+    });
   const target = document.createElement('div');
   const app = mount(HealthPage, { target });
   try {
@@ -28,8 +31,11 @@ it('shows each available notification count, including zero, and omits absent co
     const counts = () => [...target.querySelectorAll('[aria-label="Your notifications"] strong')].map((n) => n.textContent);
     expect(counts()).toEqual(['0', '3', '5']);
     expect(target.querySelector('[aria-label="Your notifications"]')?.textContent).toContain('Questions open more than 24 hours');
-    target.querySelector<HTMLButtonElement>('.work-head button')!.click();
+    const refresh = target.querySelector<HTMLButtonElement>('.work-head button')!;
+    refresh.click();
     await vi.waitFor(() => expect(counts()).toEqual(['1']));
+    refresh.click();
+    await vi.waitFor(() => expect(target.querySelector('[aria-label="Your notifications"]')).toBeNull());
   } finally {
     await unmount(app);
   }

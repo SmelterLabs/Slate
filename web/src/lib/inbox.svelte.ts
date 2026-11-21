@@ -104,12 +104,16 @@ export function describeEntry(entry: InboxEntry, ctx: HistoryContext): string {
   return `Still waiting: ${wording}`;
 }
 
+function cardId(entry: InboxEntry): string | null {
+  return entry.event.item_id ?? entry.originalEvent?.item_id ?? null;
+}
+
 export function groupEntries(entries: InboxEntry[]): InboxGroup[] {
   const groups = new Map<string, InboxGroup>();
   for (const e of entries) {
     const channel = e.channel ?? null;
     const docId = e.doc_id ?? null;
-    const itemId = e.event.item_id ?? e.originalEvent?.item_id ?? null;
+    const itemId = cardId(e);
     const key =
       itemId ??
       (channel ? `chat:${channel}` : docId ? `doc:${docId}` : e.reason === 'health' ? 'health' : e.event.id);
@@ -208,7 +212,7 @@ class Inbox {
    * messages are read; task/doc/digest policies and explicit bulk actions are unchanged. */
   open(g: InboxGroup) {
     if (g.itemId) {
-      this.readItem(g.itemId);
+      void this.readItem(g.itemId);
       void board.open(g.itemId);
       return;
     }
@@ -234,13 +238,18 @@ class Inbox {
     }
   }
 
+  #markItem(path: 'read' | 'clear', itemId: string) {
+    const entries = this.entries.filter((e) => cardId(e) === itemId && (path === 'clear' || !e.read));
+    if (!entries.length) return;
+    // An escalation can inherit its card from the original. Mark the whole group in one request.
+    const body = entries.some((e) => e.event.item_id !== itemId)
+      ? { event_ids: entries.map((e) => e.event.id) }
+      : { item_id: itemId };
+    return this.#mark(path, body);
+  }
+
   readItem(itemId: string) {
-    const linked = this.entries.filter((e) => !e.event.item_id && e.originalEvent?.item_id === itemId);
-    const unread = linked.filter((e) => !e.read).map((e) => e.event.id);
-    if (unread.length) void this.readEvents(unread);
-    if (this.entries.some((e) => e.event.item_id === itemId && !e.read)) {
-      void this.#mark('read', { item_id: itemId });
-    }
+    return this.#markItem('read', itemId);
   }
 
   /** Opening a doc page reads the mentions on it. */
@@ -258,10 +267,7 @@ class Inbox {
   }
 
   clearGroup(g: InboxGroup) {
-    if (!g.itemId) return this.#mark('clear', { event_ids: g.entries.map((e) => e.event.id) });
-    const linked = this.entries.filter((e) => !e.event.item_id && e.originalEvent?.item_id === g.itemId);
-    if (linked.length) void this.#mark('clear', { event_ids: linked.map((e) => e.event.id) });
-    return this.#mark('clear', { item_id: g.itemId });
+    return g.itemId ? this.#markItem('clear', g.itemId) : this.#mark('clear', { event_ids: g.entries.map((e) => e.event.id) });
   }
 
   clearAll() {

@@ -106,17 +106,17 @@
       </div>
     </div>
 
-    {#if report.pushes_failed_1d !== undefined || report.push_registrations_removed_7d !== undefined || report.questions_open_over_24h !== undefined}
+    {#if report.pushes_failed_1d != null || report.push_registrations_removed_7d != null || report.questions_open_over_24h != null}
       <div class="health-block" aria-label="Your notifications">
         <h2>Your notifications</h2>
         <div class="health-tiles">
-          {#if report.pushes_failed_1d !== undefined}
+          {#if report.pushes_failed_1d != null}
             <div class="health-tile"><span class="muted small">Pushes that failed in the last day</span><strong>{report.pushes_failed_1d}</strong></div>
           {/if}
-          {#if report.push_registrations_removed_7d !== undefined}
+          {#if report.push_registrations_removed_7d != null}
             <div class="health-tile"><span class="muted small">Push registrations removed after errors in the last 7 days</span><strong>{report.push_registrations_removed_7d}</strong></div>
           {/if}
-          {#if report.questions_open_over_24h !== undefined}
+          {#if report.questions_open_over_24h != null}
             <div class="health-tile"><span class="muted small">Questions open more than 24 hours</span><strong>{report.questions_open_over_24h}</strong></div>
           {/if}
         </div>

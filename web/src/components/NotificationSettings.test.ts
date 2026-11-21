@@ -70,3 +70,37 @@ it('round-trips the quiet hours and escalation controls through account preferen
     target.remove();
   }
 });
+
+it('reports invalid or empty settings and restores the saved inputs', async () => {
+  board.me = {
+    account: { id: 'P1', handle: 'alex', display_name: 'Alex', kind: 'person' },
+    token_id: 'T1', scopes: ['write'],
+    prefs: { escalate_after_minutes: 75, quiet_hours: { from: '21:30', to: '06:45' } },
+  };
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const app = mount(NotificationSettings, { target });
+
+  try {
+    const minutes = target.querySelector<HTMLInputElement>('input[type="number"]')!;
+    const times = [...target.querySelectorAll<HTMLInputElement>('input[type="time"]')];
+    for (const [field, saved, invalidValues] of [
+      [minutes, '75', ['-5', '1.5', '']],
+      [times[0], '21:30', ['']],
+      [times[1], '06:45', ['']],
+    ] as const) {
+      const report = vi.spyOn(field, 'reportValidity');
+      for (const invalid of invalidValues) {
+        field.value = invalid;
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(report).toHaveLastReturnedWith(false);
+        expect(field.value).toBe(saved);
+      }
+      expect(report).toHaveBeenCalledTimes(invalidValues.length);
+    }
+    expect(patch).not.toHaveBeenCalled();
+  } finally {
+    await unmount(app);
+    target.remove();
+  }
+});

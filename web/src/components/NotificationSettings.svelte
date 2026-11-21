@@ -148,8 +148,10 @@
     });
   }
 
-  function saveQuietTime(key: 'from' | 'to', value: string) {
-    if (quietHours && value) void board.setPrefs({ quiet_hours: { ...quietHours, [key]: value } });
+  function saveQuietTime(key: 'from' | 'to', field: HTMLInputElement) {
+    if (!quietHours) return;
+    if (field.reportValidity()) void board.setPrefs({ quiet_hours: { ...quietHours, [key]: field.value } });
+    else field.value = quietHours[key];
   }
 
   function close() {
@@ -290,12 +292,12 @@
         <label class="inline">
           From
           <input type="time" aria-label="Quiet hours from" required value={quietHours.from}
-            onchange={(e) => saveQuietTime('from', e.currentTarget.value)} />
+            onchange={(e) => saveQuietTime('from', e.currentTarget)} />
         </label>
         <label class="inline">
           To
           <input type="time" aria-label="Quiet hours to" required value={quietHours.to}
-            onchange={(e) => saveQuietTime('to', e.currentTarget.value)} />
+            onchange={(e) => saveQuietTime('to', e.currentTarget)} />
         </label>
       {/if}
     </div>
@@ -312,7 +314,8 @@
         value={escalateAfter}
         onchange={(e) => {
           const field = e.currentTarget;
-          if (field.checkValidity()) void board.setPrefs({ escalate_after_minutes: field.valueAsNumber });
+          if (field.reportValidity()) void board.setPrefs({ escalate_after_minutes: field.valueAsNumber });
+          else field.value = String(escalateAfter);
         }}
       />
       <span id="ns-escalation-help" class="muted small">minutes (0 turns this off)</span>
