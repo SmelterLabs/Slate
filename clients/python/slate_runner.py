@@ -54,16 +54,18 @@ in its environment could be expanded into the command line, so an `exec` that na
 
 When it exits, the last stdout line that is a JSON object with `outcome` is the result:
 `{"outcome": "done|review|later|ask|answered|failed|blocked|release", "reply": "...",
-"question": "...", "options": ["Yes", "No"], "waiting_on": "alex",
-"url": "...", "thread": {"ref": "..."}}`. `reply` is the agent's answer for this
-turn, one comment on the card (the card is the conversation); `note` is the older, labelled
+"status": "Sent the invoice.", "question": "...", "options": ["Yes", "No"],
+"waiting_on": "alex", "url": "...", "thread": {"ref": "..."}}`. `reply` is the agent's
+answer for this turn, one comment on the card (the card is the conversation); `status` is
+one line of where the card stands (at most 140 characters). `note` is the older, labelled
 form, and for `failed` it is the machine's words (stored on the finish, not posted).
-`ask` is the only ending that waits on a person. A task that waits on someone's answer comes
-back with `reply` (their comment) and `thread` on stdin when they answer. An explicit valid
-result and exit zero are both required for success. A non-zero exit, a missing result or an
-unknown outcome is `failed` with that machine text as `note` (chat and doc: `release`, and
-nothing from stdout is posted). The runner never adds anyone as `waiting_on`. `later` on a
-card with no due time still to come is sent as `answered`.
+`ask` is the only ending that waits on a person, and it carries no `status` (the question
+is the standing). A `review` with no `status` is sent as `done`. A task that waits on
+someone's answer comes back with `reply` (their comment) and `thread` on stdin when they
+answer. An explicit valid result and exit zero are both required for success. A non-zero
+exit, a missing result or an unknown outcome is `failed` with that machine text as `note`
+(chat and doc: `release`, and nothing from stdout is posted). The runner never adds anyone
+as `waiting_on`. `later` on a card with no due time still to come is sent as `answered`.
 The retained per-attempt proof is sent on heartbeat/finish and in env `SLATE_RUN_ID`.
 
 While a task runs, what a person does on its card reaches the command through the control file
@@ -1050,6 +1052,14 @@ class Runner:
             body.pop("reply", None)
         if not isinstance(body.get("thread"), dict):
             body.pop("thread", None)
+        raw = body.get("status")
+        standing = raw.strip()[:140] if isinstance(raw, str) else ""
+        if standing and body.get("outcome") != "ask":
+            body["status"] = standing
+        else:
+            body.pop("status", None)
+        if body.get("outcome") == "review" and "status" not in body:
+            body["outcome"] = "done"
         return body
 
     def _chat_result(

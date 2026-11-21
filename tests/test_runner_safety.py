@@ -435,3 +435,62 @@ def test_runner_maps_each_ending_and_never_invents_who_is_waited_on(client, make
 
     sent, _refused = runner._later_plan({"item": {}}, {"outcome": "later"})
     assert sent["reply"] == "No due time is still to come." and "waiting_on" not in sent
+
+
+def test_runner_sends_a_standing_line_and_review_without_one_as_done(
+    client, make_account, tmp_path
+):
+    """`status` is the one-line standing. `review` with none is `done`. `ask` carries no status."""
+    _, h = make_account("worker")
+    runner = _runner(client, h, tmp_path)
+    task = {"item": {"assignees": []}}
+
+    bare = runner._result(task, 0, {"outcome": "review", "reply": "Draft."}, "", "")
+    assert bare["outcome"] == "done" and bare["reply"] == "Draft." and "status" not in bare
+
+    blank = runner._result(
+        task, 0, {"outcome": "review", "reply": "Draft.", "status": "  "}, "", ""
+    )
+    assert blank["outcome"] == "done" and "status" not in blank
+
+    named = runner._result(
+        task,
+        0,
+        {"outcome": "review", "reply": "Draft.", "status": " Check the draft linked above. "},
+        "",
+        "",
+    )
+    assert named["outcome"] == "review" and named["status"] == "Check the draft linked above."
+
+    done = runner._result(
+        task,
+        0,
+        {
+            "outcome": "done",
+            "reply": "Sent.",
+            "status": "Sent the invoice. Nothing needed from you.",
+        },
+        "",
+        "",
+    )
+    assert done["outcome"] == "done"
+    assert done["status"] == "Sent the invoice. Nothing needed from you."
+
+    long = runner._result(
+        task, 0, {"outcome": "later", "status": "x" * 200, "reply": "Later."}, "", ""
+    )
+    assert long["outcome"] == "later" and len(long["status"]) == 140
+
+    ask = runner._result(
+        task,
+        0,
+        {
+            "outcome": "ask",
+            "question": "Start now?",
+            "waiting_on": "alex",
+            "status": "Start now?",
+        },
+        "",
+        "",
+    )
+    assert ask["outcome"] == "ask" and ask["question"] == "Start now?" and "status" not in ask
