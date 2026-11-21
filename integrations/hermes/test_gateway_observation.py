@@ -91,10 +91,10 @@ def test_approval_read_timeout_keeps_identity_and_blocks_retry(tmp_path):
 
     gw.handle = handle
     first, _, _ = go(gw, env=settings)
-    assert "unconfirmed" in first["reply"]
+    assert "unconfirmed" in first["note"]
     assert run_task.load_pending(settings, "it1")["request_id"] == "p1"
     second, _, _ = go(gw, env=settings)
-    assert second["outcome"] == "blocked" and len(gw.turns) == 1
+    assert second["outcome"] == "failed" and len(gw.turns) == 1
 
 
 def test_completed_approval_before_nudge_gets_fresh_observation_fence(tmp_path):
@@ -118,7 +118,8 @@ def test_completed_approval_before_nudge_gets_fresh_observation_fence(tmp_path):
 
     gw.handle = handle
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "blocked" and len(gw.turns) == 2
+    assert out["outcome"] == "answered" and out["reply"] == "Still working"
+    assert len(gw.turns) == 1
 
 
 CONTROL = {
@@ -186,7 +187,7 @@ def test_native_approval_keeps_observing_until_terminal(tmp_path, chat, terminal
     assert any("approval" in line.get("note", "").lower() for line in lines)
     assert "PRIVATE_FAKE_COMMAND" not in json.dumps(lines)
     assert out["outcome"] == (
-        "done" if terminal == "run.completed" else "release" if chat else "blocked"
+        "done" if terminal == "run.completed" else "release" if chat else "failed"
     )
     if terminal:
         assert (stored() == {"session_id": "sess-new"}) if chat else stored() is None

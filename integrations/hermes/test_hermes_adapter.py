@@ -180,7 +180,9 @@ def test_first_turn_opens_a_session_sends_the_brief_and_replies_on_the_card(stat
         "thread": {"ref": "sess-new"},
     }
     assert {"note": "Hermes is using web_search"} in lines
-    assert gw.turns == [{"message": BRIEF, "author": run_task.BOT_AUTHOR}]
+    assert gw.turns == [
+        {"message": f"{BRIEF}\n\n{run_task.ENDINGS}", "author": run_task.BOT_AUTHOR}
+    ]
 
 
 def test_the_thread_carries_a_desktop_link_on_the_owning_profile(state_file):
@@ -233,8 +235,8 @@ def test_a_model_the_gateway_cannot_route_blocks_the_card_with_the_reason(state_
     out, lines, _ = go(
         gw, task={"item": item}, env=env_with(state_file), slate=slate_client(fields=[MODEL_FIELD])
     )
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "cannot be routed" in out["reply"] and "Model field" not in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "cannot be routed" in out["note"] and "Model field" not in out["note"]
     assert gw.turns == []
 
 
@@ -255,7 +257,9 @@ def test_a_session_left_by_a_timed_out_create_is_adopted_not_a_dead_end(state_fi
     out, lines, _ = go(gw, env=env_with(state_file))
     assert out == {"outcome": "done", "thread": {"ref": "sess-old"}, "reply": "Sent it."}
     assert lines[0] == {"note": "Started a Hermes session", "thread": {"ref": "sess-old"}}
-    assert gw.turns == [{"message": BRIEF, "author": run_task.BOT_AUTHOR}]
+    assert gw.turns == [
+        {"message": f"{BRIEF}\n\n{run_task.ENDINGS}", "author": run_task.BOT_AUTHOR}
+    ]
 
 
 def test_a_title_held_by_another_cards_session_still_blocks(state_file):
@@ -263,7 +267,8 @@ def test_a_title_held_by_another_cards_session_still_blocks(state_file):
     gw.create_status = 400
     gw.create_error = TAKEN.format(card="it9")
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "already in use" in out["reply"]
+    assert out["outcome"] == "failed" and "already in use" in out["note"]
+    assert "waiting_on" not in out
     assert gw.turns == []
 
 
@@ -278,8 +283,8 @@ def test_a_turn_the_gateway_fails_to_run_blocks_with_its_reason(state_file):
         ]
     )
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "model: nope-9" in out["reply"] and "Model field" not in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "model: nope-9" in out["note"] and "Model field" not in out["note"]
     assert len(gw.turns) == 1  # no nudge after a failed run
 
 
@@ -292,11 +297,10 @@ def test_a_turn_that_ran_out_of_steps_says_so_instead_of_no_reason_given(state_f
         ]
     )
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked"
-    assert "step limit" in out["reply"] and "60/60" in out["reply"]
-    assert "no reason given" not in out["reply"]
-    # Nobody has anything to answer: the card waits on no one and Run now carries on.
-    assert out["resumable"] is True and "waiting_on" not in out
+    assert out["outcome"] == "failed"
+    assert "step limit" in out["note"] and "60/60" in out["note"]
+    assert "no reason given" not in out["note"]
+    assert "resumable" not in out and "waiting_on" not in out
 
 
 def test_without_a_model_field_the_session_is_plain_and_a_fields_error_is_harmless(state_file):
@@ -317,7 +321,7 @@ def test_a_long_title_is_shortened_to_fit_the_gateway_limit():
     assert title.startswith("[Slate] x")
 
 
-def test_blocked_line_names_who(state_file):
+def test_an_old_blocked_line_is_answered_and_waits_on_nobody(state_file):
     gw = Gateway(
         events=[
             ("assistant.completed", {"content": "Sign in?\nSLATE: blocked waiting_on Alex"}),
@@ -325,12 +329,27 @@ def test_blocked_line_names_who(state_file):
         ]
     )
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
+    assert out["outcome"] == "answered" and "waiting_on" not in out
+    assert out["reply"] == "Sign in?\nSLATE: blocked waiting_on Alex"
+
+
+def test_ask_line_names_who_and_keeps_the_choices(state_file):
+    gw = Gateway(
+        events=[
+            (
+                "assistant.completed",
+                {"content": "Sign in?\nSLATE: ask Alex: Start now? [Yes | No]"},
+            ),
+            ("run.completed", {}),
+        ]
+    )
+    out, _, _ = go(gw, env=env_with(state_file))
+    assert out["outcome"] == "ask" and out["waiting_on"] == "alex"
+    assert out["question"] == "Start now?" and out["options"] == ["Yes", "No"]
     assert out["reply"] == "Sign in?"
 
 
-def test_no_closing_line_asks_again_then_pauses_never_review(state_file):
-    # An agent's turn that ends "partway done, waiting on four background agents", no line.
+def test_no_closing_line_is_answered_with_no_second_prompt(state_file):
     gw = Gateway(
         events=[
             ("assistant.completed", {"content": "Partway; 4 steps running."}),
@@ -338,12 +357,11 @@ def test_no_closing_line_asks_again_then_pauses_never_review(state_file):
         ]
     )
     out, lines, _ = go(gw, env=env_with(state_file))
-    assert len(gw.turns) == 1 + run_task.NUDGES  # asked again in the same session
-    assert all("background work" in t["message"] for t in gw.turns[1:])
-    assert any("No status line yet" in (ln.get("note") or "") for ln in lines)
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert out["reply"].startswith("Partway; 4 steps running.")
-    assert "Paused" in out["reply"] and out["thread"] == {"ref": "sess-new"}
+    assert len(gw.turns) == 1
+    assert not any("No status line yet" in (ln.get("note") or "") for ln in lines)
+    assert out["outcome"] == "answered" and "waiting_on" not in out
+    assert out["reply"] == "Partway; 4 steps running."
+    assert "Paused" not in out["reply"] and out["thread"] == {"ref": "sess-new"}
 
 
 def test_a_nudge_that_gets_the_line_reports_it(state_file):
@@ -361,8 +379,8 @@ def test_a_nudge_that_gets_the_line_reports_it(state_file):
         ]
     )
     out, _, _ = go(gw, env=env_with(state_file))
-    assert len(gw.turns) == 2
-    assert out["outcome"] == "done" and out["reply"] == "All 4 back; results saved."
+    assert len(gw.turns) == 1
+    assert out["outcome"] == "answered" and out["reply"] == "Started 4 steps."
 
 
 def test_nudges_can_be_turned_off(state_file):
@@ -373,7 +391,8 @@ def test_nudges_can_be_turned_off(state_file):
         ]
     )
     out, _, _ = go(gw, env=env_with(state_file, HERMES_NUDGES="0"))
-    assert len(gw.turns) == 1 and out["outcome"] == "blocked" and "Paused" in out["reply"]
+    assert len(gw.turns) == 1 and out["outcome"] == "answered"
+    assert out["reply"] == "I did a thing." and "waiting_on" not in out
 
 
 def test_without_a_brief_it_blocks_before_opening_a_session(state_file):
@@ -382,8 +401,8 @@ def test_without_a_brief_it_blocks_before_opening_a_session(state_file):
     )
     out, _, _ = go(gw, slate=slate_client(brief=None), env=env_with(state_file, HERMES_ASK="alex"))
     assert gw.turns == [] and gw.created == []
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "brief" in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "brief" in out["note"]
 
 
 # --- Later turns: the answer on the card -------------------------------------------------------
@@ -462,7 +481,7 @@ def test_a_session_that_is_gone_starts_a_new_one_with_the_brief(state_file):
         events=[("assistant.completed", {"content": "SLATE: done"}), ("run.completed", {})]
     )
     go(gw, task={"item": ITEM, "thread": {"ref": "sess-deleted"}}, env=env_with(state_file))
-    assert gw.created and gw.turns[0]["message"] == BRIEF
+    assert gw.created and gw.turns[0]["message"] == f"{BRIEF}\n\n{run_task.ENDINGS}"
 
 
 def test_run_again_without_an_answer_resends_the_brief_in_the_same_session(state_file):
@@ -471,7 +490,7 @@ def test_run_again_without_an_answer_resends_the_brief_in_the_same_session(state
     )
     go(gw, task={"item": ITEM, "thread": {"ref": "sess-old"}}, env=env_with(state_file))
     assert gw.created == []
-    assert gw.turns[0]["message"] == f"The card was run again.\n\n{BRIEF}"
+    assert gw.turns[0]["message"] == f"The card was run again.\n\n{BRIEF}\n\n{run_task.ENDINGS}"
 
 
 # --- Approvals as Asks -------------------------------------------------------------------------
@@ -480,7 +499,7 @@ def test_run_again_without_an_answer_resends_the_brief_in_the_same_session(state
 def test_an_approval_stays_pending_when_answered_on_the_card(state_file):
     gw = Gateway(events=[("approval.request", {"id": "ap1", "command": "FAKE_COMMAND"})])
     out, lines, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "native" in out["reply"]
+    assert out["outcome"] == "failed" and "native" in out["note"] and "waiting_on" not in out
     assert any("Waiting on an approval" in ln.get("note", "") for ln in lines)
     pending = run_task.load_pending(env_with(state_file), "it1")
     task = {
@@ -490,7 +509,7 @@ def test_an_approval_stays_pending_when_answered_on_the_card(state_file):
     }
     out, _, _ = go(gw, task=task, env=env_with(state_file))
     assert not gw.settled and len(gw.turns) == 1
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed" and "waiting_on" not in out
     assert run_task.load_pending(env_with(state_file), "it1") == pending
 
 
@@ -504,7 +523,7 @@ def test_legacy_approval_never_becomes_a_natural_language_authorization(state_fi
     }
     out, _, _ = go(gw, task=task, env=env_with(state_file))
     assert not gw.turns and not gw.settled
-    assert out["outcome"] == "blocked" and "native" in out["reply"]
+    assert out["outcome"] == "failed" and "native" in out["note"] and "waiting_on" not in out
 
 
 # --- The watchdog ------------------------------------------------------------------------------
@@ -529,7 +548,7 @@ def test_a_dropped_stream_does_not_treat_transcript_as_success(state_file):
 
     gw.handle = handle
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "unconfirmed" in out["reply"]
+    assert out["outcome"] == "failed" and "unconfirmed" in out["note"]
     assert out["thread"] == {"ref": "sess-new"}
 
 
@@ -537,7 +556,7 @@ def test_a_gateway_restart_mid_turn_is_blocked_at_once(state_file):
     gw = Gateway(stream_status=502)
     gw.health = ["t1", "t1", "t2"]  # before the turn, first poll, then a new life
     out, _, clock = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "restarted mid-turn" in out["reply"]
+    assert out["outcome"] == "failed" and "restarted mid-turn" in out["note"]
     assert out["thread"] == {"ref": "sess-new"}
     assert clock.t <= 30
 
@@ -553,7 +572,7 @@ def test_a_gateway_that_stops_answering_is_blocked_within_30_seconds(state_file)
 
     gw.handle = handle
     out, _, clock = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "stopped answering" in out["reply"]
+    assert out["outcome"] == "failed" and "stopped answering" in out["note"]
     assert clock.t <= 30
 
 
@@ -568,20 +587,20 @@ def test_a_session_404_mid_turn_is_blocked(state_file):
 
     gw.handle = handle
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "session is gone (404)" in out["reply"]
+    assert out["outcome"] == "failed" and "session is gone (404)" in out["note"]
 
 
 def test_a_gateway_that_is_down_before_the_turn_is_blocked(state_file):
     gw = Gateway()
     gw.down = True
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked" and "not answering" in out["reply"]
+    assert out["outcome"] == "failed" and "not answering" in out["note"]
 
 
 def test_a_turn_that_never_ends_is_blocked(state_file):
     gw = Gateway(stream_status=502)
     out, _, _ = go(gw, env=env_with(state_file, HERMES_TURN_TIMEOUT="12"))
-    assert out["outcome"] == "blocked" and "did not finish" in out["reply"]
+    assert out["outcome"] == "failed" and "did not finish" in out["note"]
 
 
 # --- Small parts -------------------------------------------------------------------------------
@@ -590,11 +609,21 @@ def test_a_turn_that_never_ends_is_blocked(state_file):
 @pytest.mark.parametrize(
     ("text", "want"),
     [
-        ("ok\nSLATE: done", ("done", None, "ok")),
-        ("x\n**SLATE: review**\n\n", ("review", None, "x")),
+        ("ok\nSLATE: done", ("done", None, "ok", None, None)),
+        ("x\n**SLATE: review**\n\n", ("review", None, "x", None, None)),
         ("SLATE: done\nmore", None),
-        ("Set for 11:05.\nSLATE: later", ("later", None, "Set for 11:05.")),
-        ("SLATE: later waiting_on alex", ("later", None, "")),
+        ("Set for 11:05.\nSLATE: later", ("later", None, "Set for 11:05.", None, None)),
+        ("SLATE: later waiting_on alex", None),
+        ("SLATE: answered", ("answered", None, "", None, None)),
+        ("SLATE: answered.", ("answered", None, "", None, None)),
+        (
+            "Note\nSLATE: ask alex: Start now? [Yes | No]",
+            ("ask", "alex", "Note", "Start now?", ["Yes", "No"]),
+        ),
+        ("SLATE: ask alex: Which day?", ("ask", "alex", "", "Which day?", None)),
+        ("SLATE: blocked waiting_on alex", None),
+        ("SLATE: ask alex:", None),
+        ("SLATE: finished", None),
     ],
 )
 def test_closing(text, want):
@@ -759,8 +788,8 @@ def test_a_gateway_that_comes_up_late_is_waited_for_not_asked_about(state_file):
 def test_a_gateway_that_stays_down_still_blocks_after_the_retries(state_file):
     gw = LateGateway(99)
     out, _, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked"
-    assert "Could not open a Hermes session" in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "Could not open a Hermes session" in out["note"]
     assert len(gw.created) == 0 and gw.refusals == 99 - len(run_task.OPEN_RETRY_DELAYS) - 1
 
 
@@ -768,5 +797,5 @@ def test_a_refused_create_is_not_retried(state_file):
     gw = Gateway()
     gw.create_status = 400
     out, lines, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "blocked"
+    assert out["outcome"] == "failed" and "waiting_on" not in out
     assert {"note": "Hermes is not answering yet; retrying"} not in lines

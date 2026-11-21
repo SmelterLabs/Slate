@@ -68,35 +68,45 @@ def test_done_from_the_closing_line(tmp_path):
     assert out == {"outcome": "done", "reply": "Ran the backup again."}
     argv = called["argv"]
     assert argv[:6] == ["--profile", "agent", "chat", "--quiet", "--max-turns", "50"]
-    assert argv[6:] == ["--query", BRIEF]
+    assert argv[6:] == ["--query", f"{BRIEF}\n\n{cli.ENDINGS}"]
 
 
-def test_review_and_blocked_lines(tmp_path):
+def test_review_ask_and_old_blocked_lines(tmp_path):
     out, _, _ = go(tmp_path, FAKE_OUT="Check the diff.\nSLATE: review")
     assert out == {"outcome": "review", "reply": "Check the diff."}
+    out, _, _ = go(tmp_path, FAKE_OUT="Which disk?\nSLATE: ask alex: Which disk? [First | Second]")
+    assert out == {
+        "outcome": "ask",
+        "waiting_on": "alex",
+        "question": "Which disk?",
+        "options": ["First", "Second"],
+        "reply": "Which disk?",
+    }
     out, _, _ = go(tmp_path, FAKE_OUT="Which disk?\nSLATE: blocked waiting_on alex")
-    assert out == {"outcome": "blocked", "waiting_on": "alex", "reply": "Which disk?"}
-    out, _, _ = go(tmp_path, FAKE_OUT="Which disk?\nSLATE: blocked", HERMES_ASK="guest")
-    assert out["waiting_on"] == "guest"
+    assert out["outcome"] == "answered" and "waiting_on" not in out
+    assert out["reply"] == "Which disk?\nSLATE: blocked waiting_on alex"
+    out, _, _ = go(tmp_path, FAKE_OUT="SLATE: answered")
+    assert out == {"outcome": "answered", "reply": "Answered."}
 
 
-def test_no_closing_line_pauses_with_the_tail_never_review(tmp_path):
-    out, _, _ = go(tmp_path, FAKE_OUT="x" * 5000 + "end of output")
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "end of output\n\n(Paused:" in out["reply"]
-    assert len(out["reply"]) < 2300
+def test_no_closing_line_is_answered_with_the_stdout(tmp_path):
+    text = "x" * 5000 + "end of output"
+    out, _, _ = go(tmp_path, FAKE_OUT=text)
+    assert out["outcome"] == "answered" and "waiting_on" not in out
+    assert out["reply"].endswith("end of output")
+    assert "Paused" not in out["reply"]
 
 
-def test_non_zero_exit_is_blocked_with_stderr(tmp_path):
+def test_non_zero_exit_is_failed_with_stderr(tmp_path):
     out, _, _ = go(tmp_path, FAKE_OUT="SLATE: done", FAKE_ERR="profile not found", FAKE_EXIT="1")
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "exited with 1" in out["reply"] and "profile not found" in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "exited with 1" in out["note"] and "profile not found" in out["note"]
 
 
-def test_timeout_is_blocked(tmp_path):
+def test_timeout_is_failed(tmp_path):
     out, _, _ = go(tmp_path, FAKE_SLEEP="5", HERMES_TURN_TIMEOUT="0.5")
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "ran past 0.5 seconds" in out["reply"]
+    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert "ran past 0.5 seconds" in out["note"]
 
 
 def test_child_env_drops_hermes_home_and_settings_apply(tmp_path):
@@ -134,7 +144,7 @@ def test_reply_turn_sends_the_answer_then_the_brief_again(tmp_path):
     assert '"author_handle": "alex"' in query and "2026-10-29T03:00" in query
     assert "> Use the second disk." in query
     assert "Continue the task." in query
-    assert query.endswith(BRIEF)
+    assert BRIEF in query and query.endswith(cli.ENDINGS)
 
 
 def test_an_agents_reply_is_quoted_as_data(tmp_path):
@@ -166,5 +176,6 @@ def test_main_blocks_without_launch_when_brief_is_unreachable(tmp_path):
     )
     assert done.returncode == 0, done.stderr
     lines = [json.loads(ln) for ln in done.stdout.splitlines() if ln.strip()]
-    assert len(lines) == 1 and lines[0]["outcome"] == "blocked"
-    assert "brief" in lines[0]["reply"] and not (tmp_path / "log.json").exists()
+    assert len(lines) == 1 and lines[0]["outcome"] == "failed"
+    assert "brief" in lines[0]["note"] and "waiting_on" not in lines[0]
+    assert not (tmp_path / "log.json").exists()

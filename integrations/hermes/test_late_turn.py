@@ -14,7 +14,7 @@ from test_hermes_chat_adapter import task as chat_task
 
 REPLY = {"author_handle": "alex", "author_kind": "person", "body_md": "Which model was this?"}
 DONE = "Sent it.\nSLATE: done"
-ASKS = "Three questions for you.\nSLATE: blocked waiting_on alex"
+ASKS = "Three questions for you.\nSLATE: ask alex: Which model? [Opus | Sonnet]"
 
 
 class Runs(Gateway):
@@ -86,7 +86,7 @@ def strand(tmp_path, **state):
     `r1` was still going: the marker stays behind."""
     gw = Runs(stream=[[(0, ("run.started", {"run_id": "r1"})), (61, None)]])
     out, _, settings = go(gw, tmp_path)
-    assert out["outcome"] == "blocked" and "unconfirmed" in out["reply"]
+    assert out["outcome"] == "failed" and "unconfirmed" in out["note"]
     gw.runs["r1"] = state or None
     gw.events = [("assistant.completed", {"content": DONE}), ("run.completed", {})]
     return gw, settings
@@ -106,15 +106,15 @@ def test_a_turn_that_keeps_working_past_the_budget_is_not_cut_off(tmp_path):
 def test_a_turn_that_goes_silent_for_the_budget_is_unconfirmed(tmp_path):
     gw = Runs(stream=[[(0, ("run.started", {})), (30, None), (31, None)]])  # keepalives only
     out, _, _ = go(gw, tmp_path)
-    assert out["outcome"] == "blocked" and "unconfirmed" in out["reply"]
+    assert out["outcome"] == "failed" and "unconfirmed" in out["note"]
 
 
 def test_a_follow_up_turn_gets_the_whole_budget_again(tmp_path):
     first = [(50, ("assistant.completed", {"content": "Started."})), (0, ("run.completed", {}))]
-    nudged = [(50, ("assistant.completed", {"content": DONE})), (0, ("run.completed", {}))]
-    gw = Runs(stream=[first, nudged])
+    gw = Runs(stream=[first])
     out, _, _ = go(gw, tmp_path)
-    assert out["outcome"] == "done" and len(gw.turns) == 2
+    assert out["outcome"] == "answered" and out["reply"] == "Started."
+    assert len(gw.turns) == 1 and gw.clock.t == 50
 
 
 # --- The marker names its run, and settles on that run alone -------------------------------------
@@ -130,7 +130,7 @@ def test_a_run_still_going_keeps_blocking(tmp_path):
     gw, _ = strand(tmp_path, status="running")
     gw.active = 0  # even when the gateway counts nothing in flight
     out, _, _ = go(gw, tmp_path, {"item": ITEM, "thread": {"ref": "sess-new"}, "reply": REPLY})
-    assert out["outcome"] == "blocked" and "not been reconciled" in out["reply"]
+    assert out["outcome"] == "failed" and "not been reconciled" in out["note"]
     assert len(gw.turns) == 1
 
 
@@ -151,7 +151,7 @@ def test_a_gateway_without_run_status_proves_nothing(tmp_path):
     gw, _ = strand(tmp_path)
     gw.run_route = False  # an older gateway: its 404 is not "this run ended"
     out, _, _ = go(gw, tmp_path, {"item": ITEM, "thread": {"ref": "sess-new"}, "reply": REPLY})
-    assert out["outcome"] == "blocked" and len(gw.turns) == 1
+    assert out["outcome"] == "failed" and len(gw.turns) == 1
 
 
 # --- The answer the card never got ---------------------------------------------------------------
@@ -161,8 +161,10 @@ def test_run_now_reports_the_answer_that_finished_unwatched(tmp_path):
     gw, settings = strand(tmp_path, status="completed", output=ASKS)
     out, lines, _ = go(gw, tmp_path, {"item": ITEM, "thread": {"ref": "sess-new"}})
     assert out == {
-        "outcome": "blocked",
+        "outcome": "ask",
         "waiting_on": "alex",
+        "question": "Which model?",
+        "options": ["Opus", "Sonnet"],
         "reply": "Three questions for you.",
         "thread": {"ref": "sess-new"},
     }
@@ -202,7 +204,7 @@ def test_a_lost_stream_whose_run_failed_is_blocked_and_retryable(tmp_path):
     gw = Runs(stream=[[(0, ("run.started", {"run_id": "r1"})), (0, lost)]])
     gw.runs["r1"] = {"status": "cancelled"}
     out, _, settings = go(gw, tmp_path)
-    assert out["outcome"] == "blocked" and "cancelled" in out["reply"]
+    assert out["outcome"] == "failed" and "cancelled" in out["note"]
     assert run_task.load_pending(settings, "it1") is None
 
 
