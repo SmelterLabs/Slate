@@ -61,7 +61,17 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from slate.ids import new_id
-from slate.models import Account, Comment, CommentReaction, CommentRun, Event, Role, utcnow
+from slate.models import (
+    Account,
+    AccountKind,
+    Comment,
+    CommentReaction,
+    CommentRun,
+    Event,
+    Item,
+    Role,
+    utcnow,
+)
 from slate.service import access, guests
 from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
@@ -364,7 +374,7 @@ def answer(session: Session, actor: Actor, comment_id: str, *, option: str) -> C
 
 
 def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: str) -> None:
-    from slate.models import AccountKind, ItemAssignee
+    from slate.models import ItemAssignee
     from slate.service import reports
     from slate.service.brief import closing_line
     from slate.service.items import update_item
@@ -374,16 +384,19 @@ def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: 
         return
     account = session.get(Account, actor.account_id)
     item = get_item(session, comment.item_id)
+    # The line's text is the status; without it the comment's first line is (reports.report).
+    said = {"reply": body, "status": reports.standing_line(line.status or "")}
+    outcome = "done" if line.outcome == "review" and not said["status"] else line.outcome
     try:
         is_agent = account is not None and account.kind == AccountKind.agent
-        if is_agent and line.outcome == "later":
+        if is_agent and outcome == "later":
             from slate.service.work import check_later
 
             check_later(item)  # parked until its run time; refused (no change) without one
-            reports.report(session, actor, item.id, state="idle", comment=False)
-        elif is_agent and line.outcome == "answered":
-            if item.agent_state_by == actor.account_id:
-                reports.report(session, actor, item.id, state="idle", comment=False)
+            reports.report(session, actor, item.id, state="idle", comment=False, **said)
+        elif is_agent and outcome == "answered":
+            if item.agent_state_by in (None, actor.account_id):
+                reports.report(session, actor, item.id, state="idle", comment=False, **said)
         elif is_agent and line.outcome == "ask":
             with apply_change(session, actor) as cx:
                 reports.report(
@@ -400,11 +413,12 @@ def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: 
                 session,
                 actor,
                 item.id,
-                state=line.outcome,
+                state=outcome,
                 comment=False,
                 complete=assigned,
+                **said,
             )
-        elif line.outcome == "done":
+        elif outcome == "done":
             status = reports.done_status(session, item)
             if status is not None:
                 update_item(session, actor, item.id, {"status": status.id})
@@ -416,9 +430,13 @@ def _assign(
     cx: Any, comment: Comment, target: Account | None, *, reply: bool = False, ask: bool = False
 ) -> None:
     before = comment.assignee_id
+    item = cx.session.get(Item, comment.item_id)  # read before the writes below
     comment.assignee_id = target.id if target else None
     if target is not None:
         comment.resolved_at = comment.resolved_by_id = None
+    stall = target is not None and target.kind == AccountKind.agent and item.stalled_at
+    if stall:
+        item.stalled_at = None  # a new Ask for the agent ends a stall
     cx.record(
         "comment.assigned",
         item_id=comment.item_id,
@@ -432,7 +450,7 @@ def _assign(
             **({"reply": True} if reply else {}),
             **({"ask": True} if ask else {}),
         },
-        covers=[comment],
+        covers=[comment, item] if stall else [comment],
     )
 
 

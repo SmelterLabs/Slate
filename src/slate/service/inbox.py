@@ -14,6 +14,8 @@ Nothing is copied into a notifications table. An entry is an event, chosen for o
   (`item.run_failed`, `after.notify`: the card's person assignees and watchers, else the
   owners). A `failed` report before that is nobody's news, and neither is the take that
   retries it.
+- `stalled`  — a card's agent stopped without finishing twice (it answered, Slate ran it
+  again, it answered again: `item.stalled`, `after.notify` as for `failed`).
 - `due`      — a due or overdue nudge on an item assigned to the account
 - `unblocked` — an open item assigned to the account no longer waits on anything
 - `nudge`    — a task is due for (or Run now was pressed on) an agent no runner wakes (`wake`
@@ -164,6 +166,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         return "nudge" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "item.run_failed":
         return "failed" if account.id in ((ev.after_json or {}).get("notify") or []) else None
+    if ev.type == "item.stalled":
+        return "stalled" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "comment.assigned":
         after = ev.after_json or {}
         # An agent's ask is told as `waiting` (its wait), not also as a mention.
@@ -191,6 +195,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return "waiting"
         if "failed" in (after.get("state"), (ev.before_json or {}).get("state")):
             return None  # a failed run and its retry are quiet until Slate gives up
+        if after.get("reason") == "stale":
+            return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
         return "due" if ev.item_id in f.assigned else None
@@ -256,6 +262,7 @@ REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     *sorted(FOLLOW_REASONS),
 )
 SAME_CHANGE = timedelta(seconds=2)
@@ -382,6 +389,7 @@ def _candidates(account: Account, f: Follows, state: InboxState | None, *, unrea
         (Event.field == "waiting_on_account_id") & (after("$") == me),
         (Event.type == "item.run_requested") & _in_after("$.notify", me),
         (Event.type == "item.run_failed") & _in_after("$.notify", me),
+        (Event.type == "item.stalled") & _in_after("$.notify", me),
         (Event.type == "item.reported") & (after("$.waiting_on") == me),
         (Event.type == "item.watched") & Event.field.is_(None) & (after("$") == me),
         (Event.type == "item.unwatched") & (func.json_extract(Event.before_json, "$") == me),

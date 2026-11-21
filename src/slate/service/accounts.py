@@ -46,6 +46,7 @@ PUSH_REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     "comment",
     "status",
     "update",

@@ -38,6 +38,7 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
+    Event,
     Role,
 )
 from slate.service.items import get_item
@@ -52,16 +53,21 @@ RUN_RULE = (
     "Wait for any background work you start to report back before you answer. If a resident "
     "runner started this turn, it owns heartbeat and finish: do not start a second work loop "
     "or close its run with a report. Comments do not resolve Asks: do not bulk-resolve open "
-    "questions or resolve another account's Asks. End your answer with one line: `SLATE: done` "
-    "(finished), `SLATE: review` (finished, for a person to check), `SLATE: later` (the rest "
-    "waits for the task's due time, still to come), `SLATE: answered` (you replied and nothing "
-    "else changes), or, only when you cannot go on without a person, `SLATE: ask {ask}: "
-    "<one-line question> [option | option]` (the options are optional). Put that line last, "
-    "on its own."
+    "questions or resolve another account's Asks. End your answer with one line that says "
+    "where the card stands, in few words, after the ending: `SLATE: done: <what you did>`, "
+    "`SLATE: review: <what the person must check>` (only for work a person must check), "
+    "`SLATE: later: <when it runs again>` (the rest waits for the task's due time, still to "
+    "come), `SLATE: answered: <where it stands>` (you replied and nothing else changes), or, "
+    "only when you cannot go on without a person, `SLATE: ask {ask}: <one-line question> "
+    "[option | option]` (the options are optional). Put that line last, on its own."
+)
+STALLED_RULE = (
+    "This card is still open: your last answer on it did not finish it. End this turn `done`, "
+    "`ask`, `later` or `review`."
 )
 
 _LINE = re.compile(
-    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*\.?"
+    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
     r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.+?))\s*$",
     re.IGNORECASE,
 )
@@ -74,6 +80,7 @@ class ClosingLine:
     waiting_on: str | None = None  # a handle, for ask
     question: str | None = None  # for ask
     options: tuple[str, ...] = ()  # for ask, when given
+    status: str | None = None  # the text after `done:` / `review:` / `later:` / `answered:`
 
 
 def closing_line(text: str | None) -> ClosingLine | None:
@@ -86,13 +93,13 @@ def closing_line(text: str | None) -> ClosingLine | None:
     if m is None:
         return None
     if m.group(1):
-        return ClosingLine(m.group(1).lower())
-    question, options = m.group(3), ()
+        return ClosingLine(m.group(1).lower(), status=m.group(2))
+    question, options = m.group(4), ()
     bracket = _OPTIONS.match(question)
     if bracket is not None:
         question = bracket.group(1)
         options = tuple(o.strip() for o in bracket.group(2).split("|"))
-    return ClosingLine("ask", m.group(2).lower(), question.strip(), options)
+    return ClosingLine("ask", m.group(3).lower(), question.strip(), options)
 
 
 def default_ask(session: Session, account_id: str | None) -> str:
@@ -192,4 +199,16 @@ def brief(session: Session, item_id: str, *, ask: str) -> str:
             )
             out.append("\n".join("> " + line for line in body.splitlines()))
     out += ["", RUN_RULE.format(ask=ask)]
+    # A run Slate started because the card stalled (service/due.py `poke_stalled`).
+    newest = session.scalar(
+        select(Event)
+        .where(
+            Event.item_id == item.id,
+            Event.type.in_(["item.run_requested", "item.work_finished"]),
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    if newest is not None and (newest.after_json or {}).get("reason") == "stalled":
+        out += ["", STALLED_RULE]
     return "\n".join(out)

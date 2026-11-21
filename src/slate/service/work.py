@@ -111,6 +111,11 @@ BLOCKED_PAUSE = timedelta(hours=1)
 # (`item.run_failed`, told to people once). Run now starts the count over.
 RETRY_AFTER = (timedelta(minutes=5), timedelta(minutes=30))
 GIVE_UP_AFTER = len(RETRY_AFTER) + 1
+# A `working` badge with no lease and no report for this long is cleared (`due.clear_stale_badges`).
+STALE_AFTER = timedelta(minutes=30)
+# An open card its agent last finished `answered` this long ago is poked once
+# (`due.poke_stalled`); a poked run that answers again marks the card stalled.
+STALL_AFTER = timedelta(hours=4)
 # A lease is `working` until its time runs out, then `expired`: the task stays held until the
 # agent reconciles or a person clears the badge (`docs/state-machines.md`).
 LEASE_STATES = ("working", "expired")
@@ -971,8 +976,8 @@ def finish(
         raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
     if hand_to is not None and outcome not in ("review", "blocked", "release"):
         raise Invalid(f"hand_to goes with review, blocked or release, not {outcome}")
-    if waiting_on is not None and outcome not in ("ask", "blocked"):
-        raise Invalid("waiting_on goes with ask or blocked")
+    if waiting_on is not None and outcome not in ("ask", "blocked", "review"):
+        raise Invalid("waiting_on goes with ask, review or blocked")
     if (question is not None or options) and outcome != "ask":
         raise Invalid("question and options go with ask")
     if outcome == "ask" and question is None:
@@ -1048,7 +1053,7 @@ def finish(
             note=reports.first_line(note or "") if outcome == "failed" else note,
             progress=progress,
             comment=comment and target is None and outcome != "failed",
-            complete=status is None and not answering,
+            complete=not answering,
             _finishing=True,
             run_id=run_id,
             waiting_on=waiting_on,
@@ -1057,10 +1062,14 @@ def finish(
             thread=thread,
             question=question,
             options=options,
+            status=status,
         )
+        # A poked turn that answered again stalled; any other finish ends a stall.
+        stalled = outcome == "answered" and _poked(session, actor.account_id, item.id)
+        newly_stalled = stalled and item.stalled_at is None
+        if stalled != (item.stalled_at is not None):
+            item.stalled_at = utcnow() if stalled else None  # rides on item.reported
         changes: dict[str, Any] = {}
-        if status is not None:
-            changes["status"] = status
         current = _assignee_ids(session, item.id)
         if target is not None:
             keep = [a for a in current if a != actor.account_id]
@@ -1073,11 +1082,8 @@ def finish(
         if changes:
             update_item(session, actor, item.id, changes)
         if start is not None or run_id or outcome == "failed":
-            if answering and outcome == "done" and _is_agent(session, actor.account_id):
-                for ask in asks:
-                    comments.resolve_comment(session, actor, ask.id)
-            if outcome == "answered":
-                for ask in asks:
+            if outcome not in ("failed", "release") and _is_agent(session, actor.account_id):
+                for ask in asks:  # it answered them; a failed or released run did not
                     comments.resolve_comment(session, actor, ask.id, reason="answered")
             failed = {}
             if outcome == "failed":
@@ -1092,10 +1098,20 @@ def finish(
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),
                     **failed,
+                    **({"status": item.standing_line} if item.standing_line else {}),
                     **({"steps": log.steps, "comment_id": log.comment_id} if log else {}),
                 },
                 covers=[log] if log else [],
             )
+            if newly_stalled:
+                cx.record(
+                    "item.stalled",
+                    item_id=item.id,
+                    after={
+                        "agent_id": actor.account_id,
+                        "notify": _people_to_tell(session, item.id),
+                    },
+                )
             if failed.get("failures", 0) >= GIVE_UP_AFTER:
                 cx.record(
                     "item.run_failed",
@@ -1103,7 +1119,7 @@ def finish(
                     after={
                         "agent_id": actor.account_id,
                         **failed,
-                        "notify": _told_of_failure(session, item.id),
+                        "notify": _people_to_tell(session, item.id),
                     },
                 )
         if row is not None:
@@ -1111,6 +1127,29 @@ def finish(
     liveactivity.live.clear(item.id)  # the run is over: its box is empty for the next one
     session.refresh(item)
     return item
+
+
+def _poked(session: Session, account_id: str, item_id: str) -> bool:
+    """Did this turn start from Slate's stalled poke? The item's newest Run now is the poke
+    (`after.reason` `stalled`) and came after the account's previous finish on it."""
+    newest = session.scalar(
+        select(Event)
+        .where(
+            Event.item_id == item_id,
+            or_(
+                Event.type == "item.run_requested",
+                and_(Event.type == "item.work_finished", Event.actor_id == account_id),
+            ),
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    after = newest.after_json if newest is not None and isinstance(newest.after_json, dict) else {}
+    return (
+        newest is not None
+        and newest.type == "item.run_requested"
+        and (after.get("reason") == "stalled")
+    )
 
 
 def _failures(session: Session, account_id: str, item: Item) -> int:
@@ -1140,9 +1179,9 @@ def _failures(session: Session, account_id: str, item: Item) -> int:
     return count
 
 
-def _told_of_failure(session: Session, item_id: str) -> list[str]:
-    """Who hears that Slate gave up on a run: the card's person assignees and watchers, else
-    the workspace owners."""
+def _people_to_tell(session: Session, item_id: str) -> list[str]:
+    """Who hears that Slate gave up on a run, or that a card stalled: the card's person
+    assignees and watchers, else the workspace owners."""
     people = (
         select(Account.id)
         .where(Account.kind == AccountKind.person, Account.disabled_at.is_(None))
@@ -1318,6 +1357,7 @@ def request_run(
         if session.get(WorkLease, item.id) is not None:
             raise Conflict("execution state is unknown; reconcile the current run before retrying")
         item.run_requested_at = now
+        item.stalled_at = None  # whoever pressed it wants the agent to go on
         event = cx.record(
             "item.run_requested",
             item_id=item.id,

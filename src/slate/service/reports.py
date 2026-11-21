@@ -53,6 +53,7 @@ Side effects, each its own ordinary event in the same transaction:
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -95,6 +96,11 @@ QUESTION_MAX = 200
 OPTION_MAX = 40
 OPTIONS_MIN, OPTIONS_MAX = 2, 4
 ASK_ADVICE = "to wait on a person, use ask with a one-line question"
+STATUS_MAX = 140
+REVIEW_ADVICE = (
+    "review needs a status: say in one line what the person should check, or finish done "
+    "when there is nothing to check"
+)
 # A badge nobody refreshed for this long is abandoned: a claim may take the item over.
 CLAIM_FRESH = timedelta(hours=6)
 
@@ -199,6 +205,17 @@ def first_line(text: str, limit: int = NOTE_MAX) -> str | None:
     return None
 
 
+def standing_line(text: str) -> str | None:
+    """The first non-empty line of `text` as plain words: Markdown marks and link targets
+    taken out, cut to STATUS_MAX characters. None for empty text."""
+    for raw in text.splitlines():
+        line = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", raw)
+        line = re.sub(r"[*_`]", "", line).strip().lstrip("#>+- ").strip()
+        if line:
+            return line if len(line) <= STATUS_MAX else line[: STATUS_MAX - 1] + "…"
+    return None
+
+
 def check_ask(question: str | None, options: list[str] | None) -> dict[str, Any] | None:
     """`{question, options}` (None without a question): the question one line of 1 to
     QUESTION_MAX characters; `options` empty, or 2 to 4 answers of 1 to OPTION_MAX each."""
@@ -267,6 +284,7 @@ def report(
     run_id: str | None = None,
     question: str | None = None,
     options: list[str] | None = None,
+    status: str | None = None,
     _taking: bool = False,
     _finishing: bool = False,
 ) -> Item:
@@ -281,16 +299,25 @@ def report(
     thread = check_thread(thread)
     url = check_url(url) or (thread or {}).get("url")
     actor = with_thread_ref(session, actor, thread)
-    if waiting_on is not None and state != "blocked":
-        raise Invalid("waiting_on goes with state 'blocked'")
+    if waiting_on is not None and state not in ("blocked", "review"):
+        raise Invalid("waiting_on goes with state 'blocked' or 'review'")
     if claim and state != "working":
         raise Invalid("claim goes with state 'working'")
     ask = check_ask(question, options)
     if ask is not None and state != "blocked":
         raise Invalid("question goes with an ask (state 'blocked')")
+    if ask is not None and status is not None:
+        raise Invalid("an ask's question is its status: send no status with it")
+    if state == "review" and status is None:
+        raise Invalid(REVIEW_ADVICE)
     assign_me = (assign_me or claim) and not no_assign
     item = get_item(session, item_id)
     waiting = resolve_account(session, waiting_on) if waiting_on else None
+    reviewer = None
+    if state == "review":
+        reviewer, waiting = waiting or _asker(session, actor, item.id), None
+        if reviewer.kind != AccountKind.person:
+            raise Invalid("a review is for a person: waiting_on names who checks it")
     if ask is not None and waiting is None:
         waiting = _asker(session, actor, item.id)
     if waiting is not None and waiting.kind == AccountKind.person and ask is None:
@@ -308,6 +335,15 @@ def report(
         thread_row is None or (thread_row.ref, thread_row.url) != (thread["ref"], thread["url"])
     )
     waiting_again = waiting is not None and item.waiting_on_account_id == waiting.id
+    # Where the card stands: an agent's every report but `working` says it (module docstring).
+    reporter = session.get(Account, actor.account_id)
+    standing = None
+    if state != "working" and reporter is not None and reporter.kind == AccountKind.agent:
+        standing = (
+            ask["question"]
+            if ask
+            else status or standing_line(reply or "") or standing_line(note or "") or LABELS[state]
+        )
 
     with apply_change(session, actor) as cx:
         from slate.service import work
@@ -381,6 +417,14 @@ def report(
             after["again"] = waiting_again
         if ask is not None:
             after.update(ask)
+        if standing is not None:
+            item.standing_line, item.standing_by, item.standing_at = (
+                standing,
+                actor.account_id,
+                utcnow(),
+            )
+            item.review_for = reviewer.id if reviewer is not None else None
+            after["status"] = standing
         cx.record(
             "item.reported",
             item_id=item.id,
