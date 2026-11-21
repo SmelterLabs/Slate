@@ -17,7 +17,8 @@ rest. It reads the task (the `/work/next` answer) on stdin and:
 4. polls `GET /runs/{run_id}` until the run is `completed`, `failed`, `cancelled` or
    `waiting_input`, or the timeout passes;
 5. after a `completed` status, reads the reply's closing line for `done`, `review`, `later`,
-   `answered` or `ask`. An answer without a closing line is `answered`. The remaining text
+   `answered` or `ask`. The text after the colon is `status`. A `review` with no status is
+   sent as `done`. An answer without a closing line is `answered`. The remaining text
    becomes a comment, and `thread` is the agent's page (`{ref: agent_id, url}`).
    When the task comes back with an answer on the card (`reply` on stdin), that answer is
    quoted as data with author ID, kind, role and timestamp, never as instructions.
@@ -55,15 +56,20 @@ NOTE_MAX = 3500
 POLL_EVERY = 5.0
 ENDED = {"completed", "failed", "cancelled", "waiting_input"}
 SLATE_LINE = re.compile(
-    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*\.?"
+    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
     r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.+?))\s*$",
     re.IGNORECASE,
 )
 ENDINGS = (
-    "End your answer with one line on its own: `SLATE: done`, `SLATE: review`, "
-    "`SLATE: later`, `SLATE: answered`, or `SLATE: ask {who}: Your one-line question? [Yes | No]`. "
-    "Include an ask only when you need a person's answer. The bracketed options are optional "
-    "(2 to 4). A reply without a closing line is recorded as answered."
+    "End with one line, last, on its own. The words after the colon are the status "
+    "(where the card stands); review needs them:\n"
+    "`SLATE: done: Sent the invoice. Nothing needed from you.`\n"
+    "`SLATE: review: Check the draft linked above.`\n"
+    "`SLATE: later: Runs Friday at 9.`\n"
+    "`SLATE: answered: It is waiting on the bank, not on you.`\n"
+    "`SLATE: ask alex: Start the import now? [Yes | No | Not yet]`\n"
+    "A review line with nothing after it is recorded as done. An answer with no such "
+    "line is answered and waits on nobody."
 )
 
 Emit = Callable[[dict[str, Any]], None]
@@ -102,8 +108,13 @@ def emit_stdout(line: dict[str, Any]) -> None:
     print(json.dumps(line), flush=True)
 
 
-def closing(text: str) -> tuple[str, str | None, str, str | None, list[str] | None] | None:
-    """Return outcome, recipient, reply body, question and options for a closing line."""
+def closing(
+    text: str,
+) -> tuple[str, str | None, str, str | None, list[str] | None, str | None] | None:
+    """Outcome, recipient, reply body, question, options and status for a closing line.
+
+    Status is the text after the colon on done, review, later and answered. A review with
+    no status is still returned as review; `result` sends that as done."""
     lines = (text or "").strip().splitlines()
     if not lines:
         return None
@@ -112,14 +123,15 @@ def closing(text: str) -> tuple[str, str | None, str, str | None, list[str] | No
         return None
     body = "\n".join(lines[:-1]).strip()
     if m.group(1):
-        return m.group(1).lower(), None, body, None, None
-    question = m.group(3)
+        status = (m.group(2) or "").strip()[:140] or None
+        return m.group(1).lower(), None, body, None, None, status
+    question = m.group(4)
     options = None
     bracket = re.fullmatch(r"(.*?)\s*\[([^\[\]]*)\]", question)
     if bracket:
         question = bracket.group(1)
         options = [part.strip() for part in bracket.group(2).split("|")]
-    return "ask", m.group(2).lower(), body, question.strip(), options
+    return "ask", m.group(3).lower(), body, question.strip(), options, None
 
 
 # --- the service's API: replace these two with your own calls -------------------------------
@@ -171,7 +183,10 @@ def result(
         found = closing(reply)
         if found is None:
             return {"outcome": "answered", "reply": reply.strip()[:NOTE_MAX]}
-        outcome, who, body, question, options = found
+        outcome, who, body, question, options, standing = found
+        standing = (standing or "").strip()[:140]
+        if outcome == "review" and not standing:
+            outcome = "done"
         out: dict[str, Any] = {"outcome": outcome}
         if body or outcome == "answered":
             out["reply"] = body[:NOTE_MAX] or "Answered."
@@ -179,6 +194,8 @@ def result(
             out.update(waiting_on=who, question=question)
             if options:
                 out["options"] = options
+        elif standing:
+            out["status"] = standing
         return out
     if status == "completed":
         note = "The agent service completed the run without a reply."
@@ -235,8 +252,7 @@ def run(
             "thread": {"ref": agent_id, "url": page},
         }
     later = turn_text(task)
-    endings = ENDINGS.format(who=suggested or brief_data.get("ask") or "alex")
-    text = f"{title} · {item_id}\n\n{later or brief}\n\n{endings}"
+    text = f"{title} · {item_id}\n\n{later or brief}\n\n{ENDINGS}"
     # One run per take: a retry of the same take (same lease start) is not started twice.
     key = f"slate:{item_id}:{lease.get('claimed_at') or ''}"
     try:

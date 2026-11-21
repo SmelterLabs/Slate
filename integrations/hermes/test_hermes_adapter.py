@@ -609,18 +609,26 @@ def test_a_turn_that_never_ends_is_blocked(state_file):
 @pytest.mark.parametrize(
     ("text", "want"),
     [
-        ("ok\nSLATE: done", ("done", None, "ok", None, None)),
-        ("x\n**SLATE: review**\n\n", ("review", None, "x", None, None)),
+        ("ok\nSLATE: done", ("done", None, "ok", None, None, None)),
+        ("x\n**SLATE: review**\n\n", ("review", None, "x", None, None, None)),
         ("SLATE: done\nmore", None),
-        ("Set for 11:05.\nSLATE: later", ("later", None, "Set for 11:05.", None, None)),
+        ("Set for 11:05.\nSLATE: later", ("later", None, "Set for 11:05.", None, None, None)),
         ("SLATE: later waiting_on alex", None),
-        ("SLATE: answered", ("answered", None, "", None, None)),
-        ("SLATE: answered.", ("answered", None, "", None, None)),
+        ("SLATE: answered", ("answered", None, "", None, None, None)),
+        ("SLATE: answered.", ("answered", None, "", None, None, None)),
         (
             "Note\nSLATE: ask alex: Start now? [Yes | No]",
-            ("ask", "alex", "Note", "Start now?", ["Yes", "No"]),
+            ("ask", "alex", "Note", "Start now?", ["Yes", "No"], None),
         ),
-        ("SLATE: ask alex: Which day?", ("ask", "alex", "", "Which day?", None)),
+        ("SLATE: ask alex: Which day?", ("ask", "alex", "", "Which day?", None, None)),
+        (
+            "Sent.\nSLATE: done: Sent the invoice. Nothing needed from you.",
+            ("done", None, "Sent.", None, None, "Sent the invoice. Nothing needed from you."),
+        ),
+        (
+            "Draft.\nSLATE: review: Check the draft linked above.",
+            ("review", None, "Draft.", None, None, "Check the draft linked above."),
+        ),
         ("SLATE: blocked waiting_on alex", None),
         ("SLATE: ask alex:", None),
         ("SLATE: finished", None),

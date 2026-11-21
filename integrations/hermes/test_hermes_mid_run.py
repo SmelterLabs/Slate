@@ -66,7 +66,8 @@ def test_a_message_the_run_would_not_take_gets_its_own_turn(state_file, tmp_path
     gw = Live(script=[DONE, again], steer_status=409)
     env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
     out, lines, _ = go(gw, env=env)
-    assert out["outcome"] == "review" and out["reply"] == "Sent it.\n\nShortened."
+    assert out["outcome"] == "done" and out["reply"] == "Sent it.\n\nShortened."
+    assert "status" not in out
     assert len(gw.turns) == 2 and "> Use the short version" in gw.turns[1]["message"]
     assert {"seen": ["c9"]} in lines
 
@@ -151,7 +152,8 @@ def test_a_late_messages_turn_adds_to_the_answer_already_given(state_file, tmp_p
     gw = Live(script=[DONE, again], steer_status=409)
     env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
     out, _, _ = go(gw, env=env)
-    assert out["outcome"] == "review" and out["reply"] == "Sent it.\n\nShortened."
+    assert out["outcome"] == "done" and out["reply"] == "Sent it.\n\nShortened."
+    assert "status" not in out
 
 
 def test_stop_ends_the_run_as_answered(state_file, tmp_path):  # noqa: F811
