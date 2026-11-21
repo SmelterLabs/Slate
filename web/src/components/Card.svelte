@@ -161,7 +161,7 @@
   <span class="card-title" class:clamped={config.title_lines > 0}>{item.title}</span>
 
   {#if item.agent}<span class="card-agent"><AgentBadge flag={item.agent} {item} /></span>{/if}
-  {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working'}<span class="card-agent"
+  {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed'}<span class="card-agent"
       ><RunNow {item} /></span
     >{/if}
 

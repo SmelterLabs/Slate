@@ -375,6 +375,22 @@
               </span>
             {/if}
           </div>
+          {#if c.ask}
+            <div class="ask-box" data-ask-box>
+              <p class="ask-q" data-ask-question>{c.ask.question}</p>
+              {#if c.ask.options.length}
+                <div class="ask-opts">
+                  {#each c.ask.options as option (option)}
+                    {#if !c.resolved_at && c.assignee_id === task.me}
+                      <button class="ask-opt" data-answer-option={option} onclick={() => void task.answer(c.id, option)}>{option}</button>
+                    {:else}
+                      <span class="ask-opt plain" data-ask-option>{option}</span>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
           {#if editing === c.id}
             <textarea
               class="edit"
@@ -757,6 +773,40 @@
     border-color: var(--line);
     background: none;
     color: var(--muted);
+  }
+  .ask-box {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .ask-q {
+    margin: 0 0 6px;
+    font-weight: 600;
+  }
+  .ask-opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .ask-opt {
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  button.ask-opt {
+    cursor: pointer;
+    background: color-mix(in srgb, var(--prio-high) 14%, transparent);
+  }
+  .ask-opt.plain {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    background: none;
   }
   .activity {
     display: flex;

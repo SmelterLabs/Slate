@@ -19,8 +19,12 @@
   let cleared = $state<Set<string>>(new Set());
 
   function who(a: Attention): string | null {
-    const by = a.item.agent?.by;
+    const by = a.item.ask?.by_id ?? a.item.agent?.by;
     return by ? (board.accountName(by) ?? null) : null;
+  }
+  async function answerAsk(e: MouseEvent, a: Attention, option: string) {
+    e.stopPropagation();
+    if (a.item.ask) await task.answer(a.item.ask.comment_id, option);
   }
   function note(a: Attention): string | null {
     return a.item.agent?.note ?? null;
@@ -61,16 +65,30 @@
     <button class="nd-main" onclick={() => board.open(a.item.id)}>
       <span class="nd-top">
         <span class="nd-chip"><Icon name={ICON[a.need]} size={11} />{LABEL[a.need]}</span>
-        <span class="nd-title">{a.item.title}</span>
+        {#if a.item.ask}
+          <span class="nd-title" data-ask-question>{a.item.ask.question}</span>
+        {:else}
+          <span class="nd-title">{a.item.title}</span>
+        {/if}
       </span>
       <span class="nd-meta">
-        {#if who(a)}<Icon name="robot" size={11} /><b>{who(a)}</b>{#if note(a)}<span class="nd-note">{note(a)}</span>{/if}{:else}<span
+        {#if a.item.ask}
+          {#if who(a)}<Icon name="robot" size={11} /><b>{who(a)}</b><span class="nd-note">{a.item.title}</span>{:else}<span>{a.item.title}</span>{/if}
+        {:else if who(a)}<Icon name="robot" size={11} /><b>{who(a)}</b>{#if note(a)}<span class="nd-note">{note(a)}</span>{/if}{:else}<span
             >{board.lists[a.item.list_id]?.name ?? ''}</span
           >{/if}
       </span>
     </button>
     <span class="nd-when">{when(a)}</span>
-    {@render action(a)}
+    {#if a.item.ask?.options.length}
+      <span class="nd-opts">
+        {#each a.item.ask.options as option (option)}
+          <button class="nd-act" data-answer-option={option} onclick={(e) => answerAsk(e, a, option)}>{option}</button>
+        {/each}
+      </span>
+    {:else}
+      {@render action(a)}
+    {/if}
   </div>
 {/snippet}
 
@@ -256,6 +274,16 @@
   .nd-row .nd-act {
     min-width: 118px;
     text-align: center;
+  }
+  .nd-opts {
+    display: inline-flex;
+    gap: 6px;
+    flex: none;
+    flex-wrap: wrap;
+  }
+  .nd-opts .nd-act {
+    min-width: 0;
+    min-height: 28px;
   }
   .nd-act {
     flex: none;

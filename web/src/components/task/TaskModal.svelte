@@ -105,10 +105,13 @@
   // the last line of a long comment (the "Needs you" pill's Answer lands here).
   const waitQ = $derived.by(() => {
     if (!d || !task.me || d.waiting_on_account_id !== task.me) return null;
+    const ask = board.items[d.id]?.ask ?? d.ask ?? null;
+    if (ask) return { by: ask.by_id, commentId: ask.comment_id, question: ask.question, options: ask.options as string[] };
     const feed = task.activity ?? [];
     const comments = [...d.comments, ...feed.flatMap((e) => (e.comment ? [e.comment] : []))];
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
-    return waitingQuestion(d, comments, events, task.me);
+    const q = waitingQuestion(d, comments, events, task.me);
+    return q ? { ...q, options: [] as string[] } : null;
   });
 
   // The agent that asked is still flagged blocked: its badge would say the banner's sentence a
@@ -509,6 +512,13 @@
             {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
             {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
             <div class="wq-actions">
+              {#each waitQ.options as option (option)}
+                <button
+                  class="primary"
+                  data-answer-option={option}
+                  onclick={() => waitQ.commentId && void task.answer(waitQ.commentId, option)}>{option}</button
+                >
+              {/each}
               <button class="primary" data-answer onclick={() => task.reveal(waitQ.commentId)}>Answer</button>
               <button class="link" data-not-waiting onclick={() => save({ waiting_on_account_id: null })}>Not waiting on me</button>
               {#if waitFlag}
@@ -1003,6 +1013,10 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+  .wq-actions button {
+    min-height: 28px;
   }
   .banner.trashed {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
