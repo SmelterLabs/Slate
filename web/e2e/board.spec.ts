@@ -28,9 +28,11 @@ test('token screen signs in and shows the board columns', async ({ page }) => {
   const columns = page.locator('.column .column-head');
   await expect(columns).toHaveText([/Open/, /Ready/, /Done/]);
   await expect(page.locator('.card', { hasText: 'Drag me to Ready' })).toBeVisible();
-  // Cards show the robot glyph for agents, tags, subtask counts and overdue dates.
+  // Cards name an assigned agent beside its robot glyph, and show tags, subtask counts and
+  // overdue dates.
   const live = page.locator('.card', { hasText: 'Agent renames this' });
   await expect(live.locator('.avatar.agent svg')).toBeVisible();
+  await expect(live.locator('.avatar.agent .avatar-name')).toHaveText('Agent');
   await expect(live.locator('.tag-pill')).toHaveText(['chores']);
   await expect(live.locator('.count-ic[title="Subtasks"]')).toHaveText('1');
   await expect(page.locator('.card', { hasText: 'Pay the water bill' }).locator('.due')).toHaveClass(

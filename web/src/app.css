@@ -2346,6 +2346,28 @@ html.touch-dragging .kanban {
   background: linear-gradient(135deg, #0fa58d, #3b82f6);
   color: #fff;
 }
+/* An agent with its name written out (board cards): the circle stretches into a chip. */
+.avatar.agent.named {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  min-width: 22px;
+  max-width: 150px;
+  padding: 0 8px 0 5px;
+  border-radius: 11px;
+  font-size: 0.72rem;
+  letter-spacing: 0;
+}
+.avatar.agent.named .ic {
+  flex: none;
+}
+.avatar-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 /* --- sidebar: brand, spaces with a coloured mark, lists with an icon, a person footer --- */
 .nav {
