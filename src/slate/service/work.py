@@ -803,13 +803,7 @@ def _ended(session: Session, item: Item, row: WorkLease) -> str | None:
     card that was done already), or None."""
     lst = session.get(List, item.list_id)
     section = session.get(Section, lst.section_id) if lst else None
-    if (
-        item.archived_at
-        or lst is None
-        or lst.archived_at
-        or section is None
-        or section.archived_at
-    ):
+    if item.archived_at or lst is None or lst.archived_at or section is None or section.archived_at:
         return "archived"
     status = session.get(Status, item.status_id) if item.status_id else None
     if status is None:

@@ -23,9 +23,7 @@ def _finish(client, h, item_id, run_id, **body):
     return client.post(f"{API}/work/{item_id}/finish", headers=h, json={"run_id": run_id, **body})
 
 
-def test_an_agent_that_closes_its_own_card_still_reports_back(
-    client, alex, todo, make_account, db
-):
+def test_an_agent_that_closes_its_own_card_still_reports_back(client, alex, todo, make_account, db):
     _, h, item = setup_task(client, alex, todo, make_account)
     run_id = _next(client, h)["lease"]["run_id"]
     _close(client, h, item["id"])
