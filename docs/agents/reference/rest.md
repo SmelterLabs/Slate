@@ -2,7 +2,7 @@
 
 # REST reference
 
-238 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+239 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -20,7 +20,7 @@
 - [today](#today) (1)
 - [views](#views) (6)
 - [favorites](#favorites) (4)
-- [inbox](#inbox) (4)
+- [inbox](#inbox) (5)
 - [chat](#chat) (17)
 - [webhooks](#webhooks) (6)
 - [links](#links) (3)
@@ -64,7 +64,7 @@ Scope: `write`
 
 Merge into your board prefs (a key sent as null is removed) and return them all. The change reaches your other devices live as `account.prefs_changed`.
 
-- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `email_to`, `email_reasons`, `view_drafts`
+- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `quiet_hours`, `escalate_after_minutes`, `email_to`, `email_reasons`, `view_drafts`
 - Returns: `200`
 
 ### `GET /accounts`
@@ -975,6 +975,15 @@ Your notifications from the last 30 days, newest first; cleared ones are left ou
 
 - Query: `limit`, `unread`, `reason`
 - Returns: `200` [list of InboxEntry](#inboxentry)
+
+### `GET /inbox/alerts`
+
+Scope: `read`
+
+Released notifications in cursor order. Start without after to get X-Slate-Cursor.
+
+- Query: `after`, `limit`
+- Returns: `200` [list of ReleasedAlert](#releasedalert)
 
 ### `GET /inbox/count`
 
@@ -2269,7 +2278,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### InboxEntry
 
-`event`: InboxEvent, `reason`: `mention` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
+`event`: InboxEvent, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `loudness`: integer, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
+
+### ReleasedAlert
+
+`cursor`: string, `at`: string, `loudness`: integer, `title`: string, `body`: string, `item_id`: string?, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `entry`: InboxEntry?
 
 ### InboxCount
 
@@ -2397,7 +2410,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DigestOut
 
-`date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
+`questions`: [DigestQuestion], `date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
 
 ### PushKeyOut
 

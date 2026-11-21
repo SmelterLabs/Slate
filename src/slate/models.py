@@ -831,6 +831,22 @@ class PushSubscription(Base):
     failures: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AttentionAlert(Base):
+    """A recipient's pending alert or durable release, without rendered private text."""
+
+    __tablename__ = "attention_alerts"
+    __table_args__ = (Index("ix_attention_alerts_account_cursor", "account_id", "cursor"),)
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
+    event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), primary_key=True)
+    source_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    cursor: Mapped[str | None] = mapped_column(String(12))
+    at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reason: Mapped[str | None] = mapped_column(String(20))
+    loudness: Mapped[int | None] = mapped_column(Integer)
+    quiet_events: Mapped[Any | None] = mapped_column(JSON)
+
+
 class PushDelivery(Base):
     """Durable, bounded delivery state, without payloads or endpoint credentials.
 
@@ -849,6 +865,7 @@ class PushDelivery(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     state: Mapped[str] = mapped_column(String(16), default="pending")
     next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    failed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
     @validates("state")

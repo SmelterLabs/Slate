@@ -461,7 +461,12 @@ def unrestricted(session: Session) -> _Detach:
     return _Detach(session)
 
 
-_BOUND_KEYS = (ACCESS_KEY, "slate_connection_event_access", "slate_connection_event_manager")
+_BOUND_KEYS = (
+    ACCESS_KEY,
+    CALLER_KEY,
+    "slate_connection_event_access",
+    "slate_connection_event_manager",
+)
 
 
 @contextmanager
@@ -1258,7 +1263,12 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
         else []
         for key in DIGEST_GROUPS
     }
-    ids = {r["id"] for rows in groups.values() for r in rows}
+    questions = [
+        row
+        for row in (body.get("questions") or [])
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    ]
+    ids = {r["id"] for rows in groups.values() for r in rows} | {r["id"] for r in questions}
     # Explicit SQL, not Session.get(): a previously loaded item may still be in the identity
     # map after a move or revocation. Missing/deleted references fail closed as well.
     visible = (
@@ -1282,7 +1292,27 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
                 safe[key].append(
                     {k: row[k] for k in ("id", "title", "due_at", "priority") if k in row}
                 )
-    return {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
+    result = {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
+    if questions:
+        docs = _visible_docs(list(caller.lists or {}), caller.doc_sections(), caller.general)
+        visible_docs = set(
+            session.scalars(
+                select(_docs.c.id).where(
+                    _docs.c.id.in_(docs),
+                    _docs.c.id.in_([row["doc_id"] for row in questions if "doc_id" in row]),
+                )
+            )
+        )
+        result["questions"] = [
+            {
+                k: row[k]
+                for k in ("id", "comment_id", "title", "question", "at", "age_minutes", "doc_id")
+                if k in row
+            }
+            for row in questions
+            if row["id"] in (visible_docs if "doc_id" in row else visible)
+        ]
+    return result
 
 
 # --- Webhook addresses in automation rules --------------------------------------------------

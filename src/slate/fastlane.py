@@ -263,7 +263,8 @@ class Conditional:
         async def tagged_send(message: Message) -> None:
             if message["type"] == "http.response.start":
                 h = MutableHeaders(scope=message)
-                h[CURSOR_HEADER] = cursor
+                if CURSOR_HEADER not in h:
+                    h[CURSOR_HEADER] = cursor
                 if etag and message["status"] == 200:
                     h["ETag"] = etag
             await send(message)

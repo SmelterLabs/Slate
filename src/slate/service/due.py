@@ -50,7 +50,9 @@ from slate.models import (
     AgentState,
     Event,
     Item,
+    ItemAssignee,
     List,
+    Role,
     Section,
     Source,
     Status,
@@ -237,7 +239,24 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
                     after = {**stage.after, **nudge}
                     cx.record(stage.type, item_id=item.id, field="run_requested_at", after=after)
                 else:
-                    cx.record(stage.type, item_id=item.id, field="due_at", after=stage.after)
+                    after = stage.after
+                    if stage.key in ("due", "overdue") and not session.scalar(
+                        select(Account.id)
+                        .join(ItemAssignee, ItemAssignee.account_id == Account.id)
+                        .where(ItemAssignee.item_id == item.id, Account.kind == AccountKind.person)
+                        .limit(1)
+                    ):
+                        creator = session.get(Account, item.created_by)
+                        recipient = (
+                            creator.id
+                            if creator and creator.kind == AccountKind.person
+                            else session.scalar(
+                                select(Account.id).where(Account.role == Role.owner)
+                            )
+                        )
+                        if recipient:
+                            after = {**after, "notify": [recipient]}
+                    cx.record(stage.type, item_id=item.id, field="due_at", after=after)
         set_committed_value(item, "last_due_event", todo[-1].key)
         emitted += len(todo)
     return emitted

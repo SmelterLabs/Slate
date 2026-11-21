@@ -4,24 +4,9 @@ A subscription (`push_subscriptions`) is one browser's endpoint and keys for one
 board makes one when someone turns notifications on for that device (`push.subscribed`) and
 removes it when they turn them off (`push.unsubscribed`). Its keys are never in an event.
 
-What is pushed is the account's inbox (service/inbox.py `reason_for`), filtered by the
-account's prefs `push_reasons` (default `DEFAULT_REASONS`): the same entries, worded for a
-lock screen by `notification_for()`. One reason is push-only: `chat`, any new message in a
-channel the account can read that is not already a mention or a reply to it (`chat_reason`).
-It never lands in the Inbox: a busy channel is not news to keep, but a desktop toast for it is
-what makes chat usable from another window. One inbox entry is never pushed: an agent's report
-that it started work (`started_work`); the report that ends the run is. `renudge()` follows
-chat up: chat that is still
-unread `chat_renudge_minutes` (prefs; default 10, 0 = off) after its newest message gets one
-more push per newest message ("Still unread: #Todo"), so a toast that slid by is not the end
-of it. The engine step runs both (slate.pusher). `process()` is the engine step: read events
-after the `engine_cursors` row `push`, commit per-device delivery rows with the cursor (one
-commit per page), then send. `push_deliveries` survives restarts, keeps successes terminal and
-rechecks access and preferences at every attempt. Transient failures retry at most five times
-in 24 hours with bounded backoff/Retry-After; old events are not replayed. Rendering runs under
-the recipient's read filter, so an opaque reference never expands to a private task title. A
-push service that answers 404 or 410 has forgotten the subscription, so it is removed
-(`push.expired`).
+The account's inbox supplies the reason. Attention supplies the level and releases alerts
+when any hold ends. Durable device receipts can retry after restart. Every attempt
+rechecks access and preferences before rendering under the recipient's read filter.
 
 Receipts are bookkeeping (`core.BOOKKEEPING_MODELS`), like webhook deliveries: the table is
 the delivery log and the retry state, so queueing, sending, failing and expiring a receipt
@@ -35,7 +20,6 @@ import fnmatch
 import logging
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -49,6 +33,7 @@ from slate import webpush
 from slate.ids import new_id
 from slate.models import (
     Account,
+    AttentionAlert,
     Event,
     Item,
     PushDelivery,
@@ -56,14 +41,13 @@ from slate.models import (
     Source,
     utcnow,
 )
-from slate.service import access, chat, comments, cursors, inbox, webhooks
-from slate.service.core import Actor, apply_change, event_payload
+from slate.service import access, attention, chat, comments, webhooks
+from slate.service.core import Actor, apply_change
 from slate.service.errors import Forbidden, Invalid, NotFound
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
 
-CURSOR = "push"
 PAGE = 500
 MAX_PER_ACCOUNT = 20
 MAX_FAILURES = 10
@@ -86,12 +70,6 @@ DEFAULT_REASONS = (
     "failed",
     "watching",
 )
-
-RENUDGE_DEFAULT_MINUTES = 10
-RENUDGE_MAX_MINUTES = 24 * 60
-# The newest unread message is left alone once it is this old: a channel nobody reads for a
-# week is not nudged again on every restart.
-RENUDGE_WINDOW = timedelta(days=1)
 
 # (endpoint, p256dh, auth, payload) -> (HTTP status or None, error)
 Sender = Callable[
@@ -248,14 +226,6 @@ def _name(session: Session, account_id: str | None) -> str:
     return acct.display_name if acct else "Someone"
 
 
-def chat_reason(ev: Event, account: Account) -> str | None:
-    """`chat` for a new top-level or thread message by someone else. Which channels the account
-    can read is the caller's gate (service/access.py `EventGate`), not decided here."""
-    if ev.type != "message.posted" or ev.actor_id == account.id:
-        return None
-    return "chat"
-
-
 WATCH_VERBS = {
     "item.watched": "added you as a watcher",
     "item.created": "added a subtask",
@@ -302,9 +272,22 @@ def watch_verb(ev: Event) -> str:
     return WATCH_VERBS.get(ev.type, "changed a task you watch")
 
 
-def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]:
+def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any] | None:
     """Title, body, the link a tap opens, and a tag (one notification per item replaces the
     last on the lock screen)."""
+    if ev.type == "inbox.escalated":
+        account = session.get(Account, ev.subject_id)
+        original = attention.original_event(session, ev, account) if account else None
+        note = (
+            notification_for(session, original, reason)
+            if original and attention.pending(session, original, account, reason)
+            else None
+        )
+        return (
+            {**note, "title": f"Still waiting: {note['title']}"[:120], "event_id": ev.id}
+            if note
+            else None
+        )
     item = session.get(Item, ev.item_id) if ev.item_id else None
     title = item.title if item else "Slate"
     who = _name(session, ev.actor_id)
@@ -403,7 +386,8 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
         head, body = f"⏰ {title}", after.get("note") or "Reminder"
     elif reason == "digest":
         after = access.digest_snapshot(session, after, access.current(session))
-        if not any((after.get("counts") or {}).values()):
+        questions = after.get("questions") or []
+        if not questions and not any((after.get("counts") or {}).values()):
             return None
         c = after.get("counts") or {}
         bits = [
@@ -416,6 +400,12 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
         firsts = [i["title"] for i in (after.get("overdue") or []) + (after.get("today") or [])]
         if firsts:
             body += ": " + "; ".join(firsts[:3])
+        if questions:
+            body = (
+                "; ".join(f"{q['question']} ({q['age_minutes']} min)" for q in questions)
+                + ". "
+                + body
+            )
         crews = [a for a in (after.get("agents") or []) if isinstance(a, dict)]
         if crews:
             n = sum(len(a.get("next") or []) for a in crews)
@@ -471,93 +461,33 @@ def reasons_for(account: Account) -> frozenset[str]:
     return frozenset(chosen if isinstance(chosen, list) else DEFAULT_REASONS)
 
 
-# Inbox reasons about a followed item that `watching` also pushes when the account watches it.
-FOLLOW_REASONS = inbox.FOLLOW_REASONS - {"watching"}
-
-
-def started_work(ev: Event) -> bool:
-    """An agent's report that it started (`working`). It stays in the Inbox and the activity,
-    but is never pushed or emailed: it follows the watcher's own message by a second, and the
-    report that ends the run (review, done, blocked) is the one worth an interruption."""
-    after = ev.after_json if isinstance(ev.after_json, dict) else {}
-    return ev.type == "item.reported" and after.get("state") == "working"
-
-
-def wants(account: Account, reason: str | None, ev: Event, f: inbox.Follows) -> bool:
-    """Whether `account` is pushed `ev` for `reason`: chosen in its push reasons, or `watching`
-    chosen and this is any activity on an item it watches."""
-    return wanted(reasons_for(account), reason, ev, f)
-
-
-def wanted(chosen: frozenset[str], reason: str | None, ev: Event, f: inbox.Follows) -> bool:
-    """`wants` for any set of chosen reasons (push or email)."""
-    if reason == "watching" and started_work(ev):
-        return False
-    if reason in chosen:
-        return True
-    return "watching" in chosen and reason in FOLLOW_REASONS and ev.item_id in f.watched
-
-
-def process(session: Session, send: Sender | None) -> int:
-    """Queue recent new events durably, then attempt at most DELIVERY_BATCH due devices.
-
-    Cursor advancement and enqueue commit together, once per page of events, before any
-    network I/O. Successful recipients stay terminal; a restart retries only pending
-    deliveries, under fresh access.
-    """
-    session.expire_all()
-    now = utcnow()
-    subs = list(session.scalars(select(PushSubscription))) if send is not None else []
-    accounts: dict[str, Account] = {}
-    gates: dict[str, access.EventGate] = {}
-    follows: dict[str, inbox.Follows] = {}
-    if subs:
-        accounts = {a.id: a for a in session.scalars(select(Account))}
-        gates = {aid: access.EventGate(aid) for aid in {s.account_id for s in subs}}
-        for gate in gates.values():
-            gate.load(session)
-        follows = {aid: inbox.follows(session, aid) for aid in gates}
-
-    def handle(ev: Event) -> list[PushDelivery]:
-        rows = []
-        for sub in subs:
-            account = accounts.get(sub.account_id)
-            if account is None or account.disabled_at or sub.created_at > ev.at:
+def process(session: Session, send: Sender | None, *, now: datetime | None = None) -> int:
+    """Queue released alerts durably, then attempt due device deliveries."""
+    now = now or utcnow()
+    attention.release(session, now)
+    if send is None:
+        return 0
+    subscriptions: dict[str, list[PushSubscription]] = {}
+    for sub in session.scalars(select(PushSubscription)):
+        subscriptions.setdefault(sub.account_id, []).append(sub)
+    for aid, devices in subscriptions.items():
+        account = session.get(Account, aid)
+        if account is None or account.disabled_at:
+            continue
+        reasons = reasons_for(account)
+        for alert in attention.released(
+            session, account, since=now - DELIVERY_WINDOW, render=False
+        ):
+            if alert["reason"] not in reasons or alert["source_at"] + DELIVERY_WINDOW <= now:
                 continue
-            if gates[sub.account_id].project(session, event_payload(ev)) is None:
-                continue
-            reason = inbox.reason_for(ev, account, follows[account.id]) or chat_reason(ev, account)
-            if wants(account, reason, ev, follows[account.id]) and not (
-                reason in inbox.FOLLOW_REASONS
-                and inbox.waiting_covers(
-                    ev, reason, inbox.waits(session, account.id, [ev.item_id or ""])
-                )
-            ):
-                row = _receipt(session, ev, sub, now=now)
-                if row is not None:
-                    rows.append(row)
-        return rows
-
-    cursors.follow(
-        session,
-        CURSOR,
-        now=now,
-        window=DELIVERY_WINDOW,
-        handle=handle,
-        follows=follows,
-        refresh=lambda aid: inbox.follows(session, aid),
-        active=bool(subs),
-    )
-    return _drain(session, send, now) if send is not None else 0
-
-
-def _enqueue(
-    session: Session, ev: Event, sub: PushSubscription, *, now: datetime, kind: str = "notification"
-) -> None:
-    """Add one receipt (bookkeeping; the caller commits)."""
-    row = _receipt(session, ev, sub, now=now, kind=kind)
-    if row is not None:
-        session.add(row)
+            ev = session.get(Event, alert["event_id"])
+            for sub in devices:
+                if sub.created_at <= alert["source_at"]:
+                    row = _receipt(session, ev, sub, now=now)
+                    if row is not None:
+                        session.add(row)
+    session.commit()
+    return _drain(session, send, now)
 
 
 def _receipt(
@@ -611,70 +541,43 @@ def _note_for(
 ) -> tuple[PushSubscription | None, dict[str, Any] | None]:
     """The device and the notification for one receipt, judged now (None: drop it)."""
     sub = session.get(PushSubscription, row.subscription_id)
-    ev = session.get(Event, row.event_id)
     account = session.get(Account, row.account_id)
-    gate = access.EventGate(row.account_id)
-    gate.load(session)
-    f = inbox.follows(session, account.id) if account else None
-    reason = (
-        (inbox.reason_for(ev, account, f) or chat_reason(ev, account))
-        if ev and account and f
-        else None
-    )
-    if row.kind == "renudge":
-        reason = "chat"
-    allowed = bool(
+    if not (
         sub
         and sub.account_id == row.account_id
-        and ev
         and account
-        and not gate.denied
-        and gate.project(session, event_payload(ev)) is not None
-        and f is not None
-        and wants(account, reason, ev, f)
+        and not account.disabled_at
+        and row.kind == "notification"
         and now < row.expires_at
-    )
-    note = None
-    if allowed and row.kind == "renudge":
-        unread = next(
-            (u for u in unread_by_channel(session, account) if u.newest_id == ev.subject_id),
-            None,
-        )
-        if unread is not None and renudge_minutes(account) > 0 and "chat" in reasons_for(account):
-            note = renudge_notification(session, unread)
-    elif allowed:
-        # Apply the recipient's read criteria to all reference rendering, even retries.
-        with access.unrestricted(session):
-            if gate.access is not None:
-                access.attach(session, gate.access)
-            try:
-                note = notification_for(session, ev, reason)
-            finally:
-                session.info.pop(access.ACCESS_KEY, None)
-    return sub, note
+    ):
+        return sub, None
+    release = session.get(AttentionAlert, (row.account_id, row.event_id))
+    if release is None or release.reason not in reasons_for(account):
+        return sub, None
+    alerts = attention.released(session, account, event_id=row.event_id, limit=1)
+    return sub, alerts[0] if alerts else None
 
 
 def _drain(session: Session, send: Sender, now: datetime) -> int:
-    rows = list(
-        session.scalars(
-            select(PushDelivery)
-            .where(PushDelivery.next_attempt_at <= now)
-            .order_by(PushDelivery.next_attempt_at, PushDelivery.event_id)
-            .limit(DELIVERY_BATCH)
-        )
-    )
+    rows = session.scalars(
+        select(PushDelivery)
+        .where(PushDelivery.next_attempt_at <= now)
+        .order_by(PushDelivery.next_attempt_at, PushDelivery.event_id)
+        .limit(DELIVERY_BATCH)
+    ).all()
     sent = 0
     for row in rows:
-        session.expire_all()  # permissions/endpoint ownership can change between attempts
+        session.expire_all()
+        release = session.get(AttentionAlert, (row.account_id, row.event_id))
+        if release is not None and release.cursor is None and now < row.expires_at:
+            continue
         try:
             sub, note = _note_for(session, row, now)
         except SQLAlchemyError:
-            raise  # the database, not this row: the engine retries the step
+            raise
         except Exception:
-            # A notification that cannot be built never will be: fail this row, keep going.
             log.exception("push: delivery of event %s could not be built", row.event_id)
-            session.rollback()
-            row.state, row.next_attempt_at = "failed", None
+            row.state, row.next_attempt_at, row.failed_at = "failed", None, now
             session.commit()
             continue
         if note is None:
@@ -685,14 +588,11 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
         ok = status is not None and 200 <= status < 300 and not error
         transient = status is None or status in (408, 429) or status >= 500
         row.attempts += 1
-        row.state = (
-            "sent" if ok else "pending" if transient and row.attempts < MAX_ATTEMPTS else "failed"
-        )
-        row.next_attempt_at = (
-            now + _retry_delay(row.attempts, retry_after, now) if row.state == "pending" else None
-        )
-        if row.next_attempt_at and row.next_attempt_at >= row.expires_at:
-            row.state, row.next_attempt_at = "failed", None
+        next_at = now + _retry_delay(row.attempts, retry_after, now)
+        retry = not ok and transient and row.attempts < MAX_ATTEMPTS and next_at < row.expires_at
+        row.state = "pending" if retry else "sent" if ok else "failed"
+        row.next_attempt_at = next_at if retry else None
+        row.failed_at = now if row.state == "failed" else None
         sent += _record(
             session,
             sub,
@@ -701,16 +601,15 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
             {sub.account_id: [sub]},
             commit=False,
         )
-        # One commit right after each send (at-most-once): a crash between the two can
-        # duplicate that one device, never replay the batch.
         session.commit()
-    # Bounded retention and bounded cleanup; completed receipts only disappear after their
-    # event can no longer be enqueued by the age gate (including after a cursor reset).
-    expired = list(
-        session.scalars(
-            select(PushDelivery).where(PushDelivery.expires_at <= now).limit(DELIVERY_BATCH)
+    expired = session.scalars(
+        select(PushDelivery)
+        .where(
+            PushDelivery.expires_at <= now,
+            (PushDelivery.failed_at.is_(None)) | (PushDelivery.failed_at <= now - DELIVERY_WINDOW),
         )
-    )
+        .limit(DELIVERY_BATCH)
+    ).all()
     for row in expired:
         session.delete(row)
     if expired:
@@ -763,116 +662,3 @@ def send_test(session: Session, account_id: str, send: Sender) -> list[dict[str,
         _record(session, sub, status, error, by_account)
         out.append({**view, "ok": not error, "error": error or None})
     return out
-
-
-# --- The re-nudge: chat still unread a while after its newest message --------------------
-
-
-def renudge_minutes(account: Account) -> int:
-    value = (account.prefs_json or {}).get("chat_renudge_minutes", RENUDGE_DEFAULT_MINUTES)
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
-@dataclass
-class Unread:
-    """A channel's unread messages for one account: how many, the newest, and who wrote them."""
-
-    channel: str
-    count: int
-    newest_id: str
-    newest_at: datetime
-    authors: list[str]
-
-
-def unread_by_channel(session: Session, account: Account) -> list[Unread]:
-    # The same predicate drives channel badges and delivery retries: exposed messages
-    # must not be resurrected by the older prefix-only notification query. Read as the
-    # account, so a guest's count and names leave out what it cannot read (members-only
-    # posts, agent chat from before its share).
-    with access.reading_as(session, account):
-        rows = [
-            (m.channel, m.id, m.created_at, m.author_id)
-            for m in chat.unread_messages(session, account)
-        ]
-    out: dict[str, Unread] = {}
-    for channel, mid, at, author in rows:
-        u = out.get(channel)
-        if u is None:
-            out[channel] = Unread(channel, 1, mid, at, [author])
-            continue
-        u.count += 1
-        u.newest_id, u.newest_at = mid, at
-        if author not in u.authors:
-            u.authors.append(author)
-    return list(out.values())
-
-
-def renudge_notification(session: Session, u: Unread) -> dict[str, Any]:
-    ch = chat.parse_channel(session, u.channel)
-    names = [_name(session, a) for a in u.authors[:3]]
-    who = ", ".join(names) + (" and others" if len(u.authors) > 3 else "")
-    plural = "message" if u.count == 1 else "messages"
-    return {
-        "title": f"Still unread: {chat.place(ch.key, ch.name)}"[:120],
-        "body": f"{u.count} {plural} from {who}, waiting since you last looked"[:240],
-        "url": f"/#/chat/{u.channel}",
-        "tag": f"chat:{u.channel}",  # replaces the channel's first toast
-        "reason": "chat",
-        "renudge": True,
-    }
-
-
-# (account id, channel) -> the newest unread message id already nudged (or seen at start).
-# Restart seeds unqueued nudges from what is unread, so old chat is not replayed. Once queued,
-# a nudge's delivery is durable; retries also recheck that the same chat is still unread.
-Nudged = dict[tuple[str, str], str]
-
-
-def renudge(
-    session: Session,
-    send: Sender | None,
-    nudged: Nudged,
-    *,
-    now: datetime | None = None,
-    seed: bool = False,
-) -> int:
-    """One more push per channel whose newest unread message is older than the account's
-    `chat_renudge_minutes` and has not been nudged. `seed=True` marks what is eligible now
-    without sending (the first run after a start). Returns pushes sent."""
-    now = now or utcnow()
-    session.expire_all()
-    subs = list(session.scalars(select(PushSubscription))) if send is not None else []
-    by_account: dict[str, list[PushSubscription]] = {}
-    for s in subs:
-        by_account.setdefault(s.account_id, []).append(s)
-    if not by_account:
-        return 0
-    accounts = session.scalars(select(Account).where(Account.id.in_(by_account))).all()
-    for account in accounts:
-        if account.disabled_at is not None:
-            continue
-        minutes = renudge_minutes(account)
-        if minutes <= 0 or "chat" not in reasons_for(account):
-            continue
-        with access.unrestricted(session):
-            acc = access.compute(session, account)
-        for u in unread_by_channel(session, account):
-            if not acc.unrestricted and acc.channel_level(u.channel) <= 0:
-                continue
-            key = (account.id, u.channel)
-            if nudged.get(key) == u.newest_id:
-                continue
-            age = now - u.newest_at
-            if age < timedelta(minutes=minutes):
-                continue
-            nudged[key] = u.newest_id
-            if seed or age > RENUDGE_WINDOW:
-                continue
-            ev = session.scalar(
-                select(Event).where(Event.type == "message.posted", Event.subject_id == u.newest_id)
-            )
-            if ev is not None:
-                for sub in by_account.get(account.id, []):
-                    _enqueue(session, ev, sub, now=now, kind="renudge")
-                session.commit()
-    return _drain(session, send, now) if not seed else 0

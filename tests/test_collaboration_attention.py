@@ -1,11 +1,8 @@
 """Collaboration attention regressions: requests are durable, deliveries are scoped."""
 
-from datetime import timedelta
-
 import pytest
 
 from conftest import API
-from slate.models import utcnow
 from slate.service import push
 from test_assigned_comments import _comment, _item
 from test_push import Browser
@@ -153,7 +150,7 @@ def test_push_renders_task_references_for_each_recipient(client, alex, todo, db)
 
 
 @pytest.mark.parametrize("revoke", ["disable", "share"])
-def test_revoked_recipients_get_no_push_or_renudge(client, alex, todo, db, revoke):
+def test_revoked_recipients_get_no_push(client, alex, todo, db, revoke):
     account, gh, share = guest(client, alex, todo)
     assert (
         client.post(API + "/push/subscriptions", headers=gh, json=Browser().body()).status_code
@@ -177,5 +174,4 @@ def test_revoked_recipients_get_no_push_or_renudge(client, alex, todo, db, revok
         r = client.delete(f"{API}/shares/{share['id']}", headers=alex)
     assert r.status_code in (200, 204), r.text
     assert push.process(db, send) == 0
-    assert push.renudge(db, send, {}, now=utcnow() + timedelta(minutes=11)) == 0
     assert received == []

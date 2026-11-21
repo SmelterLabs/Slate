@@ -144,9 +144,10 @@ def test_watch_activity_is_pushed_once_per_description_edit_run(
     make_account,
 ):
     client.post(f"{API}/push/subscriptions", json=browser.body(), headers=alex)
+    client.patch(f"{API}/me/prefs", json={"push_reasons": ["watching", "comment"]}, headers=alex)
     push.process(db, webpush.send)
     _, agent = make_account("agent")
-    item = new_item(client, alex, todo)
+    item = new_item(client, alex, todo, priority="urgent")
     for text in ("a", "ab", "abc"):
         client.patch(f"{API}/items/{item['id']}", json={"body_md": text}, headers=agent)
     client.post(f"{API}/items/{item['id']}/comments", json={"body_md": "done"}, headers=agent)

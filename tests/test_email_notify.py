@@ -43,7 +43,7 @@ def test_unseen_mention_is_emailed_after_the_delay(client, alex, todo, db, make_
     _opt_in(client, alex)
     out = Outbox()
     email.process(db, out)  # cursor starts now
-    _, agent = make_account("agent")
+    account, agent = make_account("alex-reviewer", kind="person")
     it = _item(client, agent, todo)
     client.post(f"{API}/items/{it['id']}/comments", json={"body_md": "Look @alex"}, headers=agent)
     client.patch(f"{API}/items/{it['id']}", json={"title": "Fix the gutter"}, headers=agent)
@@ -53,9 +53,11 @@ def test_unseen_mention_is_emailed_after_the_delay(client, alex, todo, db, make_
     assert email.process(db, out, now=utcnow() + LATER) == 1
     (to, subject, text, html) = out.sent[0]
     assert to == "alex@example.com"
-    assert subject == "Agent mentioned you"  # only the mention: updates are not chosen
+    assert (
+        subject == f"{account['display_name']} mentioned you"
+    )  # only the mention: updates are not chosen
     assert "Fix the gutter: Look @alex" in text and "/#/inbox?task=" in text
-    assert "Agent mentioned you" in html
+    assert f"{account['display_name']} mentioned you" in html
     assert email.process(db, out, now=utcnow() + LATER) == 0  # sent once
 
 
@@ -63,7 +65,7 @@ def test_seen_on_the_board_is_not_emailed(client, alex, todo, db, make_account):
     _opt_in(client, alex)
     out = Outbox()
     email.process(db, out)
-    _, agent = make_account("agent")
+    _, agent = make_account("alex-reviewer", kind="person")
     a = _item(client, agent, todo, "Opened card")
     b = _item(client, agent, todo, "Read in inbox")
     client.post(f"{API}/items/{a['id']}/comments", json={"body_md": "@alex a"}, headers=agent)
@@ -82,10 +84,14 @@ def test_a_burst_is_one_email(client, alex, todo, db, make_account):
     _opt_in(client, alex, email_reasons=["mention", "assigned"])
     out = Outbox()
     email.process(db, out)
-    _, agent = make_account("agent")
+    _, agent = make_account("alex-reviewer", kind="person")
     for n in range(3):
         it = _item(client, agent, todo, f"Task {n}")
-        client.patch(f"{API}/items/{it['id']}", json={"assignees": ["alex"]}, headers=agent)
+        client.patch(
+            f"{API}/items/{it['id']}",
+            json={"assignees": ["alex"], "priority": "urgent"},
+            headers=agent,
+        )
     email.process(db, out)
     assert email.process(db, out, now=utcnow() + LATER) == 1
     assert out.sent[0][1] == "3 things in Slate need you"
@@ -109,7 +115,7 @@ def test_a_failed_send_retries_then_succeeds(client, alex, todo, db, make_accoun
     _opt_in(client, alex)
     out = Outbox()
     email.process(db, out)
-    _, agent = make_account("agent")
+    _, agent = make_account("alex-reviewer", kind="person")
     it = _item(client, agent, todo)
     client.post(f"{API}/items/{it['id']}/comments", json={"body_md": "@alex"}, headers=agent)
     email.process(db, out)
@@ -125,7 +131,7 @@ def test_prefs_are_validated(client, alex):
     bad = client.patch(f"{API}/me/prefs", json={"email_to": "not an address"}, headers=alex)
     assert bad.status_code == 422
     bad = client.patch(f"{API}/me/prefs", json={"email_reasons": ["chat"]}, headers=alex)
-    assert bad.status_code == 422  # chat is a toast, never an email
+    assert bad.status_code == 200  # person chat can reach the email floor
     ok = client.patch(f"{API}/me/prefs", json={"email_reasons": ["mention"]}, headers=alex)
     assert ok.status_code == 200
 

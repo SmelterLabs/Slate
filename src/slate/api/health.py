@@ -54,4 +54,4 @@ def get_health(auth: ReadAuth, session: DbSession) -> dict:
     fails `alert_after` runs in a row records `health.alert` (and `health.recovered` once it
     works again)."""
     health.require_viewer(session, auth.account)
-    return health.report(session)
+    return health.report(session, viewer=auth.account)

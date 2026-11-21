@@ -180,38 +180,6 @@ def test_delivery_attempts_are_receipts_not_events(
         assert newest == new[-1].id
 
 
-def test_failed_renudge_survives_restart_but_read_cancels_retry(
-    client, alex, todo, db, monkeypatch
-):
-    _, headers, _ = guest(client, alex, todo)
-    client.post(API + "/push/subscriptions", headers=headers, json=Browser().body())
-    now = utcnow()
-    monkeypatch.setattr(push, "utcnow", lambda: now)
-    push.process(db, lambda *args: (201, ""))
-    key = f"list:{todo['id']}"
-    client.post(f"{API}/channels/{key}/messages", headers=alex, json={"body_md": "Update"})
-    assert push.process(db, lambda *args: (201, "")) == 1
-    now += timedelta(minutes=11)
-    assert push.renudge(db, lambda *args: (503, "HTTP 503"), {}, now=now) == 0
-    rows = db.scalars(select(PushDelivery).where(PushDelivery.kind == "renudge")).all()
-    assert len(rows) == 1 and rows[0].attempts == 1
-    now += timedelta(minutes=1)
-    received = []
-    with SessionLocal() as restarted:
-        assert push.process(restarted, lambda *args: (received.append(args[3]) or 201, "")) == 1
-    assert len(received) == 1 and received[0]["renudge"]
-    # A second new message can receive one nudge; reading it cancels its pending retry.
-    client.post(f"{API}/channels/{key}/messages", headers=alex, json={"body_md": "Another"})
-    push.process(db, lambda *args: (201, ""))
-    now += timedelta(minutes=11)
-    push.renudge(db, lambda *args: (503, "HTTP 503"), {}, now=now)
-    assert client.post(f"{API}/channels/{key}/read", headers=headers, json={}).status_code == 200
-    now += timedelta(minutes=1)
-    with SessionLocal() as restarted:
-        assert push.process(restarted, lambda *args: (received.append(args[3]) or 201, "")) == 0
-    assert len(received) == 1
-
-
 def test_retry_rerenders_references_after_access_loss(client, alex, todo, db, monkeypatch):
     account, headers, _ = guest(client, alex, todo)
     browser = Browser()
@@ -287,28 +255,6 @@ def test_retry_after_http_date_and_nonfinite_values():
     )
     for value in ("nan", "inf", "-inf", "yesterday", "-5"):
         assert push._retry_delay(1, value, now) == timedelta(seconds=30)
-
-
-def test_renudge_uses_chat_preference_not_original_mention_reason(client, alex, todo, db):
-    _, headers, _ = guest(client, alex, todo)
-    client.post(API + "/push/subscriptions", headers=headers, json=Browser().body())
-    client.patch(API + "/me/prefs", headers=headers, json={"push_reasons": ["chat"]})
-    client.post(
-        f"{API}/channels/list:{todo['id']}/messages",
-        headers=alex,
-        json={"body_md": "@guest a question"},
-    )
-    received = []
-    assert (
-        push.renudge(
-            db,
-            lambda *args: (received.append(args[3]) or 201, ""),
-            {},
-            now=utcnow() + timedelta(minutes=11),
-        )
-        == 1
-    )
-    assert received[0]["renudge"]
 
 
 def test_sqlite_retry_receipts_survive_a_new_interpreter(

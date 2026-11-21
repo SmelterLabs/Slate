@@ -291,6 +291,7 @@ def digest_for(
     """What the account's digest says right now (also `GET /me/digest`)."""
     now = now or utcnow()
     from slate.service import agents as agents_svc  # agents reads work, which reads items
+    from slate.service import attention
 
     caller = access.current(session)
     # Scheduler sessions are unrestricted. An assignment is not an access grant.
@@ -301,6 +302,7 @@ def digest_for(
         try:
             assigned = set(items_svc.query_items(session, assignee=account.id))
             day = today_svc.today(session, account.id, now=now)
+            questions = attention.open_questions(session, account.id, now)
             # Agents today: what each agent runs by the end of the day (the plan's rule).
             _, day_end = local_day_bounds(now)
             crews = agents_svc.plan(session, now=now, until=day_end)
@@ -338,6 +340,8 @@ def digest_for(
         for a in crews
         if a["next"]
     ]
+    if questions:
+        body["questions"] = questions
     if agents_today:
         body["agents"] = agents_today
     return body
@@ -374,7 +378,7 @@ def send_digests(session: Session, *, now: datetime | None = None) -> int:
         if _sent_on(session, account.id, date):
             continue
         body = digest_for(session, account, now=now)
-        if not any(body["counts"].values()) and not body.get("agents"):
+        if not any(body["counts"].values()) and not (body.get("agents") or body.get("questions")):
             _quiet[account.id] = (date, now)
             continue
         _quiet.pop(account.id, None)
