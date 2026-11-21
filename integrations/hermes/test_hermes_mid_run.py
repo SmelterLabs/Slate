@@ -127,7 +127,10 @@ def test_the_closing_line_of_the_first_answer_stands_when_the_second_has_none(
         ],
         messages=[
             {"role": "user", "content": "this turn"},
-            {"role": "assistant", "content": "Here is the poem.\n\nSLATE: blocked waiting_on alex"},
+            {
+                "role": "assistant",
+                "content": "Here is the poem.\n\nSLATE: ask alex: Which day? [Today | Tomorrow]",
+            },
             {"role": "user", "content": steer},
             {"role": "assistant", "content": "It is Saturday."},
         ],
@@ -135,7 +138,8 @@ def test_the_closing_line_of_the_first_answer_stands_when_the_second_has_none(
     env = env_with(state_file, SLATE_CONTROL=control_file(tmp_path, {"message": MESSAGE}))
     out, _, _ = go(gw, env=env)
     assert len(gw.turns) == 1  # no nudge: the task was already closed by the first answer
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
+    assert out["outcome"] == "ask" and out["waiting_on"] == "alex"
+    assert out["question"] == "Which day?" and out["options"] == ["Today", "Tomorrow"]
     assert out["reply"] == "Here is the poem.\n\nIt is Saturday."
 
 
@@ -150,7 +154,7 @@ def test_a_late_messages_turn_adds_to_the_answer_already_given(state_file, tmp_p
     assert out["outcome"] == "review" and out["reply"] == "Sent it.\n\nShortened."
 
 
-def test_stop_stops_the_hermes_run_and_the_card_waits_on_who_asked(state_file, tmp_path):  # noqa: F811
+def test_stop_ends_the_run_as_answered(state_file, tmp_path):  # noqa: F811
     gw = Live(
         events=[
             ("run.started", {"run_id": "run_1"}),
@@ -164,7 +168,7 @@ def test_stop_stops_the_hermes_run_and_the_card_waits_on_who_asked(state_file, t
     )
     out, lines, _ = go(gw, env=env)
     assert gw.controls == [("run_1", "stop", {})]  # stopping wins: nothing is steered
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
+    assert out["outcome"] == "answered" and "waiting_on" not in out
     assert out["reply"].startswith("Stopped at @alex's request")
     assert out["thread"] == {"ref": "sess-new"}
     assert len(gw.turns) == 1
