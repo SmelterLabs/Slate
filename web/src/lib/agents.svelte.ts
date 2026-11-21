@@ -13,6 +13,7 @@ export const STATE_LABEL: Record<AgentState, string> = {
   working: 'Working',
   blocked: 'Agent blocked',
   review: 'Ready for review',
+  failed: 'Could not run',
 };
 
 /** Online: an open live stream, or a request or event in the last two minutes. */

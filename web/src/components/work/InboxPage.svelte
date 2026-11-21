@@ -49,6 +49,7 @@
     reply: 'reply',
     assigned: 'user',
     waiting: 'hourglass',
+    failed: 'alert',
     due: 'clock',
     unblocked: 'play',
     nudge: 'robot',

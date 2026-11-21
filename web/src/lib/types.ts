@@ -177,6 +177,8 @@ export interface Item {
   blocked?: boolean;
   /** The latest agent report while an agent is on it (POST /items/{id}/report). */
   agent?: AgentFlag | null;
+  /** A structured question from an agent while the card waits on a person through it, else null. */
+  ask?: ItemAsk | null;
   /** Each agent's own conversation for this task (its session ref and a link to open it). */
   agent_threads?: AgentThread[];
   /** A Run now (or the due-time run stage) newer than the last take: asked, not picked up. */
@@ -197,7 +199,20 @@ export interface Capacity {
   work_days: number[];
 }
 
-export type AgentState = 'working' | 'blocked' | 'review';
+export type AgentState = 'working' | 'blocked' | 'review' | 'failed';
+
+/** The structured question on the comment that carries an agent's ask. */
+export interface CommentAsk {
+  question: string;
+  options: string[];
+}
+
+/** An item's open structured ask: the comment, its question, who asked and when. */
+export interface ItemAsk extends CommentAsk {
+  comment_id: string;
+  by_id: string;
+  at: string;
+}
 
 export interface AgentFlag {
   state: AgentState;
@@ -251,6 +266,8 @@ export interface Comment {
   reactions?: Reaction[];
   /** Handles @mentioned in the body. */
   mentions?: string[];
+  /** A structured ask on this comment (its question and tap answers), else null. */
+  ask?: CommentAsk | null;
   /** An Ask: the account it is addressed to; open while resolved_at is null. */
   assignee_id?: string | null;
   resolved_at?: string | null;

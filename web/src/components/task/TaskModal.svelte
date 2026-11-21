@@ -105,10 +105,14 @@
   // the last line of a long comment (the "Needs you" pill's Answer lands here).
   const waitQ = $derived.by(() => {
     if (!d || !task.me || d.waiting_on_account_id !== task.me) return null;
+    const live = board.items[d.id];
+    const ask = live && live.ask !== undefined ? live.ask : (d.ask ?? null);
+    if (ask) return { structured: true, by: ask.by_id, commentId: ask.comment_id, question: ask.question, options: ask.options as string[] };
     const feed = task.activity ?? [];
     const comments = [...d.comments, ...feed.flatMap((e) => (e.comment ? [e.comment] : []))];
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
-    return waitingQuestion(d, comments, events, task.me);
+    const q = waitingQuestion(d, comments, events, task.me);
+    return q ? { structured: false, ...q, options: [] as string[] } : null;
   });
 
   // The agent that asked is still flagged blocked: its badge would say the banner's sentence a
@@ -491,24 +495,50 @@
 
         {#if waitQ}
           <div class="banner waiting" data-banner="waiting">
-            <div class="wq-head">
-              <Icon name="hourglass" size={13} />
-              <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
-              {#if waitFlag}
-                <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
-                {#if waitUrl}<span class="wq-meta">·</span><a
-                    class="wq-open"
-                    data-waiting-open
-                    href={waitUrl}
-                    target={/^https?:/i.test(waitUrl) ? '_blank' : null}
-                    rel="noopener noreferrer"
-                    title="Open where the agent is working">Open ↗</a
-                  >{/if}
-              {/if}
-            </div>
-            {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
-            {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
+            {#if waitQ.structured}
+              <p class="wq-heading" data-waiting-question data-ask-question>{waitQ.question}</p>
+              <div class="wq-head wq-sub">
+                <Icon name="hourglass" size={13} />
+                <span>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} asks</span>
+                {#if waitFlag}
+                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
+                  {#if waitUrl}<span class="wq-meta">·</span><a
+                      class="wq-open"
+                      data-waiting-open
+                      href={waitUrl}
+                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
+                      rel="noopener noreferrer"
+                      title="Open where the agent is working">Open ↗</a
+                    >{/if}
+                {/if}
+              </div>
+            {:else}
+              <div class="wq-head">
+                <Icon name="hourglass" size={13} />
+                <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
+                {#if waitFlag}
+                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
+                  {#if waitUrl}<span class="wq-meta">·</span><a
+                      class="wq-open"
+                      data-waiting-open
+                      href={waitUrl}
+                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
+                      rel="noopener noreferrer"
+                      title="Open where the agent is working">Open ↗</a
+                    >{/if}
+                {/if}
+              </div>
+              {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
+              {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
+            {/if}
             <div class="wq-actions">
+              {#each waitQ.options as option}
+                <button
+                  class="primary"
+                  data-answer-option={option}
+                  onclick={() => waitQ.commentId && void task.answer(waitQ.commentId, option)}>{option}</button
+                >
+              {/each}
               <button class="primary" data-answer onclick={() => task.reveal(waitQ.commentId)}>Answer</button>
               <button class="link" data-not-waiting onclick={() => save({ waiting_on_account_id: null })}>Not waiting on me</button>
               {#if waitFlag}
@@ -977,11 +1007,22 @@
     border-color: color-mix(in srgb, var(--danger) 40%, transparent);
     border-left: 3px solid var(--danger);
   }
+  .wq-heading {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
   .wq-head {
     display: flex;
     align-items: center;
     gap: 6px;
     color: var(--danger);
+  }
+  .wq-sub {
+    margin-bottom: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
   }
   .wq-meta {
     color: var(--muted);
@@ -1003,6 +1044,10 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+  .wq-actions button {
+    min-height: 28px;
   }
   .banner.trashed {
     background: color-mix(in srgb, var(--danger) 12%, transparent);

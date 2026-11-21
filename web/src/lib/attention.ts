@@ -36,7 +36,7 @@ const RANK: Record<Need, number> = { waiting: 0, blocked: 1, asked: 2, review: 3
 
 /** Why this item needs `me`, or null. */
 export function needOf(item: Item, me: string, accounts: Record<string, Account>): Need | null {
-  if (item.archived_at || item.trashed_at || !isOpen(item)) return null;
+  if (item.archived_at || item.trashed_at || !isOpen(item) || item.agent?.state === 'failed') return null;
   if (item.waiting_on_account_id === me) return 'waiting';
   // On my card: I filed it, I'm on it, or an agent filed it for nobody in particular.
   const mine =
@@ -58,7 +58,7 @@ export function attention(items: Item[], me: string, accounts: Record<string, Ac
     const need = needOf(item, me, accounts);
     if (need) out.push({ item, need });
   }
-  const at = (a: Attention) => a.item.agent?.at ?? a.item.updated_at;
+  const at = (a: Attention) => a.item.ask?.at ?? a.item.agent?.at ?? a.item.updated_at;
   return out.sort((a, b) => RANK[a.need] - RANK[b.need] || at(a).localeCompare(at(b)));
 }
 

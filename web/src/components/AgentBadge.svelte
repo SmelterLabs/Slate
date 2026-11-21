@@ -94,6 +94,10 @@
     <!-- Blocked and waiting on nobody (it stopped at a step limit): the next move is a run. -->
     <span class="again" data-blocked-run><RunNow {item} /></span>
   {/if}
+  {#if item && flag.state === 'failed'}
+    <!-- Could not run: nobody is asked anything; the next move is a run. -->
+    <span class="again" data-failed-run><RunNow {item} /></span>
+  {/if}
   {#if pct != null}
     <span class="bar" aria-hidden="true"><span style:width="{pct}%"></span></span>
   {/if}
@@ -128,6 +132,9 @@
   }
   .state-review {
     --tone: var(--prio-high);
+  }
+  .state-failed {
+    --tone: var(--muted);
   }
   .stale {
     opacity: 0.55;

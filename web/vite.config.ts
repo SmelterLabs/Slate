@@ -6,6 +6,9 @@ const api = 'http://127.0.0.1:8000';
 
 export default defineConfig({
   plugins: [svelte()],
+  // Component unit tests mount Svelte in happy-dom: they need the browser build, not the
+  // server one vitest resolves by default.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
   server: {
     proxy: {
       '/api': { target: api, changeOrigin: false },

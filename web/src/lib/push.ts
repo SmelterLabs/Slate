@@ -35,6 +35,7 @@ export const PUSH_REASONS: { key: string; label: string }[] = [
   { key: "chat", label: "New messages in chats I can see" },
   { key: "assigned", label: "I am assigned a task" },
   { key: "waiting", label: "Someone is waiting on me" },
+  { key: "failed", label: "An agent could not run a task" },
   { key: "due", label: "My task is due or overdue" },
   { key: "unblocked", label: "My task is no longer blocked" },
   { key: "nudge", label: "An agent I look after has a task to start" },
@@ -53,6 +54,7 @@ export const DEFAULT_PUSH_REASONS = [
   "chat",
   "assigned",
   "waiting",
+  "failed",
   "due",
   "unblocked",
   "nudge",
@@ -74,6 +76,7 @@ export const NOTIFY_GROUPS: { key: string; label: string; reasons: string[] }[] 
   { key: "messages", label: "Replies, comments and chat", reasons: ["reply", "comment", "chat"] },
   { key: "assigned", label: "I'm assigned a task", reasons: ["assigned", "nudge"] },
   { key: "waiting", label: "Someone is waiting on me", reasons: ["waiting", "unblocked"] },
+  { key: "failed", label: "An agent could not run", reasons: ["failed"] },
   { key: "due", label: "Due dates, reminders and my day", reasons: ["due", "reminder", "digest"] },
   {
     key: "watching",
