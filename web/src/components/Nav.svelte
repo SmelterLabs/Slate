@@ -189,6 +189,11 @@
       favEntry('section', section.id),
       { label: 'Rename', onselect: () => start(`section:${section.id}`, section.name) },
       {
+        label: section.project ? '✓ This is a project' : 'This is a project',
+        disabled: !canEditSection(section.id),
+        onselect: () => void board.updateSection(section.id, { project: !section.project }),
+      },
+      {
         label: 'Move up',
         disabled: !canReorder || savingOrder || index === 0,
         onselect: () => void board.moveSection(section.id, -1),
@@ -488,6 +493,26 @@
       {#if confirming === `section:${section.id}`}
         {@render confirmRow(`section:${section.id}`, `section ${section.name}`)}
       {/if}
+      {#if section.project}
+        {@const step = section.next_step}
+        {#if step}
+          {@const who = step.assignee_ids.map((id) => board.accountName(id)).filter(Boolean).join(', ')}
+          <a
+            class="nav-next"
+            href="#/section/{section.id}?task={step.item_id}"
+            data-next-step={section.id}
+            onclick={(e) => {
+              e.preventDefault();
+              onpick();
+              void board.open(step.item_id);
+            }}>Next: {step.title}{#if who} · {who}{/if} · {shortDate(step.due_at, board.now)}</a
+          >
+        {:else}
+          <a class="nav-next nav-next-none" href="#/section/{section.id}" data-no-next-step={section.id} onclick={onpick}
+            >No next step</a
+          >
+        {/if}
+      {/if}
       {#each lists as list, li (list.id)}
         {#if editing === `list:${list.id}`}
           <input
@@ -668,3 +693,23 @@
 {#if board.listSettingsId && board.lists[board.listSettingsId]}
   <ListSettings list={board.lists[board.listSettingsId]} />
 {/if}
+
+<style>
+  .nav-next {
+    display: block;
+    margin: 0 10px 4px 28px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav-next:hover {
+    color: var(--text);
+  }
+  .nav-next-none {
+    color: var(--danger);
+    font-weight: 600;
+  }
+</style>

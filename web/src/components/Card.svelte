@@ -8,7 +8,7 @@
   import { DOT_TITLE } from '../lib/commentdots';
   import { copyText } from '../lib/clipboard';
   import { itemHasDraft } from '../lib/drafts.svelte';
-  import { blockedTitle, openBlockers } from '../lib/format';
+  import { blockedTitle, isParked, openBlockers, shortDate } from '../lib/format';
   import { shortRule } from '../lib/rrule';
   import { board } from '../lib/store.svelte';
   import type { Item, Tag } from '../lib/types';
@@ -47,7 +47,8 @@
   const pickup = $derived(board.pickup(item));
   const show = $derived(new Set(config.card_fields));
   const selected = $derived(board.selected.has(item.id));
-  const due = $derived(item.due_at ? cardDue(item.due_at, board.now, closed) : null);
+  const parked = $derived(isParked(item));
+  const due = $derived(item.due_at ? cardDue(item.due_at, board.now, closed || parked) : null);
   const waitingFor = $derived(item.waiting_on_account_id ? board.accounts[item.waiting_on_account_id] : null);
   // An agent's blocked badge already says "Waiting on Alex": the pill would say it twice.
   const waitingInBadge = $derived(item.agent?.state === 'blocked' && !!item.waiting_on_account_id);
@@ -159,6 +160,10 @@
   {/if}
 
   <span class="card-title" class:clamped={config.title_lines > 0}>{item.title}</span>
+
+  {#if item.parked_until && item.parked_note}
+    <span class="card-parked" data-parked>Waiting on {item.parked_note} until {shortDate(item.parked_until, board.now)}</span>
+  {/if}
 
   {#if item.agent}<span class="card-agent"><AgentBadge flag={item.agent} {item} /></span>{/if}
   {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed'}<span class="card-agent"
@@ -317,6 +322,13 @@
   }
   .dep-name {
     font-weight: 500;
+  }
+  .card-parked {
+    font-size: 12px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .card-agent {
     display: flex;

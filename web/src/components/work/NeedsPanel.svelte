@@ -38,6 +38,8 @@
     await task.clearAgentFlag(a.item.id);
   }
   const shown = $derived(list.filter((a) => !cleared.has(a.item.id)));
+  const projects = $derived(board.projectNeeds ?? []);
+  const total = $derived(shown.length + projects.length);
   const groups = $derived(
     NEEDS.map((n) => ({ ...n, label: LABEL[n.key], rows: shown.filter((a) => a.need === n.key) })).filter((g) => g.rows.length),
   );
@@ -93,14 +95,15 @@
   </div>
 {/snippet}
 
-{#if shown.length}
-  <section class="needs layout-{layout}" aria-label="Needs you" data-needs={shown.length}>
+{#if total}
+  <section class="needs layout-{layout}" aria-label="Needs you" data-needs={total}>
     <header class="nd-head">
-      <h2><span class="nd-pulse" aria-hidden="true"></span>Needs you <span class="nd-n">{shown.length}</span></h2>
+      <h2><span class="nd-pulse" aria-hidden="true"></span>Needs you <span class="nd-n">{total}</span></h2>
       <span class="nd-legend">
         {#each NEEDS as n (n.key)}
           {#if counts[n.key]}<span class="need-{n.key}"><i></i>{counts[n.key]} {LABEL[n.key]}</span>{/if}
         {/each}
+        {#if projects.length}<span class="need-blocked"><i></i>{projects.length} No next step</span>{/if}
       </span>
     </header>
 
@@ -111,8 +114,36 @@
           <div role="list">{#each g.rows as a (a.item.id)}{@render row(a)}{/each}</div>
         </div>
       {/each}
+      {#if projects.length}
+        <div class="nd-group need-blocked">
+          <h3><i></i>Projects <span>{projects.length}</span></h3>
+          <div role="list">
+            {#each projects as p (p.section.id)}
+              <div class="nd-row need-blocked" role="listitem" data-project-need={p.section.id}>
+                <a class="nd-main" href="#/section/{p.section.id}">
+                  <span class="nd-top"><span class="nd-title">No next step: {p.section.name}</span></span>
+                </a>
+                <span class="nd-act ghost">Open →</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {:else}
-      <div role="list">{#each shown as a (a.item.id)}{@render row(a)}{/each}</div>
+      <div role="list">
+        {#each shown as a (a.item.id)}{@render row(a)}{/each}
+        {#each projects as p (p.section.id)}
+          <div class="nd-row need-blocked" role="listitem" data-project-need={p.section.id}>
+            <a class="nd-main" href="#/section/{p.section.id}">
+              <span class="nd-top">
+                <span class="nd-chip"><Icon name="alert" size={11} />Project</span>
+                <span class="nd-title">No next step: {p.section.name}</span>
+              </span>
+            </a>
+            <span class="nd-act ghost">Open →</span>
+          </div>
+        {/each}
+      </div>
     {/if}
   </section>
 {/if}
