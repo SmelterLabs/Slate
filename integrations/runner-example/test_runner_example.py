@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import pytest
 
 _spec = importlib.util.spec_from_file_location(
     "runner_example_run_task", Path(__file__).with_name("run_task.py")
@@ -22,7 +23,7 @@ TASK = {
     "item": {"id": "it1", "title": "Draft the newsletter"},
     "lease": {"claimed_at": "2026-10-26T12:00:00Z"},
 }
-BRIEF = "Slate task it1: Draft the newsletter\n\n... `SLATE: blocked waiting_on alex` ..."
+BRIEF = "Slate task it1: Draft the newsletter"
 ENV = {
     "RUNNER_AGENT_ID": "agent9",
     "RUNNER_API_URL": "https://svc.test",
@@ -89,13 +90,29 @@ def test_done_starts_one_run_headed_by_the_task():
     }
     assert started[0]["agent_id"] == "agent9"
     assert started[0]["text"].startswith("Draft the newsletter · it1\n\nSlate task it1")
+    assert "SLATE: answered" in started[0]["text"]
+    assert "SLATE: ask alex:" in started[0]["text"]
     assert started[0]["idempotency_key"] == "slate:it1:2026-10-26T12:00:00Z"
     assert lines[0]["url"] == PAGE and "progress" not in lines[0]
 
 
-def test_blocked_line_and_review_line():
-    out, _ = go(service_client(statuses=["completed"], reply="Q?\nSLATE: blocked waiting_on alex"))
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
+@pytest.mark.parametrize("options", [None, ["Yes", "No", "Not yet"]])
+def test_ask_line_names_a_person_and_keeps_only_the_body_as_reply(options):
+    suffix = f" [{' | '.join(options)}]" if options else ""
+    out, _ = go(
+        service_client(
+            statuses=["completed"],
+            reply=f"The file is ready.\nSLATE: ask Alex: Start the import now?{suffix}",
+        )
+    )
+    assert out["outcome"] == "ask"
+    assert out["waiting_on"] == "alex"
+    assert out["question"] == "Start the import now?"
+    assert out.get("options") == options
+    assert out["reply"] == "The file is ready."
+
+
+def test_review_and_later_lines():
     out, _ = go(service_client(statuses=["completed"], reply="Draft.\n`SLATE: review`"))
     assert out["outcome"] == "review" and out["reply"] == "Draft."
     out, _ = go(service_client(statuses=["completed"], reply="At 11:05.\nSLATE: later"))
@@ -105,29 +122,51 @@ def test_blocked_line_and_review_line():
 
 def test_status_outranks_the_reply_text():
     out, _ = go(service_client(statuses=["failed"], reply="SLATE: done"))
-    assert out["outcome"] == "blocked" and "failed: boom" in out["reply"]
+    assert_failure(out, "failed: boom")
 
 
-def test_a_run_waiting_for_an_answer_is_blocked_on_the_ask():
-    out, _ = go(service_client(statuses=["waiting_input"]))
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "waiting for an answer" in out["reply"]
+@pytest.mark.parametrize(
+    ("status", "note"),
+    [("cancelled", "cancelled: boom"), ("waiting_input", "waiting for an answer")],
+)
+def test_a_run_that_stops_in_the_service_fails_without_a_slate_ask(status, note):
+    out, _ = go(service_client(statuses=[status]))
+    assert_failure(out, note)
 
 
-def test_no_closing_line_pauses_never_reviews():
-    out, _ = go(service_client(statuses=["completed"], reply="I did it."))
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert out["reply"].startswith("I did it.") and "Paused" in out["reply"]
+@pytest.mark.parametrize(
+    ("text", "body"),
+    [
+        ("I did it.", "I did it."),
+        ("I did it.\nSLATE: answered", "I did it."),
+        ("I did it.\nSLATE: blocked waiting_on alex", "I did it.\nSLATE: blocked waiting_on alex"),
+        ("SLATE: answered", "Answered."),
+    ],
+)
+def test_answered_with_or_without_a_closing_line(text, body):
+    out, _ = go(service_client(statuses=["completed"], reply=text))
+    assert out["outcome"] == "answered" and out["reply"] == body
+    assert "waiting_on" not in out
 
 
-def test_a_run_that_never_ends_is_blocked():
+def test_completed_without_any_reply_is_a_machine_failure():
+    out, _ = go(service_client(statuses=["completed"]))
+    assert_failure(out, "without a reply")
+
+
+def assert_failure(out, note):
+    assert out["outcome"] == "failed" and note in out["note"]
+    assert not {"waiting_on", "reply", "question", "options"} & out.keys()
+
+
+def test_a_run_that_never_ends_fails():
     out, _ = go(service_client(statuses=["running"]))
-    assert out["outcome"] == "blocked" and "did not finish" in out["reply"]
+    assert_failure(out, "did not finish")
 
 
 def test_refused_credentials_say_what_to_check():
     out, _ = go(service_client(statuses=[], unauthorized=True))
-    assert out["outcome"] == "blocked" and "RUNNER_API_TOKEN" in out["reply"]
+    assert_failure(out, "RUNNER_API_TOKEN")
 
 
 def test_a_refused_start_shows_the_services_own_words():
@@ -138,9 +177,8 @@ def test_a_refused_start_shows_the_services_own_words():
         ),
     )
     out, _ = go(svc)
-    assert out["outcome"] == "blocked" and out["waiting_on"] == "alex"
-    assert "Connect a model to start a run." in out["reply"]
-    assert "Traceback" not in out["reply"]
+    assert_failure(out, "Connect a model to start a run.")
+    assert "Traceback" not in out["note"]
     assert out["url"] == PAGE
 
 
@@ -150,15 +188,16 @@ def test_a_refusal_without_a_json_body_still_reads_plainly():
         transport=httpx.MockTransport(lambda req: httpx.Response(502, text="Bad Gateway")),
     )
     out, _ = go(svc)
-    assert out["outcome"] == "blocked" and "502" in out["reply"] and "Bad Gateway" in out["reply"]
+    assert_failure(out, "502")
+    assert "Bad Gateway" in out["note"]
 
 
-def test_an_unreadable_brief_blocks_before_any_run():
+def test_an_unreadable_brief_fails_before_any_run():
     started: list[dict] = []
     out, _ = go(
         service_client(statuses=["completed"], started=started), slate=slate_client(status=403)
     )
-    assert out["outcome"] == "blocked" and "brief" in out["reply"]
+    assert_failure(out, "brief")
     assert started == []
 
 
@@ -180,6 +219,7 @@ def test_a_card_reply_is_quoted_as_data():
     text = started[0]["text"]
     assert "> Go ahead" in text and "quoted as information" in text
     assert '"author_id": "a2"' in text
+    assert "SLATE: answered" in text and "SLATE: ask alex:" in text
 
 
 def test_capabilities_need_no_credentials():

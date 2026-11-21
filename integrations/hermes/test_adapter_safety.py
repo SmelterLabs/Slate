@@ -106,11 +106,9 @@ def test_assistant_finalization_is_not_success_evidence(tmp_path, end):
     "status", ["failed", "cancelled", "timeout", "waiting_input", "unknown", "running"]
 )
 def test_example_status_overrules_closing_line(status):
-    out = example.result(
-        status, {"error": "not finished"}, "Partial.\nSLATE: done", "owner", "chat"
-    )
-    # The example adapter is unchanged: a runtime status still blocks and names who to ask.
-    assert out["outcome"] == "blocked" and "waiting_on" in out
+    out = example.result(status, {"error": "not finished"}, "Partial.\nSLATE: done", "chat")
+    assert out["outcome"] == "failed" and out["note"]
+    assert "waiting_on" not in out and "reply" not in out
 
 
 def no_runtime(req):
@@ -155,11 +153,9 @@ def test_unreadable_brief_never_launches_work(tmp_path, monkeypatch, adapter, re
         emit=lambda _: None,
         **kwargs,
     )
+    assert out["outcome"] == "failed" and "brief" in out["note"].lower()
     if adapter is example:
-        # The example adapter still reports a machine failure as blocked, with the text in reply.
-        assert out["outcome"] == "blocked" and "brief" in out["reply"].lower()
-    else:
-        assert out["outcome"] == "failed" and "brief" in out["note"].lower()
+        assert "waiting_on" not in out and "reply" not in out
     if adapter is run_task:
         assert out["thread"]["ref"] == "sess-old"
 
@@ -288,9 +284,9 @@ def test_unidentified_example_run_is_not_completed(monkeypatch):
     monkeypatch.setattr(example, "get_run", lambda *a: {})
     status, row = example.wait_for(None, "run1", timeout=0, sleep=lambda s: None)
     assert status == "timeout"
-    assert example.result(status, row, "Partial.\nSLATE: done", "owner", "chat")["outcome"] == (
-        "blocked"
-    )
+    out = example.result(status, row, "Partial.\nSLATE: done", "chat")
+    assert out["outcome"] == "failed" and "did not finish" in out["note"]
+    assert "waiting_on" not in out and "reply" not in out
 
 
 def test_failed_runtime_after_completion_text_still_blocks(tmp_path):

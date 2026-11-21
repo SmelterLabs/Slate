@@ -253,13 +253,10 @@ def closing(
     who = (m.group(2) or "").lower()
     rest = (m.group(3) or "").strip()
     options: list[str] | None = None
-    bracket = re.fullmatch(r"(.*?)\s*\[([^\]]*)\]", rest)
+    bracket = re.fullmatch(r"(.*?)\s*\[([^\[\]]*)\]", rest)
     if bracket:
         rest = bracket.group(1).strip()
-        parsed = [part.strip() for part in bracket.group(2).split("|") if part.strip()]
-        options = parsed or None
-    if not who or not rest:
-        return None
+        options = [part.strip() for part in bracket.group(2).split("|")]
     return "ask", who, body, rest, options
 
 
