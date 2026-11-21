@@ -273,7 +273,6 @@ GATE_TTL_SECONDS = 10.0
 CONTENT_FAMILIES = frozenset(
     {
         "automation",
-        "capacity",
         "channel",
         "checklist",
         "comment",

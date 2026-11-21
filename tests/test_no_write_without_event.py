@@ -49,7 +49,6 @@ from slate.service import (
     watchers,
     webhooks,
     work,
-    workload,
 )
 from slate.service.core import Actor
 
@@ -336,14 +335,6 @@ READS = {
         "siblings",
         "top_of",
         "tree_order",
-    },
-    "slate.service.workload": {
-        "capacity_view",
-        "roster",
-        "list_capacities",
-        "get_capacity",
-        "day_capacity",
-        "boxes",
     },
     "slate.service.health": {
         "require_viewer",
@@ -844,14 +835,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         ),
         "accept_suggestion": lambda db, a, p: doc_threads.accept_suggestion(
             db, a, _suggestion(db, a).id
-        ),
-    },
-    "slate.service.workload": {
-        "set_capacity": lambda db, a, p: workload.set_capacity(
-            db, a, a.account_id, {"hours_per_day": 6, "work_days": [0, 1, 2]}
-        ),
-        "reset_capacity": lambda db, a, p: workload.reset_capacity(
-            db, a, workload.set_capacity(db, a, a.account_id, {"tasks_per_day": 3})["account_id"]
         ),
     },
     "slate.service.trash": {

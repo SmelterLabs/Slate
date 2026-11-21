@@ -1,4 +1,4 @@
-"""Estimates, dependencies, tag merge/delete and status templates over REST."""
+"""Dependencies, tag merge/delete and status templates over REST."""
 
 from __future__ import annotations
 
@@ -18,18 +18,6 @@ def _other_list(client, h, todo, name="Later"):
     )
     assert r.status_code == 201, r.text
     return r.json()
-
-
-# --- estimates -----------------------------------------------------------------------------
-
-
-def test_estimate_minutes(client, alex, todo):
-    item = _item(client, alex, todo["id"], estimate_minutes=90)
-    assert item["estimate_minutes"] == 90
-    r = client.patch(f"{API}/items/{item['id']}", json={"estimate_minutes": None}, headers=alex)
-    assert r.json()["estimate_minutes"] is None
-    r = client.patch(f"{API}/items/{item['id']}", json={"estimate_minutes": -1}, headers=alex)
-    assert r.status_code == 422
 
 
 # --- dependencies ---------------------------------------------------------------------------
@@ -144,18 +132,17 @@ def test_tag_rename_follows_into_rules(client, alex, todo):
 # --- views over the new data ----------------------------------------------------------------
 
 
-def test_views_accept_table_estimate_and_blocked(client, alex, todo):
+def test_views_accept_table_and_blocked(client, alex, todo):
     config = {
         "layout": "table",
-        "sort": [{"field": "estimate", "dir": "desc"}],
+        "sort": [{"field": "priority", "dir": "desc"}],
         "filter": {
             "op": "and",
             "rules": [
-                {"field": "estimate", "cmp": "not_empty", "value": None},
                 {"field": "blocked", "cmp": "is", "value": False},
             ],
         },
-        "card_fields": ["due", "estimate", "blocked"],
+        "card_fields": ["due", "blocked"],
     }
     r = client.post(
         f"{API}/views",
@@ -164,7 +151,7 @@ def test_views_accept_table_estimate_and_blocked(client, alex, todo):
     )
     assert r.status_code == 201, r.text
     assert r.json()["config"]["layout"] == "table"
-    assert r.json()["config"]["sort"] == [{"field": "estimate", "dir": "desc"}]
+    assert r.json()["config"]["sort"] == [{"field": "priority", "dir": "desc"}]
     bad = {**config, "layout": "gantt"}
     r = client.post(
         f"{API}/views",

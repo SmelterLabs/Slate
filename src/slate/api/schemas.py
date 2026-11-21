@@ -180,9 +180,6 @@ class _ItemFields(BaseModel):
     external_ref: str | None = Field(default=None, max_length=200)
     assignees: list[str] | None = Field(default=None, description="Account handles or ids")
     tags: list[str] | None = Field(default=None, description="Tag names; new ones are created")
-    estimate_minutes: int | None = Field(
-        default=None, ge=0, description="Time estimate in minutes; null clears"
-    )
 
 
 class ChildIn(_ItemFields):
@@ -389,7 +386,6 @@ class ItemOut(BaseModel):
     assignees: list[AssigneeOut]
     tags: list[str]
     subtask_count: int
-    estimate_minutes: int | None = None
     blocked_by: list[str] = Field(default_factory=list, description="Items this one waits on")
     blocking: list[str] = Field(default_factory=list, description="Items waiting on this one")
     related: list[str] = Field(default_factory=list)

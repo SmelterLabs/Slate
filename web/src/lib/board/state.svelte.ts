@@ -26,7 +26,6 @@ import type {
   Recurrence,
   SavedView,
   Section,
-  Capacity,
   Tag,
 } from '../types';
 import { dayOf, type Scope, type ViewConfig } from '../views';
@@ -73,8 +72,6 @@ export class BoardState {
   views = $state<Record<string, SavedView>>({});
   /** Your pinned lists, sections, views and items, in bar order. */
   favorites = $state<Favorite[]>([]);
-  /** Capacity per account id (GET /capacities, defaults included): the Agents page. */
-  capacities = $state<Record<string, Capacity>>({});
   /** Toolbar search: narrows whatever view is showing, never saved. */
   q = $state('');
   selected = new SvelteSet<string>();

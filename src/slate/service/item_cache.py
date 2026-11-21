@@ -43,7 +43,6 @@ NO_EFFECT = (
     "webhook.",
     "automation.",
     "inbox.",
-    "capacity.",
     "push.",
     "health.",  # Health page alerts: no item
     "message.",  # chat; a task made from a message has its own item events

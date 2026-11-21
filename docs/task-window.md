@@ -381,7 +381,7 @@ event whose `session_ref` is `revert:<event id>`. That event is the record; ther
 a PATCH.
 
 - **What reverts.** `item.updated` on a plain field (`revert.FIELDS`: title, priority, start/due
-  dates, `due_date_only`, waiting on, acceptance, estimate, kind, external ref, position, the
+  dates, `due_date_only`, waiting on, acceptance, kind, external ref, position, the
   description, the tags), `item.status_changed` (`before` is a status id; "no status before" is
   refused), `item.assigned` (`before` is handles) and `item.moved` (`before` is the list id; a
   subtask that cannot move alone fails as the move would). Anything else is 422 "cannot be

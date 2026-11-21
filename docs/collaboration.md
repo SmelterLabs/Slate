@@ -81,8 +81,8 @@ stored row) blanks a workspace agent's `actor_id`, so history, `GET /events`, th
 its CSV, the inbox, the activity feed, the check-in, a guest agent's work context and the export
 all carry the same scrub. Views that hold account ids call it too: checklist entries, pages
 (`created_by`, `updated_by`, versions, revisions), the export's raw rows (whose tags are
-`tags.list_tags`, and whose links leave out an end the reader cannot see), and the Box view's
-roster (`access.participant_ids`). The live gate's `EventGate._for_guest` uses the same
+`tags.list_tags`, and whose links leave out an end the reader cannot see). The live gate
+`EventGate._for_guest` uses the same
 `_scrubbed` on what the bus carries, drops its talk events and events of hidden comments, and
 blanks its `actor_id`. `tests/test_guest_boundary.py` calls every GET route as a guest person
 and as a guest agent and fails when a workspace agent's handle or id appears, so a new route

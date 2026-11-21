@@ -517,12 +517,6 @@ export class BoardItems extends BoardStream {
     }
   }
 
-  async setEstimate(itemId: string, minutes: number | null) {
-    await this.#optimistic(itemId, { estimate_minutes: minutes }, () =>
-      this.update(itemId, { estimate_minutes: minutes }),
-    );
-  }
-
   /** Add or remove a dependency, from `itemId`'s side. Both items are refreshed. */
   async link(itemId: string, kind: LinkKind, otherId: string, add = true) {
     const path = `/items/${itemId}/links`;

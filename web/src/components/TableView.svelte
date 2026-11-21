@@ -6,8 +6,7 @@
     | 'due'
     | 'start'
     | 'priority'
-    | 'tags'
-    | 'estimate';
+    | 'tags';
 
   export interface Column {
     key: string;
@@ -21,9 +20,8 @@
 
 <script lang="ts">
   // Table layout (ClickUp's Table view): a spreadsheet of the view's items, every cell editable
-  // in place, grouped like the List layout, with a totals row per group (count and estimate).
+  // in place, grouped like the List layout, with an item count per group.
   // The columns follow the view's card fields ("Show").
-  import { formatEstimate } from '../lib/format';
   import { board } from '../lib/store.svelte';
   import { GROUP_TYPE, markSourceGroup, refusal, type Group, type Scope, type ViewConfig } from '../lib/views';
   import TableRow from './TableRow.svelte';
@@ -48,7 +46,6 @@
     }
     if (show.has('priority')) cols.push({ key: 'priority', kind: 'priority', label: 'Priority', sort: 'priority' });
     if (show.has('tags')) cols.push({ key: 'tags', kind: 'tags', label: 'Tags', sort: null });
-    cols.push({ key: 'estimate', kind: 'estimate', label: 'Estimate', sort: 'estimate' });
     return cols;
   });
 
@@ -66,14 +63,6 @@
     const from = e.dataTransfer?.getData(GROUP_TYPE) || undefined;
     if (g.drop) void board.applyDrop(id, g.drop, from);
     else if (g.key !== from) board.flash(refusal(g));
-  }
-
-  /** The totals row: estimates are summed; other columns are blank. */
-  function total(g: Group, c: Column): string {
-    if (c.kind === 'estimate') {
-      return formatEstimate(g.items.reduce((n, i) => n + (i.estimate_minutes ?? 0), 0));
-    }
-    return '';
   }
 </script>
 
@@ -142,8 +131,7 @@
           {/if}
           {#if g.items.length}
             <tr class="t-total">
-              <td class="muted small">{g.items.length} item{g.items.length === 1 ? '' : 's'}</td>
-              {#each columns as c (c.key)}<td class="muted small" data-col={c.key}>{total(g, c)}</td>{/each}
+              <td class="muted small" colspan={columns.length + 1}>{g.items.length} item{g.items.length === 1 ? '' : 's'}</td>
             </tr>
           {/if}
         {/if}

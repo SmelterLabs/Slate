@@ -29,7 +29,6 @@ TOOLS = {
     "slate_favorite",
     "slate_automation",
     "slate_doc",
-    "slate_workload",
     "slate_reminder",
     "slate_inbox",
     "slate_list",
@@ -325,7 +324,7 @@ async def test_lists_sections_and_tags_round_trip(alex):
 
 
 async def exercise_parity_actions(client: Client, todo: dict) -> None:
-    """Dependencies, estimates and tag merge/delete."""
+    """Dependencies and tag merge/delete."""
     a = ok(
         await call(
             client,
@@ -333,11 +332,9 @@ async def exercise_parity_actions(client: Client, todo: dict) -> None:
             "create",
             list_id=todo["id"],
             title="A",
-            estimate_minutes=30,
             tags=["p1", "p2"],
         )
     )
-    assert a["estimate_minutes"] == 30
     b = ok(await call(client, "slate_item", "create", list_id=todo["id"], title="B"))
     linked = ok(
         await call(client, "slate_item", "link", id=b["id"], kind="blocked_by", item_id=a["id"])

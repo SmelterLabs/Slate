@@ -24,8 +24,6 @@ export interface Effects {
   tags: boolean;
   /** Someone's favorites changed: the store reloads them if they are this board's. */
   favorites: boolean;
-  /** Someone's capacity changed: reload the capacities. */
-  capacities: boolean;
 }
 
 // Columns an `item.updated` event may carry that map one-to-one onto `Item`.
@@ -47,7 +45,6 @@ const SCALARS = new Set([
   'archived_at',
   'list_id',
   'parent_id',
-  'estimate_minutes',
 ]);
 
 // Event types whose `field` / `after` are a column and its new value.
@@ -93,7 +90,6 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     views: false,
     tags: false,
     favorites: false,
-    capacities: false,
   };
   const kind = ev.type.split('.')[0];
 
@@ -107,10 +103,6 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
   }
   if (kind === 'favorite') {
     fx.favorites = true;
-    return fx;
-  }
-  if (kind === 'capacity') {
-    fx.capacities = true;
     return fx;
   }
   if (kind === 'section' || kind === 'list') {

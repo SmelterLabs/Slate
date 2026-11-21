@@ -312,7 +312,6 @@ describe('filters', () => {
       { field: 'text', cmp: 'contains', value: '  ' },
       { field: 'due', cmp: 'between', value: ['2026-10-23', ''] },
       { field: 'waiting_on', cmp: 'is', value: '' },
-      { field: 'estimate', cmp: 'gt', value: null },
     ], 'or');
     expect(ruleCount(incomplete)).toBe(0);
     expect(m(item(), incomplete)).toBe(true);
@@ -325,8 +324,7 @@ describe('filters', () => {
     expect(ruleCount(f([
       { field: 'assignee', cmp: 'empty' },
       { field: 'recurring', cmp: 'is', value: false },
-      { field: 'estimate', cmp: 'gt', value: 0 },
-    ]))).toBe(3);
+    ]))).toBe(2);
   });
 
   it('nested AND / OR', () => {

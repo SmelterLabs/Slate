@@ -80,7 +80,7 @@ The preview under the box shows what was understood; anything it does not recogn
 
 Click a card to open it in a large window (full screen on a phone): the task on the left, its activity on the right. Every change saves as you make it. Drag the corner at the bottom right to resize it (double-click to reset), drag the edge between task and activity, or use the window button next to Close to park it on the **right third** or **right quarter** of the screen, where the board beside it stays live. Slate remembers the size and place on this device. The address bar carries `?task=<id>`, so a reload keeps the task open and a copied link opens it for anyone signed in. Escape, ✕ or a click outside closes it.
 
-**On a card an agent is on** (assigned, reporting or has worked it), the conversation comes first: status, title, then the thread and the comment box, with **Ask**, **Run now** and **Hand to an agent** together by the box. Assignees, dates, tags, list, repeats, estimate and dependencies fold into one **Details** line ("My Agent · Due Nov 20 · High · #example"); click it to open them. Cards with no agent show the fields in a grid under the title.
+**On a card an agent is on** (assigned, reporting or has worked it), the conversation comes first: status, title, then the thread and the comment box, with **Ask**, **Run now** and **Hand to an agent** together by the box. Assignees, dates, tags, list, repeats and dependencies fold into one **Details** line ("My Agent · Due Nov 20 · High · #example"); click it to open them. Cards with no agent show the fields in a grid under the title.
 
 - **Status**: the coloured button at the top. Click it for the list's statuses, each a pill in its own colour (the current one ticked); **›** moves to the next column; the **✓** square completes it (click again to reopen).
 - **Title**: click and type; Enter or clicking away saves.
@@ -102,8 +102,8 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 **Layouts.** A view shows its items as a **Board** (columns), a **List** (rows in collapsible groups) or a **Table**; `b` switches between Board and List.
 
-- In the **List**, click **Title**, **Due** or **Priority** to sort (again to flip). Each row's left edge is its priority colour, red when overdue. Grouped by status, each group header shows the estimates it holds.
-- The **Table** is a spreadsheet: hover a row and every cell (status, dates, priority, assignees, tags, estimate) edits in place. Click a title to rename it, **Open** for the full item, a header to sort. Each group ends with a totals row: item count and total estimate.
+- In the **List**, click **Title**, **Due** or **Priority** to sort (again to flip). Each row's left edge is its priority colour, red when overdue.
+- The **Table** is a spreadsheet: hover a row and every cell (status, dates, priority, assignees, tags) edits in place. Click a title to rename it, **Open** for the full item, a header to sort. Each group ends with an item count.
 - A view saved with a layout Slate no longer has opens as a List, filters and grouping kept.
 
 **Toolbar.**
@@ -123,13 +123,11 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 **Keyboard.** `Ctrl K` (⌘K) search everything · `/` search this view · `c` quick add · `b` board or list · `f` filter · `j`/`k` move between tasks · Enter open · `e` complete · `x` select · `s` star the open task or the card under the pointer · `Ctrl Z` undo · `g` then `h` My Work, `i` Inbox, `e` Everything, `m` Chat, `p` Docs · `Esc` close · `?` lists them all. In any dialog, Tab stays inside it, Esc closes that dialog only (not the task window behind it), and focus goes back to what opened it.
 
-## Dependencies, estimates, duplicates and tags
+## Dependencies, duplicates and tags
 
 **Dependencies.** **+ Add dependency** in the task window links it to another item: *Depends on* (this cannot start until that is done), *Blocking*, *Linked to* or *Duplicate of*. (*Waiting on* is always a person, the task field of that name.) A task that depends on something still open shows a red **Depends on** pill (hover it for the list), a banner in its window and a **Depends on** box on My Work. You never clear it: when the last thing it depends on is done, cancelled, put away or unlinked, it clears everywhere at once and the assignees get **Ready to start** in their Inbox. Reopening a finished blocker blocks it again. **Filter → Depends on an open task** finds them.
 
 **Duplicates.** When the same thing was filed twice, add **Duplicate of** on the copy: its card shows a *Duplicate* badge and the original lists it under *Duplicates*. Put the copy away when you are done with it.
-
-**Time estimate.** Every item can carry an estimate (`90`, `45m`, `1.5h`, `1h 30m` or `2d`). It is a plan, not time tracking.
 
 **Tags.** **Tags** at the bottom of the menu opens the tag manager: how many tasks and docs use each tag, a colour, rename, **Merge** one tag into another (every task and doc moves over) and **Delete** (it comes off every task and doc; they stay). Tags are one list for the whole workspace, so only the owner or an admin recolours, renames, merges or deletes one; anyone can make a tag and put it on a task they can edit. A guest sees only the tags on tasks and docs they can reach, plus any they made.
 

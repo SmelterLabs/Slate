@@ -277,7 +277,6 @@ WATCH_VERBS = {
 FIELD_WORDS = {
     "body_md": "the description",
     "tags": "the tags",
-    "estimate_minutes": "the estimate",
     "waiting_on_account_id": "who it waits on",
     "acceptance_md": "the acceptance criteria",
     "kind": "the type",

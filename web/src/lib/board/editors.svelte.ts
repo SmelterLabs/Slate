@@ -1,5 +1,5 @@
 // Structure and editors: sections, lists and their statuses, recurrence rules, tags,
-// capacity and the favorites bar.
+// and the favorites bar.
 
 import { api, get, patch, post, put } from '../api';
 import { moveBefore } from '../favorites';
@@ -13,7 +13,6 @@ import type {
   RecurTrigger,
   RulePreview,
   Section,
-  Capacity,
   Tag,
 } from '../types';
 import { BoardRun } from './run.svelte';
@@ -207,21 +206,6 @@ export class BoardEditors extends BoardRun {
     const ok = await this.attempt(() => api('DELETE', `/tags/${encodeURIComponent(name)}`).then(() => true));
     if (ok) await this.loadTags();
     return !!ok;
-  }
-
-  // --- capacity --------------------------------------------------------------------------
-
-  /** Set some of an account's capacity fields (yours, or anyone's as an owner or admin). */
-  async setCapacity(accountId: string, changes: Partial<Omit<Capacity, 'account_id' | 'custom'>>): Promise<boolean> {
-    const out = await this.attempt(() => patch<Capacity>(`/accounts/${accountId}/capacity`, changes));
-    if (out) this.capacities[accountId] = out;
-    return out !== null;
-  }
-
-  async resetCapacity(accountId: string): Promise<boolean> {
-    const out = await this.attempt(() => api<Capacity>('DELETE', `/accounts/${accountId}/capacity`));
-    if (out) this.capacities[accountId] = out;
-    return out !== null;
   }
 
   // --- favorites bar ---------------------------------------------------------------------

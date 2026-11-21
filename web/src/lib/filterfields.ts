@@ -104,17 +104,6 @@ export const FIELDS: FieldDef[] = [
   { field: 'created', label: 'Created', cmps: [{ cmp: 'within_days', label: 'in the last…' }], value: () => 'days' },
   { field: 'updated', label: 'Updated', cmps: [{ cmp: 'within_days', label: 'in the last…' }], value: () => 'days' },
   { field: 'blocked', label: 'Depends on an open task', cmps: [{ cmp: 'is', label: 'is' }], value: () => 'bool' },
-  {
-    field: 'estimate',
-    label: 'Time estimate',
-    cmps: [
-      { cmp: 'gt', label: 'is more than (min)' },
-      { cmp: 'lt', label: 'is less than (min)' },
-      { cmp: 'empty', label: 'is not set' },
-      { cmp: 'not_empty', label: 'is set' },
-    ],
-    value: (c) => (c === 'gt' || c === 'lt' ? 'number' : 'none'),
-  },
 ];
 
 const SET = [

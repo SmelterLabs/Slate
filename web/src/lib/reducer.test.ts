@@ -288,7 +288,6 @@ describe('applyEvent', () => {
       today: false,
       views: false,
       favorites: false,
-      capacities: false,
       tags: false,
     });
   });
@@ -304,7 +303,6 @@ describe('applyEvent', () => {
         today: false,
         views: true,
         favorites: false,
-          capacities: false,
           tags: false,
       });
     }

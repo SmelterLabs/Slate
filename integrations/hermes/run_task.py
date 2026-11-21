@@ -65,7 +65,7 @@ DOWN_GRACE = 20.0
 SLATE_LINE = re.compile(
     r"^\s*SLATE:\s*(?:"
     r"(done|review|later|answered)\s*\.?"
-    r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.*)"
+    r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.+?)"
     r")\s*$",
     re.IGNORECASE,
 )

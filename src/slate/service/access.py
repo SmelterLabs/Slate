@@ -54,7 +54,6 @@ from slate.models import (
     Attachment,
     AttachmentBlob,
     Automation,
-    Capacity,
     ChannelRead,
     ChatWake,
     Checklist,
@@ -494,9 +493,6 @@ _comments = Comment.__table__
 _doc_comments = DocComment.__table__
 _events = Event.__table__
 _docs = Doc.__table__
-# Workspace-wide things: capacities belong to no list, so they follow General
-# (members yes; guests and list-limited tokens no).
-_WORKSPACE_TYPES = ("capacity.",)
 # Events about one account's own settings and bookkeeping: only that account and an admin
 # read them, whatever else the caller can see (`_owned`, `EventGate._owns`).
 PERSONAL_PREFIXES = (
@@ -736,7 +732,6 @@ def read_criteria(state: ORMExecuteState) -> None:
                     or_(
                         c.type.startswith("tag."),
                         c.type.startswith("account."),
-                        c.type.startswith("capacity."),
                     ),
                 ),
                 and_(
@@ -758,7 +753,6 @@ def read_criteria(state: ORMExecuteState) -> None:
         with_loader_criteria(DocWake, DocWake.doc_id.in_(docs)),
         with_loader_criteria(DocTag, DocTag.doc_id.in_(docs)),
         with_loader_criteria(DocLink, DocLink.doc_id.in_(docs)),
-        with_loader_criteria(Capacity, ws),
         # A saved view follows its scope; a workspace-wide one is General's, except Slate's
         # own landing views and the caller's own.
         with_loader_criteria(
@@ -792,7 +786,7 @@ def read_criteria(state: ORMExecuteState) -> None:
             include_aliases=True,
         ),
     ]
-    # A row with no item or no list belongs to the whole workspace: General's, like capacities.
+    # A row with no item or no list belongs to the whole workspace (General).
     for cls in _ITEM_SCOPED:
         if cls.item_id.nullable:
             opts.append(
@@ -1201,12 +1195,6 @@ def check_object(
     if isinstance(obj, Account):
         if obj.id != access.account_id and not access.is_admin:
             raise Forbidden("only an owner or admin can change other accounts")
-        return
-    if isinstance(obj, Capacity):
-        if not access.general:
-            raise Forbidden("capacity is for the whole workspace, not this token")
-        if obj.account_id != access.account_id and not access.is_admin:
-            raise Forbidden("only an owner or admin can set someone else's capacity")
         return
     if access.role == Role.guest and type(obj).__name__ not in _GUEST_GLOBAL:
         raise Forbidden("guests can only work inside the lists shared with them")
@@ -1633,8 +1621,6 @@ class EventGate:
             # the agent's turn on it): every message.* event's subject is the message.
             return a.role != Role.guest or not self._members_only(session, payload)
         subject = payload.get("subject_id")
-        if type_.startswith(_WORKSPACE_TYPES):
-            return a.general
         if type_.startswith("doc."):
             if not subject:
                 return False
