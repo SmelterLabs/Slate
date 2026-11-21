@@ -106,7 +106,7 @@ def test_an_agents_comment_ending_slate_later_clears_its_badge(client, alex, tod
     item = _item(client, alex, todo["id"], "Post hours", assignees=["agent"], due_at=_in(3))
     r = client.post(
         f"{API}/items/{item['id']}/report",
-        json={"state": "blocked", "note": "Need a go", "waiting_on": "alex"},
+        json={"state": "blocked", "question": "Go ahead?", "waiting_on": "alex"},
         headers=ch,
     )
     assert r.status_code == 200, r.text

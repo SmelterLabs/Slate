@@ -336,6 +336,23 @@ def test_answered_posts_the_reply_and_changes_nothing_else(client, alex, todo, m
     assert client.get(f"{API}/work", headers=ch).json() == []
 
 
+def test_an_answered_card_waits_for_run_now_or_a_new_ask(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    assert _finish(client, ch, item["id"], outcome="answered", reply="Done what I can.").is_success
+    assert _next(client, ch)["item"] is None  # not handed straight back: no loop
+    client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "One more thing", "assignee": "agent"},
+        headers=alex,
+    )
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    assert _finish(client, ch, item["id"], outcome="answered", reply="Sorted.").is_success
+    assert _next(client, ch)["item"] is None
+    assert client.post(f"{API}/items/{item['id']}/run", headers=alex).status_code == 202
+    assert _next(client, ch)["item"]["id"] == item["id"]
+
+
 def test_answered_leaves_who_the_card_waits_on(client, alex, todo, make_account):
     _, ch = make_account("agent")
     other, _ = make_account("other-agent")
@@ -409,6 +426,7 @@ def test_failed_retries_after_5_then_30_minutes_then_gives_up_once(
     assert _retry(db, t1 + timedelta(minutes=5, seconds=1)) == 1
     assert _retry(db, t1 + timedelta(minutes=6)) == 0  # once per failure
     assert _requests(client, alex, item["id"])[-1] == {"for": [agent["id"]], "reason": "retry"}
+    assert _events(client, alex, item["id"], "item.run_requested")[-1]["source"] == "system"
 
     assert _next(client, ch)["item"]["id"] == item["id"]
     assert _fail(client, ch, item["id"])["agent"]["state"] == "failed"

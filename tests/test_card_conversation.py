@@ -126,7 +126,8 @@ def test_a_blocked_reply_is_one_comment_and_the_persons_answer_is_the_next_turn(
         client,
         ch,
         item["id"],
-        outcome="blocked",
+        outcome="ask",
+        question="Does the sign-in say done?",
         waiting_on="alex",
         reply=question,
         thread=THREAD,
@@ -134,7 +135,7 @@ def test_a_blocked_reply_is_one_comment_and_the_persons_answer_is_the_next_turn(
 
     view = _view(client, alex, item["id"])
     assert view["agent"]["state"] == "blocked"
-    assert view["agent"]["note"] == "I started the login on the server."
+    assert view["agent"]["note"] == "Does the sign-in say done?"
     assert view["waiting_on_account_id"] == me["id"]
     (said,) = _comments(client, alex, item["id"])
     assert said["body_md"] == question  # verbatim, no "**Blocked** ·" label
@@ -153,7 +154,8 @@ def test_a_blocked_reply_is_one_comment_and_the_persons_answer_is_the_next_turn(
     # Alex answers in the thread: the answer is addressed to the agent and the card stops waiting.
     answer = _comment(client, alex, item["id"], "done")
     assert answer["assignee_id"] == agent["id"]
-    (assigned,) = _events(client, alex, item["id"], "comment.assigned")
+    asked, assigned = _events(client, alex, item["id"], "comment.assigned")
+    assert asked["after"]["ask"] is True
     assert assigned["after"]["reply"] is True
     assert _view(client, alex, item["id"])["waiting_on_account_id"] is None
 
@@ -180,7 +182,7 @@ def test_only_the_waited_on_persons_comment_is_a_reply(client, alex, todo, make_
     _, bh = make_account("agent2")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Which one?")
+    _finish(client, ch, item["id"], outcome="ask", waiting_on="alex", question="Which one?")
 
     assert _comment(client, dh, item["id"], "I think the blue one")["assignee_id"] is None
     assert _comment(client, bh, item["id"], "Agent chatter")["assignee_id"] is None
@@ -196,7 +198,7 @@ def test_an_explicit_ask_to_the_waiting_agent_is_a_reply(client, alex, todo, mak
     agent, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Signed in?")
+    _finish(client, ch, item["id"], outcome="ask", waiting_on="alex", question="Signed in?")
 
     answer = _comment(client, alex, item["id"], "done", assignee="agent")
     assert answer["assignee_id"] == agent["id"]
@@ -214,7 +216,7 @@ def test_a_reply_still_reaches_the_agent_after_its_flag_was_cleared(
     agent, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Unopened?")
+    _finish(client, ch, item["id"], outcome="ask", waiting_on="alex", question="Unopened?")
     r = client.post(
         f"{API}/items/{item['id']}/report", json={"state": "idle", "comment": False}, headers=alex
     )
@@ -281,11 +283,11 @@ def test_asking_the_same_person_again_notifies_them_again(
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Sign in, please")
+    _finish(client, ch, item["id"], outcome="ask", waiting_on="alex", question="Sign in, please")
     assert push.process(db, webpush.send) == 1
     first = browser.received[-1]
-    assert first["title"] == "Agent needs you on: Re-authenticate the mail login"
-    assert first["body"] == "Sign in, please"
+    assert first["title"] == "Sign in, please"  # the question is the headline
+    assert first["body"] == "Agent asks on: Re-authenticate the mail login"
 
     # The agent asks again without an answer in between (Run now, then blocked again).
     assert client.post(f"{API}/items/{item['id']}/run", headers=alex).status_code == 202
@@ -296,13 +298,13 @@ def test_asking_the_same_person_again_notifies_them_again(
             client,
             ch,
             item["id"],
-            **{"state": "blocked", "waiting_on": "alex", "note": "Still need the sign-in"},
+            **{"state": "blocked", "waiting_on": "alex", "question": "Still need the sign-in"},
         ),
         headers=ch,
     )
     assert r.status_code == 200, r.text
     assert push.process(db, webpush.send) == 1
-    assert browser.received[-1]["body"] == "Still need the sign-in"
+    assert browser.received[-1]["title"] == "Still need the sign-in"
     reported = db.scalars(
         select(Event).where(Event.type == "item.reported").order_by(Event.id.desc())
     ).first()
@@ -342,9 +344,9 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
         r = await client.post(
             f"{API}/work/{item['id']}/finish",
             json={
-                "outcome": "blocked",
+                "outcome": "ask",
                 "waiting_on": me["handle"],
-                "reply": "Sign in?",
+                "question": "Sign in?",
                 "run_id": r.json()["lease"]["run_id"],
             },
             headers=_bearer(tok),
@@ -398,7 +400,7 @@ def test_run_now_on_a_card_waiting_on_you_lets_the_agent_go_on(client, alex, tod
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="blocked", waiting_on="alex", reply="Approve?")
+    _finish(client, ch, item["id"], outcome="ask", waiting_on="alex", question="Approve?")
     assert _next(client, ch)["item"] is None  # waiting on Alex
     assert client.post(f"{API}/items/{item['id']}/run", headers=alex).status_code == 202
     assert _next(client, ch)["item"]["id"] == item["id"]

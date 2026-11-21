@@ -65,7 +65,7 @@ def test_done_clears_the_badge_and_completes_unless_told_not_to(client, alex, to
 def test_blocked_waiting_on_alex_lands_in_his_today(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"])
-    r = _report(client, ch, item["id"], state="blocked", note="Which list?", waiting_on="alex")
+    r = _report(client, ch, item["id"], state="blocked", question="Which list?", waiting_on="alex")
     assert r.json()["agent"]["state"] == "blocked"
     today = client.get(f"{API}/today", headers=alex).json()
     assert [i["id"] for i in today["waiting"]] == [item["id"]]

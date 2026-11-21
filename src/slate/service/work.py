@@ -23,7 +23,9 @@ Which task: `eligible()` in SQL, best first.
   has since asked you something on it: a reply, below), and held by another account (a live
   lease, or with no lease a badge younger than `reports.CLAIM_FRESH`; a parked `blocked` or
   `review` badge with no lease does not hold the card against an Ask for you; a `failed`
-  badge holds nothing), and `failed` (the run broke) until its retry time comes. A Run now
+  badge holds nothing), `failed` (the run broke) until its retry time comes, and your own
+  last finish on it `answered` (you replied; nothing is left for you until someone asks you
+  something or presses Run now). A Run now
   pressed after the last report (the scheduler's retry is one) overrides waiting on someone,
   `review`, `failed` and the blocked pause: whoever pressed it wants the agent to go on. A
   pending Ask for the account (not consumed by a work finish) overrides the same and a done
@@ -254,6 +256,7 @@ def eligible(
         ),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.review, pressed, asked),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.failed, pressed, asked),
+        or_(_last_outcome(account_id) != "answered", pressed, asked),
         pressed
         | not_(
             and_(
@@ -282,6 +285,23 @@ def eligible(
         Item.position,
         Item.created_at,
         Item.id,
+    )
+
+
+def _last_outcome(account_id: str) -> Any:
+    """SQL: the outcome of the account's newest finish on the item ('' when none)."""
+    return func.coalesce(
+        select(Event.after_json["outcome"].as_string())
+        .where(
+            Event.type == "item.work_finished",
+            Event.item_id == Item.id,
+            Event.actor_id == account_id,
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery(),
+        "",
     )
 
 
@@ -1006,13 +1026,15 @@ def finish(
         through = _turn_through(session, actor.account_id, item.id, start) if start else None
         if (
             answering
-            and outcome == "blocked"
+            and state == "blocked"
             and waiting_on
             and not _waits_on_asker(session, asks, waiting_on)
         ):
-            # Only asked, not its card: it may wait on whoever asked it, nobody else. Blocked on
-            # a third person ("someone else's job") is just its answer: no badge, no waiting-on.
+            # Only asked, not its card: it may wait on whoever asked it, nobody else. Asking or
+            # blocking on a third person ("someone else's job") is just its answer: no badge, no
+            # waiting-on, the question (if any) posted as plain words.
             state, waiting_on = "idle", None
+            reply, question, options = reply or question, None, None
         if row is not None and state in ("review", "blocked") and _ended(session, item, row):
             # The agent closed the card itself during this run: a closed card carries no flag
             # and waits on nobody. Its answer (an ask's question too) is still posted.

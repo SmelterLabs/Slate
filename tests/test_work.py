@@ -295,7 +295,7 @@ def test_finish_review_and_blocked(client, alex, todo, make_account):
     out = _finish(client, ch, a["id"], outcome="review", note="PR is up")
     assert out["item"]["agent"]["state"] == "review"
     _next(client, ch)
-    out = _finish(client, ch, b["id"], outcome="blocked", waiting_on="alex", note="Which one?")
+    out = _finish(client, ch, b["id"], outcome="ask", waiting_on="alex", question="Which one?")
     assert out["item"]["agent"]["state"] == "blocked"
     alex_id = client.get(f"{API}/me", headers=alex).json()["account"]["id"]
     assert out["item"]["waiting_on_account_id"] == alex_id

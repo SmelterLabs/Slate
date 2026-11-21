@@ -142,14 +142,15 @@ def move_item_to_status(cx: Change, item: Item, status: Status) -> None:
 
 def _settle_agent_flag(cx: Change, item: Item, *, closed: bool) -> None:
     """A person moving a card has seen the agent's answer: "Ready for review" clears. Closing
-    the card (done or cancelled) clears a review or blocked flag whoever closes it, an agent
-    included: a closed card needs nobody, and a flag left on it would show on the Agents page
-    as work waiting on a person. A working flag stays (the run is live), and an agent's own
-    move that does not close is left to its report."""
+    the card (done or cancelled) clears a review, blocked or failed flag whoever closes it, an
+    agent included: a closed card needs nobody, and a flag left on it would show on the Agents
+    page as work waiting on a person. A working flag stays (the run is live), a failed one
+    keeps its retries while the card is open, and an agent's own move that does not close is
+    left to its report."""
     state = item.agent_state
     if state is None or state == AgentState.working:
         return
-    if state == AgentState.blocked and not closed:
+    if state in (AgentState.blocked, AgentState.failed) and not closed:
         return
     mover = cx.session.get(Account, cx.actor.account_id)
     if mover is None or (mover.kind == AccountKind.agent and not closed):

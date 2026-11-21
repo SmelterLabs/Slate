@@ -49,14 +49,15 @@ RUN_RULE = (
     "How to work this task: before you start, check your memory and past sessions for related "
     "work; when you finish, save anything worth remembering. Do everything you can without "
     "asking, and avoid anything that needs someone to approve it while nobody is watching. "
-    "Wait for any background work you start to report back before you answer. End your answer "
-    "with one line, last and on its own: `SLATE: done` (finished), `SLATE: review` (finished, "
-    "for a person to check), `SLATE: later` (the rest waits for the task's due time, still to "
-    "come), `SLATE: answered` (you replied and nothing else changes), or, only when you cannot "
-    "go on without a person, `SLATE: ask {ask}: <one-line question> [option | option]` (the "
-    "options are optional). If a resident runner started this turn, it owns heartbeat and "
-    "finish: do not start a second work loop or close its run with a report. Comments do not "
-    "resolve Asks: do not bulk-resolve open questions or resolve another account's Asks."
+    "Wait for any background work you start to report back before you answer. If a resident "
+    "runner started this turn, it owns heartbeat and finish: do not start a second work loop "
+    "or close its run with a report. Comments do not resolve Asks: do not bulk-resolve open "
+    "questions or resolve another account's Asks. End your answer with one line: `SLATE: done` "
+    "(finished), `SLATE: review` (finished, for a person to check), `SLATE: later` (the rest "
+    "waits for the task's due time, still to come), `SLATE: answered` (you replied and nothing "
+    "else changes), or, only when you cannot go on without a person, `SLATE: ask {ask}: "
+    "<one-line question> [option | option]` (the options are optional). Put that line last, "
+    "on its own."
 )
 
 _LINE = re.compile(

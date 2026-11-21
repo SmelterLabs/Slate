@@ -134,6 +134,7 @@ READS = {
         "run_steps_of",
         "seen_of",
         "open_asks",
+        "asks_of",
         "authors_of",
         "reply_target",
     },
@@ -175,6 +176,8 @@ READS = {
         "thread_of",
         "first_line",
         "with_thread_ref",
+        "check_ask",
+        "refuse_person_wait",
     },
     "slate.service.work": {
         "lease_seconds",
@@ -764,7 +767,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         ),
     },
     # Both act as the `slate` system account, not the caller: covered in tests/test_due_events.py.
-    "slate.service.due": {"system_actor": None, "emit_due_events": None},
+    "slate.service.due": {"system_actor": None, "emit_due_events": None, "retry_failed_runs": None},
     "slate.service.automations": {
         "create_automation": lambda db, a, p: _automation(db, a),
         "update_automation": lambda db, a, p: automations.update_automation(
@@ -985,6 +988,19 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "delete_comment": lambda db, a, p: comments.delete_comment(
             db, a, comments.react(db, a, _comment(db, a).id, emoji="👍").id
         ),
+        "answer": lambda db, a, p: comments.answer(
+            db,
+            a,
+            comments.add_comment(
+                db,
+                a,
+                _item(db, a).id,
+                body_md="Go?",
+                assignee="alex",
+                ask={"question": "Go?", "options": ["Yes", "No"]},
+            ).id,
+            option="Yes",
+        ),  # fmt: skip
     },
     "slate.service.chat": {
         "post": lambda db, a, p: _message(db, a),
