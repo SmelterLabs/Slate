@@ -253,6 +253,9 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
         .order_by(Comment.created_at, Comment.id)
     ):
         asks.setdefault(item_id, []).append(assignee_id)
+    from slate.service.comments import asks_of  # comments imports this module
+
+    questions = asks_of(session, items)
 
     checklist = {
         item_id: (done, total)
@@ -338,6 +341,7 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 ),
                 "agent_threads": threads.get(item.id, []),
                 "run_requested_at": item.run_requested_at,
+                "ask": questions.get(item.id),
             }
         )
         if hide:
@@ -351,6 +355,8 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 view["waiting_on_account_id"] = None
             if view["created_by"] in hide:
                 view["created_by"] = None
+            if view["ask"] and view["ask"]["by_id"] in hide:
+                view["ask"] = None
     return out
 
 

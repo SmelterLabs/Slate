@@ -7,9 +7,11 @@ date-only `YYYY-MM-DD` meaning 17:00 workspace time. Responses carry UTC ISO 860
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+
+from slate.service import reports
 
 # Generous limits on the long text fields (characters), so one write cannot carry tens of
 # megabytes into the item, its body versions, its event and every board and webhook. The
@@ -240,7 +242,10 @@ class StatusRef(BaseModel):
 
 
 class AgentFlag(BaseModel):
-    state: Literal["working", "blocked", "review"]
+    state: Literal["working", "blocked", "review", "failed"] = Field(
+        description="failed: the run broke (note: the first line of what broke); nobody is "
+        "asked anything and Slate retries it"
+    )
     by: str = Field(description="Account id of the agent that reported")
     at: datetime
     note: str | None = None
@@ -260,6 +265,25 @@ THREAD_FIELD = Field(
     "/work/next (thread), so your next turn continues the same session",
     examples=[{"ref": "sess_8f2c", "url": "https://chat.example/t/8f2c"}],
 )
+QUESTION_FIELD = Field(
+    default=None,
+    min_length=1,
+    max_length=reports.QUESTION_MAX,
+    description="ask: your question to the person, one line (1 to 200 characters); it is the "
+    "card's headline for them",
+    examples=["Start the import now?"],
+)
+OPTIONS_FIELD = Field(
+    default=None,
+    min_length=reports.OPTIONS_MIN,
+    max_length=reports.OPTIONS_MAX,
+    description="ask: 2 to 4 short answers (1 to 40 characters each) the person can pick with "
+    "one button; a typed reply is always possible",
+    examples=[["Yes", "No", "Not yet"]],
+)
+Option = Annotated[str, Field(min_length=1, max_length=reports.OPTION_MAX)]
+
+
 REPLY_FIELD = Field(
     default=None,
     max_length=20000,
@@ -283,8 +307,9 @@ class ReportIn(BaseModel):
     )
     model_config = ConfigDict(extra="forbid")
 
-    state: Literal["working", "blocked", "review", "done", "idle"] = Field(
-        description="working / blocked / review set the card's agent badge; done and idle clear it"
+    state: Literal["working", "blocked", "review", "failed", "done", "idle"] = Field(
+        description="working / blocked / review / failed set the card's agent badge; done and "
+        "idle clear it. blocked with waiting_on a person needs a question (an ask)"
     )
     note: str | None = Field(
         default=None, max_length=4000, description="What is happening; also posted as a comment"
@@ -295,8 +320,12 @@ class ReportIn(BaseModel):
         default=True, description="done also moves the item to its list's done status"
     )
     waiting_on: str | None = Field(
-        default=None, description="With blocked: the handle you are waiting on (e.g. alex)"
+        default=None,
+        description="With blocked: who you wait on. A person needs a question (an ask); "
+        "without waiting_on an ask waits on whoever asked you this turn, else the owner",
     )
+    question: str | None = QUESTION_FIELD
+    options: list[Option] | None = OPTIONS_FIELD
     assign_me: bool = Field(default=False, description="With working: add yourself as assignee")
     url: str | None = Field(
         default=None,
@@ -311,6 +340,17 @@ class ReportIn(BaseModel):
     )
     reply: str | None = REPLY_FIELD
     thread: dict[str, Any] | None = THREAD_FIELD
+
+
+class AskOut(BaseModel):
+    question: str
+    options: list[str] = Field(description="Answers to pick from; empty: reply in words")
+
+
+class ItemAskOut(AskOut):
+    comment_id: str = Field(description="The ask's comment")
+    by_id: str = Field(description="The agent asking")
+    at: datetime
 
 
 class ItemOut(BaseModel):
@@ -378,6 +418,11 @@ class ItemOut(BaseModel):
         default=None,
         description="A Run now (or the due-time run stage) newer than the last take: the "
         "agent's runner has been asked and has not picked it up yet",
+    )
+    ask: ItemAskOut | None = Field(
+        default=None,
+        description="The agent's question while the card waits on a person through an ask "
+        "(answer with POST /comments/{comment_id}/answer or a reply); null otherwise",
     )
 
 
@@ -455,6 +500,11 @@ class CommentOut(_Out):
         default=None,
         description="This comment is an agent's answer and the run that wrote it left a log "
         "of this many lines (`GET /comments/{id}/run`); null: no log",
+    )
+    ask: AskOut | None = Field(
+        default=None,
+        description="An agent's question to the person the comment is addressed to "
+        "(POST /comments/{id}/answer picks an option); null for any other comment",
     )
     author_handle: str | None = Field(default=None, description="The author's handle")
     author_kind: Literal["person", "agent", "guest"] | None = Field(

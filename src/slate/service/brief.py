@@ -13,10 +13,12 @@ asks it to end its answer with one line Slate understands:
     SLATE: done
     SLATE: review
     SLATE: later
-    SLATE: blocked waiting_on alex
+    SLATE: answered
+    SLATE: ask alex: Start the import now? [Yes | No | Not yet]
 
-`closing_line(text)` reads that line back; service/comments.py applies it to the task when a
-comment (REST or MCP) ends with it. Reads only: nothing here writes.
+The bracketed options are optional. `closing_line(text)` reads that line back;
+service/comments.py applies it to the task when a comment (REST or MCP) ends with it.
+Reads only: nothing here writes.
 """
 
 from __future__ import annotations
@@ -45,34 +47,32 @@ COMMENT_CHARS = 600
 
 RUN_RULE = (
     "How to work this task: before you start, check your memory and past sessions for related "
-    "work. When you finish, save anything worth remembering. Do everything you can without "
-    "asking. Avoid anything that needs someone to approve it while nobody is watching. If you "
-    "start background work (subagents, background processes), wait for it to report back "
-    "before you answer: never end your answer while it is still running. If you need a person, "
-    "gather every question into one message and end it with the line "
-    "`SLATE: blocked waiting_on {ask}`. Otherwise, once the work is finished, end your answer "
-    "with `SLATE: done` (finished) or `SLATE: review` (finished, ready for a person to check). "
-    "If you did what you can now and the rest must wait for the task's due time (you set or "
-    "kept a due time still to come, and you stay assigned), end with `SLATE: later`: nobody "
-    "is asked anything and the due time runs you again. Never use `blocked` for a go you "
-    "already have. "
-    "If a resident runner started this turn, it owns heartbeat and finish: do not start a "
-    "second work loop or independently close its execution with a report. "
-    "Comments do not resolve Asks. The runner finishes the taken turn; do not bulk-resolve "
-    "open questions or resolve another account's Asks. Put that line last, on its own."
+    "work; when you finish, save anything worth remembering. Do everything you can without "
+    "asking, and avoid anything that needs someone to approve it while nobody is watching. "
+    "Wait for any background work you start to report back before you answer. End your answer "
+    "with one line, last and on its own: `SLATE: done` (finished), `SLATE: review` (finished, "
+    "for a person to check), `SLATE: later` (the rest waits for the task's due time, still to "
+    "come), `SLATE: answered` (you replied and nothing else changes), or, only when you cannot "
+    "go on without a person, `SLATE: ask {ask}: <one-line question> [option | option]` (the "
+    "options are optional). If a resident runner started this turn, it owns heartbeat and "
+    "finish: do not start a second work loop or close its run with a report. Comments do not "
+    "resolve Asks: do not bulk-resolve open questions or resolve another account's Asks."
 )
 
 _LINE = re.compile(
-    r"^\s*SLATE:\s*(done|review|later|blocked)"
-    r"(?:\s+waiting[_ ]on\s+@?([A-Za-z][A-Za-z0-9_-]{1,31}))?\s*\.?\s*$",
+    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*\.?"
+    r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.+?))\s*$",
     re.IGNORECASE,
 )
+_OPTIONS = re.compile(r"^(.*?)\s*\[([^\[\]]*)\]$")
 
 
 @dataclass(frozen=True)
 class ClosingLine:
-    outcome: str  # done | review | later | blocked
-    waiting_on: str | None  # a handle, for blocked
+    outcome: str  # done | review | later | answered | ask
+    waiting_on: str | None = None  # a handle, for ask
+    question: str | None = None  # for ask
+    options: tuple[str, ...] = ()  # for ask, when given
 
 
 def closing_line(text: str | None) -> ClosingLine | None:
@@ -84,13 +84,18 @@ def closing_line(text: str | None) -> ClosingLine | None:
     m = _LINE.match(lines[-1].strip().strip("`*_ "))
     if m is None:
         return None
-    outcome = m.group(1).lower()
-    who = m.group(2).lower() if m.group(2) and outcome == "blocked" else None
-    return ClosingLine(outcome, who)
+    if m.group(1):
+        return ClosingLine(m.group(1).lower())
+    question, options = m.group(3), ()
+    bracket = _OPTIONS.match(question)
+    if bracket is not None:
+        question = bracket.group(1)
+        options = tuple(o.strip() for o in bracket.group(2).split("|"))
+    return ClosingLine("ask", m.group(2).lower(), question.strip(), options)
 
 
 def default_ask(session: Session, account_id: str | None) -> str:
-    """Who a blocked agent should wait on: the asking person, else the workspace owner."""
+    """Who an agent's ask waits on: the asking person, else the workspace owner."""
     account = session.get(Account, account_id) if account_id else None
     if account is not None and account.kind == AccountKind.person:
         return account.handle
@@ -119,7 +124,7 @@ def files_note(session: Session, item_id: str) -> list[str]:
 
 
 def brief(session: Session, item_id: str, *, ask: str) -> str:
-    """The task as one prompt, ending with RUN_RULE (blocked waits on `ask`, a handle)."""
+    """The task as one prompt, ending with RUN_RULE (an ask names `ask`, a handle)."""
     item = get_item(session, item_id)
     out = [f"Slate task {item.id}: {item.title}"]
     if item.due_at is not None:

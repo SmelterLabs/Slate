@@ -183,8 +183,9 @@ def start_dispatcher() -> asyncio.Task | None:
 
 
 def due_events_tick(session: Session, now: datetime) -> int:
-    """Scheduler hook: emit item.due_soon / item.due / item.overdue that have come due."""
-    return due.emit_due_events(session, now=now)
+    """Scheduler hook: emit item.due_soon / item.due / item.overdue that have come due, and
+    the retries of failed runs whose time has come."""
+    return due.emit_due_events(session, now=now) + due.retry_failed_runs(session, now=now)
 
 
 def reminders_tick(session: Session, now: datetime) -> int:

@@ -24,6 +24,7 @@ Reason = Literal[
     "digest",
     "health",
     "access",
+    "failed",
     "comment",
     "status",
     "update",

@@ -19,6 +19,12 @@ If `due_at` moves so that the stored stage now lies in the future, the item star
 the new date. Archived items (or items in archived lists/sections) and items in a done or
 cancelled status emit nothing.
 
+Retries (`retry_failed_runs`, on the same tick): a card whose agent's run ended `failed` is
+offered to that agent again at its retry time (service/work.py `RETRY_AFTER`, from the
+failed finish), by the same event: `item.run_requested` with `after.reason` = `retry`, which
+also sets `run_requested_at` (Run now's mark) so the work loop hands the card out. Once per
+failure: a card already asked again since its badge is not asked twice.
+
 Actor: the `slate` system agent (source `system`), created on first need. The event's `field`
 is `due_at`; `after` is `{"due_at": ..., "lead_hours": L}` for due_soon, `{"due_at": ...}`
 otherwise. The column write uses a Core UPDATE so `items.updated_at` is not touched.
@@ -41,6 +47,8 @@ from slate.models import (
     SYSTEM_HANDLE,
     Account,
     AccountKind,
+    AgentState,
+    Event,
     Item,
     List,
     Section,
@@ -233,3 +241,58 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
         set_committed_value(item, "last_due_event", todo[-1].key)
         emitted += len(todo)
     return emitted
+
+
+def retry_failed_runs(session: Session, *, now: datetime) -> int:
+    """Ask the agent of each failed run whose retry time has come to run the card again (module
+    docstring). Returns how many were asked."""
+    from slate.service.work import RETRY_AFTER, nudge_fields
+
+    failed = session.scalars(
+        select(Item)
+        .join(List, List.id == Item.list_id)
+        .join(Section, Section.id == List.section_id)
+        .outerjoin(Status, Status.id == Item.status_id)
+        .where(
+            Item.agent_state == AgentState.failed,
+            or_(Item.run_requested_at.is_(None), Item.run_requested_at < Item.agent_state_at),
+            Item.archived_at.is_(None),
+            List.archived_at.is_(None),
+            Section.archived_at.is_(None),
+            or_(Status.id.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
+        )
+    ).all()
+    actor: Actor | None = None
+    asked = 0
+    for item in failed:
+        last = session.scalar(
+            select(Event.after_json)
+            .where(
+                Event.item_id == item.id,
+                Event.actor_id == item.agent_state_by,
+                Event.type == "item.work_finished",
+            )
+            .order_by(Event.id.desc())
+            .limit(1)
+        )
+        failures = (last or {}).get("failures") if (last or {}).get("outcome") == "failed" else 0
+        if not isinstance(failures, int) or not 1 <= failures <= len(RETRY_AFTER):
+            continue  # gave up, or a failed badge no finish set: Run now starts it over
+        if item.agent_state_at + RETRY_AFTER[failures - 1] > now:
+            continue
+        agent = item.agent_state_by
+        actor = actor or system_actor(session)
+        nudge = nudge_fields(session, [agent])
+        with apply_change(session, actor) as cx:
+            before = item.run_requested_at
+            item.run_requested_at = now
+            cx.record(
+                "item.run_requested",
+                item_id=item.id,
+                field="run_requested_at",
+                before=before,
+                after={"for": [agent], "reason": "retry", **nudge},
+                covers=[item],
+            )
+        asked += 1
+    return asked

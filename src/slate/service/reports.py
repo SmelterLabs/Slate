@@ -14,10 +14,18 @@ Side effects, each its own ordinary event in the same transaction:
   reads as conversation in the task window and `@mentions` in it reach their webhooks.
 - `done` moves the item to its list's first done-kind status unless `complete=False` or it is
   already done or cancelled.
-- `blocked` with `waiting_on` (a handle) sets the item's `waiting_on_account_id`, so a question
-  for a person lands in their Today "waiting on me". A later non-blocked report from the same
-  agent does not clear it; that person (or the agent) clears it with a PATCH, and closing the
-  item (done or cancelled, including a `done` report) clears it.
+- `blocked` with `waiting_on` (a handle) sets the item's `waiting_on_account_id`. Waiting on a
+  person needs a `question` (one line of 1 to `QUESTION_MAX` characters; `options`: 2 to 4
+  short answers): that is an ask. Its comment (the `reply`, else the question) is an Ask
+  addressed to the person carrying `ask = {question, options}`, the badge note is the
+  question, and the card lands in their Today "waiting on me". Without `waiting_on` an ask
+  waits on the person whose Ask started this turn, else the workspace owner
+  (`brief.default_ask`). `blocked` waiting on a person without a question is refused
+  (`ASK_ADVICE`); waiting on an agent, or on nobody, needs none. A later report does not clear
+  the wait; the person's answer (service/comments.py) or a PATCH does, and closing the item
+  (done or cancelled, including a `done` report) clears it.
+- `failed` (the run broke) sets a badge nobody is told about; the work loop retries the card
+  (service/work.py).
 - `working` with `assign_me` adds the agent to the assignees if it is not already there.
 - `working` with `claim` is an atomic take (it adds the agent to the assignees unless
   `no_assign`, used for an agent answering an Ask on a task it is not assigned to): refused
@@ -54,6 +62,7 @@ from sqlalchemy.orm import Session
 
 from slate.models import (
     Account,
+    AccountKind,
     AgentState,
     AgentThread,
     Item,
@@ -69,11 +78,12 @@ from slate.service.errors import Conflict, Invalid
 from slate.service.items import get_item, resolve_account, update_item
 from slate.settings import safe_link_schemes, settings
 
-STATES = ("working", "blocked", "review", "done", "idle")
+STATES = ("working", "blocked", "review", "failed", "done", "idle")
 LABELS = {
     "working": "Working",
     "blocked": "Blocked",
     "review": "Ready for review",
+    "failed": "Could not run",
     "done": "Done",
     "idle": "Stopped",
 }
@@ -81,6 +91,10 @@ NOTE_MAX = 280
 URL_MAX = 2000
 REF_MAX = 200
 REPLY_MAX = 20000
+QUESTION_MAX = 200
+OPTION_MAX = 40
+OPTIONS_MIN, OPTIONS_MAX = 2, 4
+ASK_ADVICE = "to wait on a person, use ask with a one-line question"
 # A badge nobody refreshed for this long is abandoned: a claim may take the item over.
 CLAIM_FRESH = timedelta(hours=6)
 
@@ -185,6 +199,49 @@ def first_line(text: str, limit: int = NOTE_MAX) -> str | None:
     return None
 
 
+def check_ask(question: str | None, options: list[str] | None) -> dict[str, Any] | None:
+    """`{question, options}` (None without a question): the question one line of 1 to
+    QUESTION_MAX characters; `options` empty, or 2 to 4 answers of 1 to OPTION_MAX each."""
+    if question is None:
+        if options:
+            raise Invalid("options go with a question")
+        return None
+    question = question.strip()
+    if not question or "\n" in question or len(question) > QUESTION_MAX:
+        raise Invalid(f"question is one line of 1 to {QUESTION_MAX} characters")
+    options = [o.strip() for o in options or []]
+    if options and (
+        not OPTIONS_MIN <= len(options) <= OPTIONS_MAX
+        or any(not o or "\n" in o or len(o) > OPTION_MAX for o in options)
+    ):
+        raise Invalid(
+            f"options are {OPTIONS_MIN} to {OPTIONS_MAX} answers of 1 to {OPTION_MAX} characters"
+        )
+    return {"question": question, "options": options}
+
+
+def refuse_person_wait(session: Session, actor: Actor, ref: str | None) -> None:
+    """An agent never sets a card waiting on a person by hand: it asks (ASK_ADVICE)."""
+    me = session.get(Account, actor.account_id)
+    if (
+        ref
+        and me is not None
+        and me.kind == AccountKind.agent
+        and resolve_account(session, ref).kind == AccountKind.person
+    ):
+        raise Invalid(f"an agent cannot set a card waiting on a person; {ASK_ADVICE}")
+
+
+def _asker(session: Session, actor: Actor, item_id: str) -> Account:
+    """Who an ask names nobody waits on: the person whose Ask started this turn, else the
+    workspace owner."""
+    from slate.service import work
+    from slate.service.brief import default_ask
+
+    asks = work.turn_asks(session, actor.account_id, item_id)
+    return resolve_account(session, default_ask(session, asks[0].author_id if asks else None))
+
+
 def _comment_body(state: str, note: str, progress: int | None) -> str:
     pct = f" ({progress}%)" if progress is not None else ""
     return f"**{LABELS[state]}{pct}** · {note}"
@@ -208,6 +265,8 @@ def report(
     reply: str | None = None,
     thread: Any = None,
     run_id: str | None = None,
+    question: str | None = None,
+    options: list[str] | None = None,
     _taking: bool = False,
     _finishing: bool = False,
 ) -> Item:
@@ -226,13 +285,22 @@ def report(
         raise Invalid("waiting_on goes with state 'blocked'")
     if claim and state != "working":
         raise Invalid("claim goes with state 'working'")
+    ask = check_ask(question, options)
+    if ask is not None and state != "blocked":
+        raise Invalid("question goes with an ask (state 'blocked')")
     assign_me = (assign_me or claim) and not no_assign
     item = get_item(session, item_id)
     waiting = resolve_account(session, waiting_on) if waiting_on else None
+    if ask is not None and waiting is None:
+        waiting = _asker(session, actor, item.id)
+    if waiting is not None and waiting.kind == AccountKind.person and ask is None:
+        raise Invalid(f"blocked cannot wait on a person without a question: {ASK_ADVICE}")
+    if ask is not None and waiting.kind != AccountKind.person:
+        raise Invalid("an ask waits on a person; blocked waits on an agent or on nobody")
     finished = None
     if state == "done" and complete:
         finished = done_status(session, item)
-    badge_note = note or (first_line(reply) if reply else None)
+    badge_note = ask["question"] if ask else note or (first_line(reply) if reply else None)
     thread_row = (
         session.get(AgentThread, (item.id, actor.account_id)) if thread is not None else None
     )
@@ -311,6 +379,8 @@ def report(
             # waiting_on change follows and this report is what tells them (inbox `waiting`).
             after["waiting_on"] = waiting.id
             after["again"] = waiting_again
+        if ask is not None:
+            after.update(ask)
         cx.record(
             "item.reported",
             item_id=item.id,
@@ -319,7 +389,13 @@ def report(
             after=after,
             covers=covered,
         )
-        if reply and comment:
+        if ask is not None and comment:
+            assert waiting is not None
+            body = reply or ask["question"]
+            comments.add_comment(
+                session, actor, item.id, body_md=body, assignee=waiting.id, ask=ask
+            )
+        elif reply and comment:
             comments.add_comment(session, actor, item.id, body_md=reply)
         elif note and comment:
             comments.add_comment(
@@ -347,8 +423,8 @@ def report(
 
 def _check_claim(session: Session, item: Item, account_id: str) -> None:
     holder = item.agent_state_by
-    if item.agent_state is None or holder is None or holder == account_id:
-        return
+    if item.agent_state in (None, AgentState.failed) or holder is None or holder == account_id:
+        return  # a failed run holds nothing
     lease = session.get(WorkLease, item.id)
     if lease is not None and lease.account_id == holder:
         session.refresh(lease)

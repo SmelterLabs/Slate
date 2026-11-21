@@ -56,7 +56,7 @@ from slate.models import (
     Source,
     utcnow,
 )
-from slate.service import access, chat, cursors, inbox, webhooks
+from slate.service import access, chat, comments, cursors, inbox, webhooks
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Forbidden, Invalid, NotFound
 from slate.settings import settings
@@ -83,6 +83,7 @@ DEFAULT_REASONS = (
     "digest",
     "health",
     "access",
+    "failed",
     "watching",
 )
 
@@ -427,17 +428,15 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
     elif reason == "assigned":
         head, body = f"{who} assigned you", title
     elif reason == "waiting":
-        # An agent's question (its blocked report's note) reads better than the bare title.
-        asked = (
-            item is not None
-            and item.agent_state is not None
-            and item.agent_state.value == "blocked"
-            and item.agent_state_by == ev.actor_id
-        )
-        if asked:
-            head, body = f"{who} needs you on: {title}", item.agent_note or "Open it to answer"
+        # An agent's ask: the question is the headline, the card the body.
+        ask = comments.asks_of(session, [item]).get(item.id) if item is not None else None
+        if ask is not None:
+            head, body = ask["question"], f"{who} asks on: {title}"
         else:
             head, body = f"{who} is waiting on you", title
+    elif reason == "failed":
+        head = f"{who} could not run: {title}"
+        body = (after.get("note") or "").strip().splitlines()[0] if after.get("note") else title
     elif reason == "unblocked":
         head, body = "Ready to start", f"{title}: nothing it waits on is open any more"
     elif reason == "nudge":
