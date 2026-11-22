@@ -223,7 +223,7 @@
     {/if}
     {#if show.has('priority') && item.priority}
       {#if armed}
-        <PriorityPicker {item}>
+        <PriorityPicker value={item.priority} onchange={(p) => void board.setPriority(item.id, p)}>
           <span class="prio prio-flag-{item.priority}"><Icon name="flag" fill />{priorityLabel(item.priority)}</span>
         </PriorityPicker>
       {:else}

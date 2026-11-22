@@ -42,7 +42,7 @@ function validUrl(value: string | null | undefined): string | null {
     const u = new URL(v);
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
   } catch {
-    return null;
+    return null; // shared text can contain an invalid URL
   }
 }
 

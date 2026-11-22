@@ -37,7 +37,7 @@
 
   onMount(() => {
     docs.start();
-    void docs.loadTemplates().catch(() => {});
+    void docs.loadTemplates().catch((e) => board.loadFailed('load document templates', e));
   });
   $effect(() => {
     void docs.open(id);

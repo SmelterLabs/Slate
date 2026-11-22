@@ -6,7 +6,6 @@
   import { badge, chatHref } from '../lib/chat';
   import { chat } from '../lib/chat.svelte';
   import { groupEntries, inbox, REASON_LABEL } from '../lib/inbox.svelte';
-  import { notifySettings } from '../lib/notify.svelte';
   import { waitingCounts } from '../lib/waiting';
   import Dropdown from './Dropdown.svelte';
   import Icon from './Icon.svelte';
@@ -74,7 +73,7 @@
         class="link"
         onclick={() => {
           open = false;
-          notifySettings.open = true;
+          inbox.settingsOpen = true;
         }}>Notification settings</button
       >
     </div>

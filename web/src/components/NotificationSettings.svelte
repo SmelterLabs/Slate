@@ -6,7 +6,7 @@
   // prefs, so phone and PC show the same; only "this device" is per browser.
   import { onMount } from 'svelte';
   import { api, get } from '../lib/api';
-  import { notifySettings } from '../lib/notify.svelte';
+  import { inbox } from '../lib/inbox.svelte';
   import {
     DEFAULT_EMAIL_REASONS,
     DEFAULT_PUSH_REASONS,
@@ -28,7 +28,8 @@
   import Icon from './Icon.svelte';
   import { trapFocus } from '../lib/focustrap';
 
-  let pstate = $state<PushState | null>(null);
+  // `unknown`: Slate did not answer the check (the key read failed), so this window cannot say.
+  let pstate = $state<PushState | 'unknown' | null>(null);
   let devices = $state<PushDevice[]>([]);
   let upcoming = $state<Reminder[]>([]);
   let digest = $state<{ counts: DigestCounts } | null>(null);
@@ -66,7 +67,7 @@
   });
   const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-  const STATE_TEXT: Record<PushState, string> = {
+  const STATE_TEXT: Record<PushState | 'unknown', string> = {
     on: 'On for this device.',
     off: 'Off for this device.',
     blocked: 'Blocked in this browser’s settings. Allow notifications for Slate there, then come back.',
@@ -74,17 +75,21 @@
       'On iPhone, notifications work in the installed app: Share, Add to Home Screen, then open Slate from the Home Screen.',
     unsupported: 'This browser cannot show notifications.',
     'server-off': 'The server cannot send notifications yet (it needs SLATE_SECRET_KEY).',
+    unknown: 'Could not check notifications for this device.',
   };
 
   async function refresh() {
-    pstate = await pushState().catch(() => 'unsupported' as PushState);
-    devices = await listDevices().catch(() => []);
+    await Promise.all([
+      // The state line is where this failure shows, offline or not, with Check again beside it.
+      pushState().then((state) => (pstate = state)).catch(() => (pstate = 'unknown')),
+      listDevices().then((rows) => (devices = rows)).catch((e) => board.loadFailed('load notification devices', e)),
+    ]);
   }
 
   onMount(() => {
     void refresh();
-    void get<Reminder[]>('/reminders?limit=20').then((r) => (upcoming = r)).catch(() => {});
-    void get<{ counts: DigestCounts }>('/me/digest').then((d) => (digest = d)).catch(() => {});
+    void get<Reminder[]>('/reminders?limit=20').then((r) => (upcoming = r)).catch((e) => board.loadFailed('load upcoming reminders', e));
+    void get<{ counts: DigestCounts }>('/me/digest').then((d) => (digest = d)).catch((e) => board.loadFailed('load the digest preview', e));
   });
 
   async function run(fn: () => Promise<unknown>, done?: string) {
@@ -155,7 +160,7 @@
   }
 
   function close() {
-    notifySettings.open = false;
+    inbox.settingsOpen = false;
   }
 </script>
 
@@ -174,6 +179,8 @@
         <button class="primary" disabled={busy} onclick={() => void run(enablePush, 'Notifications on for this device')}
           >Turn on for this device</button
         >
+      {:else if pstate === 'unknown'}
+        <button class="secondary" disabled={busy} onclick={() => void refresh()}>Check again</button>
       {:else if pstate === 'on'}
         <button class="secondary" disabled={busy} onclick={() => void test()}>Send a test</button>
         <button class="link" disabled={busy} onclick={() => void run(disablePush, 'Notifications off for this device')}

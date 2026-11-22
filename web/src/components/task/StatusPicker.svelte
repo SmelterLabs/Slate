@@ -5,7 +5,7 @@
   import { board } from '../../lib/store.svelte';
   import type { ItemDetail, Status } from '../../lib/types';
   import { statusColor as colorOf } from '../../lib/activity';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { item }: { item: ItemDetail } = $props();
 

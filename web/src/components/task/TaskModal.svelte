@@ -41,11 +41,11 @@
   import Attachments from './Attachments.svelte';
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
   import { ago, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
   import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
-  import PriorityPicker from './PriorityPicker.svelte';
+  import PriorityPicker from '../PriorityPicker.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import Subtasks from './Subtasks.svelte';
   import { trapFocus } from '../../lib/focustrap';
@@ -177,7 +177,9 @@
       .then((r) => {
         if (board.detail?.id === id) inDocs = r;
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (board.detail?.id === id) board.loadFailed('load linked documents', e);
+      });
   });
 
   // A different task opened (or this one renamed elsewhere): take its title, reset the column.
@@ -448,14 +450,14 @@
           title={board.favoriteOf('item', d.id) ? 'Remove from favorites (s)' : 'Add to favorites (s)'}
           aria-label={board.favoriteOf('item', d.id) ? 'Remove from favorites' : 'Add to favorites'}
           aria-pressed={!!board.favoriteOf('item', d.id)}
-          onclick={() => board.toggleFavorite('item', d.id)}><Icon name="star" fill={!!board.favoriteOf('item', d.id)} /></button
+          onclick={() => board.toggleFavorite('item', d.id)}><Icon name="star" fill={!!board.favoriteOf('item', d.id)} size={16} /></button
         >
         <button class="ghost" title="Copy link" aria-label="Copy link" onclick={() => copy(task.link(d.id), 'Link')}
-          ><Icon name="link" /></button
+          ><Icon name="link" size={16} /></button
         >
         {#if canMove}
           <Dropdown float title="Move to another list" cls="ghost tw-move" align="right" bind:open={moveOpen}>
-            {#snippet label()}<Icon name="folder" /><span class="tw-move-text">Move</span>{/snippet}
+            {#snippet label()}<Icon name="folder" size={16} /><span class="tw-move-text">Move</span>{/snippet}
             <div class="menu card-menu" role="menu">
               <MovePicker current={d.list_id} onpick={moveTo} />
             </div>
@@ -465,7 +467,7 @@
       {/if}
       {#if !phone}
         <Dropdown float title="Where the window sits" cls="ghost tw-dock" align="right" bind:open={dockOpen}>
-          {#snippet label()}<Icon name={taskWindow.docked ? 'dockRight' : 'dockCenter'} />{/snippet}
+          {#snippet label()}<Icon name={taskWindow.docked ? 'dockRight' : 'dockCenter'} size={16} />{/snippet}
           <div class="menu card-menu tw-dock-menu" role="menu" aria-label="Window position">
             {#each DOCKS as dock (dock)}
               <button role="menuitemradio" aria-checked={taskWindow.dock === dock} class:active={taskWindow.dock === dock} onclick={() => setDock(dock)}>
@@ -617,17 +619,17 @@
         {#if refsOpen || !agentOn || !refSummary.length}
         <div class="fields">
           <div class="field">
-            <span class="label"><Icon name="user" /> Assignees</span>
+            <span class="label"><Icon name="user" size={16} /> Assignees</span>
             <div class="value"><AssigneePicker assignees={d.assignees} onchange={(handles) => save({ assignees: handles })} /></div>
           </div>
           <div class="field">
-            <span class="label"><Icon name="flag" /> Priority</span>
+            <span class="label"><Icon name="flag" size={16} /> Priority</span>
             <div class="value">
               <PriorityPicker value={d.priority} onchange={(p: Priority | null) => save({ priority: p })} />
             </div>
           </div>
           <div class="field">
-            <span class="label"><Icon name="calendar" /> Dates</span>
+            <span class="label"><Icon name="calendar" size={16} /> Dates</span>
             <div class="value dates">
               <DatePicker label="Start" value={d.start_at} onchange={(when) => save({ start_at: when })} />
               <span class="muted arrow">→</span>
@@ -635,11 +637,11 @@
             </div>
           </div>
           <div class="field">
-            <span class="label"><Icon name="tag" /> Tags</span>
+            <span class="label"><Icon name="tag" size={16} /> Tags</span>
             <div class="value"><TagEditor tags={d.tags} onchange={(tags) => save({ tags })} /></div>
           </div>
           <div class="field">
-            <span class="label"><Icon name="wait" /> Waiting on</span>
+            <span class="label"><Icon name="wait" size={16} /> Waiting on</span>
             <div class="value">
               <select
                 class="bare"
@@ -653,12 +655,12 @@
             </div>
           </div>
           <div class="field wide">
-            <span class="label"><Icon name="bell" /> Reminders</span>
+            <span class="label"><Icon name="bell" size={16} /> Reminders</span>
             <div class="value"><Reminders item={d} /></div>
           </div>
           {#if !d.parent_id}
             <div class="field">
-              <span class="label"><Icon name="list" /> List</span>
+              <span class="label"><Icon name="list" size={16} /> List</span>
               <div class="value">
                 {#if d.trashed_at}
                   <span>{section ? `${section.name} › ` : ''}{list?.name ?? ''}</span>
@@ -675,13 +677,13 @@
           {/if}
           {#if !d.parent_id || d.recurrence_id}
             <div class="field wide">
-              <span class="label"><Icon name="repeat" /> Repeats</span>
+              <span class="label"><Icon name="repeat" size={16} /> Repeats</span>
               <div class="value"><RecurrenceEditor item={d} {rule} /></div>
             </div>
           {/if}
           {#if showDone}
             <div class="field wide">
-              <span class="label"><Icon name="target" /> Done means</span>
+              <span class="label"><Icon name="target" size={16} /> Done means</span>
               <div class="value">
                 <AutoText
                   label="What done means"

@@ -55,8 +55,8 @@ class TaskWindow {
     try {
       const entries = await get<ActivityEntry[]>(`/items/${id}/activity`);
       if (board.openId === id) this.activity = entries;
-    } catch {
-      // the detail's own comments and events still show
+    } catch (e) {
+      if (board.openId === id) board.loadFailed('refresh task activity', e);
     } finally {
       this.#loading = null;
       if (this.#again) {

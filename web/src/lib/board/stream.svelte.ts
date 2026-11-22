@@ -210,7 +210,7 @@ export class BoardStream extends BoardLoad {
         // the load must not be hit every second).
         if (this.ready) {
           this.#backoff = 1000;
-          void agents.refreshRoster();
+          void agents.refreshRoster((what, e) => this.loadFailed(what, e));
         }
         resolve(true);
       };
@@ -272,6 +272,7 @@ export class BoardStream extends BoardLoad {
     try {
       ev = JSON.parse(m.data);
     } catch {
+      this.flash('Could not read a live board update.');
       return;
     }
     // Not an event: what an agent is doing now. No id, so no cursor, no reducer, no refetch.
@@ -342,7 +343,7 @@ export class BoardStream extends BoardLoad {
       clearTimeout(this.#accessTimer);
       this.#accessTimer = setTimeout(() => void this.#reloadAccess(), 100);
     }
-    agents.onEvent(ev); // the Agents page's roster and live feed
+    agents.onEvent(ev, (what, e) => this.loadFailed(what, e)); // the Agents page's roster and live feed
     if (dotsChangedBy(ev, this.me?.account.id)) {
       clearTimeout(this.#dotsTimer);
       this.#dotsTimer = setTimeout(() => void this.loadCommentDots(), 150);
@@ -414,8 +415,8 @@ export class BoardStream extends BoardLoad {
       this.me = me;
       setWorkspaceTimezone(me.timezone);
       await this.loadAll();
-    } catch {
-      /* the next event or reconnect retries */
+    } catch (e) {
+      this.loadFailed('refresh board access', e);
     }
   }
 

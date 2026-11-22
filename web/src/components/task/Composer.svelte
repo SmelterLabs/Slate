@@ -15,7 +15,7 @@
   import { task } from '../../lib/task.svelte';
   import type { Account, Attachment } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let {
     itemId,

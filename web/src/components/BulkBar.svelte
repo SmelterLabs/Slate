@@ -55,7 +55,7 @@
     try {
       dateEl.showPicker();
     } catch {
-      dateEl.focus();
+      dateEl.focus(); // the input still works without a native picker
     }
   }
   async function archive() {

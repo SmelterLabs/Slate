@@ -9,7 +9,7 @@
   import { board } from '../../lib/store.svelte';
   import type { ItemDetail } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { item, adding = $bindable(false), canAdd = true }: { item: ItemDetail; adding?: boolean; canAdd?: boolean } = $props();
 
@@ -37,7 +37,7 @@
 {#if subs.length || adding || draft.value}
   <section class="block" aria-label="Subtasks">
     <header>
-      <h3><Icon name="subtask" /> Subtasks</h3>
+      <h3><Icon name="subtask" size={16} /> Subtasks</h3>
       {#if subs.length}
         <span class="progress" title="{closed} of {subs.length} closed">
           <span class="bar"><span style="width: {(100 * closed) / subs.length}%"></span></span>
