@@ -13,6 +13,8 @@
   import Avatars from './Avatars.svelte';
   import DatePicker from './DatePicker.svelte';
   import Icon from './Icon.svelte';
+  import StalledBadge from './StalledBadge.svelte';
+  import StandingLine from './StandingLine.svelte';
   import TagEditor from './TagEditor.svelte';
   import TagPill from './TagPill.svelte';
   import type { Column } from './TableView.svelte';
@@ -99,11 +101,17 @@
           }}
         />
       {:else}
-        <button class="plain t-title-text" title="Open" onclick={() => board.open(item.id)}>{item.title}</button>
-        {#if item.blocked && isOpen(item)}<span class="blocked-badge" data-blocked title={blockedTitle(openBlockers(item, board.items))}><Icon name="alert" size={13} /></span>{/if}
-        {#if item.duplicate_of?.length && !item.archived_at}<span class="badge" title="Marked as a duplicate"><Icon name="copy" size={12} /> Duplicate</span>{/if}
-        {#if item.subtask_count}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
-        {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
+        <div class="t-title-col">
+          <div class="t-title-top">
+            <button class="plain t-title-text" title="Open" onclick={() => board.open(item.id)}>{item.title}</button>
+            {#if item.blocked && isOpen(item)}<span class="blocked-badge" data-blocked title={blockedTitle(openBlockers(item, board.items))}><Icon name="alert" size={13} /></span>{/if}
+            {#if item.duplicate_of?.length && !item.archived_at}<span class="badge" title="Marked as a duplicate"><Icon name="copy" size={12} /> Duplicate</span>{/if}
+            {#if item.subtask_count}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
+            {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
+            {#if item.stalled}<StalledBadge {item} />{/if}
+          </div>
+          {#if item.standing}<StandingLine standing={item.standing} />{/if}
+        </div>
         <button
           class="icon t-rename"
           aria-label="Rename {item.title}"

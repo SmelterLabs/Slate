@@ -233,4 +233,56 @@ describe('TaskModal ask and waiting banner', () => {
     await unmount(app);
     target.remove();
   });
+
+  it('shows standing and stalled at the top of the task window, but hides standing when an open ask is shown', async () => {
+    const standing = {
+      line: 'Check the draft linked above.',
+      by_id: 'sc',
+      at: '2026-10-29T11:00:00Z',
+      move_id: 'me',
+    };
+    const detail = makeDetail({
+      waiting_on_account_id: null,
+      agent: null,
+      ask: null,
+      assignees: [{ id: 'sc', handle: 'my-agent', display_name: 'My Agent', kind: 'agent' }],
+      standing,
+      stalled: true,
+    });
+    board.items = { I1: { ...detail } };
+    board.detail = detail;
+    task.activity = [];
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(TaskModal, { target });
+
+    expect(target.querySelector('[data-standing-line]')?.textContent?.trim()).toBe(standing.line);
+    expect(target.querySelector('[data-standing-move]')?.textContent?.trim()).toBe('Your move');
+    expect(target.querySelector('[data-stalled]')?.textContent).toContain('Stalled');
+    expect(target.querySelector('[data-stalled-run]')?.textContent).toContain('Run now');
+
+    // When an open ask is shown, the question box already says it: do not show both.
+    const ask = {
+      comment_id: 'C1',
+      question: 'Start the import now?',
+      options: ['Yes', 'No'],
+      by_id: 'sc',
+      at: '2026-10-29T11:30:00Z',
+    };
+    board.items.I1 = { ...board.items.I1, waiting_on_account_id: 'me', ask, stalled: false };
+    board.detail = makeDetail({
+      waiting_on_account_id: 'me',
+      ask,
+      standing: { ...standing, line: ask.question },
+      stalled: false,
+    });
+    flushSync();
+
+    expect(target.querySelector('[data-banner="waiting"]')).not.toBeNull();
+    expect(target.querySelector('[data-standing]')).toBeNull();
+
+    await unmount(app);
+    target.remove();
+  });
 });

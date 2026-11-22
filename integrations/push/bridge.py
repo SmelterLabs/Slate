@@ -1,27 +1,16 @@
 """Slate -> push webhook: one account's Slate notifications, posted to an alert broker.
 
-Optional adapter (stdlib only). It reads the account's inbox through Slate's public REST API
-(`GET /inbox?unread=true`) and posts each new entry as JSON to a push-notification webhook
+Optional adapter (stdlib only). It reads the account's released alerts
+(`GET /inbox/alerts`) and posts selected alerts as JSON to a push-notification webhook
 (`POST <broker><alert-path>`, default path `/v1/alert`) with a bearer key. Slate knows nothing
 about it; deleting this folder breaks nothing in `tests/`.
 
-Payload: `{"severity": 1-4, "title": "Slate: ...", "body": "...", "click_url": "..."}`.
-Severity = the card's priority flag:
+Payload: `{"severity": 2-4, "title": "Slate: ...", "body": "...", "click_url": "..."}`.
+Severity, title and body come from Slate. Levels below 2 are skipped.
 
-    urgent -> 4    (e.g. a persistent popup and a phone push)
-    high   -> 3    (e.g. a toast with sound)
-    normal -> 2    (e.g. a silent toast)
-    low    -> 1    (e.g. log only)
-
-A card with no flag, or an entry with no card (a health alert, a guest's expiring access),
-goes out at `--default-tier` (2). A `waiting` alert is at least 3 (the card's tier when that
-is higher), and never above 4. Nothing above 4 is ever sent. What each level does is up to
-your broker.
-
-State (`--state`, JSON) holds the cursor: the newest inbox time already handled and the event
-ids at that time. The first run only records the cursor, so the backlog is never replayed. An
-entry is acknowledged only after the broker answered 2xx; a failed publish stops the pass and
-is retried next pass (a broker with a dedupe window absorbs a POST that had landed).
+State (`--state`, JSON) holds the opaque release cursor. The first run stores the newest
+cursor from the response header and replays no backlog. A failed publish stops the pass
+without advancing past that alert.
 
     python integrations/push/bridge.py --slate http://127.0.0.1:18448 \\
         --token-file ~/.slate-push.token --broker https://push.example.com \\
@@ -37,6 +26,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -44,57 +34,26 @@ from typing import Any
 
 log = logging.getLogger("slate-push")
 
-TIER = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
 # Card push reasons, without chat and the daily digest, plus `failed` (a run the agent
-# could not finish). A routine digest is not an alert.
-DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed"
+# could not finish) and `stalled` (it stopped without finishing). A routine digest is not
+# an alert.
+DEFAULT_REASONS = (
+    "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed,stalled"
+)
 
-Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
+Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any, dict[str, str]]]
 
 
-def http(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, Any]:
+def http(
+    method: str, url: str, headers: dict[str, str], body: bytes | None
+) -> tuple[int, Any, dict[str, str]]:
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
-            raw = r.read()
-            return r.status, json.loads(raw) if raw else None
+            data = json.load(r) if method == "GET" else None
+            return r.status, data, {key.lower(): value for key, value in r.headers.items()}
     except urllib.error.HTTPError as e:
-        return e.code, None
-
-
-def tier_for(priority: str | None, default: int) -> int:
-    return TIER.get(priority or "", default)
-
-
-def wording(entry: dict[str, Any], who: str) -> tuple[str, str]:
-    """(title, body) for the alert. The title starts "Slate:" so broker rules can mute it."""
-    reason = entry["reason"]
-    ev = entry["event"]
-    after = ev.get("after") if isinstance(ev.get("after"), dict) else {}
-    thing = entry.get("item_title") or "Slate"
-    text = (after.get("body_md") or "")[:200]
-    heads = {
-        "mention": f"{who} mentioned you",
-        "reply": f"{who} replied",
-        "assigned": f"{who} assigned you",
-        "waiting": f"{who} is waiting on you",
-        "due": "Overdue" if ev.get("type") == "item.overdue" else "Due now",
-        "unblocked": "Ready to start",
-        "nudge": "An agent has a task waiting",
-        "reminder": "Reminder",
-        "health": "Slate health",
-        "access": "Guest access ending",
-        "failed": f"{who} could not run",
-        "comment": f"{who} commented",
-        "status": f"{who} changed the status",
-    }
-    head = heads.get(reason, f"{who} changed it")
-    if reason == "waiting":
-        question = str(after.get("question") or "").splitlines()
-        first = question[0].strip() if question else ""
-        body = f"{first}\n{thing}" if first else thing
-        return f"Slate: {head}"[:80], body[:260]
-    return f"Slate: {head}"[:80], (f"{thing}: {text}" if text else thing)[:260]
+        return e.code, None, {}
 
 
 class Bridge:
@@ -107,7 +66,6 @@ class Bridge:
         board_url: str,
         state_path: Path,
         reasons: set[str],
-        default_tier: int = 2,
         send: Http = http,
         alert_path: str = "/v1/alert",
     ) -> None:
@@ -118,94 +76,58 @@ class Bridge:
         self.board = board_url.rstrip("/")
         self.state_path = state_path
         self.reasons = reasons
-        self.default_tier = default_tier
         self.send = send
-        self.names: dict[str, str] = {}
 
     # --- state ------------------------------------------------------------------------------
 
-    def load(self) -> dict[str, Any] | None:
+    def load(self) -> str | None:
         try:
-            return json.loads(self.state_path.read_text(encoding="utf-8"))
+            return json.loads(self.state_path.read_text(encoding="utf-8")).get("cursor")
         except FileNotFoundError:
             return None
 
-    def save(self, state: dict[str, Any]) -> None:
+    def save(self, cursor: str) -> None:
         tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.write_text(json.dumps({"cursor": cursor}), encoding="utf-8")
         os.replace(tmp, self.state_path)
-
-    # --- Slate -------------------------------------------------------------------------------
-
-    def _get(self, path: str) -> Any:
-        status, data = self.send("GET", self.slate + path, self.auth, None)
-        if status != 200:
-            raise RuntimeError(f"Slate GET {path} -> HTTP {status}")
-        return data
-
-    def name(self, account_id: str) -> str:
-        """The actor's display name, from the roster any read token may list (`GET /agents
-        ?kind=all`; `/accounts` is for admins, and the bridge needs no more than read).
-        "Someone" when it is not there or the roster cannot be read: a name is never a reason
-        to hold an alert back."""
-        if account_id not in self.names:
-            try:
-                roster = self._get("/agents?kind=all") or []
-            except RuntimeError as e:
-                log.warning("names unavailable: %s", e)
-                roster = []
-            for row in roster:
-                a = row.get("account") or {}
-                if a.get("id"):
-                    self.names[a["id"]] = a.get("display_name") or a.get("handle") or "Someone"
-        return self.names.get(account_id, "Someone")
-
-    def priority(self, item_id: str | None) -> str | None:
-        if not item_id:
-            return None
-        status, data = self.send("GET", f"{self.slate}/items/{item_id}", self.auth, None)
-        return (data or {}).get("priority") if status == 200 else None
 
     # --- one pass ----------------------------------------------------------------------------
 
     def run_once(self) -> int:
-        """Publish what is new since the cursor; returns how many alerts were sent."""
-        entries = self._get("/inbox?unread=true&limit=200") or []
-        entries.sort(key=lambda e: (e["event"]["at"], e["event"]["id"]))
-        state = self.load()
-        if state is None:
-            newest = entries[-1]["event"]["at"] if entries else ""
-            ids = [e["event"]["id"] for e in entries if e["event"]["at"] == newest]
-            self.save({"at": newest, "ids": ids})
-            log.info("first run: cursor at %r, %d not replayed", newest, len(entries))
+        """Relay one page in server order and return how many alerts were sent."""
+        cursor = self.load()
+        query = {"limit": "200"}
+        if cursor is not None:
+            query["after"] = cursor
+        path = f"/inbox/alerts?{urllib.parse.urlencode(query)}"
+        status, alerts, headers = self.send("GET", self.slate + path, self.auth, None)
+        if status != 200:
+            raise RuntimeError(f"Slate GET /inbox/alerts -> HTTP {status}")
+        if cursor is None:
+            newest = headers.get("x-slate-cursor")
+            if newest is None:
+                raise RuntimeError("Slate GET /inbox/alerts did not return X-Slate-Cursor")
+            self.save(newest)
+            log.info("started at the current release cursor")
             return 0
         sent = 0
-        for e in entries:
-            ev = e["event"]
-            if ev["at"] < state["at"] or (ev["at"] == state["at"] and ev["id"] in state["ids"]):
-                continue
-            if e["reason"] in self.reasons:
-                self.publish(e)
+        for alert in alerts:
+            if alert["reason"] in self.reasons and 2 <= alert["loudness"] <= 4:
+                self.publish(alert)
                 sent += 1
-            if ev["at"] != state["at"]:
-                state = {"at": ev["at"], "ids": []}
-            state["ids"].append(ev["id"])
-            self.save(state)
+            self.save(alert["cursor"])
         return sent
 
-    def publish(self, e: dict[str, Any]) -> None:
-        ev = e["event"]
-        item_id = ev.get("item_id")
-        severity = tier_for(self.priority(item_id), self.default_tier)
-        if e["reason"] == "waiting":
-            severity = min(4, max(3, severity))
-        title, body = wording(e, self.name(ev["actor_id"]))
+    def publish(self, alert: dict[str, Any]) -> None:
+        item_id = alert["item_id"]
         click = f"{self.board}/#/inbox?task={item_id}" if item_id else f"{self.board}/#/inbox"
-        payload = {"severity": severity, "title": title, "body": body, "click_url": click}
-        status, data = self.send("POST", self.target, self.kauth, json.dumps(payload).encode())
+        title = f"Slate: {alert['title']}"
+        severity = alert["loudness"]
+        payload = {"severity": severity, "title": title, "body": alert["body"], "click_url": click}
+        status, _, _ = self.send("POST", self.target, self.kauth, json.dumps(payload).encode())
         if not 200 <= status < 300:
             raise RuntimeError(f"Push broker refused alert ({status}); retrying next pass")
-        log.info("tier %d %s -> %s", severity, title, (data or {}).get("id"))
+        log.info("severity %d %s", severity, title)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -222,8 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--key-file", default="~/.push-key", help="the broker's bearer key")
     p.add_argument("--board-url", required=True, help="the board's public URL, for the tap link")
     p.add_argument("--state", default="~/.slate-push.json")
-    p.add_argument("--reasons", default=DEFAULT_REASONS, help="comma-separated inbox reasons")
-    p.add_argument("--default-tier", type=int, default=2, choices=[1, 2, 3, 4])
+    p.add_argument(
+        "--reasons", default=DEFAULT_REASONS, help="comma-separated alert reasons to relay"
+    )
     p.add_argument("--interval", type=float, default=20.0)
     p.add_argument("--once", action="store_true")
     a = p.parse_args(argv)
@@ -237,7 +160,6 @@ def main(argv: list[str] | None = None) -> int:
         a.board_url,
         Path(a.state).expanduser(),
         {r.strip() for r in a.reasons.split(",") if r.strip()},
-        a.default_tier,
         alert_path=a.alert_path,
     )
     while True:

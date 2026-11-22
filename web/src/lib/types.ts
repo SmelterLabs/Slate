@@ -186,6 +186,10 @@ export interface Item {
   agent?: AgentFlag | null;
   /** A structured question from an agent while the card waits on a person through it, else null. */
   ask?: ItemAsk | null;
+  /** Where the card stands and whose move it is, set on agent reports/finishes, else null. */
+  standing?: ItemStanding | null;
+  /** True when an agent repeatedly ended a run with `answered` and left the open card stalled. */
+  stalled?: boolean;
   /** Each agent's own conversation for this task (its session ref and a link to open it). */
   agent_threads?: AgentThread[];
   /** A Run now (or the due-time run stage) newer than the last take: asked, not picked up. */
@@ -208,6 +212,14 @@ export interface ItemAsk extends CommentAsk {
   comment_id: string;
   by_id: string;
   at: string;
+}
+
+/** Where a card stands after an agent's report or finish, and whose move it is. */
+export interface ItemStanding {
+  line: string;
+  by_id: string;
+  at: string;
+  move_id: string | null;
 }
 
 export interface AgentFlag {
@@ -416,6 +428,10 @@ export interface Prefs {
   digest_hour?: number;
   /** Inbox reasons pushed to phone and desktop (default lib/push DEFAULT_PUSH_REASONS). */
   push_reasons?: string[];
+  /** Quiet notification hours in workspace time. */
+  quiet_hours?: { from: string; to: string } | null;
+  /** Minutes before an unanswered question escalates to the phone (0 turns it off). */
+  escalate_after_minutes?: number;
   /** Where email notifications go, and which inbox reasons are emailed when still unseen
    * after five minutes (default lib/push DEFAULT_EMAIL_REASONS). */
   email_to?: string;

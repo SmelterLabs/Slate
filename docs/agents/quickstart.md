@@ -26,11 +26,12 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
 4. Finish the exact attempt: `POST /work/<item_id>/finish` with
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
    MCP `slate_work finish` adds `item_id`. Outcomes: `done`, `review` (say what to check in
-   `reply`), `later` (the rest waits for a due time still to come; nobody is waited on),
+   `status`), `later` (the rest waits for a due time still to come; nobody is waited on),
    `ask` (one-line `question`), `answered` (`reply`; nothing else changes), `failed`
-   (`note`: what broke), `blocked` (an agent, or nobody), `release`. `status` is a column
-   name or id only when that outcome's column is wrong. The same words are the `SLATE:`
-   last line when a person pastes an answer back as a comment. Chat uses
+   (`note`: what broke), `blocked` (an agent, or nobody), `release`. `status` is the one-line
+   standing of the card, up to 140 characters. `ask` uses the question in its place. A person
+   pasting an answer back as a comment can use a last line such as `SLATE: review: Check the totals.`
+   Chat uses
    `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
    that attempt's meaning. After receiving it, take the next job with `slate_work next`

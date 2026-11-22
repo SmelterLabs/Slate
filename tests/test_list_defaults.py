@@ -220,6 +220,7 @@ async def test_inbox_setting_and_list_note(client, alex, todo, make_account):
     configure(client, alex, todo, note_md="Proofread the draft.")
     brief = client.get(f"{API}/items/{card['id']}/brief", headers=agent).json()["text"]
     assert "This list:\nProofread the draft." in brief
+    assert brief.index("This list:") < brief.index("SLATE: review: <what the person must check>")
     taken = client.post(f"{API}/work/next", headers=agent, json={"item_id": card["id"]})
     assert taken.status_code == 200, taken.text
     assert taken.json()["brief"] == brief
@@ -285,6 +286,26 @@ def test_reference_cards_only_fire_reminders_set_for_a_fixed_time(client, alex, 
         route, headers=alex, json={"at": (now + timedelta(hours=1)).isoformat()}
     ).raise_for_status()
     assert reminders.fire_reminders(db, now=now + timedelta(hours=2)) == 1
+
+
+@pytest.mark.parametrize("reference", [False, True])
+def test_pending_due_fallback_only_releases_for_work_lists(client, alex, todo, db, reference):
+    from slate.service import attention
+
+    route = f"{API}/inbox/alerts"
+    attention.release(db, utcnow())
+    cursor = client.get(route, headers=alex).headers["X-Slate-Cursor"]
+    card = file(client, alex, list_id=todo["id"], due_at=(utcnow() - timedelta(days=2)).isoformat())
+    assert card["assignees"] == []
+    assert due.emit_due_events(db, now=utcnow()) > 0
+    entries = client.get(f"{API}/inbox", headers=alex).json()
+    assert any(e["reason"] == "due" and e["event"]["item_id"] == card["id"] for e in entries)
+    configure(client, alex, todo, reference=reference)
+    entries = client.get(f"{API}/inbox", headers=alex).json()
+    assert any(e["reason"] == "due" for e in entries) is not reference
+    attention.release(db, utcnow())
+    alerts = client.get(route, headers=alex, params={"after": cursor}).json()
+    assert any(alert["reason"] == "due" for alert in alerts) is not reference
 
 
 def test_guest_filing_and_split_apply_the_hidden_default(client, alex, todo, make_account):

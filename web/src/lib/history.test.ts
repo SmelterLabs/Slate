@@ -25,6 +25,7 @@ describe('verb', () => {
   it('a run and an Ask read as words', () => {
     expect(verb(ev({ type: 'item.work_started' }), ctx)).toBe('started working on this');
     expect(verb(ev({ type: 'item.work_finished', after: { steps: 6 } }), ctx)).toBe('ended the run (6 steps)');
+    expect(verb(ev({ type: 'item.stalled', after: { agent_id: 'c' } }), ctx)).toBe('stopped without finishing');
     expect(verb(ev({ type: 'comment.assigned', after: { assignee_id: 'c' } }), ctx)).toBe('asked Alex');
     expect(verb(ev({ type: 'comment.resolved' }), ctx)).toBe('resolved an Ask');
   });

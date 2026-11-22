@@ -10,8 +10,6 @@ import pytest
 
 from conftest import API
 from slate.models import utcnow
-from slate.service import push
-from test_push import Browser
 
 
 def _acct(client, alex, handle, kind, role):
@@ -72,41 +70,19 @@ def project(client, alex):
     return {"sid": sec["id"], "key": f"section:{sec['id']}", "agent": ah, "guest": (guest, gh)}
 
 
-def test_the_renudge_counts_only_what_the_guest_can_read(client, alex, db, project):
+def test_escalation_only_uses_messages_the_guest_can_read(client, alex, db, project):
+    from slate.service.attention import escalate
+
     key, ah = project["key"], project["agent"]
     _, gh = project["guest"]
-    client.post(f"{API}/push/subscriptions", json=Browser().body(), headers=gh)
-    client.patch(f"{API}/me/prefs", json={"push_reasons": ["chat"]}, headers=gh)
-    _post(client, alex, key, "@my-agent please check the ledger")  # members-only
-    _post(client, ah, key, "Ledger checked")  # members-only
+    client.patch(f"{API}/me/prefs", json={"escalate_after_minutes": 1}, headers=gh)
+    _post(client, alex, key, "@my-agent please check the ledger")
+    _post(client, ah, key, "Ledger checked")
     _post(client, alex, key, "Morning all")
     assert _bodies(client, gh, key) == ["Morning all"]
-    received = []
-    sent = push.renudge(
-        db,
-        lambda *args: (received.append(args[3]) or 201, ""),
-        {},
-        now=utcnow() + timedelta(minutes=11),
-    )
-    assert sent == 1, received
-    assert received[0]["body"] == "1 message from Alex, waiting since you last looked"
-
-
-def test_no_renudge_when_everything_unread_is_hidden_from_the_guest(client, alex, db, project):
-    key, ah = project["key"], project["agent"]
-    _, gh = project["guest"]
-    client.post(f"{API}/push/subscriptions", json=Browser().body(), headers=gh)
-    client.patch(f"{API}/me/prefs", json={"push_reasons": ["chat"]}, headers=gh)
-    _post(client, alex, key, "@my-agent a members-only question")
-    _post(client, ah, key, "A members-only answer")
-    received = []
-    push.renudge(
-        db,
-        lambda *args: (received.append(args[3]) or 201, ""),
-        {},
-        now=utcnow() + timedelta(minutes=11),
-    )
-    assert received == []
+    escalate(db, utcnow() + timedelta(minutes=2))
+    entries = client.get(f"{API}/inbox", headers=gh).json()
+    assert len([e for e in entries if e["event"]["type"] == "inbox.escalated"]) == 1
 
 
 def test_a_mention_never_confirms_a_handle_the_guest_cannot_see(client, alex, project):

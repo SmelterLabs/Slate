@@ -258,11 +258,24 @@ def test_work_schema_exposes_claim_and_only_mcp_finish_controls():
             "params": {
                 "item_id": "Ab12Cd34Ef56",
                 "outcome": "review",
+                "status": "Check the totals.",
                 "hand_to": "alex",
                 "note": "Check the draft.",
             },
         }
     )
+    assert work.is_valid(
+        {
+            "action": "finish",
+            "params": {**done, "outcome": "ask", "question": "Send it?", "options": ["Yes", "No"]},
+        }
+    )
+    for field, value in {
+        "status": "Drafted.",
+        "question": "Send it?",
+        "options": ["Yes", "No"],
+    }.items():
+        assert not work.is_valid({"action": "next", "params": {field: value}})
     assert item.is_valid(
         {
             "action": "report",
@@ -1527,7 +1540,13 @@ async def test_report_and_agents_roster_through_mcp(alex, make_account):
     async with http_mcp(agent) as client:
         out = ok(
             await call(
-                client, "slate_item", "report", id=item["id"], state="review", note="Have a look"
+                client,
+                "slate_item",
+                "report",
+                id=item["id"],
+                state="review",
+                status="Check the result",
+                note="Have a look",
             )
         )
         assert out["agent"] == {

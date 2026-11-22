@@ -14,6 +14,9 @@ Nothing is copied into a notifications table. An entry is an event, chosen for o
   (`item.run_failed`, `after.notify`: the card's person assignees and watchers, else the
   owners). A `failed` report before that is nobody's news, and neither is the take that
   retries it.
+- `stalled`  — a card's agent stopped without finishing twice (it answered, Slate ran it
+  again, it answered again: `item.stalled`). Told to the card's enabled person assignees and
+  watchers who can see it now, else the workspace owners (`stall_recipients`).
 - `due`      — a due or overdue nudge on an item assigned to the account
 - `unblocked` — an open item assigned to the account no longer waits on anything
 - `nudge`    — a task is due for (or Run now was pressed on) an agent no runner wakes (`wake`
@@ -44,7 +47,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -53,6 +56,7 @@ from sqlalchemy.orm import Session
 from slate.ids import event_id_floor
 from slate.models import (
     Account,
+    AccountKind,
     Event,
     InboxMark,
     InboxState,
@@ -61,8 +65,10 @@ from slate.models import (
     List,
     Role,
     Watcher,
+    WorkLease,
     utcnow,
 )
+from slate.service import attention
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Invalid
 from slate.service.lists import WORK_LIST
@@ -128,6 +134,8 @@ class Follows:
     followed: frozenset[str]
     watched: frozenset[str] = frozenset()
     reference: frozenset[str] = frozenset()
+    # Cards whose stall (`item.stalled`, in the window) this account is told about.
+    stalls: frozenset[str] = frozenset()
 
 
 def follows(session: Session, account_id: str) -> Follows:
@@ -141,12 +149,65 @@ def follows(session: Session, account_id: str) -> Follows:
     watching = frozenset(
         session.scalars(select(Watcher.item_id).where(Watcher.account_id == account_id))
     )
+    stalled = session.scalars(
+        select(Event.item_id)
+        .where(Event.type == "item.stalled", Event.at >= utcnow() - WINDOW)
+        .distinct()
+    ).all()
+    stalls = frozenset(i for i in stalled if account_id in stall_recipients(session, i))
+    fallback_reference = session.scalars(
+        select(Event.item_id)
+        .join(Item, Item.id == Event.item_id)
+        .join(List, List.id == Item.list_id)
+        .where(
+            Event.type.in_(DUE_TYPES),
+            Event.at >= utcnow() - WINDOW,
+            ~WORK_LIST,
+            _in_after("$.notify", account_id),
+        )
+        .distinct()
+    )
     return Follows(
         assigned=assigned,
         followed=assigned | watching,
         watched=watching,
-        reference=frozenset(item_id for item_id, is_work in assignments if not is_work),
+        stalls=stalls,
+        reference=frozenset(item_id for item_id, is_work in assignments if not is_work)
+        | frozenset(fallback_reference),
     )
+
+
+def stall_recipients(session: Session, item_id: str) -> set[str]:
+    """Who hears that a card stalled: its enabled person assignees and watchers who can see it
+    now (a revoked share counts for nothing), else the enabled workspace owners."""
+    from slate.service import access  # noqa: PLC0415 (access imports this module's peers)
+
+    with access.unrestricted(session):
+        item = session.get(Item, item_id)
+        if item is None:
+            return set()
+        people = session.scalars(
+            select(Account).where(
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+                or_(
+                    Account.id.in_(
+                        select(ItemAssignee.account_id).where(ItemAssignee.item_id == item_id)
+                    ),
+                    Account.id.in_(select(Watcher.account_id).where(Watcher.item_id == item_id)),
+                ),
+            )
+        ).all()
+        told = set()
+        for person in people:
+            reach = access.compute(session, person)
+            if reach.lists is None or reach.lists.get(item.list_id, 0) >= access.VIEW:
+                told.add(person.id)
+        return told or set(
+            session.scalars(
+                select(Account.id).where(Account.role == Role.owner, Account.disabled_at.is_(None))
+            )
+        )
 
 
 def _handles(value: Any) -> list[str]:
@@ -161,6 +222,8 @@ def _sees_health(account: Account) -> bool:
 
 def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
     """Why `account` should hear about `ev`, or None."""
+    if ev.type == "inbox.escalated":
+        return (ev.after_json or {}).get("reason") if ev.subject_id == account.id else None
     if ev.type == "item.reminder":
         # Reminders you set for yourself are news too: that is their point.
         return "reminder" if (ev.after_json or {}).get("account_id") == account.id else None
@@ -176,6 +239,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         return "nudge" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "item.run_failed":
         return "failed" if account.id in ((ev.after_json or {}).get("notify") or []) else None
+    if ev.type == "item.stalled":
+        return "stalled" if ev.item_id in f.stalls else None
     if ev.type == "comment.assigned":
         after = ev.after_json or {}
         # An agent's ask is told as `waiting` (its wait), not also as a mention.
@@ -190,7 +255,7 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         return "reply"
     if ev.type == "message.posted":
         followers = (ev.after_json or {}).get("thread_followers") or []
-        return "reply" if account.id in followers else None
+        return "reply" if account.id in followers else "chat"
     if ev.type == "item.assigned":
         before = set(_handles(ev.before_json))
         if account.handle in _handles(ev.after_json) and account.handle not in before:
@@ -203,9 +268,15 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return "waiting"
         if "failed" in (after.get("state"), (ev.before_json or {}).get("state")):
             return None  # a failed run and its retry are quiet until Slate gives up
+        if after.get("reason") == "stale":
+            return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
-        return "due" if ev.item_id in f.assigned and ev.item_id not in f.reference else None
+        if ev.item_id not in f.reference and (
+            ev.item_id in f.assigned or account.id in ((ev.after_json or {}).get("notify") or [])
+        ):
+            return "due"
+        return None
     if ev.type == "item.unblocked":
         still_open = (ev.after_json or {}).get("open", True)
         return "unblocked" if ev.item_id in f.assigned and still_open else None
@@ -257,6 +328,7 @@ FOLLOW_REASONS = frozenset({"comment", "status", "update", "archived", "moved", 
 # `Reason` repeats it; `tests/test_state_vocabularies.py` keeps the three in step.
 REASONS = (
     "mention",
+    "chat",
     "reply",
     "assigned",
     "waiting",
@@ -268,6 +340,7 @@ REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     *sorted(FOLLOW_REASONS),
 )
 SAME_CHANGE = timedelta(seconds=2)
@@ -301,6 +374,53 @@ def waiting_covers(ev: Event, why: str | None, waited: Sequence[tuple]) -> bool:
     )
 
 
+def notification_turn(
+    session: Session, ev: Event, reason: str, now: datetime
+) -> tuple[str | None, bool]:
+    """The work-start event grouping a card notification, and whether its lease is still live."""
+    if not ev.item_id or reason == "waiting":
+        return None, False
+    boundary = session.scalar(
+        select(Event)
+        .where(
+            Event.item_id == ev.item_id,
+            Event.id <= ev.id,
+            Event.type.in_(("item.work_started", "item.work_finished")),
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    if ev.type == "item.reported" and (ev.after_json or {}).get("state") == "working":
+        # A take records its working badge just before the work-start marker.
+        start = session.scalar(
+            select(Event)
+            .where(
+                Event.item_id == ev.item_id,
+                Event.actor_id == ev.actor_id,
+                Event.type == "item.work_started",
+                Event.id > ev.id,
+                Event.at <= ev.at + SAME_CHANGE,
+            )
+            .order_by(Event.id)
+            .limit(1)
+        )
+        if start is not None:
+            boundary = start
+    if boundary is None or boundary.type != "item.work_started" or boundary.actor_id != ev.actor_id:
+        return None, False
+    actor = session.get(Account, ev.actor_id) if ev.actor_id else None
+    if actor is None or actor.kind != "agent":
+        return None, False
+    lease = session.get(WorkLease, ev.item_id)
+    live = (
+        lease is not None
+        and lease.account_id == ev.actor_id
+        and lease.claimed_at <= ev.at
+        and lease.until >= now
+    )
+    return boundary.id, live
+
+
 def _state(session: Session, account_id: str) -> InboxState | None:
     return session.get(InboxState, account_id)
 
@@ -309,9 +429,11 @@ def entries(
     session: Session,
     account: Account,
     *,
-    limit: int = 100,
+    limit: int | None = 100,
     unread_only: bool = False,
     reason: str | None = None,
+    now: datetime | None = None,
+    for_climb: bool = False,
 ) -> list[dict[str, Any]]:
     """The account's inbox, newest first, each entry the event plus why and whether it is read."""
     f = follows(session, account.id)
@@ -321,12 +443,28 @@ def entries(
         for m in session.scalars(select(InboxMark).where(InboxMark.account_id == account.id))
     }
     read_through = state.read_through if state else None
-    q = _candidates(account, f, state, unread_only=unread_only)
+    now = now or utcnow()
+    q = _candidates(
+        account,
+        f,
+        state,
+        unread_only=unread_only,
+        now=now,
+        include_chat=for_climb or reason == "chat",
+    )
+    if for_climb:
+        q = q.where(
+            or_(
+                Event.type.in_(MENTION_TYPES),
+                Event.field == "waiting_on_account_id",
+                Event.type == "item.reported",
+            )
+        )
     out: list[dict[str, Any]] = []
     edits: set[tuple[str | None, str]] = set()
     waited = waits(session, account.id)
     chat_read: Callable[[str | None, str], bool] | None = None
-    want = min(limit, MAX_ENTRIES)
+    want = min(limit, MAX_ENTRIES) if limit is not None else float("inf")
     before: str | None = None
     while len(out) < want:
         page = session.scalars(q if before is None else q.where(Event.id < before)).all()
@@ -350,9 +488,21 @@ def entries(
 
                     chat_read = read_check(session, account)
                 read = chat_read((ev.after_json or {}).get("channel"), ev.subject_id)
+            display = ev
+            if ev.type == "inbox.escalated":
+                display = attention.original_event(session, ev, account)
+                if display is None:
+                    continue
+                read = read or not attention.pending(session, display, account, why)
             if unread_only and read:
                 continue
-            out.append({"event": event_payload(ev), "reason": why, "read": read})
+            view = event_payload(ev)
+            if display is not ev:
+                view["item_id"] = display.item_id
+            level = attention.event_level(session, ev, why)
+            out.append(
+                {"event": view, "reason": why, "read": read, "loudness": level, "_display": display}
+            )
             if len(out) >= want:
                 break
         if len(page) < PAGE:
@@ -362,20 +512,58 @@ def entries(
     return out
 
 
+def entry_view(session: Session, account: Account, ev: Event, reason: str) -> dict | None:
+    """Shape an alert's source entry in the same format as the inbox."""
+    display = attention.original_event(session, ev, account) if ev.type == "inbox.escalated" else ev
+    if display is None:
+        return None
+    view = event_payload(ev)
+    if display is not ev:
+        view["item_id"] = display.item_id
+    state = _state(session, account.id)
+    mark = session.get(InboxMark, (account.id, ev.id))
+    read = bool(
+        mark
+        or (state and state.read_through and ev.id <= state.read_through)
+        or (display is not ev and not attention.pending(session, display, account, reason))
+    )
+    if not read and ev.type in CHAT_TYPES and ev.subject_id:
+        from slate.service.chat import read_check
+
+        read = read_check(session, account)((ev.after_json or {}).get("channel"), ev.subject_id)
+    out = {
+        "event": view,
+        "reason": reason,
+        "read": read,
+        "loudness": attention.event_level(session, ev, reason),
+        "_display": display,
+    }
+    _attach_items(session, [out])
+    return out
+
+
 def _in_after(path: str, value: str) -> Any:
     """SQL: the JSON array at `path` in the event's `after` holds `value`."""
     each = func.json_each(Event.after_json, path).table_valued("value")
     return select(each.c.value).where(each.c.value == value).exists()
 
 
-def _candidates(account: Account, f: Follows, state: InboxState | None, *, unread_only: bool):
+def _candidates(
+    account: Account,
+    f: Follows,
+    state: InboxState | None,
+    *,
+    unread_only: bool,
+    now: datetime,
+    include_chat: bool,
+):
     """The events `reason_for` could say yes to for this account, newest first, one page.
 
     Every condition names the account (its handle, its id, an item it follows), so other
     people's traffic never fills the page; `reason_for` stays the judge. The window is also a
     primary-key range (event ids are time-ordered), so the scan stops at the window's start.
     """
-    since = utcnow() - WINDOW
+    since = now - WINDOW
     me = account.id
 
     def after(path: str) -> Any:
@@ -389,6 +577,8 @@ def _candidates(account: Account, f: Follows, state: InboxState | None, *, unrea
         Event.type.in_(MENTION_TYPES) & _in_after("$", account.handle),
         Event.type.in_(("item.commented", "doc.mentioned")) & _in_after("$.reply_to", me),
         (Event.type == "message.posted") & _in_after("$.thread_followers", me),
+        (Event.type == "inbox.escalated") & (Event.subject_id == me),
+        Event.type.in_(DUE_TYPES) & _in_after("$.notify", me),
         (Event.type == "item.assigned") & _in_after("$", account.handle),
         (Event.type == "comment.assigned") & (after("$.assignee_id") == me),
         (Event.field == "waiting_on_account_id") & (after("$") == me),
@@ -398,8 +588,12 @@ def _candidates(account: Account, f: Follows, state: InboxState | None, *, unrea
         (Event.type == "item.watched") & Event.field.is_(None) & (after("$") == me),
         (Event.type == "item.unwatched") & (func.json_extract(Event.before_json, "$") == me),
     ]
+    if include_chat:
+        conds.append(Event.type == "message.posted")
     if _sees_health(account):
         conds.append(Event.type.in_(HEALTH_TYPES))
+    if f.stalls:
+        conds.append((Event.type == "item.stalled") & Event.item_id.in_(f.stalls))
     if f.followed:
         conds.append(Event.item_id.in_(f.followed) & Event.type.in_(FOLLOW_TYPES + ASSIGNEE_TYPES))
     if f.watched:
@@ -432,6 +626,7 @@ def _attach_items(session: Session, out: list[dict[str, Any]]) -> None:
     ids = {e["event"]["item_id"] for e in out if e["event"]["item_id"]}
     rows = {i.id: i for i in session.scalars(select(Item).where(Item.id.in_(ids)))} if ids else {}
     for e in out:
+        display = e.pop("_display")
         item = rows.get(e["event"]["item_id"] or "")
         e["item_title"] = item.title if item else None
         e["list_id"] = item.list_id if item else None
@@ -440,18 +635,24 @@ def _attach_items(session: Session, out: list[dict[str, Any]]) -> None:
         if e["event"]["type"] == "session.expiring":
             after = e["event"]["after"] or {}
             e["item_title"] = f"Access to {after.get('section') or 'the project'}"
-        if e["event"]["type"] == "doc.mentioned":
+        if display.type == "doc.mentioned":
             # A doc page: the entry is about the page (its title as it was then).
-            after = e["event"]["after"] or {}
+            after = display.after_json or {}
             e["doc_id"] = after.get("doc_id")
             e["item_title"] = after.get("title") or "A doc"
-        if e["event"]["type"].startswith("message."):
+        if display.type.startswith("message."):
             # A chat message: the entry is about its channel, not an item.
-            after = e["event"]["after"] or {}
+            after = display.after_json or {}
             e["channel"] = after.get("channel")
             from slate.service.chat import place  # noqa: PLC0415 (chat imports this module's peers)
 
             e["item_title"] = place(after.get("channel"), after.get("channel_name"))
+        if e["event"]["type"] == "inbox.escalated":
+            from slate.service.push import notification_for
+
+            wording = notification_for(session, display, e["reason"])
+            if wording:
+                e["item_title"] = f"Still waiting: {wording['title']}"
 
 
 def unread_count(session: Session, account: Account) -> int:

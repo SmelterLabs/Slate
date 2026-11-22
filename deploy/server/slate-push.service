@@ -3,7 +3,7 @@
 # the broker URL, board URL and file paths with yours, then
 # `systemctl --user daemon-reload && systemctl --user enable --now slate-push.service`.
 [Unit]
-Description=Slate -> push webhook: one account's notifications as alerts at the card's priority
+Description=Slate push bridge for one account's alerts
 After=slate.service network-online.target
 
 [Service]

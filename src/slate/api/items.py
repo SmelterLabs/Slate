@@ -436,4 +436,5 @@ def get_brief(
     [option | option]`. Post that answer back as a comment and the line reports on the task.
     `ask` (a handle) defaults to you, or the workspace owner."""
     who = ask or brief_svc.default_ask(session, auth.actor.account_id)
-    return {"text": brief_svc.brief(session, item_id, ask=who), "ask": who}
+    text = brief_svc.brief(session, item_id, ask=who, account_id=auth.actor.account_id)
+    return {"text": text, "ask": who}

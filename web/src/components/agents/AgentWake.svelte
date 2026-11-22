@@ -16,7 +16,7 @@
     manual: 'By hand or in its app (Copy brief)',
   };
 
-  const PULL_PROMPT = `Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review", or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.`;
+  const PULL_PROMPT = `Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review" (set status to one line of what to check), or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.`;
 
   let showPrompt = $state(false);
 

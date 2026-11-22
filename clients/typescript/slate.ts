@@ -43,6 +43,8 @@ export type ReportOptions = {
   waiting_on?: string;
   assign_me?: boolean;
   claim?: boolean;
+  /** One line of where the card stands, 1 to 140 characters. A working report leaves it. */
+  status?: string;
 };
 export type Lease = { run_id: string | null; item_id: string; account_id: string; claimed_at: string; until: string };
 export type NextOptions = {
@@ -73,6 +75,7 @@ export type Task = {
 export type Outcome = 'done' | 'review' | 'later' | 'ask' | 'answered' | 'failed' | 'blocked' | 'release';
 export type FinishOptions = {
   run_id?: string;
+  /** One line of where the card stands, 1 to 140 characters. Review needs it; ask does not. */
   status?: string;
   hand_to?: string;
   waiting_on?: string;

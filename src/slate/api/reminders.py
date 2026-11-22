@@ -68,7 +68,18 @@ class DigestAgent(BaseModel):
     next: list[DigestAgentNext]
 
 
+class DigestQuestion(BaseModel):
+    id: str
+    comment_id: str
+    title: str
+    question: str
+    at: str
+    age_minutes: int
+    doc_id: str | None = None
+
+
 class DigestOut(BaseModel):
+    questions: list[DigestQuestion] = Field(default_factory=list)
     date: str
     counts: dict[str, int]
     overdue: list[DigestItem]

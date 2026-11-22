@@ -18,7 +18,7 @@ When a task comes due for a `pull` or `manual` agent (06:00 workspace time for a
 
 Save this as a scheduled task in the agent's app, for example every morning at 06:00, with Slate connected as an MCP server ([mcp.md](mcp.md)). The Agents page shows it with a Copy button:
 
-> Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review", or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.
+> Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review" (set status to one line of what to check), or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.
 
 The agent should report `url` (on heartbeat or finish) when its app has a share link for the chat, so the card links to it.
 
@@ -36,7 +36,7 @@ Claude Desktop connects to Slate's MCP server ([mcp.md](mcp.md)). Whether it can
 
 ## Copy brief (manual)
 
-**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`. Paste it into the agent's app.
+**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line that says where the card stands after a second colon, `SLATE: done: <what you did>`, `SLATE: review: <what to check>`, `SLATE: later: <when it runs again>`, `SLATE: answered: <where it stands>`, or `SLATE: ask <handle>: <question> [option | option]`. Paste it into the agent's app.
 
 ## The `SLATE:` closing line
 
@@ -44,10 +44,10 @@ Paste the agent's answer back as a comment on the task. If its last line is a `S
 
 | Last line | From an agent account | From a person |
 |---|---|---|
-| `SLATE: done` | The agent's `done` report: clears its badge, completes the task if the agent is assigned to it | Completes the task |
-| `SLATE: review` | Sets the agent's review badge | Nothing more (the comment is the review) |
+| `SLATE: done: Sent the invoice.` | The agent's `done` report: clears its badge, completes the task if the agent is assigned to it | Completes the task |
+| `SLATE: review: Check the draft linked above.` | Sets the agent's review badge; the text says what to check. A bare `SLATE: review` is `done` | Nothing more (the comment is the review) |
 | `SLATE: later` | Clears the agent's badge; the task stays open and assigned, and its due time (which must still be to come) runs the agent again | Nothing more |
 | `SLATE: answered` | Clears the agent's own badge; nothing else changes | Nothing more |
 | `SLATE: ask alex: Start the import now? [Yes \| No \| Not yet]` | The comment becomes the agent's question to Alex: blocked badge with the question, the task waits on Alex, and Alex gets one button per option | Nothing more |
 
-The line must be the last non-empty line. It may be wrapped in backticks or bold. `@alex` works too, and the bracketed options are optional (2 to 4, each up to 40 characters; the question is one line up to 200). A line that can't apply, such as a bad question or a list with no done status, leaves the comment as it is, and a comment with no line changes nothing. Notes that Slate writes itself, such as a report's note, are never read for the line.
+The text after the second colon is the card's one line on where it stands (optional, except for `review`; without it the comment's first line is used). The line must be the last non-empty line. It may be wrapped in backticks or bold. `@alex` works too, and the bracketed options are optional (2 to 4, each up to 40 characters; the question is one line up to 200). A line that can't apply, such as a bad question or a list with no done status, leaves the comment as it is, and a comment with no line changes nothing. Notes that Slate writes itself, such as a report's note, are never read for the line.

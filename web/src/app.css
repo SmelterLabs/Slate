@@ -818,6 +818,20 @@ a.nav-heading.active {
 .c-title {
   white-space: normal;
 }
+.row-title-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.row-title-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
 .row-title {
   overflow-wrap: anywhere;
 }
@@ -1803,6 +1817,19 @@ a.nav-heading.active {
   gap: 6px;
   align-items: center;
 }
+.t-title-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.t-title-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .t-title-text {
   flex: 1;
   min-width: 120px;
@@ -2771,6 +2798,9 @@ a.nav-heading,
 }
 .needs-mark.need-asked {
   --tone: var(--need-asked);
+}
+.needs-mark.need-stalled {
+  --tone: var(--need-stalled);
 }
 /* A reference list's mark in the sidebar: quiet, where its open count would sit. */
 .ref-mark {

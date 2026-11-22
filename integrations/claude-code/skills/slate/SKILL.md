@@ -39,7 +39,7 @@ Finish with `slate_work` `finish`: `item_id`, `run_id`, `outcome`, and `reply` (
 | outcome | when |
 |---|---|
 | `done` | The work is complete. |
-| `review` | Complete, and a person should check it. Say what to check in `reply`. |
+| `review` | Complete, and a person should check it. Say what to check in `status`. |
 | `later` | You did what you can. The rest waits for a due time still to come. You stay assigned. Nobody is waited on. |
 | `ask` | You need a person. `question` is one line. `options` is 2 to 4 short answers when the choice is simple. `waiting_on` is their handle. |
 | `answered` | You only replied. `reply` is required. Nothing else changes. |
@@ -47,9 +47,9 @@ Finish with `slate_work` `finish`: `item_id`, `run_id`, `outcome`, and `reply` (
 | `blocked` | You wait on an agent (`waiting_on`) or on nobody. |
 | `release` | You give the card up. |
 
-`status` on finish is a column name or id of that list, and only when the outcome's own column is wrong. Do not invent a column to show progress.
+`status` on finish is the card's standing line, up to 140 characters. Say what happened and whose move it is. Review requires a status. For `ask`, the question becomes the standing line. On `slate_item update`, `status` is the list column instead.
 
-The same endings are a last line when someone pastes your answer back as a comment: `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered`, or `SLATE: ask alex: one line? [Yes | No]`.
+When someone pastes your answer back as a comment, put the ending and standing on the last line: `SLATE: done: Sent the draft.`, `SLATE: review: Check the totals.`, `SLATE: later: Waiting for the due date.`, `SLATE: answered: Sent the details.`, or `SLATE: ask alex: Send the draft? [Yes | No]`.
 
 ## Ask
 

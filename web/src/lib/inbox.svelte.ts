@@ -6,15 +6,18 @@
 import { get, post } from './api';
 import { changesReference } from './board/events';
 import { chatHref } from './chat';
+import { describe, type HistoryContext } from './history';
 import { board } from './store.svelte';
 import type { SlateEvent } from './types';
 
 export type Reason =
+  | 'chat'
   | 'mention'
   | 'reply'
   | 'assigned'
   | 'waiting'
   | 'failed'
+  | 'stalled'
   | 'due'
   | 'unblocked'
   | 'nudge'
@@ -35,6 +38,9 @@ export interface InboxEntry {
   read: boolean;
   item_title: string | null;
   list_id: string | null;
+  loudness?: number;
+  /** The event an escalation refers to, when still present in the inbox. */
+  originalEvent?: SlateEvent;
   /** The chat channel, for a mention or reply in chat (then there is no item). */
   channel?: string | null;
   /** The doc page, for a mention in a doc (then there is no item). */
@@ -55,11 +61,13 @@ export interface InboxGroup {
 }
 
 export const REASON_LABEL: Record<Reason, string> = {
+  chat: 'Chat message',
   mention: 'Mentioned you',
   reply: 'Replied to you',
   assigned: 'Assigned to you',
   waiting: 'Waiting on you', // the page says "Waiting on <your first name>" (lib/words.ts)
   failed: 'Could not run',
+  stalled: 'Stalled',
   due: 'Due',
   unblocked: 'Ready to start',
   nudge: 'Start your agent',
@@ -75,18 +83,47 @@ export const REASON_LABEL: Record<Reason, string> = {
   watching: 'On a task you watch',
 };
 
+export function linkEscalations(entries: InboxEntry[]): InboxEntry[] {
+  const byId = new Map(entries.map((e) => [e.event.id, e]));
+  return entries.map((entry) => {
+    if (entry.event.type !== 'inbox.escalated') return entry;
+    const { event_id } = (entry.event.after ?? {}) as { event_id?: string };
+    const original = event_id ? byId.get(event_id) : undefined;
+    if (!original) return entry;
+    return {
+      ...entry,
+      originalEvent: original.event,
+      item_title: entry.item_title ?? original.item_title,
+      list_id: entry.list_id ?? original.list_id,
+      channel: entry.channel ?? original.channel,
+      doc_id: entry.doc_id ?? original.doc_id,
+    };
+  });
+}
+
+export function describeEntry(entry: InboxEntry, ctx: HistoryContext): string {
+  if (entry.event.type !== 'inbox.escalated') return describe(entry.event, ctx);
+  const wording = entry.originalEvent ? describe(entry.originalEvent, ctx) : REASON_LABEL[entry.reason];
+  return `Still waiting: ${wording}`;
+}
+
+function cardId(entry: InboxEntry): string | null {
+  return entry.event.item_id ?? entry.originalEvent?.item_id ?? null;
+}
+
 export function groupEntries(entries: InboxEntry[]): InboxGroup[] {
   const groups = new Map<string, InboxGroup>();
   for (const e of entries) {
     const channel = e.channel ?? null;
     const docId = e.doc_id ?? null;
+    const itemId = cardId(e);
     const key =
-      e.event.item_id ??
+      itemId ??
       (channel ? `chat:${channel}` : docId ? `doc:${docId}` : e.reason === 'health' ? 'health' : e.event.id);
     let g = groups.get(key);
     if (!g) {
       g = {
-        itemId: e.event.item_id,
+        itemId,
         title:
           e.item_title ??
           (e.event.type === 'account.digest'
@@ -148,7 +185,7 @@ class Inbox {
 
   async refresh() {
     try {
-      this.entries = await get<InboxEntry[]>('/inbox?limit=200');
+      this.entries = linkEscalations(await get<InboxEntry[]>('/inbox?limit=200'));
       this.unread = this.entries.filter((e) => !e.read).length;
       this.loaded = true;
       // Chat entries need no marking here: the server reads them with their message
@@ -178,15 +215,17 @@ class Inbox {
    * messages are read; task/doc/digest policies and explicit bulk actions are unchanged. */
   open(g: InboxGroup) {
     if (g.itemId) {
-      this.readItem(g.itemId);
+      void this.readItem(g.itemId);
       void board.open(g.itemId);
       return;
     }
     if (!g.channel) void this.readEvents(g.entries.map((e) => e.event.id));
     if (g.channel) {
       // A chat mention or reply: open the channel at the newest one's thread.
-      const after = (g.entries[0].event.after ?? {}) as { id?: string; parent_id?: string | null };
-      location.hash = chatHref(g.channel, after.parent_id ?? after.id ?? g.entries[0].event.subject_id);
+      const event = g.entries[0].originalEvent ?? g.entries[0].event;
+      const after = (event.after ?? {}) as { id?: string; parent_id?: string | null };
+      const thread = event.type === 'inbox.escalated' ? null : (after.parent_id ?? after.id ?? event.subject_id);
+      location.hash = chatHref(g.channel, thread);
     } else if (g.docId) {
       location.hash = `#/docs/${g.docId}`;
     } else if (g.entries.some((e) => e.reason === 'health')) {
@@ -202,10 +241,18 @@ class Inbox {
     }
   }
 
+  #markItem(path: 'read' | 'clear', itemId: string) {
+    const entries = this.entries.filter((e) => cardId(e) === itemId && (path === 'clear' || !e.read));
+    if (!entries.length) return;
+    // An escalation can inherit its card from the original. Mark the whole group in one request.
+    const body = entries.some((e) => e.event.item_id !== itemId)
+      ? { event_ids: entries.map((e) => e.event.id) }
+      : { item_id: itemId };
+    return this.#mark(path, body);
+  }
+
   readItem(itemId: string) {
-    if (this.entries.some((e) => e.event.item_id === itemId && !e.read)) {
-      void this.#mark('read', { item_id: itemId });
-    }
+    return this.#markItem('read', itemId);
   }
 
   /** Opening a doc page reads the mentions on it. */
@@ -223,7 +270,7 @@ class Inbox {
   }
 
   clearGroup(g: InboxGroup) {
-    return this.#mark('clear', g.itemId ? { item_id: g.itemId } : { event_ids: g.entries.map((e) => e.event.id) });
+    return g.itemId ? this.#markItem('clear', g.itemId) : this.#mark('clear', { event_ids: g.entries.map((e) => e.event.id) });
   }
 
   clearAll() {

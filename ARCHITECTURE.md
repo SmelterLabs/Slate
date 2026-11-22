@@ -32,10 +32,11 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
   email engines, which each read the events table after their own cursor.
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
-  scheduler (ten hooks on one tick: recurrences, due events and failed-run retries, reminders,
-  digest, trash purge, lease expiry, chat-turn expiry, doc-turn expiry, session-expiry notices,
-  the sweep of unsent chat files), plus the automations, push and email engines.
-  A thread warms the item cache. Every engine must be idempotent on restart.
+  scheduler (eleven hooks on one tick: recurrences, due events with failed-run retries,
+  stale badges and stalled cards, reminders, escalation, digest, trash purge, lease expiry,
+  chat-turn expiry, doc-turn expiry, session-expiry notices, the sweep of unsent chat files),
+  plus the automations, push and email engines. A thread warms the item cache. Every engine
+  must be idempotent on restart.
 
 ### Modules
 
@@ -81,9 +82,10 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/items.py`, `item_cache.py`, `links.py`, `trash.py`, `export.py`, `search.py`, `revert.py` | Items and their views; the cached view JSON; dependencies and the derived blocked state; trash and purge; JSON/CSV export and the admin's whole-database backup copy; one search; revert from the log. |
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
+| `service/attention.py` | Notification loudness, quiet periods and question escalation (`docs/notifications.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
-| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage and the retries of failed runs; reminders and the digest. |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
+| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards; reminders and the digest. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/cursors.py` | Engine cursors and the event walk push and email share. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
@@ -206,7 +208,7 @@ The exemptions are bookkeeping, not changes to anything a person or an agent own
 most once a minute), `AgentConnection.last_seen_at` and `verified_at`,
 `PushSubscription.last_ok_at` and `failures`, and `ChatWake.until` and `DocWake.until`.
 `core.BOOKKEEPING_MODELS` lists whole tables that are operational logs or indexes:
-`PushDelivery`, `EmailDelivery`, `AutomationRun`, `EngineCursor`,
+`PushDelivery`, `EmailDelivery`, `AttentionAlert`, `AutomationRun`, `EngineCursor`,
 `WorkLease`, and `DocLink` (an index of what a page body embeds; the body's event is the record).
 Notification delivery attempts are bookkeeping rows. SQL on a bare `engine.connect()`
 connection is outside the session guard. Only migrations and tests write through one (tests seed old rows with `conftest.raw_write`); the app
@@ -541,7 +543,7 @@ section titles or bold paragraph labels that code comments cite as `ARCHITECTURE
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |
 | Design system, polish, phone and installed app: tokens, motion, icons, the build revision, PWA, touch drag, share target ("Scoped class names"; "The date rule" is above, in this file) | `docs/design-system.md` |
 | Automations | `docs/automations.md` |
-| Reminders, the daily digest, push notifications, delivery receipts, email notifications and the waiting bell | `docs/notifications.md` |
+| Notification loudness, quiet hours, escalation, reminders, the digest, push receipts, email and the waiting bell | `docs/notifications.md` |
 | Docs & Files: pages, file docs, drawers, threads, compare, facts, collaboration correctness, extraction caps | `docs/docs-and-files.md` |
 | Trash, Archive page, export, backup, duplicates | `docs/trash-and-export.md` |
 | Chat, files on messages and agent chats | `docs/chat.md` |

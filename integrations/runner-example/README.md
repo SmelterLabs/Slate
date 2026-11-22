@@ -30,10 +30,15 @@ also releases. An HTTP failure, invalid JSON or empty text when fetching the aut
 brief reports `failed` before a run starts.
 
 Runtime status takes precedence over answer text. For a completed run, the last line may be
-`SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered`, or
-`SLATE: ask alex: Start the import now? [Yes | No | Not yet]`. An ask names the person and
-includes a one-line question. The bracketed options are optional. A reply without a recognized
-closing line is `answered`. An empty reply, service-side wait for input, failed or cancelled run,
+`SLATE: done: Sent the invoice. Nothing needed from you.`,
+`SLATE: review: Check the draft linked above.`,
+`SLATE: later: Runs Friday at 9.`,
+`SLATE: answered: It is waiting on the bank, not on you.`, or
+`SLATE: ask alex: Start the import now? [Yes | No | Not yet]`. The words after the colon are
+the status, one line of where the card stands. Review needs them; a review line with none is
+`done`. An ask names the person and includes a one-line question. The bracketed options are
+optional. A reply without a recognized closing line is `answered`. An empty reply,
+service-side wait for input, failed or cancelled run,
 timeout, or unknown status reports `failed` with a machine note and leaves the card's wait alone.
 
 No approval settlement or remote stop is implemented. Use the service's own controls and

@@ -29,7 +29,15 @@ def test_an_agent_that_closes_its_own_card_still_reports_back(client, alex, todo
     _close(client, h, item["id"])
 
     assert _beat(client, h, item["id"], run_id).status_code == 200
-    r = _finish(client, h, item["id"], run_id, outcome="review", reply="Fixed and closed.")
+    r = _finish(
+        client,
+        h,
+        item["id"],
+        run_id,
+        outcome="review",
+        status="Check the result",
+        reply="Fixed and closed.",
+    )
     assert r.status_code == 200, r.text
 
     card = client.get(f"{API}/items/{item['id']}", headers=alex).json()

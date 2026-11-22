@@ -96,6 +96,22 @@ def world(client, alex):
         )
     )
     _ok(client.post(f"{url}/links", json={"kind": "relates", "item_id": made["id"]}, headers=ah))
+    # Standing: the workspace agent's own line on its card (hidden author), and the project
+    # agent's line on the shared card, whose move would otherwise be the workspace agent.
+    _ok(
+        client.post(
+            f"{API}/items/{made['id']}/report",
+            json={"state": "blocked", "status": "my-agent checked the totals"},
+            headers=ah,
+        )
+    )
+    _ok(
+        client.post(
+            f"{url}/report",
+            json={"state": "blocked", "status": "Checked the shared card"},
+            headers=hh,
+        )
+    )
     checklist = _ok(
         client.post(f"{url}/checklists", json={"name": "Steps", "items": []}, headers=alex)
     )

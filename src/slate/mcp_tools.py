@@ -1149,7 +1149,8 @@ WORK_ACTIONS = {
         work_api.finish,
         "report back (run_id from next's lease). outcome is done, review, later, ask "
         "(question: one line), answered (reply), failed (note: what broke), blocked or "
-        "release. reply is your comment; status is a column name or id. Take the next "
+        "release. reply is your comment. status says where the card stands in one line "
+        "(required with review). Take the next "
         "task with next, in its own call",
         WorkFinish,
         local=_work_finish,
@@ -1844,8 +1845,8 @@ TOOLS: dict[str, ToolSpec] = {
                 "params": {
                     "item_id": "Ab12Cd34Ef56",
                     "run_id": "the run_id from next's lease",
-                    "outcome": "done",
-                    "reply": "Sent the invoice.",
+                    "outcome": "review",
+                    "status": "Check the invoice totals.",
                 },
             },
             WORK_ACTIONS,

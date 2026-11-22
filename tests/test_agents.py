@@ -210,7 +210,12 @@ def test_a_stale_or_cleared_badge_can_be_claimed(client, alex, todo, make_accoun
 def test_claim_only_goes_with_working(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"])
-    assert _report(client, ch, item["id"], state="review", claim=True).status_code == 422
+    assert (
+        _report(
+            client, ch, item["id"], state="review", status="Check the result", claim=True
+        ).status_code
+        == 422
+    )
 
 
 @pytest.fixture

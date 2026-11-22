@@ -22,6 +22,8 @@ from slate.db import contains
 from slate.ids import new_id
 from slate.models import (
     Account,
+    AccountKind,
+    AgentState,
     AgentThread,
     Attachment,
     BodyVersion,
@@ -330,6 +332,17 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 "agent_threads": threads.get(item.id, []),
                 "run_requested_at": item.run_requested_at,
                 "ask": questions.get(item.id),
+                "standing": (
+                    {
+                        "line": item.standing_line,
+                        "by_id": item.standing_by,
+                        "at": item.standing_at,
+                        "move_id": _move_id(item, st, assignees[item.id], hide),
+                    }
+                    if item.standing_line
+                    else None
+                ),
+                "stalled": item.stalled_at is not None and (st is None or _open(st)),
             }
         )
         if hide:
@@ -345,7 +358,33 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 view["created_by"] = None
             if view["ask"] and view["ask"]["by_id"] in hide:
                 view["ask"] = None
+            if view["standing"] and view["standing"]["by_id"] in hide:
+                view["standing"] = None
     return out
+
+
+def _open(status: Status) -> bool:
+    return status.kind not in (StatusKind.done, StatusKind.cancelled)
+
+
+def _move_id(
+    item: Item, status: Status | None, assignees: list[Account], hide: set[str]
+) -> str | None:
+    """Whose move the card is: who it waits on; else, for a `review` flag, the person the
+    review is for; else nobody on a closed card; else its first agent assignee, else its first
+    person assignee (by handle); else nobody. Only accounts the viewer may see count (`hide`:
+    the workspace agents hidden from a guest)."""
+    if item.waiting_on_account_id and item.waiting_on_account_id not in hide:
+        return item.waiting_on_account_id
+    if item.agent_state == AgentState.review and item.review_for and item.review_for not in hide:
+        return item.review_for
+    if status is not None and not _open(status):
+        return None
+    for kind in (AccountKind.agent, AccountKind.person):
+        for a in assignees:
+            if a.kind == kind and a.id not in hide:
+                return a.id
+    return None
 
 
 def item_events(session: Session, item_id: str, *, limit: int | None = None) -> list[Event]:

@@ -53,16 +53,21 @@ RUN_RULE = (
     "Wait for any background work you start to report back before you answer. If a resident "
     "runner started this turn, it owns heartbeat and finish: do not start a second work loop "
     "or close its run with a report. Comments do not resolve Asks: do not bulk-resolve open "
-    "questions or resolve another account's Asks. End your answer with one line: `SLATE: done` "
-    "(finished), `SLATE: review` (finished, for a person to check), `SLATE: later` (the rest "
-    "waits for the task's due time, still to come), `SLATE: answered` (you replied and nothing "
-    "else changes), or, only when you cannot go on without a person, `SLATE: ask {ask}: "
-    "<one-line question> [option | option]` (the options are optional). Put that line last, "
-    "on its own."
+    "questions or resolve another account's Asks. End your answer with one line that says "
+    "where the card stands, in few words, after the ending: `SLATE: done: <what you did>`, "
+    "`SLATE: review: <what the person must check>` (only for work a person must check), "
+    "`SLATE: later: <when it runs again>` (the rest waits for the task's due time, still to "
+    "come), `SLATE: answered: <where it stands>` (you replied and nothing else changes), or, "
+    "only when you cannot go on without a person, `SLATE: ask {ask}: <one-line question> "
+    "[option | option]` (the options are optional). Put that line last, on its own."
+)
+STALLED_RULE = (
+    "This card is still open: your last answer on it did not finish it. End this turn `done`, "
+    "`ask`, `later` or `review`."
 )
 
 _LINE = re.compile(
-    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*\.?"
+    r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
     r"|ask\s+@?([A-Za-z][A-Za-z0-9_-]{1,31})\s*:\s*(.+?))\s*$",
     re.IGNORECASE,
 )
@@ -75,6 +80,7 @@ class ClosingLine:
     waiting_on: str | None = None  # a handle, for ask
     question: str | None = None  # for ask
     options: tuple[str, ...] = ()  # for ask, when given
+    status: str | None = None  # the text after `done:` / `review:` / `later:` / `answered:`
 
 
 def closing_line(text: str | None) -> ClosingLine | None:
@@ -87,13 +93,13 @@ def closing_line(text: str | None) -> ClosingLine | None:
     if m is None:
         return None
     if m.group(1):
-        return ClosingLine(m.group(1).lower())
-    question, options = m.group(3), ()
+        return ClosingLine(m.group(1).lower(), status=m.group(2))
+    question, options = m.group(4), ()
     bracket = _OPTIONS.match(question)
     if bracket is not None:
         question = bracket.group(1)
         options = tuple(o.strip() for o in bracket.group(2).split("|"))
-    return ClosingLine("ask", m.group(2).lower(), question.strip(), options)
+    return ClosingLine("ask", m.group(3).lower(), question.strip(), options)
 
 
 def default_ask(session: Session, account_id: str | None) -> str:
@@ -125,7 +131,7 @@ def files_note(session: Session, item_id: str) -> list[str]:
     ]
 
 
-def brief(session: Session, item_id: str, *, ask: str) -> str:
+def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = None) -> str:
     """The task as one prompt, ending with RUN_RULE (an ask names `ask`, a handle)."""
     item = get_item(session, item_id)
     out = [f"Slate task {item.id}: {item.title}"]
@@ -196,4 +202,12 @@ def brief(session: Session, item_id: str, *, ask: str) -> str:
     if lst and lst.note_md and lst.note_md.strip():
         out += ["", "This list:", lst.note_md.strip()]
     out += ["", RUN_RULE.format(ask=ask)]
+    # The caller's own run is the one Slate started because the card stalled (the take bound
+    # the poke to it: service/work.py `take`).
+    if account_id is not None:
+        from slate.service.work import _turn_start
+
+        start = _turn_start(session, account_id, item.id)
+        if start is not None and (start.after_json or {}).get("poke"):
+            out += ["", STALLED_RULE]
     return "\n".join(out)

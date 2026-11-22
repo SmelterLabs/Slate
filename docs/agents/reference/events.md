@@ -118,6 +118,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `inbox.cleared` | Inbox entries were cleared. |
+| `inbox.escalated` | An open question or unseen person entry reached its escalation delay. |
 | `inbox.read` | Inbox entries were marked read. |
 
 ## invitation
@@ -152,11 +153,12 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.reminder` | A reminder came due (actor `slate`, source `system`). Check-in news `reminder`. |
 | `item.reminder_removed` | A reminder was removed. |
 | `item.reminder_set` | A reminder was set on an item. |
-| `item.reported` | An agent reported on an item: working, blocked, review, failed, done or idle (`after` = the report, with `url` = where the agent is working; `thread` = its own session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, `again` true when it already waited on them, which makes this report their inbox `waiting` entry; `question` and `options` when it is an ask of a person). Drives the live badge. A `failed` report is nobody's inbox entry. |
+| `item.reported` | An agent reported on an item: working, blocked, review, failed, done or idle (`after` = the report, with `url` = where the agent is working; `thread` = its own session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, `again` true when it already waited on them, which makes this report their inbox `waiting` entry; `question` and `options` when it is an ask of a person; `status` = the card's new standing line, on an agent's report other than working; `reason` `stale` when Slate cleared a working badge nothing ran behind). Drives the live badge. A `failed` or `stale` report is nobody's inbox entry. |
 | `item.restored` | An item came back from the trash (archived again if it was before). |
 | `item.run_failed` | Slate gave up running the item: its agent's run failed three times in a row (`after.agent_id`, `failures`, `note` = the last failure's words, `notify` = who is told: the card's person assignees and watchers, else the owners, as inbox and push reason `failed`). No retry follows; Run now starts the count over. |
-| `item.run_requested` | Run now: the item's agent assignees are asked to start on it now (`after.for` = their account ids, `after.reason` = `now` when someone pressed Run now, `due` when the scheduler reached the run time of an agent's task: 06:00 workspace time on the day for a date-only due date, else the due time; `retry` when it offers a failed run to its agent again, 5 and then 30 minutes after it failed). A `work` hint on each agent's stream; a runner takes it with `POST /work/next {item_id}`. |
+| `item.run_requested` | Run now: the item's agent assignees are asked to start on it now (`after.for` = their account ids, `after.reason` = `now` when someone pressed Run now, `due` when the scheduler reached the run time of an agent's task: 06:00 workspace time on the day for a date-only due date, else the due time; `retry` when it offers a failed run to its agent again, 5 and then 30 minutes after it failed; `stalled` when its agent last finished the open card `answered` four hours ago and Slate runs it once more, for that agent only). A `work` hint on each agent's stream; a runner takes it with `POST /work/next {item_id}`. |
 | `item.split` | Subtasks were made from an item (`after` = the new ids). |
+| `item.stalled` | The item's agent stopped without finishing: Slate ran the open card again after it ended `answered`, and that run ended `answered` too (`after.agent_id`). Inbox and push reason `stalled` for the card's people who can see it, else the owners. The item's `stalled` is true until Run now, a new Ask for the agent, or a finish other than answered. |
 | `item.status_changed` | An item moved to another status (`before`/`after` = status ids). |
 | `item.stop_requested` | Stop: someone asked the agent working on the item to stop (`after.for` = the account holding the lease). A `control` message on that agent's stream and `stop` on its next heartbeat; the run ends with the agent's own finish. |
 | `item.trashed` | An item went to the trash (`after` = `trashed_at`, `archived_at`); subtasks get one each. It is hidden like an archived item. |
@@ -166,7 +168,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.unwatched` | Someone stopped watching an item. |
 | `item.updated` | One item field changed (`field` = title, priority, due_at, tags, waiting_on, body...; `before`/`after`). |
 | `item.watched` | Someone started watching an item. |
-| `item.work_finished` | With `steps` and `comment_id` when the run left a log with its answer (`GET /comments/{id}/run`). An agent finished a taken turn (`after.through` = its work-start event id, `outcome`; with `failed`, `note` = what broke and `failures` = the consecutive failed finishes). Earlier Ask assignments no longer dispatch that agent; they remain visible until resolved. New/reassigned Asks remain pending. With `reconciled` when the attempt was settled without a finish: the agent's reconcile, a person's Clear, or (actor `system`, `runtime_state` `unknown`) a lease that ran out on a closed card. |
+| `item.work_finished` | With `steps` and `comment_id` when the run left a log with its answer (`GET /comments/{id}/run`). An agent finished a taken turn (`after.through` = its work-start event id, `outcome`; with `failed`, `note` = what broke and `failures` = the consecutive failed finishes; `status` = the card's standing line). Every finish but failed and release resolves the Asks its turn took. Earlier Ask assignments no longer dispatch that agent; they remain visible until resolved. New/reassigned Asks remain pending. With `reconciled` when the attempt was settled without a finish: the agent's reconcile, a person's Clear, or (actor `system`, `runtime_state` `unknown`) a lease that ran out on a closed card. |
 | `item.work_started` | A work take's immutable Ask dispatch boundary (this event id). Resume and heartbeat do not move it. |
 
 ## list

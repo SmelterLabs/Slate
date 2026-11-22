@@ -23,6 +23,7 @@ it('copies a task-only prompt with the core lease calls', async () => {
     expect(prompt).toContain('kinds: ["task"]');
     expect(prompt).toContain('lease.run_id');
     expect(prompt).toContain('item_id');
+    expect(prompt).toContain('"review" (set status');
     expect(prompt?.match(/slate_\w+/g)).toEqual(['slate_work', 'slate_work', 'slate_work']);
   } finally {
     write.mockRestore();

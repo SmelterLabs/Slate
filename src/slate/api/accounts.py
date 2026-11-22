@@ -81,13 +81,22 @@ class Prefs(BaseModel):
         description="Per scope key (`everything`, `section:<id>`, `list:<id>`): the view tab "
         "last open there, shown again when you come back",
     )
+    quiet_hours: dict[str, str] | None = Field(
+        default=None, description="Workspace times from and to (HH:MM)"
+    )
+    escalate_after_minutes: int | None = Field(
+        default=None,
+        ge=0,
+        strict=True,
+        description="Default 120 minutes. Zero disables escalation.",
+    )
     email_to: str | None = Field(
         default=None, description="Where email notifications go (one address; null removes it)"
     )
     email_reasons: list[str] | None = Field(
         default=None,
         description="Inbox reasons emailed when still unseen after 5 minutes (as push_reasons, "
-        "without chat); default mention and waiting",
+        "); default mention and waiting",
     )
     view_drafts: dict[str, dict] | None = Field(
         default=None,

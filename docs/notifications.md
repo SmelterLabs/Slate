@@ -1,7 +1,7 @@
 # Reminders, the daily digest and push notifications
 
 Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push engine, the
-`chat` reason, re-nudges) and the push delivery receipts. The inbox itself is in
+`chat` reason and quiet delivery) and the push delivery receipts. The inbox itself is in
 `docs/task-window.md` (Productivity).
 
 ## Reminders, daily digest and push notifications
@@ -25,51 +25,18 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
 - **Daily digest**: hook `notify.digest_tick` → `send_digests()`. Once per day, at the account's
   prefs `digest_hour` in the workspace timezone (default 7; prefs `digest` defaults on for people,
   off for agents) it records `account.digest` with what is overdue and due today (assigned to you)
-  and waiting on you. Nothing on an empty day; an account found empty is checked again at most
+  and waiting on you. Open questions appear first, oldest first, with their text and age.
+  Nothing on an empty day; an account found empty is checked again at most
   once an hour that day (`QUIET_RECHECK`), not every tick. Idempotent by the `date` in the last digest event. `GET /me/digest`
   previews it.
 - **Where they land**: inbox reasons `reminder` and `digest` (`inbox.reason_for`, checked before the
   "own events are not news" rule), check-in `why` `reminder`/`digest` (also in the check-in SQL
   prefilter) and push.
-- **Web Push**: `webpush.py` with only `cryptography`. The VAPID P-256 key is derived from
-  `SLATE_SECRET_KEY` (HMAC "slate-vapid"), so nothing new to configure or back up; rotating the
-  secret key changes it and the board re-subscribes on its next load (`lib/push.ts syncPush`).
-  The VAPID contact (`webpush.subject`) is `SLATE_PUSH_SUBJECT`, else an https `SLATE_PUBLIC_URL`;
-  `webpush.SUBJECT` is only the placeholder used when neither is set, so set one of them.
-  Subscriptions (`push_subscriptions`) hold the endpoint and the browser's `p256dh`/`auth` (in
-  `core.SECRET_COLUMNS`, never in events); `last_ok_at` and `failures` are bookkeeping.
-  `push.process()` follows the event log from the `engine_cursors` row `push` (like automations),
-  asks `inbox.reason_for` per subscribed account, filters by prefs `push_reasons` (default mention,
-  reply, chat, assigned, waiting, due, unblocked, nudge, reminder, digest, health, access, failed,
-  watching: `push.DEFAULT_REASONS`), and POSTs one
-  encrypted JSON `{title, body, url, tag}` per device (tag = item id, so a busy task replaces its
-  notification) through `outbound.post`. Besides the `SLATE_PUSH_ENDPOINT_HOSTS`
-  allowlist (even `["*"]`), the endpoint must resolve to public addresses unless
-  `SLATE_OUTBOUND_PRIVATE_TARGETS` is on. Slate checks at subscribe time and at every send.
-  A refused endpoint is a final failure. The connection goes to the checked address and the
-  answer is drained up to 64 KB within one deadline. 404/410 or 10 failures in a row removes the subscription (`push.expired`, actor =
-  its owner, source system). `slate/pusher.py` runs it when `SLATE_PUSH_ENABLED` (default on; off in
-  pytest) and a secret key is set. **`chat`** is the one push-only reason:
-  `push.chat_reason` turns any `message.posted` by someone else that `inbox.reason_for` did not
-  already claim (mention, reply) into a `chat` push, so a plain message in a channel reaches the
-  desktop as a toast; who can read the channel is the same `EventGate` as the stream. It is
-  deliberately not an Inbox entry (the Inbox would fill with channel traffic; the channel's unread
-  badge is its record), so `inbox.reason_for` does not know it. Its tag is `chat:<channel>` (a busy
-  channel replaces its toast) where mentions and replies keep `chat:<thread>`. Rejected: a
-  per-channel follow toggle. **Re-nudge:**
-  `push.renudge(session, send, nudged, now=, seed=)` runs once a minute from `pusher.step()`: for
-  each subscribed account with `chat` on and prefs `chat_renudge_minutes` > 0 (default 10, max 1440,
-  validated in `accounts._validate_prefs`), each readable channel (`access.compute` under
-  `unrestricted`) whose newest unread message is older than that gets one push (`Still unread:
-  #Todo`, same `chat:<channel>` tag, `renudge: true`). The unread count and the names in it are
-  read as the recipient (`push.unread_by_channel` under `access.reading_as`), so a guest's count
-  leaves out members-only posts and agent chat from before its share, and names no workspace
-  agent. `nudged` is a process-level dict `(account,
-  channel) -> newest message id`; the first step after a start runs with `seed=True`, marking what
-  is already eligible without sending, so a restart never replays nudges; a newest message older
-  than `RENUDGE_WINDOW` (a day) is marked and skipped. In memory on purpose (rule 8): at worst one
-  nudge is lost across a restart. Rejected: a `push_nudges` table (a migration for a reminder of a
-  reminder).
+- **Web Push** derives its VAPID key from `SLATE_SECRET_KEY`. It uses the shared attention
+  stream, applies `push_reasons` and checks access again on every attempt. Its payload contains
+  `title`, `body`, `url`, `tag`, `loudness` and `silent`.
+  The endpoint allowlist and outbound address checks also apply on send. A device that
+  returns 404 or 410, or reaches ten consecutive failures, records `push.expired`.
 - **REST**: `/items/{id}/reminders`, `/reminders`, `/reminders/{id}`, `/me/digest`, `/push/key`,
   `/push/subscriptions` (GET, POST, DELETE `/{id}`), `/push/unsubscribe {endpoint}`, `/push/test`.
   **MCP**: `slate_reminder` (add, list, upcoming, remove, digest).
@@ -86,18 +53,59 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   checks the VAPID JWT signature. Headless Chromium cannot subscribe (no push service), so the e2e
   covers the settings and reminders, not delivery.
 
+## Notification level
+
+`service/attention.py` assigns the inbox entry's `loudness`.
+
+| Reason | Person | Agent or Slate |
+|---|---:|---:|
+| Waiting, reminder, health | 3 | 3 |
+| Mention | 3 | 2 |
+| Chat | 3 | 1 |
+| Reply, comment, assigned | 2 | 1 |
+| Due, failed, stalled, unblocked, nudge, access | 2 | 2 |
+| Digest | 1 | 1 |
+| Watching, status, update and other reasons | 0 | 0 |
+
+An urgent card adds one, capped at 4. Level 0 stays in the inbox. Push levels 1 and 2
+are silent, and levels 3 and 4 have sound. Email requires at least level 3 and five minutes
+unseen. The alert bridge uses level 2 or higher and sends level 4 to the phone.
+Per-channel reason filters still apply at every level.
+
+When a person receives entries from an agent's leased run, the card's alerts wait
+until the lease ends. The loudest eligible entry is sent, and a question bypasses the hold.
+A card's `item.stalled` (its agent stopped without finishing twice) is its own release, never
+folded into that last run's alert: the finish records it after `item.work_finished`, so
+`inbox.notification_turn` finds no open turn for it. A stale badge Slate clears is never an
+alert.
+Quiet hours (`quiet_hours` with `from` and `to` in `HH:MM`) use the workspace timezone. Level 4
+passes through. Lower levels are held for one summary at the end, loudest entries first. The inbox still
+shows each entry at its original level. Ordinary messages stay in Chat by default and can
+also be read with `GET /inbox?reason=chat`.
+
+`GET /inbox/alerts` starts at the latest release with an empty list and the `X-Slate-Cursor`
+header. Pass that opaque cursor as `after` to get later releases, oldest first. Each release
+has the same wording as the push, with its level, reason and source inbox entry. Quiet-hours
+summaries represent multiple entries and have no item or source entry. The route rechecks access.
+Push, email and the alert bridge apply their own delivery filters to these releases.
+
+The scheduler records a recipient-only `inbox.escalated` event once per original entry.
+An open question or an unread message or mention by a person reaches level 4 after
+`escalate_after_minutes` (120 by default, 0 to disable). The escalation keeps its original
+reason and begins "Still waiting: ". A due card with no person assignee also reaches its
+person creator or the workspace owner.
+
 ## Push delivery receipts
 
 `push_deliveries` holds one receipt per subscription/event/kind:
-atomic enqueue plus cursor advancement, five attempts maximum in a 24-hour window, 30-second
+five attempts maximum in a 24-hour window, 30-second
 exponential backoff capped at one hour, and Retry-After seconds/HTTP dates capped at six hours.
 Each drain attempts at most 100 devices and expires at most 100 receipts. New subscriptions
-never receive earlier events; first activation seeds the cursor, and events older than a day
-are skipped. Normal and renudge retries survive restart, recheck account/access/preferences/
-subscription ownership, and render task-reference titles with the recipient's read filter.
-Renudge retries also require the same newest message still unread. Receipts are bookkeeping
-(`core.BOOKKEEPING_MODELS`): no event, no payload, no keys; enqueue commits
-once per page of events with the cursor, each attempt commits once right after its send, and
+never receive earlier events. The attention stream starts at the newest event on first activation,
+and events older than a day are skipped. Retries survive restart, recheck account, access, preferences and subscription ownership,
+and render task-reference titles with the recipient's read filter. Receipts are bookkeeping
+(`core.BOOKKEEPING_MODELS`): no event, no payload, no keys. Attention releases precede receipt
+creation. Each attempt commits once right after its send, and
 expiry is one commit per drain. Successful receipts are not
 retried; a process death *after provider acceptance but before its SQLite outcome commits* can
 still duplicate that one device (Web Push has no transactional acknowledgement). No claim of
@@ -109,7 +117,9 @@ and `tests/test_push_retry.py`.
   "<Agent> asks on: <title>" as its body; any other `waiting` entry reads "<Agent> is waiting on
   you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
   failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
-  A failed run before that, and the take that retries it, push nothing.
+  A failed run before that, and the take that retries it, push nothing. A `stalled` entry
+  (`item.stalled`) reads "<Agent> stopped without finishing: <title>". A badge Slate clears as
+  stale pushes nothing.
 
 ## Email notifications and the waiting bell
 
@@ -128,10 +138,10 @@ and `tests/test_push_retry.py`.
   server reasons; its box is checked when all are chosen, indeterminate when some are, and ticking
   it sets them all. The server stores the reasons themselves (`push_reasons` is the stored truth).
 - **Email** (`service/email.py`, `slate/emailer.py`, `slate/mailer.py`): prefs `email_to` (one
-  address) and `email_reasons` (the push reasons minus `chat`; default mention and waiting),
-  validated in `accounts._validate_prefs`. `email.process()` follows the event log from the
-  `engine_cursors` row `email`, queues `email_deliveries` (account, event) for people whose
-  chosen reasons match, due `UNSEEN_DELAY` (5 min) later. When due, a row is sent only if the
+  address) and `email_reasons` (same reason words as push, default mention and waiting),
+  validated in `accounts._validate_prefs`. `email.process()` queues `email_deliveries` (account,
+  event) for released alerts whose reason matches and whose level is at least 3. Delivery is due
+  once the alert is released and the event is at least five minutes old. The
   account still has not seen it (`email.seen`: inbox `read_through`/mark, `item_reads.read_at`
   after the event, or the chat message read or exposed); every due row for one account goes as
   ONE email (subject is the single title, or "N things in Slate need you"). Access and prefs are

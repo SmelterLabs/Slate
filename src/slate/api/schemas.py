@@ -9,7 +9,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StringConstraints,
+    model_validator,
+)
 
 from slate.service import reports
 
@@ -294,6 +301,24 @@ QUESTION_FIELD = Field(
     "card's headline for them",
     examples=["Start the import now?"],
 )
+# Trimmed first, so blank text is empty (refused) and padding never reaches the card.
+Status = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=reports.STATUS_MAX,
+        pattern=r"^[^\r\n]+$",
+    ),
+]
+STATUS_FIELD = Field(
+    default=None,
+    description="Where the card stands now, in one line of plain text (1 to 140 characters): "
+    "what happened and whose move it is, in few words. Without it the first line of reply, "
+    "else note, is used. Required with review (what the person should check); not with ask "
+    "(the question is the status)",
+    examples=["Sent the invoice. Nothing needed from you."],
+)
 OPTIONS_FIELD = Field(
     default=None,
     min_length=reports.OPTIONS_MIN,
@@ -347,6 +372,7 @@ class ReportIn(BaseModel):
     )
     question: str | None = QUESTION_FIELD
     options: list[Option] | None = OPTIONS_FIELD
+    status: Status | None = STATUS_FIELD
     assign_me: bool = Field(default=False, description="With working: add yourself as assignee")
     url: str | None = Field(
         default=None,
@@ -366,6 +392,17 @@ class ReportIn(BaseModel):
 class AskOut(BaseModel):
     question: str
     options: list[str] = Field(description="Answers to pick from; empty: reply in words")
+
+
+class StandingOut(BaseModel):
+    line: str = Field(description="Where the card stands, one line, by the agent's last report")
+    by_id: str = Field(description="The agent that said it")
+    at: datetime
+    move_id: str | None = Field(
+        description="Whose move it is: who the card waits on; else, for a review, the person "
+        "it is for; else nobody on a closed card; else its first agent assignee, else its first "
+        "person assignee; else null"
+    )
 
 
 class ItemAskOut(AskOut):
@@ -443,6 +480,16 @@ class ItemOut(BaseModel):
         default=None,
         description="The agent's question while the card waits on a person through an ask "
         "(answer with POST /comments/{comment_id}/answer or a reply); null otherwise",
+    )
+    standing: StandingOut | None = Field(
+        default=None,
+        description="Where the card stands and whose move it is; null when no agent has reported "
+        "on it. It stays after the card is done",
+    )
+    stalled: bool = Field(
+        default=False,
+        description="Its agent stopped without finishing, even after Slate ran it again: Run now, "
+        "a new Ask or a finish other than answered clears it",
     )
 
 

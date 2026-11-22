@@ -45,7 +45,9 @@ def _opt_in(client, headers, address):
 
 def _mention(client, agent, todo, handle, title):
     it = client.post(
-        f"{API}/items", json={"list_id": todo["id"], "title": title}, headers=agent
+        f"{API}/items",
+        json={"list_id": todo["id"], "title": title, "priority": "urgent"},
+        headers=agent,
     ).json()
     r = client.post(
         f"{API}/items/{it['id']}/comments", json={"body_md": f"look @{handle}"}, headers=agent

@@ -348,6 +348,14 @@ class Item(Base):
     # The last "Run now" (item.run_requested) not yet taken: lets an agent take a task whose run
     # time has not come. Cleared by the take (service/work.py).
     run_requested_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Where the card stands, in one line, by the agent's last report other than `working`
+    # (service/reports.py), and for a `review`, the person it is for. Kept after the card closes.
+    standing_line: Mapped[str | None] = mapped_column(String(140))
+    standing_by: Mapped[str | None] = mapped_column(String(12))
+    standing_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    review_for: Mapped[str | None] = mapped_column(String(12))
+    # Its agent stopped without finishing, twice (service/due.py `poke_stalled`); null = not.
+    stalled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Since when it has waited on an open blocker (service.links.settle); null = not blocked.
     # Derived from links and the blockers' statuses, kept only so the change that clears or
     # sets it can record `item.unblocked` / `item.blocked`. Read `blocked` from the view.
@@ -782,6 +790,22 @@ class PushSubscription(Base):
     failures: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AttentionAlert(Base):
+    """A recipient's pending alert or durable release, without rendered private text."""
+
+    __tablename__ = "attention_alerts"
+    __table_args__ = (Index("ix_attention_alerts_account_cursor", "account_id", "cursor"),)
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
+    event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), primary_key=True)
+    source_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    cursor: Mapped[str | None] = mapped_column(String(12))
+    at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reason: Mapped[str | None] = mapped_column(String(20))
+    loudness: Mapped[int | None] = mapped_column(Integer)
+    quiet_events: Mapped[Any | None] = mapped_column(JSON)
+
+
 class PushDelivery(Base):
     """Durable, bounded delivery state, without payloads or endpoint credentials.
 
@@ -800,6 +824,7 @@ class PushDelivery(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     state: Mapped[str] = mapped_column(String(16), default="pending")
     next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    failed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
     @validates("state")

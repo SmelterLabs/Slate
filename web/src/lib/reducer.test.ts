@@ -250,6 +250,70 @@ describe('applyEvent', () => {
     const d = data(item());
     expect(applyEvent(d, ev({ type: 'item.run_failed', after: { agent_id: 'AGENT', failures: 3, note: 'Boom' } })).refetch).toEqual(['I1']);
   });
+  it('updates standing live from report and finish status, ignoring working reports, and marks refetch for move_id', () => {
+    const d = data(item());
+    const fx = applyEvent(
+      d,
+      ev({
+        type: 'item.reported',
+        actor_id: 'AGENT',
+        at: '2026-10-29T11:00:00Z',
+        after: { state: 'review', status: 'Check the draft linked above.' },
+      }),
+    );
+    expect(d.items.I1.standing).toEqual({
+      line: 'Check the draft linked above.',
+      by_id: 'AGENT',
+      at: '2026-10-29T11:00:00Z',
+      move_id: null,
+    });
+    expect(fx.refetch).toEqual(['I1']);
+    // A working report never changes standing.
+    const fxWorking = applyEvent(
+      d,
+      ev({
+        type: 'item.reported',
+        actor_id: 'AGENT',
+        at: '2026-10-29T11:05:00Z',
+        after: { state: 'working', status: 'Should be ignored' },
+      }),
+    );
+    expect(d.items.I1.standing?.line).toBe('Check the draft linked above.');
+    expect(fxWorking.refetch).toEqual([]);
+    // item.work_finished updates standing and clears stalled on non-answered outcome.
+    d.items.I1.stalled = true;
+    const fxDone = applyEvent(
+      d,
+      ev({
+        type: 'item.work_finished',
+        actor_id: 'AGENT',
+        at: '2026-10-29T12:00:00Z',
+        after: { outcome: 'done', status: 'Sent the invoice.' },
+      }),
+    );
+    expect(d.items.I1.standing?.line).toBe('Sent the invoice.');
+    expect(d.items.I1.stalled).toBe(false);
+    expect(fxDone.refetch).toEqual(['I1']);
+  });
+  it('item.stalled marks the card stalled and refetches; run_requested clears stalled', () => {
+    const d = data(item());
+    const fx = applyEvent(d, ev({ type: 'item.stalled', after: { agent_id: 'AGENT' } }));
+    expect(d.items.I1.stalled).toBe(true);
+    expect(fx.refetch).toEqual(['I1']);
+    applyEvent(d, ev({ type: 'item.run_requested', after: {} }));
+    expect(d.items.I1.stalled).toBe(false);
+  });
+  it('refetches standing on manual wait change, reassignment, close and reopen, and clears stalled on close', () => {
+    const standing = { line: 'Draft ready', by_id: 'AGENT', at: '2026-10-29T10:00:00Z', move_id: 'me' };
+    const d = data(item({ standing, stalled: true }));
+    expect(applyEvent(d, ev({ field: 'waiting_on_account_id', before: null, after: 'other' })).refetch).toEqual(['I1']);
+    expect(applyEvent(d, ev({ type: 'item.assigned', field: 'assignees', after: ['other'] })).refetch).toEqual(['I1']);
+    const fxClose = applyEvent(d, ev({ type: 'item.status_changed', field: 'status_id', before: 'st_open', after: 'st_done' }));
+    expect(d.items.I1.stalled).toBe(false);
+    expect(fxClose.refetch).toEqual(['I1']);
+    const fxReopen = applyEvent(d, ev({ type: 'item.status_changed', field: 'status_id', before: 'st_done', after: 'st_open' }));
+    expect(fxReopen.refetch).toEqual(['I1']);
+  });
   it('clears a stale ask whenever waiting_on_account_id changes, not only when cleared', () => {
     const ask = { comment_id: 'C1', question: 'Start now?', options: ['Yes', 'No'], by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
     const d1 = data(item({ waiting_on_account_id: 'me', ask }));

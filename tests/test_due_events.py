@@ -12,6 +12,7 @@ from slate.dates import LOCAL
 from slate.models import Account, AccountKind, Event, Item, Source, utcnow
 from slate.service import (
     accounts,
+    attention,
     chat_files,
     chatwake,
     docwake,
@@ -172,6 +173,7 @@ def test_due_events_are_a_scheduler_hook_after_recurrence(db, world):
         recurrences.materialize,
         notify.due_events_tick,
         notify.reminders_tick,
+        attention.escalate,
         notify.digest_tick,
         trash.purge_expired,
         work.expire_leases,
@@ -257,7 +259,9 @@ def test_no_run_request_when_its_agent_already_took_it(db, world):
     assert _runs(db, item.id) == []
     assert [e.type for e in _due_events(db, item.id)] == ["item.due", "item.overdue"]
     # The run never comes back once the agent is done.
-    work.finish(db, agent_actor, item.id, outcome="review", run_id=lease.run_id)
+    work.finish(
+        db, agent_actor, item.id, outcome="review", status="Check the result", run_id=lease.run_id
+    )
     due.emit_due_events(db, now=utcnow() + timedelta(minutes=5))
     assert _runs(db, item.id) == []
 
@@ -280,7 +284,9 @@ def test_a_take_before_the_run_time_does_not_cancel_the_run(db, world):
     six = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 6, tzinfo=LOCAL).astimezone(UTC)
     agent_actor = Actor(account_id=agent.id, source=Source.api)
     lease = work.take(db, agent_actor, item.id)
-    work.finish(db, agent_actor, item.id, outcome="review", run_id=lease.run_id)
+    work.finish(
+        db, agent_actor, item.id, outcome="review", status="Check the result", run_id=lease.run_id
+    )
     due.emit_due_events(db, now=six)
     assert len(_runs(db, item.id)) == 1
 

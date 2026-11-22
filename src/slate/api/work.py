@@ -19,12 +19,14 @@ from slate.api.schemas import (
     OPTIONS_FIELD,
     QUESTION_FIELD,
     REPLY_FIELD,
+    STATUS_FIELD,
     THREAD_FIELD,
     ActivityOut,
     AgentThreadOut,
     CommentOut,
     ItemOut,
     Option,
+    Status,
 )
 from slate.service import brief as brief_svc
 from slate.service import chatwake, comments, docwake, items, reports, work
@@ -286,7 +288,8 @@ class FinishIn(BaseModel):
     outcome: Literal[
         "done", "review", "later", "ask", "answered", "failed", "blocked", "release"
     ] = Field(
-        description="done completes it; review leaves a 'ready for review' badge; later "
+        description="done completes it; review (with status: what to check) leaves a 'ready "
+        "for review' badge for a person; later "
         "keeps it yours with no badge until its due time (which must still be to come) runs "
         "you again; ask (with question) stops the card on a person, the only way to; answered "
         "(with reply) posts your reply and changes nothing else; failed (with note) says the "
@@ -302,17 +305,16 @@ class FinishIn(BaseModel):
     )
     comment: bool = Field(default=True, description="Post the note as a comment")
     progress: int | None = Field(default=None, ge=0, le=100)
-    status: str | None = Field(
-        default=None, description="Set this status (name or id) instead of the default"
-    )
+    status: Status | None = STATUS_FIELD
     hand_to: str | None = Field(
         default=None,
         description="Handle to assign the task to in your place (an agent picks it up next)",
     )
     waiting_on: str | None = Field(
         default=None,
-        description="With ask: the person you ask (default: whoever asked you this turn, else "
-        "the owner). With blocked: the agent you wait on",
+        description="With ask: the person you ask; with review: the person who checks it "
+        "(default for both: whoever asked you this turn, else the owner). With blocked: the "
+        "agent you wait on",
     )
     question: str | None = QUESTION_FIELD
     options: list[Option] | None = OPTIONS_FIELD
@@ -742,7 +744,7 @@ def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
     later, ask, answered, failed, blocked, release), a note posted as your comment, a
-    `status`, and
+    one-line `status` saying where the card stands (required with review), and
     `hand_to` to pass the task to another account. Your lease ends. Take the next task
     with `POST /work/next`. Agent finishes consume only Ask
     assignments present at take, so the same open Ask cannot repeatedly dispatch done,
