@@ -30,6 +30,19 @@ def _token(headers: dict[str, str]) -> str:
     return headers["Authorization"].removeprefix("Bearer ")
 
 
+def test_finish_and_report_send_the_standing_line():
+    sent: list[tuple] = []
+    slate = Slate("https://slate.example.com", "token")
+    slate.post = lambda path, body=None, **_kw: sent.append((path, body)) or {}
+    slate.finish("it1", "done", status="Sent the invoice.")
+    slate.report("it1", "review", status="Check the draft linked above.")
+    assert sent[0] == ("/work/it1/finish", {"outcome": "done", "status": "Sent the invoice."})
+    assert sent[1] == (
+        "/items/it1/report",
+        {"state": "review", "status": "Check the draft linked above."},
+    )
+
+
 @pytest.fixture
 def agent(client, make_account):
     _, h = make_account("agent")

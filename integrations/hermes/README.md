@@ -78,8 +78,11 @@ existing model/provider settings.
    kind, role, handle, comment ID and timestamp. Unknown provenance stays unknown; a person's
    comment is not automatically an owner/admin approval. Ordinary scoped questions still work.
 4. Stream with `author: {id: "bot:slate", name: "Slate", is_bot: true}`. Only a confirmed
-   `run.completed` permits the final `SLATE: done | review | later | answered | ask <handle>: <question>`
-   to decide the task outcome. `assistant.completed`, a transcript closing line and transport `done`
+   `run.completed` permits the final closing line to decide the task outcome:
+   `SLATE: done: <status>`, `SLATE: review: <status>`, `SLATE: later: <status>`,
+   `SLATE: answered: <status>`, or `SLATE: ask <handle>: <question>`. The status is one
+   line of where the card stands; review needs it, and a review line with none is `done`.
+   `assistant.completed`, a transcript closing line and transport `done`
    do not prove execution success. Failure, cancellation, interruption, incomplete status,
    approval and step/budget limits finish `failed` (the machine text is `note`) and wait on
    nobody. An answer with no closing line is `answered`. An old `SLATE: blocked waiting_on`

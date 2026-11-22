@@ -226,12 +226,22 @@ class Slate:
 
     # --- reports: the agent loop --------------------------------------------------------
 
-    def report(self, item_id: str, state: str, note: str | None = None, **kw: Any) -> dict:
-        """working | blocked | review | done | idle; kw: progress, comment, complete,
-        waiting_on, assign_me, claim."""
+    def report(
+        self,
+        item_id: str,
+        state: str,
+        note: str | None = None,
+        status: str | None = None,
+        **kw: Any,
+    ) -> dict:
+        """working | blocked | review | failed | done | idle. `status` is one line of where
+        the card stands (1 to 140 characters). A working report does not change it. kw:
+        progress, comment, complete, waiting_on, question, options, assign_me, claim."""
         body = {"state": state, **kw}
         if note is not None:
             body["note"] = note
+        if status is not None:
+            body["status"] = status
         return self.post(f"/items/{item_id}/report", body)
 
     def claim(self, item_id: str, note: str | None = None, **kw: Any) -> dict[str, Any]:
@@ -264,14 +274,23 @@ class Slate:
         return self.post(f"/work/{item_id}/heartbeat", kw)
 
     def finish(
-        self, item_id: str, outcome: str = "done", note: str | None = None, **kw: Any
+        self,
+        item_id: str,
+        outcome: str = "done",
+        note: str | None = None,
+        status: str | None = None,
+        **kw: Any,
     ) -> dict[str, Any]:
         """Report back in one call: outcome done | review | later | ask | answered | failed |
-        blocked | release; kw: status, hand_to, waiting_on, question, options, progress, comment,
-        next={...} (take the next task too). Returns `{item, next}`."""
+        blocked | release. `status` is one line of where the card stands (1 to 140 characters);
+        a review needs it, and ask does not take one (the question is the standing). kw:
+        hand_to, waiting_on, question, options, progress, comment, next={...} (take the next
+        task too). Returns `{item, next}`."""
         body = {"outcome": outcome, **kw}
         if note is not None:
             body["note"] = note
+        if status is not None:
+            body["status"] = status
         return self.post(f"/work/{item_id}/finish", body)
 
     def held(self) -> list[dict[str, Any]]:

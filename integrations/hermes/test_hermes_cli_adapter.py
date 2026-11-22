@@ -73,7 +73,15 @@ def test_done_from_the_closing_line(tmp_path):
 
 def test_review_ask_and_old_blocked_lines(tmp_path):
     out, _, _ = go(tmp_path, FAKE_OUT="Check the diff.\nSLATE: review")
-    assert out == {"outcome": "review", "reply": "Check the diff."}
+    assert out == {"outcome": "done", "reply": "Check the diff."}
+    out, _, _ = go(
+        tmp_path, FAKE_OUT="Check the diff.\nSLATE: review: Check the draft linked above."
+    )
+    assert out == {
+        "outcome": "review",
+        "reply": "Check the diff.",
+        "status": "Check the draft linked above.",
+    }
     out, _, _ = go(tmp_path, FAKE_OUT="Which disk?\nSLATE: ask alex: Which disk? [First | Second]")
     assert out == {
         "outcome": "ask",
