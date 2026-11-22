@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { describe, type HistoryContext } from '../../lib/history';
-  import { groupEntries, inbox, REASON_LABEL, type InboxEntry, type Reason } from '../../lib/inbox.svelte';
+  import type { HistoryContext } from '../../lib/history';
+  import { describeEntry, groupEntries, inbox, REASON_LABEL, type InboxEntry, type Reason } from '../../lib/inbox.svelte';
   import { ago } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
   import Icon, { type IconName } from '../Icon.svelte';
@@ -31,7 +31,7 @@
     },
   };
 
-  const isAgent = (e: InboxEntry) => board.accounts[e.event.actor_id]?.kind === 'agent';
+  const isAgent = (e: InboxEntry) => board.accounts[(e.originalEvent ?? e.event).actor_id]?.kind === 'agent';
   const want: Record<Tab, (e: InboxEntry) => boolean> = {
     all: () => true,
     unread: (e) => !e.read,
@@ -45,6 +45,7 @@
   );
 
   const ICON: Record<Reason, IconName> = {
+    chat: 'chat',
     mention: 'at',
     reply: 'reply',
     assigned: 'user',
@@ -110,7 +111,7 @@
               <span class="inbox-line" class:agent={isAgent(e)}>
                 <span class="inbox-icon" title={e.reason === 'waiting' ? waitingOn(board.me?.account.display_name) : REASON_LABEL[e.reason]}><Icon name={ICON[e.reason]} size={13} /></span>
                 {#if isAgent(e)}<Icon name="robot" size={13} />{/if}
-                <span class="what">{describe(e.event, { ...ctx, now: board.now })}</span>
+                <span class="what">{describeEntry(e, { ...ctx, now: board.now })}</span>
               </span>
             {/each}
             {#if g.entries.length > 3}<span class="muted small">and {g.entries.length - 3} more</span>{/if}
