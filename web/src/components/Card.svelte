@@ -7,6 +7,7 @@
   import { priorityLabel } from '../lib/priority';
   import { DOT_TITLE } from '../lib/commentdots';
   import { copyText } from '../lib/clipboard';
+  import { askQuestions } from '../lib/conversation';
   import { itemHasDraft } from '../lib/drafts.svelte';
   import { blockedTitle, isParked, openBlockers, shortDate } from '../lib/format';
   import { shortRule } from '../lib/rrule';
@@ -61,9 +62,16 @@
   const waitsOnMe = $derived(need === 'waiting' && !waitingInBadge);
   const blockers = $derived(item.blocked && !closed ? openBlockers(item, board.items) : []);
   const hasBody = $derived(!!item.body_md.trim());
-  // Open Asks (assigned comments) addressed to whoever is looking at the board.
   const dot = $derived(board.commentDots[item.id]);
-  const askedMe = $derived((item.open_asks ?? []).filter((id) => id === board.me?.account.id).length);
+  const askedMe = $derived.by(() => {
+    const me = board.me?.account.id;
+    if (!me) return 0;
+    const count = (item.open_asks ?? []).filter((id) => id === me).length;
+    // The structured Ask is already one of the open comments.
+    return item.ask && item.waiting_on_account_id === me
+      ? Math.max(0, count - 1) + askQuestions(item.ask).length
+      : count;
+  });
   const counts = $derived(
     (show.has('description') && hasBody) ||
       (show.has('subtasks') && item.subtask_count > 0) ||

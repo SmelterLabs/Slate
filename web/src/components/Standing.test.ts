@@ -71,6 +71,37 @@ describe('Standing line and stalled mark on Card, ItemRow, and TableRow', () => 
     }
   });
 
+  it.each([
+    ['me', ['me'], 3],
+    ['me', ['me', 'me'], 4],
+    ['other', ['me', 'other'], 1],
+  ])('counts open questions on a card waiting on %s with asks for %j', async (waiter, openAsks, count) => {
+    const target = document.createElement('div');
+    const cardItem = item({
+      waiting_on_account_id: waiter,
+      open_asks: openAsks,
+      ask: {
+        comment_id: 'C1', by_id: 'sc', at: standing.at,
+        question: '3 questions: Send the invoice?', options: [],
+        questions: [
+          { question: 'Send the invoice?', options: ['Yes', 'No'] },
+          { question: 'Which account?', options: [] },
+          { question: 'Who signs?', options: [] },
+        ],
+      },
+    });
+    const app = mount(Card, { target, props: { item: cardItem, config: CFG } });
+    try {
+      const questions = target.querySelector('[data-asks]');
+      expect(questions?.getAttribute('data-asks')).toBe(String(count));
+      expect(questions?.getAttribute('title')).toBe(
+        `${count} open question${count === 1 ? '' : 's'} for you`,
+      );
+    } finally {
+      await unmount(app);
+    }
+  });
+
   it('Card shows standing line with full text on title, Your move / account name / nothing, and neutral Stalled with Run now', async () => {
     const target = document.createElement('div');
     const cardItem = item({
