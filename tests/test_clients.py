@@ -280,23 +280,69 @@ def test_runner_a_blocked_result_that_names_nobody_waits_on_nobody(
     assert view["waiting_on_account_id"] is None
 
 
-def test_runner_a_refused_finish_is_retained_without_unsafe_fallback(
+def test_runner_reports_a_refused_finish_as_failed_with_the_reason(
     client, alex, todo, make_account, tmp_path
 ):
-    """A finish Slate refuses (an older runner sending a removed field) must not vanish into
-    a local log: the runner resends the bare outcome and comments the refusal on the card."""
+    """A finish Slate refuses as malformed (422) will never be accepted, so resending it only
+    waits for the lease to run out. The runner ends the run `failed` under the same run proof,
+    with Slate's reason and what the agent said."""
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Order printer ink")
     runner = _runner(client, h, tmp_path)
     real = runner._result
     runner._result = lambda *a: {**real(*a), "minutes": 3}  # a field the API does not take
 
-    assert runner.once() == 3
+    assert runner.once() == 1
     saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]
-    assert saved["state"] == "delivery_failed" and saved["result"]["minutes"] == 3
+    assert saved["state"] == "delivered"
     view = client.get(f"{API}/items/{item['id']}", headers=alex).json()
     assert view["completed_at"] is None
-    assert client.get(f"{API}/items/{item['id']}/comments", headers=alex).json() == []
+    assert view["agent"]["state"] == "failed"
+    assert "refused" in view["agent"]["note"]
+    assert client.get(f"{API}/work", headers=h).json() == []
+
+
+def test_runner_an_ask_slate_refuses_keeps_the_agents_words(
+    client, alex, todo, make_account, tmp_path
+):
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo, title="Pick a venue")
+    long_question = "Which venue? " + "x" * 300
+    out = {
+        "outcome": "ask",
+        "waiting_on": "alex",
+        "question": long_question,
+        "reply": "I compared three venues.",
+    }
+    cmd = f'"{sys.executable}" -c "import json; print(json.dumps({out!r}))"'
+    runner = _runner(client, h, tmp_path, cmd)
+
+    assert runner.once(item["id"]) == 1
+    events = client.get(f"{API}/items/{item['id']}/events", headers=alex).json()
+    events = events.get("events", events) if isinstance(events, dict) else events
+    (done,) = [e for e in events if e["type"] == "item.work_finished"]
+    assert done["after"]["outcome"] == "failed"
+    assert "I compared three venues." in done["after"]["note"]
+    assert "Which venue?" in done["after"]["note"]
+    assert runner.retry_due(now=0.0) == [] and runner.retry_due(now=1e9) == []
+
+
+def test_runner_a_finish_refused_for_a_lost_lease_is_never_reported_as_failed(
+    client, alex, todo, make_account, tmp_path
+):
+    """Only a malformed body (422) is turned into `failed`. A 409 means the run no longer holds
+    the card: the result stays as it is."""
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo, title="Water the plants")
+    runner = _runner(client, h, tmp_path)
+    deliver = runner._deliver
+    runner._deliver = lambda key, path, body, **kw: deliver(
+        key, path, {**body, "run_id": "not-the-proof"}, **kw
+    )
+
+    assert runner.once() == 3
+    saved = json.loads(runner.state_path.read_text())["runs"][item["id"]]
+    assert saved["state"] == "delivery_failed" and saved["result"]["outcome"] != "failed"
 
 
 def test_runner_plain_output_exit_zero_is_not_terminal_evidence(

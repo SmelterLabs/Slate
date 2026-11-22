@@ -139,7 +139,8 @@ through its take, child process and finish request so parallel workers cannot la
 Every take carries a private per-attempt `run_id`; the runner persists it before launch and
 passes it to heartbeat/finish. A same-account process cannot adopt it without proof. Result
 delivery persists the exact body until acknowledged; it never strips fields/proof to force
-a refused result through. Retry delivery, not execution. Keep runner/client/adapter copies
+a refused result through: a result refused as malformed ends the run `failed` with the
+reason instead (Stopping and recovery). Retry delivery, not execution. Keep runner/client/adapter copies
 pinned to the same release; do not overwrite installed adapters automatically from a moving
 branch.
 
@@ -417,6 +418,14 @@ drained=true. Admission stays closed. Pending/unknown results or unstarted persi
 prevent a drained receipt. Stop only after all runners are proven drained, install matching
 files/server, and remove the drain files before starting fresh processes. Timeout means wait
 or abort, not kill active work.
+
+**A result Slate refuses as malformed ends the run `failed`.** A 422 on the finish (a question
+over 200 characters, options that are not two to four short choices, a `waiting_on` that is
+not a person, a field the server does not take) will never be accepted, so the runner does not
+resend it. It sends one `failed` finish under the same run proof: the note opens with Slate's
+reason (the badge shows it) and carries what the agent asked and said, which stay on the
+card's history. The card is then retried like any failed run. A 409 (the run no longer holds
+the card) is never turned into anything else, and a chat or doc turn is left as it is.
 
 **An undelivered result is resent on its own.** When a finish cannot be delivered (the server
 restarting, the network down), the result is saved in the state file and the live loop resends
