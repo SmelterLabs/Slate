@@ -46,7 +46,10 @@
 
   async function sendAnswers() {
     if (!wait || !ready) return;
-    const body = wait.questions.map((q, i) => `${i + 1}. ${q.question} **${answerTo(i)}**`).join('\n');
+    const body = wait.questions.map((q, i) => {
+      const answer = answerTo(i).replace(/[\\`*_[\]~:]/g, '\\$&');
+      return `${i + 1}. ${q.question} **${answer}**`;
+    }).join('\n');
     sending = true;
     if (await task.comment(itemId, body)) {
       picked = {};

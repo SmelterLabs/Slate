@@ -4,6 +4,7 @@
 // viewer is a banner of the same family that says what to check.
 import { flushSync, mount, unmount, type Component } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderMarkdown } from '../../lib/markdown';
 import type { AgentFlag, Comment, CommentAsk } from '../../lib/types';
 
 const { board, task } = vi.hoisted(() => ({
@@ -16,7 +17,7 @@ const { board, task } = vi.hoisted(() => ({
   task: {
     me: 'me',
     answer: vi.fn(async () => true),
-    comment: vi.fn(async () => true),
+    comment: vi.fn(async (_itemId: string, _body: string) => true),
     reveal: vi.fn(),
     clearAgentFlag: vi.fn(async () => true),
   },
@@ -163,6 +164,22 @@ describe('the waiting banner with several questions', () => {
       '1. Which branch should I ship? **main**\n2. Tell the customer today? **Not until Friday**\n3. Who signs off the invoice? **Alex**',
     );
     expect(task.answer).not.toHaveBeenCalled();
+  });
+
+  it('renders punctuation in typed answers literally inside bold text', async () => {
+    const el = show(TurnBanner, { itemId: 'I1', wait, review: null, flag });
+    const answers = ['A*B', '_draft_', '[Plan](https://example.com)'];
+    el.querySelectorAll<HTMLInputElement>('.wq-type').forEach((input, i) => {
+      input.value = answers[i];
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    flushSync();
+    el.querySelector<HTMLButtonElement>('[data-send-answers]')!.click();
+    await vi.waitFor(() => expect(task.comment).toHaveBeenCalledTimes(1));
+    const body = document.createElement('div');
+    body.innerHTML = renderMarkdown(task.comment.mock.calls[0][1]);
+    expect([...body.querySelectorAll('li > strong')].map(text)).toEqual(answers);
+    expect(body.querySelector('strong em, strong a, li > a')).toBeNull();
   });
 
   it('keeps Answer for a free reply, with the age and the Open link', () => {
