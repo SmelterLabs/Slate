@@ -83,7 +83,7 @@ export function readState(raw: string | null): WindowState {
       activity: num(v.activity, DEFAULT_ACTIVITY),
     };
   } catch {
-    return DEFAULT_STATE;
+    return DEFAULT_STATE; // an invalid saved layout falls back to the default
   }
 }
 

@@ -15,7 +15,7 @@ export function cachedTheme(): Theme {
   try {
     return asTheme(localStorage.getItem(KEY));
   } catch {
-    return 'auto';
+    return 'auto'; // use the system theme when local storage is blocked
   }
 }
 

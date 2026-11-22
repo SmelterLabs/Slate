@@ -21,7 +21,7 @@ function stored(): WindowState {
   try {
     return readState(localStorage.getItem(STORAGE_KEY));
   } catch {
-    return DEFAULT_STATE;
+    return DEFAULT_STATE; // storage is optional for the task window
   }
 }
 

@@ -4,7 +4,7 @@ export const moreDestination = (page: string | null) => !!page && !primaryDestin
 export function safeWhiteboard(value: string | null | undefined): boolean {
   if (!value || /[\s\\]/.test(value)) return false;
   try { const u = new URL(value); return u.protocol === 'https:' && !!u.hostname && !u.username && !u.password; }
-  catch { return false; }
+  catch { return false; } // malformed input is not a usable whiteboard URL
 }
 /** Recovery advice follows the HTTP outcome, not an error-message keyword guess. */
 export function invitationRecovery(status: number | null): string {
