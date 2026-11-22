@@ -18,7 +18,7 @@
     timeline,
   } from '../../lib/activity';
   import { automationNames, automationOf } from '../../lib/automationref.svelte';
-  import { collapsedChat, defaultAsk, firstLine, isChat, pendingAgent, runNow, shortAge, shownProgress, unpickedAsk, unreadMidRun, updatedAgo } from '../../lib/conversation';
+  import { collapsedChat, defaultAsk, isChat, pendingAgent, runNow, shortAge, shownProgress, unpickedAsk, unreadMidRun, updatedAgo } from '../../lib/conversation';
   import { draftKey, readDraft } from '../../lib/drafts';
   import { hasDraft, saveDraft } from '../../lib/drafts.svelte';
   import { fullStamp } from '../../lib/format';
@@ -87,7 +87,7 @@
   const commentCount = $derived(entries.filter((e) => e.kind === 'comment').length);
 
   // The card is the conversation: an agent's comments and the comments addressed to it read as
-  // a chat; exchanges older than the newest collapse to their first line (click to expand).
+  // a chat; exchanges older than the newest start with their content clipped to a preview.
   const isAgent = (id: string) => board.accounts[id]?.kind === 'agent';
   const collapsed = $derived(collapsedChat(rows, isAgent));
   let opened = $state<Record<string, boolean>>({});
@@ -352,26 +352,15 @@
     onscroll={() => feed && (pinned = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40)}
   >
     {#each rows as r (r.key)}
-      {#if r.kind === 'comment' && collapsed.has(r.comment.id) && !opened[r.comment.id]}
+      {#if r.kind === 'comment'}
         {@const c = r.comment}
-        <AskQuestions comment={c} />
-        <button
-          class="chat-collapsed"
-          class:from-agent={isAgent(c.author_id)}
-          data-chat-collapsed
-          data-comment={c.id}
-          title="Show the whole message"
-          onclick={() => (opened[c.id] = true)}
-        >
-          <strong>{authorName(c)}</strong>
-          <span class="chat-line">{firstLine(c.body_md)}</span>
-          <time datetime={c.created_at}>{stamp(c.created_at, board.now)}</time>
-        </button>
-      {:else if r.kind === 'comment'}
-        {@const c = r.comment}
+        {@const foldable = collapsed.has(c.id) && editing !== c.id}
+        {@const folded = foldable && !opened[c.id]}
         <article
           class="comment"
           data-comment={c.id}
+          data-chat-collapsed={folded ? '' : undefined}
+          class:folded
           class:lit={lit === c.id}
           class:mine={c.author_id === task.me}
           class:mentions-me={c.mentions?.includes(board.me?.account.handle ?? '')}
@@ -401,51 +390,53 @@
               </span>
             {/if}
           </div>
-          {#if editing === c.id}
-            <textarea
-              class="edit"
-              aria-label="Edit comment"
-              rows="3"
-              bind:value={() => editText, (v) => setEditText(c, v)}
-              onkeydown={(e) => {
-                if (isSendKey(e)) {
-                  e.preventDefault();
-                  void saveEdit(c);
-                }
-                if (e.key === 'Escape') {
-                  e.stopPropagation();
-                  stopEdit(c);
-                }
-              }}
-            ></textarea>
-            <div class="inline small">
-              <button class="primary" onclick={() => saveEdit(c)}>Save</button>
-              <button class="link" onclick={() => stopEdit(c)}>Cancel</button>
-            </div>
-          {:else}
-            {@const sent = parts(c)}
-            {#if sent.text}<div class="md text">{@html body(c)}</div>{/if}
-            {#if sent.files.length}
-              <ul class="chat-files" aria-label="Files">
-                {#each sent.files as a (a.id)}
-                  <li>
-                    {#if task.thumbs[a.id]}
-                      <button class="chat-file-image" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
-                        <img src={task.thumbs[a.id]} alt={a.filename} loading="lazy" />
-                      </button>
-                    {:else}
-                      <button class="chat-file" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
-                        <Icon name="clip" size={14} />
-                        <span class="chat-file-name">{a.filename}</span>
-                        <span class="muted small">{fileSize(a.size)}</span>
-                      </button>
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
+          <div class="comment-content" inert={folded}>
+            {#if editing === c.id}
+              <textarea
+                class="edit"
+                aria-label="Edit comment"
+                rows="3"
+                bind:value={() => editText, (v) => setEditText(c, v)}
+                onkeydown={(e) => {
+                  if (isSendKey(e)) {
+                    e.preventDefault();
+                    void saveEdit(c);
+                  }
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    stopEdit(c);
+                  }
+                }}
+              ></textarea>
+              <div class="inline small">
+                <button class="primary" onclick={() => saveEdit(c)}>Save</button>
+                <button class="link" onclick={() => stopEdit(c)}>Cancel</button>
+              </div>
+            {:else}
+              {@const sent = parts(c)}
+              {#if sent.text}<div class="md text">{@html body(c)}</div>{/if}
+              {#if sent.files.length}
+                <ul class="chat-files" aria-label="Files">
+                  {#each sent.files as a (a.id)}
+                    <li>
+                      {#if task.thumbs[a.id]}
+                        <button class="chat-file-image" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
+                          <img src={task.thumbs[a.id]} alt={a.filename} loading="lazy" />
+                        </button>
+                      {:else}
+                        <button class="chat-file" title="Open {a.filename}" aria-label="Open {a.filename}" onclick={() => task.open(a)}>
+                          <Icon name="clip" size={14} />
+                          <span class="chat-file-name">{a.filename}</span>
+                          <span class="muted small">{fileSize(a.size)}</span>
+                        </button>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
             {/if}
-          {/if}
-          {#if c.run_steps && runOpen[c.id]}
+          </div>
+          {#if !folded && c.run_steps && runOpen[c.id]}
             {@const log = runLogs[c.id]}
             <div class="run-log" data-run-log>
               {#if Array.isArray(log)}
@@ -455,7 +446,7 @@
               {/if}
             </div>
           {/if}
-          <div class="foot">
+          <div class="foot" hidden={folded}>
             {#if c.run_steps}
               <button
                 class="steps"
@@ -503,6 +494,11 @@
               <button class="act" onclick={() => removeComment(c)}>Delete</button>
             {/if}
           </div>
+          {#if foldable}
+            <button class="fold-toggle" type="button" aria-expanded={!folded} onclick={() => (opened[c.id] = folded)}>
+              {folded ? 'Show all' : 'Show less'} <span class="chev" aria-hidden="true"></span>
+            </button>
+          {/if}
         </article>
       {:else}
         <div class="ev" title="{fullStamp(r.at)}{r.event.session_ref ? ` · session ${r.event.session_ref}` : ''}">
@@ -730,44 +726,6 @@
     margin-left: 24px;
     background: color-mix(in srgb, var(--accent) 6%, var(--panel));
   }
-  .chat-collapsed {
-    display: flex;
-    gap: 6px;
-    align-items: baseline;
-    width: 100%;
-    text-align: left;
-    border: 1px dashed var(--line);
-    background: none;
-    border-radius: 8px;
-    padding: 4px 10px;
-    font-size: 12.5px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .chat-collapsed:hover {
-    background: var(--card-hover);
-    color: var(--text);
-  }
-  .chat-collapsed strong {
-    flex: none;
-    color: var(--text);
-    font-weight: 600;
-  }
-  .chat-collapsed .chat-line {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .chat-collapsed time {
-    flex: none;
-    font-size: 11px;
-  }
-  .chat-collapsed:not(.from-agent) {
-    margin-left: 24px;
-    width: calc(100% - 24px);
-  }
   .ask-pill {
     display: inline-flex;
     align-items: center;
@@ -897,6 +855,57 @@
     margin: 6px 0;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   }
+  .comment.folded {
+    position: relative;
+  }
+  .comment-content {
+    display: contents;
+  }
+  .folded .comment-content {
+    display: block;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.5;
+    max-block-size: 3lh;
+    mask-image: linear-gradient(to bottom, black 2lh, transparent 3lh);
+  }
+  .fold-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 32px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--chip);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .folded .fold-toggle::after {
+    /* Extend the button's hit area over the folded card without adding another tab stop. */
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+  .fold-toggle:hover {
+    border-color: var(--accent);
+  }
+  .fold-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .fold-toggle .chev {
+    transform: rotate(45deg);
+  }
+  .fold-toggle[aria-expanded='true'] .chev {
+    transform: rotate(-135deg);
+  }
   .comment.mentions-me {
     border-left: 3px solid var(--accent);
   }
@@ -941,6 +950,9 @@
     flex-wrap: wrap;
     gap: 4px;
     min-height: 26px;
+  }
+  .foot[hidden] {
+    display: none;
   }
   .rx {
     border: 1px solid var(--line);

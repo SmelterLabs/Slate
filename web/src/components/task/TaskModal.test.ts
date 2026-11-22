@@ -394,8 +394,12 @@ describe('TaskModal questions and reviews', () => {
       makeDetail({ waiting_on_account_id: null, agent: null, ask: null, comments: [asked, reply, later] }),
     );
     try {
-      expect(target.querySelector('[data-chat-collapsed][data-comment="C1"]')).not.toBeNull();
-      const block = target.querySelector('[data-ask-box]')!;
+      const article = target.querySelector('article[data-chat-collapsed][data-comment="C1"]')!;
+      expect(article).not.toBeNull();
+      const block = article.querySelector(':scope > [data-ask-box]:first-child')!;
+      expect(block).not.toBeNull();
+      expect(block.closest('[inert]')).toBeNull();
+      expect(article.querySelector('.comment-content[inert]')).not.toBeNull();
       expect(block.getAttribute('data-ask-state')).toBe('answered');
       expect([...block.querySelectorAll('[data-ask-question]')].map((q) => q.textContent?.trim())).toEqual(
         THREE.questions.map((q) => q.question),

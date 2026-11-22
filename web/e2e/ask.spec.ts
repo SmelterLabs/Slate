@@ -34,6 +34,8 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
 
   // Alex's reply is not resolution; the explicit Resolve button closes it.
   await card.getByText('Pick a caterer').click();
+  const firstAsk = tw.locator('article', { hasText: 'Which caterer has the best price?' });
+  const followupAsk = tw.locator('article', { hasText: 'Book it for Friday?' });
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
   await tw.getByLabel('Add comment').fill('Yes, book it.');
   // The picker starts on the agent (asked last on this card); a plain comment is one pick away.
@@ -41,12 +43,23 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
   await tw.getByLabel('Ask', { exact: true }).selectOption('');
   await tw.getByRole('button', { name: /^Comment$/ }).click();
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
-  await tw.locator('article', { hasText: 'Book it for Friday?' }).getByRole('button', { name: 'Resolve', exact: true }).click();
+  await followupAsk.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(0);
-  // The first exchange (Alex's Ask and the agent's answer) is older than the newest: collapsed.
-  await expect(tw.locator('[data-ask="resolved"]')).toHaveCount(1);
-  await tw.locator('[data-chat-collapsed]').first().click();
-  await expect(tw.locator('[data-ask="resolved"]')).toHaveCount(2);
+
+  // The older Ask keeps its resolved marker in the folded card header.
+  const resolved = '[data-ask="resolved"]';
+  await expect(firstAsk).toHaveAttribute('data-chat-collapsed', '');
+  await expect(firstAsk.locator(resolved)).toHaveCount(1);
+  await expect(firstAsk.locator(resolved)).toHaveText(/Asked Agent · Resolved$/);
+  await expect(followupAsk.locator(resolved)).toHaveCount(1);
+  await expect(followupAsk.locator(resolved)).toHaveText(/Asked Alex · Resolved$/);
+  await expect(tw.locator(resolved)).toHaveCount(2);
+
+  await firstAsk.getByRole('button', { name: 'Show all' }).click();
+  await expect(firstAsk.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(firstAsk.locator(resolved)).toHaveCount(1);
+  await expect(followupAsk.locator(resolved)).toHaveCount(1);
+  await expect(tw.locator(resolved)).toHaveCount(2);
   await page.keyboard.press('Escape');
   await expect(card.locator('[data-asks]')).toHaveCount(0);
 

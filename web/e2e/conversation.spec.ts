@@ -1,7 +1,7 @@
 // The card is the conversation: while the agent works, a live
 // bubble shows its latest note; Run now says who has it; its question lands as its comment and
 // the badge reads "Waiting on Alex"; Alex's answer in the thread is addressed to the agent, and once
-// the agent verifies, the first exchange collapses to one line.
+// the agent verifies, the first exchange folds into a preview.
 import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
@@ -83,7 +83,7 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   expect(next.thread?.ref).toBe('sess_1');
   await expect(tw.locator('[data-agent-pending="working"]')).toContainText('Agent is typing');
   await api('POST', `/work/${item.id}/finish`, { run_id: next.lease.run_id, outcome: 'done', reply: 'Verified: signed in.' }, agent);
-  await expect(tw.locator('[data-chat="agent"]')).toContainText('Verified: signed in.');
+  await expect(tw.locator('[data-chat="agent"]', { hasText: 'Verified: signed in.' })).toBeVisible();
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
   await expect(tw.locator('[data-ask="open"]')).toHaveCount(0);
   const comments = await api<{ body_md: string; resolved_at: string | null }[]>('GET', `/items/${item.id}/comments`);
@@ -97,6 +97,7 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   await expect(folded).toHaveCount(1);
   await expect(folded).toContainText('I started the login.');
   await folded.click();
+  await expect(folded).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toHaveCount(2);
   await page.keyboard.press('Escape');
 
