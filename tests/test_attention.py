@@ -283,7 +283,8 @@ def test_email_floor(client, db, alex, todo, make_account):
     assert "from person" in sent[0][2] and "from agent" not in sent[0][2]
 
 
-def test_digest_and_health_list_open_questions(client, db, alex, todo, make_account):
+@pytest.mark.parametrize("reference", [False, True])
+def test_digest_and_health_list_open_questions(client, db, alex, todo, make_account, reference):
     from slate.models import Account
     from slate.service import health
 
@@ -300,13 +301,18 @@ def test_digest_and_health_list_open_questions(client, db, alex, todo, make_acco
             json={"state": "blocked", "waiting_on": "alex", "question": question},
         )
         assert response.status_code == 200, response.text
+    client.patch(
+        f"{API}/lists/{todo['id']}", headers=alex, json={"reference": reference}
+    ).raise_for_status()
     digest = client.get(f"{API}/me/digest", headers=alex).json()
-    assert [q["question"] for q in digest["questions"]] == ["Which file?", "Which format?"]
+    assert [q["question"] for q in digest["questions"]] == (
+        [] if reference else ["Which file?", "Which format?"]
+    )
     assert all(q["age_minutes"] >= 0 for q in digest["questions"])
     viewer = db.get(Account, client.get(f"{API}/me", headers=alex).json()["account"]["id"])
     report = health.report(db, viewer=viewer, now=utcnow() + timedelta(days=2))
     checks = {c["key"]: c["detail"] for c in report["checks"]}
-    assert checks["questions_open_24h"] == "2"
+    assert checks["questions_open_24h"] == ("0" if reference else "2")
     assert checks["push_failed_24h"] == checks["push_removed_7d"] == "0"
 
 

@@ -236,6 +236,19 @@ changes carry the whole before/after handle or name list; events about a non-ite
 
 ## Core REST and the item rules
 
+List create, patch and read bodies carry `note_md`, `default_assignee_id`,
+`default_tags` and `reference`. Initial values are in `list.created`. Subsequent
+changes record one `list.updated` event per field. The common item insert applies
+the list's enabled default assignee when none are supplied and merges default tags
+with the item's tags. The list supplies the assignee independently of the filer's
+visibility. The usual guest projection applies to the resulting item.
+With neither a list nor a parent, filing uses the workspace's `inbox_list_id`
+when the caller can edit that active work list. Owners and admins manage it through
+`GET /settings/inbox` and `PUT /settings/inbox`. Work queries share
+`service/lists.py`'s `WORK_LIST` predicate to exclude reference lists. Due events,
+failed-run retries and due-relative reminders check the item's current list again
+under the write lock before they record an event.
+
 All under `/api/v1`. Reads need `read`, writes `write`, administration (tokens for other
 accounts, accounts, permissions, agent pairing, data and settings) `admin`. A few writes that only
 touch the caller's own credential (revoking a token or connection, signing out) need only `read`,

@@ -108,6 +108,12 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     return fx;
   }
   if (kind === 'section' || kind === 'list') {
+    // A list field change rides on the event: patch the row the board already holds.
+    if (ev.type === 'list.updated' && ev.subject_id && ev.field) {
+      const l = data.lists[ev.subject_id];
+      const FIELDS = ['note_md', 'default_assignee_id', 'default_tags', 'reference'];
+      if (l && FIELDS.includes(ev.field)) (l as unknown as Record<string, unknown>)[ev.field] = ev.after;
+    }
     fx.structure = true;
     // New statuses, or restored lists whose items the default load left out: reload all.
     fx.reload = ev.type === 'list.statuses_changed' || ev.type.endsWith('.unarchived');

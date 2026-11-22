@@ -279,6 +279,10 @@ class List(Base):
     # `tasks` (a board of items) or `drawer` (a list of documents).
     # A drawer takes no items; its statuses exist but mean nothing yet.
     kind: Mapped[str] = mapped_column(String(8), default="tasks", server_default="tasks")
+    note_md: Mapped[str | None] = mapped_column(Text)
+    default_assignee_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
+    default_tags: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    reference: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
 
 class Status(Base):
@@ -1265,8 +1269,7 @@ class AgentThread(Base):
 
 
 class WorkspaceSetting(Base):
-    """One workspace-wide setting, by key, as JSON. The only key so far is `agents.denied`:
-    the actions agent accounts may never take, whatever their token (service/agent_rules.py).
+    """One workspace-wide setting, by key, as JSON.
     Changed only through `apply_change()`, as a `settings.changed` event."""
 
     __tablename__ = "workspace_settings"

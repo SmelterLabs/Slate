@@ -57,11 +57,18 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
   return null;
 }
 
-/** Everything that needs `me`, most urgent first, then oldest flag first. */
-export function attention(items: Item[], me: string, accounts: Record<string, Account>): Attention[] {
+/** Everything that needs `me`, most urgent first, then oldest flag first. Cards in a
+ * reference list (`referenceLists`) are material, not work: they never need anyone. */
+export function attention(
+  items: Item[],
+  me: string,
+  accounts: Record<string, Account>,
+  referenceLists: ReadonlySet<string> = new Set(),
+): Attention[] {
   if (!me) return [];
   const out: Attention[] = [];
   for (const item of items) {
+    if (referenceLists.has(item.list_id)) continue;
     const need = needOf(item, me, accounts);
     if (need) out.push({ item, need });
   }

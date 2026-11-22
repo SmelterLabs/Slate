@@ -1,3 +1,9 @@
+import type { SlateEvent } from '../types';
+
+export function changesReference(ev: SlateEvent): boolean {
+  return ev.type === 'list.updated' && ev.field === 'reference';
+}
+
 // Every event type Slate emits (ARCHITECTURE.md "Event types"). EventSource dispatches
 // named events only to listeners for that exact name.
 export const EVENT_TYPES = [

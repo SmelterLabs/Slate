@@ -94,7 +94,7 @@ list. The same tree also holds **file docs**.
   same `tags` tasks do (`docs._set_tags`, one `doc.updated` field `tags` with sorted names
   before/after; `tags` on create and PATCH; `GET /docs?tag=&kind=`; summaries carry `tags`;
   `tags.usage_counts` adds docs, so the Tags page counts them).
-  `service/doc_hub.section_documents(session, section_id, me)` serves `GET /sections/{id}/documents`
+  `service/doc_pages.section_documents(session, section_id, me)` serves `GET /sections/{id}/documents`
   and MCP `slate_doc hub` (the shape under Drawers above): `needs_you` is the open roots (Asks
   addressed to `me`; review threads by someone else on a doc `me` created, edited or commented
   on), each with the board URL `/#/docs/<id>?comment=<cid>`. Guests see it only where they see the
@@ -309,7 +309,7 @@ list. The same tree also holds **file docs**.
   input) bounds every parser that reads inside an upload; it never blocks an upload (a small
   workspace uploads few spreadsheets and should meet no friction): an over-cap file is stored and
   viewable and simply not indexed (`has_text` false, like an unreadable file).
-  `doc_compare.extract(name, ctype, data) -> (text, tables)` reads a revision once at upload:
+  `doc_files.extract(name, ctype, data) -> (text, tables)` reads a revision once at upload:
   `_check_archive` measures an XLSX's zip
   members (declared sizes, total, a 200x inflation ratio over 4 MiB, then a chunked inflate under
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even

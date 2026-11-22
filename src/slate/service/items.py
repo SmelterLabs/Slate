@@ -697,21 +697,26 @@ def _add_version(
     return version
 
 
-def _set_assignees(cx: Change, item: Item, refs: Iterable[str]) -> None:
+def _set_assignees(
+    cx: Change, item: Item, refs: Iterable[str], *, list_default: Account | None = None
+) -> None:
     session = cx.session
-    wanted = {a.id: a for a in (resolve_account(session, r) for r in refs)}
+    wanted = (
+        {list_default.id: list_default}
+        if list_default is not None
+        else {a.id: a for a in (resolve_account(session, r) for r in refs)}
+    )
     rows = list(session.scalars(select(ItemAssignee).where(ItemAssignee.item_id == item.id)))
     current = {r.account_id for r in rows}
     if current == set(wanted):
         return
     handles = dict(
-        session.execute(
-            select(Account.id, Account.handle).where(Account.id.in_(current | set(wanted)))
-        ).all()
+        session.execute(select(Account.id, Account.handle).where(Account.id.in_(current))).all()
     )
+    handles.update((a.id, a.handle) for a in wanted.values())
     removed = [r for r in rows if r.account_id not in wanted]
     for a in wanted:
-        if a not in current:  # a guest cannot hand work to a workspace agent (service/guests.py)
+        if a not in current and list_default is None:
             guests.refuse(session, cx.actor.account_id, wanted[a])
     added = [ItemAssignee(item_id=item.id, account_id=a) for a in wanted if a not in current]
     for r in removed:
@@ -809,6 +814,16 @@ def _take_pasted(cx: Change, item: Item, body: str) -> str:
 def _insert(cx: Change, item: Item, fields: Mapping[str, Any]) -> Item:
     """Insert a built item; a non-empty body's first version rides on `item.created`."""
     session = cx.session
+    lst = lists_svc.get_list(session, item.list_id)
+    assignees = fields.get("assignees") or []
+    default = None
+    if not assignees and lst.default_assignee_id:
+        # This choice belongs to the list. Restore the caller's scope before writing.
+        with access.unrestricted(session):
+            account = session.get(Account, lst.default_assignee_id, populate_existing=True)
+        if lists_svc.valid_default_assignee(account):
+            default = account
+    tags = [*(fields.get("tags") or []), *lst.default_tags]
     _claim_ref(session, item.external_ref)
     pasted: list = []
     if item.body_md:
@@ -828,10 +843,10 @@ def _insert(cx: Change, item: Item, fields: Mapping[str, Any]) -> Item:
         from slate.service.attachments import attach_pasted
 
         attach_pasted(cx, item, pasted)
-    if fields.get("assignees"):
-        _set_assignees(cx, item, fields["assignees"])
-    if fields.get("tags"):
-        _set_tags(cx, item, fields["tags"])
+    if assignees or default is not None:
+        _set_assignees(cx, item, assignees, list_default=default)
+    if tags:
+        _set_tags(cx, item, tags)
     return item
 
 
@@ -862,10 +877,12 @@ def create_item(
         if list_id is not None and list_id != parent.list_id:
             raise Invalid("a subtask lives in its parent's list")
         list_id = parent.list_id
-    if list_id is None:
-        raise Invalid("list_id is required (or parent_id)")
-    item = _new_item(session, actor, list_id=list_id, parent=parent, fields=fields)
     with apply_change(session, actor) as cx:
+        if list_id is None:
+            list_id = lists_svc.inbox_list_id(session)
+            if list_id is None or not lists_svc.can_file_inbox(session, list_id):
+                raise Invalid("list_id is required (or parent_id)")
+        item = _new_item(session, actor, list_id=list_id, parent=parent, fields=fields)
         return _insert(cx, item, fields)
 
 

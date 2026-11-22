@@ -4,6 +4,7 @@
 // device too) refetch at once, so phone and PC always agree.
 
 import { get, post } from './api';
+import { changesReference } from './board/events';
 import { chatHref } from './chat';
 import { describe, type HistoryContext } from './history';
 import { board } from './store.svelte';
@@ -177,7 +178,7 @@ class Inbox {
       ((ev.type === 'account.digest' || ev.type === 'session.expiring') && ev.subject_id === me) ||
       (ev.type === 'item.reminder' && (ev.after as { account_id?: string } | null)?.account_id === me);
     const chat = ev.type === 'message.posted' || ev.type === 'message.edited' || ev.type === 'doc.mentioned';
-    if (!mine && !forMe && (ev.actor_id === me || (!ev.item_id && !chat))) return;
+    if (!mine && !forMe && !changesReference(ev) && (ev.actor_id === me || (!ev.item_id && !chat))) return;
     clearTimeout(this.#timer);
     this.#timer = setTimeout(() => void this.refresh(), mine ? 50 : 600);
   }

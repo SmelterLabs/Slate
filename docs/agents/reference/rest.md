@@ -2,7 +2,7 @@
 
 # REST reference
 
-233 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+235 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -34,7 +34,7 @@
 - [data](#data) (3)
 - [health](#health) (1)
 - [search](#search) (1)
-- [settings](#settings) (2)
+- [settings](#settings) (4)
 - [events](#events) (3)
 - [recurrences](#recurrences) (10)
 
@@ -390,16 +390,16 @@ Scope: `write` · MCP: `slate_list create`
 
 Create a list in a section. Without `statuses` it gets To do -> In progress -> Done.
 
-- Body: `ListIn`: `section_id`\*, `name`\*, `position`, `statuses`, `kind`
+- Body: `ListIn`: `note_md`, `default_assignee_id`, `default_tags`, `reference`, `section_id`\*, `name`\*, `position`, `statuses`, `kind`
 - Returns: `201` [ListOut](#listout)
 
 ### `PATCH /lists/{list_id}`
 
 Scope: `write` · MCP: `slate_list update`, `slate_share private`
 
-Rename, reorder, move to another section, set the default status, archive (`archived: true`) / restore, or make it private (owner/admin; `private: true`).
+Rename, reorder, move to another section, set filing defaults, change the note or reference flag, set the default status, archive (`archived: true`) / restore, or make it private (owner/admin; `private: true`).
 
-- Body: `ListPatch`: `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`
+- Body: `ListPatch`: `note_md`, `default_assignee_id`, `default_tags`, `reference`, `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`
 - Returns: `200` [ListOut](#listout)
 
 ### `PUT /lists/{list_id}/statuses`
@@ -426,7 +426,7 @@ Filters combine with AND. `status` is an id or name; `assignee` a handle; `tag` 
 
 Scope: `write` · MCP: `slate_item create`
 
-Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest four deep under a top task. Use `POST /items/{id}/split` to create several subtasks.
+Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest four deep under a top task. With neither a list nor a parent, the configured inbox list must be an active work list the caller can file in. Use `POST /items/{id}/split` to create several subtasks.
 
 - Body: `ItemIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id`
 - Returns: `201` [ItemOut](#itemout)
@@ -450,7 +450,7 @@ The item with its subtasks, tags, assignees, comments and last 20 events.
 
 ### `PATCH /items/{item_id}`
 
-Scope: `write` · MCP: `slate_item update`, `slate_item set_status`, `slate_item assign`, `slate_item tag`
+Scope: `write` · MCP: `slate_item update`
 
 Send only what changes; `null` clears a field. `status` by id or name; `assignees` (handles) and `tags` (names) replace the whole set. An agent may not set `waiting_on_account_id` to a person (422): it asks instead (finish `ask`).
 
@@ -629,7 +629,7 @@ The item's comments, oldest first, with reactions and mentions.
 
 ### `POST /items/{item_id}/comments`
 
-Scope: `write` · MCP: `slate_item comment`, `slate_comment add`
+Scope: `write` · MCP: `slate_comment add`
 
 `@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the task (from an agent: its report, later clearing its badge until the due time, ask making this comment its question; from a person, done completes it and the rest change nothing).
 
@@ -868,7 +868,7 @@ Remove the tag from every item and rule, then delete it. One event per item. Own
 
 ### `GET /today`
 
-Scope: `read` · MCP: `slate_today get`
+Scope: `read`
 
 Open items across all sections: overdue, due by midnight workspace time, waiting on the caller, and `asked` (an open Ask addressed to the caller, oldest first). The first three are sorted by priority, then due. `fields=id` is the cheap way to count them (the board's sidebar does that).
 
@@ -1211,7 +1211,7 @@ Up to 100 operations in one round trip. Each op is an MCP call: `{tool, action, 
 
 ### `GET /agents/plan`
 
-Scope: `read` · MCP: `slate_work plan`
+Scope: `read`
 
 What each agent is about to run in the next 24 hours, read with the work loop's own rule (`POST /work/next`): tasks whose run time comes (the due gate), tasks someone pressed Run now on, open Asks addressed to it, and the tasks it holds now with their age. Agents with the soonest work first. A restricted token sees only the agents and lists it reaches.
 
@@ -1232,7 +1232,7 @@ Who is around and what each is on: `online` (a request in the last 2 minutes or 
 
 Scope: `read` · ETag · MCP: `slate_checkin get`
 
-What to work on and what changed for you, in one call. `queue`: your open items (assigned or waiting on you). `news`: other accounts' events that concern you, each with `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after`. Keep `next_since` and pass it as `since` next time; without `since` you get the latest news. The queue is the most urgent `queue_limit` (50) of `queue_total`; `fields=id,title,due_at` keeps it small. With `since` and `wait`, an empty answer waits (long-poll) until news arrives or `wait` seconds pass; `/checkin/stream` is the same news pushed live.
+What to work on and what changed for you, in one call. `lists` gives visible active lists with filing notes, kind and reference flag. `queue`: your open items (assigned or waiting on you). `news`: other accounts' events that concern you, each with `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after`. Keep `next_since` and pass it as `since` next time; without `since` you get the latest news. The queue is the most urgent `queue_limit` (50) of `queue_total`; `fields=id,title,due_at` keeps it small. With `since` and `wait`, an empty answer waits (long-poll) until news arrives or `wait` seconds pass; `/checkin/stream` is the same news pushed live.
 
 - Query: `since`, `limit`, `queue_limit`, `fields`, `wait`
 - Returns: `200` [CheckinOut](#checkinout)
@@ -1285,7 +1285,7 @@ Confirm remote termination of a doc turn with retained run proof (after it expir
 
 ### `POST /work/chat/clear`
 
-Scope: `write` · MCP: `slate_work chat_clear`
+Scope: `write`
 
 Clear an agent's expired chat turn (the board's "stopped answering" line): a person who may post in the channel confirms the run is over, because its runner lost the proof it needs to reconcile. Records `message.agent_turn` `state: released`, `reconciled`, with you as the actor; a mention that waited in the turn is the agent's next turn. 403 for an agent (it reconciles its own turn with its run proof); 409 when there is no expired turn there (a live turn ends when the agent finishes or its lease runs out).
 
@@ -1294,7 +1294,7 @@ Clear an agent's expired chat turn (the board's "stopped answering" line): a per
 
 ### `POST /work/doc/clear`
 
-Scope: `write` · MCP: `slate_work doc_clear`
+Scope: `write`
 
 Clear an agent's expired doc turn, the same contract as `/work/chat/clear`: a person who may comment on the doc confirms the run is over (`doc.agent_turn` `state: released`, `reconciled`, by you).
 
@@ -1376,9 +1376,9 @@ What the agent working on this task is doing now: the lines its run posted, olde
 
 Scope: `write` · MCP: `slate_work finish`
 
-Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a note posted as your comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. With `next`, the same call also takes your next task (and may `wait` for one). Agent finishes consume only Ask assignments present at take, so the same open Ask cannot dispatch work twice, and every agent finish but failed and release resolves them. New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
+Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a note posted as your comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. Take the next task with `POST /work/next`. Agent finishes consume only Ask assignments present at take, so the same open Ask cannot repeatedly dispatch done, review, blocked or released work. Asks remain visible and explicitly resolvable; only asked-only agent done resolves its taken Asks (without completing the task). New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
 
-- Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`, `next`
+- Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`
 - Returns: `200` [FinishOut](#finishout)
 
 ## automations
@@ -1965,6 +1965,23 @@ Find `q` in task titles and descriptions, doc titles, page text and the text ins
 
 ## settings
 
+### `GET /settings/inbox`
+
+Scope: `admin`
+
+Read the workspace's default filing list.
+
+- Returns: `200` [InboxListSetting](#inboxlistsetting)
+
+### `PUT /settings/inbox`
+
+Scope: `admin`
+
+Set or clear the workspace's default filing list (admin). Choose an active work list you can file in.
+
+- Body: `InboxListSetting`: `inbox_list_id`\*
+- Returns: `200` [InboxListSetting](#inboxlistsetting)
+
 ### `GET /settings/agents`
 
 Scope: `admin` · MCP: `slate_account agent_rules`
@@ -2156,7 +2173,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ListOut
 
-`id`: string, `section_id`: string, `name`: string, `slug`: string, `position`: integer, `default_status_id`: string?, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `kind`: `tasks` \| `drawer`, `statuses`: [StatusOut]
+`id`: string, `section_id`: string, `name`: string, `slug`: string, `position`: integer, `default_status_id`: string?, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `kind`: `tasks` \| `drawer`, `note_md`: string?, `default_assignee_id`: string?, `default_tags`: [string], `reference`: boolean, `statuses`: [StatusOut]
 
 ### ItemOut
 
@@ -2280,11 +2297,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### CheckinOut
 
-`queue`: [ItemOut], `queue_total`: integer, `news`: [NewsOut], `next_since`: string?, `has_more`: boolean
+`lists`: [CheckinList], `queue`: [ItemOut], `queue_total`: integer, `news`: [NewsOut], `next_since`: string?, `has_more`: boolean
 
 ### NextOut
 
-`item`: ItemOut?, `lease`: LeaseOut?, `chat`: ChatTurnOut?, `doc`: DocTurnOut?, `resumed`: boolean, `why`: `assigned` \| `waiting_on_you` \| `asked` \| `pool` \| `mentioned`?, `context`: [ActivityOut], `asks`: [CommentOut], `reply`: CommentOut?, `thread`: AgentThreadOut?, `remaining`: integer
+`item`: ItemOut?, `lease`: LeaseOut?, `brief`: string?, `chat`: ChatTurnOut?, `doc`: DocTurnOut?, `resumed`: boolean, `why`: `assigned` \| `waiting_on_you` \| `asked` \| `pool` \| `mentioned`?, `context`: [ActivityOut], `asks`: [CommentOut], `reply`: CommentOut?, `thread`: AgentThreadOut?, `remaining`: integer
 
 ### LeaseOut
 
@@ -2316,7 +2333,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### FinishOut
 
-`item`: ItemOut, `next`: NextOut?
+`item`: ItemOut
 
 ### CatalogOut
 
@@ -2429,6 +2446,10 @@ The fields of each response above (see `/openapi.json` for types).
 ### SearchOut
 
 `q`: string, `hits`: [SearchHit]
+
+### InboxListSetting
+
+`inbox_list_id`: string?
 
 ### AgentRulesOut
 

@@ -18,7 +18,7 @@ When a task comes due for a `pull` or `manual` agent (06:00 workspace time for a
 
 Save this as a scheduled task in the agent's app, for example every morning at 06:00, with Slate connected as an MCP server ([mcp.md](mcp.md)). The Agents page shows it with a Copy button:
 
-> Check my Slate tasks. Use the Slate connector: call slate_work with action "next". If it returns a task, do it, sending progress with slate_work "heartbeat", then call slate_work "finish" with the run_id from "next" and outcome done, review, answered (with your reply), or ask (with a one-line question) when you need a person. Repeat until "next" returns no task, then stop.
+> Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review" (set status to one line of what to check), or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.
 
 The agent should report `url` (on heartbeat or finish) when its app has a share link for the chat, so the card links to it.
 
