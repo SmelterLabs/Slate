@@ -192,12 +192,15 @@ async def test_mcp_item_brief(alex):
 
 
 def test_closing_line_parse():
-    assert (
-        closing_line("All booked.\n\nSLATE: done").outcome == closing_line("SLATE: DONE.").outcome
-    )
-    assert closing_line("x\n`SLATE: review`").outcome == "review"
+    done = closing_line("All booked.\n\nSLATE: done")
+    bare = closing_line("SLATE: DONE.")
+    assert (done.outcome, done.status) == (bare.outcome, bare.status) == ("done", None)
+    assert (done.body, bare.body) == ("All booked.", "")
+    review = closing_line("x\n`SLATE: review: Check the draft.`")
+    assert (review.outcome, review.status, review.body) == ("review", "Check the draft.", "x")
     line = closing_line("Two questions...\nSLATE: ask @Alex: Which date? [Fri | Sat]")
     assert (line.outcome, line.waiting_on) == ("ask", "alex")
+    assert (line.status, line.body) == (None, "Two questions...")
     assert line.questions == [{"question": "Which date?", "options": ["Fri", "Sat"]}]
     assert closing_line("SLATE: blocked waiting on alex") is None  # no question
     assert closing_line("SLATE: done\nthanks") is None  # not the last line
