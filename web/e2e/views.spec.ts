@@ -49,12 +49,15 @@ test('Everything lands on "This week": Overdue, Today, named days, Future, No du
     'future',
     'none',
     'done',
+    'later',
   ]);
   await expect(column(page, 'overdue')).toContainText('Pay the water bill');
   await expect(column(page, 'today')).toContainText('Today errand');
   await expect(column(page, addDays(today(), 1))).toContainText('Tomorrow call');
   await expect(column(page, addDays(today(), 3))).toContainText('Three days out');
-  await expect(column(page, 'future')).toContainText('Way later');
+  // More than the viewer's lead (14 days) is Later, and that column starts folded.
+  await page.locator('.column[data-group="later"] .column-strip').click();
+  await expect(column(page, 'later')).toContainText('Way later');
   await expect(await noneColumn(page)).toContainText('Someday maybe');
   // Wide scopes show which list a card is from.
   await expect(card(page, 'Today errand').locator('.list-chip')).toHaveText('Tasks');
@@ -107,7 +110,7 @@ test('a filter on tag and priority narrows the board, and chips summarise it', a
 test('grouping by priority makes priority columns, and dropping on one sets it', async ({ page }) => {
   await workBoard(page);
   await groupBy(page, 'Priority');
-  await expect(page.locator('.column')).toHaveCount(6); // four priorities, No priority, Done
+  await expect(page.locator('.column')).toHaveCount(7); // four priorities, No priority, Done, Later
   await expect(column(page, 'high')).toContainText('Three days out');
   await expect(column(page, 'low')).toContainText('Tomorrow call');
   await card(page, 'Someday maybe').dragTo(column(page, 'urgent'));
@@ -168,7 +171,7 @@ test('a saved view round-trips: Save as new, survives a reload, rename, delete',
 
   await page.reload();
   await expect(page.getByRole('button', { name: 'Group by' })).toHaveText(/Group: Priority/);
-  await expect(page.locator('.column')).toHaveCount(6);
+  await expect(page.locator('.column')).toHaveCount(7); // the saved priority groups, plus Later
 
   await page.getByRole('button', { name: 'View menu' }).click();
   await page.getByRole('button', { name: 'Rename' }).click();

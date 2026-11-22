@@ -317,6 +317,8 @@ test('make an item recurring on the 2nd and 4th Wednesday with a live preview', 
     tags: ['home'],
   });
   await signedIn(page, `/#/list/${list.id}`, { ready: true });
+  // A due date years out is Later, and that column starts folded.
+  await page.locator('.column[data-group="later"] .column-strip').click();
   await page.locator('.card', { hasText: 'Recycling out' }).click();
   const drawer = page.locator('.tw');
 
