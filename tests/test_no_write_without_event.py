@@ -192,6 +192,7 @@ READS = {
     "slate.service.work": {
         "lease_seconds",
         "check_later",
+        "last_failure",
         "turn_asks",
         "turn_messages",
         "turn_control",

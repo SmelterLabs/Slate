@@ -399,7 +399,7 @@ def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | 
         }
     got["item"] = items.views(session, [got["item"]])[0]
     ask = brief_svc.default_ask(session, actor.account_id)
-    got["brief"] = brief_svc.brief(session, got["item"]["id"], ask=ask)
+    got["brief"] = brief_svc.brief(session, got["item"]["id"], ask=ask, account_id=actor.account_id)
     got["context"] = work.context(session, got["item"]["id"]) if body.context else []
     got["asks"] = comments.comment_views(
         session, work.turn_asks(session, actor.account_id, got["item"]["id"])

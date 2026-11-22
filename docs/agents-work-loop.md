@@ -284,7 +284,10 @@ Slate stays the doorbell: it never launches an agent.
   turn (`item.work_started` `after.poke`). Another assignee's take is an ordinary turn and leaves
   the poke waiting. The brief for the bound turn ends with `brief.STALLED_RULE` (the card is
   still open; end `done`, `ask`, `later` or `review`; `GET /items/{id}/brief` reads the
-  caller's own turn). If that turn ends `answered` too, on a card still open, unparked,
+  caller's own turn). The brief also tells a retried run what broke: when the caller's newest
+  finish on the card was `failed`, it ends with `brief.FAILED_RULE` and that finish's note,
+  quoted as information (`work.last_failure`), in `GET /items/{id}/brief` and in the brief of
+  `POST /work/next`. If that turn ends `answered` too, on a card still open, unparked,
   on a work list and without a future start or due date, the finish sets
   `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
   {agent_id}`), the inbox and push reason `stalled` ("<Agent> stopped without finishing:

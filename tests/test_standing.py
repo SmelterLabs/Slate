@@ -771,3 +771,28 @@ def test_the_agents_page_lists_a_card_whose_run_failed(client, alex, todo, make_
     assert r.status_code == 200, r.text
     states = [w["state"] for a in r.json() for w in a["working"] if w["item_id"] == item["id"]]
     assert states == ["failed"]
+
+
+def test_a_retried_run_is_told_why_its_last_run_failed(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    _, oh = make_account("other-agent")
+    item = _taken(client, alex, ch, todo)
+    why = "Slate refused this run's ending (ask): question is at most 200 characters"
+    _done(client, ch, item["id"], outcome="failed", note=why + "\n\nIt said: I compared three.")
+    assert client.post(f"{API}/items/{item['id']}/run", headers=alex).status_code == 202
+    taken = _next(client, ch)
+    assert taken["item"]["id"] == item["id"]
+
+    for text in (
+        taken["brief"],
+        client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"],
+    ):
+        assert "Your last run on this card failed" in text
+        assert "> " + why in text and "> It said: I compared three." in text
+    # Another account's brief of the same card says nothing about it.
+    other = client.get(f"{API}/items/{item['id']}/brief", headers=oh).json()["text"]
+    assert "last run" not in other
+
+    _done(client, ch, item["id"], outcome="answered", reply="Sorted.")
+    after = client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"]
+    assert "last run" not in after
