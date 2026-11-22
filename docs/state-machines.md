@@ -30,10 +30,10 @@ question). Waiting on an agent, or on nobody, needs none.
 
 Every report is one `item.reported` event. Besides an agent's own report, the flag changes
 when: a lease runs out (`working` becomes `blocked`, by `slate`); a person moves the card (a
-`review` flag clears); anyone closes the card (a `review` or `blocked` flag clears); a person
-presses Clear or Mark reviewed (an `idle` report of their own). A flag nobody refreshed for
+`review` flag clears); anyone closes the card (a `review`, `blocked` or `failed` flag clears); a person
+presses Clear or Mark reviewed (an `idle` report of their own). A `blocked` or `review` flag nobody refreshed for
 `reports.CLAIM_FRESH` (6 hours) and that has no lease counts as abandoned: another agent may
-claim the card.
+claim the card. A `working` flag with no lease is cleared sooner (Stalled card, below).
 
 ## Work lease (an agent's hold on a task)
 
@@ -44,7 +44,7 @@ from `POST /work/next`, `GET /work` and `GET /agents/plan`; the Agents page's "h
 | State | Means | Leaves by |
 |---|---|---|
 | (no row) | nobody holds the task | `POST /work/next` takes it: `working` |
-| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); finish, or a report other than `working` by the holder (row deleted); `until` passes: `expired`, or the row is deleted when the card is closed (done or cancelled) |
+| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); the holder's finish (row deleted; a plain report never ends a run that has a run proof); `until` passes: `expired`, or the row is deleted when the card is closed (done or cancelled) |
 | `expired` | the lease ran out; the run may still be going, so the task stays held | the agent's reconcile with the run's proof, or a person's Clear on the badge (row deleted) |
 
 A lease is `expired` from the moment `until` passes. The scheduler then marks the row
@@ -53,6 +53,8 @@ records that this happened; a person's Clear settles a lease only once it carrie
 `expired` lease refuses heartbeat, finish and stop, and `/work/next` does not offer the task to
 anyone. A lease that runs out on a closed card is not quarantined: the scheduler settles it
 (`item.work_finished`, reconciled) and deletes the row, since a closed card is not run again.
+The same happens to a lease that was quarantined while the card was open, once the card is
+closed: the close took the badge off, so nobody could Clear it.
 
 A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answered`,
 `failed`, `blocked`, `release`.
@@ -84,7 +86,7 @@ Declared: `items.stalled_at`. Read: the item view's `stalled` (set and open). Sh
 | State | Means | Leaves by |
 |---|---|---|
 | not stalled | normal | the agent's newest finish is `answered`, 4 hours pass with nothing else: Slate pokes it once (`item.run_requested`, `reason: "stalled"`); that run ends `answered` again: stalled (`item.stalled`) |
-| stalled | an eligible card received a retry and the retry ended `answered` while the card still had no future schedule | Run now, a new question for an agent, parking, a future start or due date, closing the card, or a finish other than `answered` |
+| stalled | an eligible card received a retry and the retry ended `answered` while the card still had no future schedule | Run now, a new question for an agent, parking, a future start or due date, closing the card (reopening it does not bring the mark back), or a finish other than `answered` |
 
 A `working` badge with no lease and no report for 30 minutes is cleared by the scheduler
 (an `idle` report, `reason: "stale"`), so an open card never shows a run that is not there.

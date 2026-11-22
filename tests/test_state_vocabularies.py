@@ -32,7 +32,10 @@ def _literal(model, field: str) -> set[str]:
 # (declared in code, every API field that repeats it)
 VOCABULARIES = [
     (set(reports.STATES), [(schemas.ReportIn, "state")]),
-    ({s.value for s in AgentState}, [(schemas.AgentFlag, "state")]),
+    (
+        {s.value for s in AgentState},
+        [(schemas.AgentFlag, "state"), (agents_api.WorkOut, "state")],
+    ),
     (set(work.OUTCOMES), [(work_api.FinishIn, "outcome")]),
     (
         set(turns.OUTCOMES),
@@ -90,3 +93,9 @@ def test_the_doc_lists_every_state():
     for declared, _ in VOCABULARIES:
         for word in declared:
             assert f"`{word}`" in text, f"docs/state-machines.md does not name `{word}`"
+
+
+def test_an_automation_can_trigger_on_every_report_state():
+    from slate.service import automations
+
+    assert set(automations.AGENT_STATES) == set(reports.STATES)

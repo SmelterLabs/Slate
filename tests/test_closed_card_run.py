@@ -111,3 +111,21 @@ def test_an_ask_turn_on_a_done_card_is_still_quarantined_when_it_runs_out(
     db.expire_all()
 
     assert db.get(WorkLease, item["id"]).quarantined
+
+
+def test_closing_a_card_whose_lease_already_ran_out_settles_that_lease(
+    client, alex, todo, make_account, db
+):
+    _, h, item = setup_task(client, alex, todo, make_account)
+    _next(client, h)
+    work.expire_leases(db, utcnow() + timedelta(hours=1))
+    db.expire_all()
+    assert db.get(WorkLease, item["id"]).quarantined
+    _close(client, alex, item["id"])
+
+    work.expire_leases(db, utcnow() + timedelta(hours=1))
+    db.expire_all()
+
+    assert db.get(WorkLease, item["id"]) is None
+    assert client.get(f"{API}/work", headers=h).json() == []
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["agent"] is None
