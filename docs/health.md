@@ -51,3 +51,8 @@ the report's table scans into load.
 - **The board** reloads the report on a `health.*` event at once and after any other event at most
   every 15 s (no polling, rule 6), plus a Refresh button. Cmd+K "Go to Health" and the nav link are
   hidden from non-admins (`board.canManage`); the server refuses them with 403.
+
+The authenticated report adds three checks for its viewer: `push_failed_24h`,
+`push_removed_7d` and `questions_open_24h`. Push failure counts use the terminal
+receipt timestamp. Device removals use `push.expired` events, and question counts include
+only currently open questions the viewer can read.

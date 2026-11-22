@@ -209,7 +209,19 @@ READS = {
     "slate.service.checkin": {"checkin", "queue", "why"},
     "slate.service.activity": {"activity"},
     "slate.service.favorites": {"list_favorites", "get_favorite", "favorite_out"},
+    "slate.service.attention": {
+        "loudness",
+        "event_level",
+        "quiet_until",
+        "open_questions",
+        "original_event",
+        "pending",
+        "released",
+        "latest_cursor",
+    },
     "slate.service.inbox": {
+        "entry_view",
+        "notification_turn",
         "follows",
         "reason_for",
         "entries",
@@ -336,15 +348,8 @@ READS = {
         "subscription_view",
         "endpoint_allowed",
         "list_subscriptions",
-        "chat_reason",
         "notification_for",
         "reasons_for",
-        "renudge_minutes",
-        "unread_by_channel",
-        "renudge_notification",
-        "wants",
-        "wanted",
-        "started_work",
         "watch_verb",
     },
     "slate.service.email": {"address", "compose", "reasons_for", "seen"},
@@ -715,6 +720,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "remove_favorite": lambda db, a, p: favorites.remove_favorite(db, a, _pin(db, a).id),
         "reorder_favorites": lambda db, a, p: _reorder(db, a),
     },
+    "slate.service.attention": {"escalate": None, "release": None},
     # Both act as the `slate` system account, not the caller: covered in tests/test_due_events.py.
     "slate.service.due": {"system_actor": None, "emit_due_events": None, "retry_failed_runs": None},
     "slate.service.automations": {
@@ -828,7 +834,6 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         # table is the delivery log, core.BOOKKEEPING_MODELS), and `push.expired` as its owner
         # with source `system`. Covered in tests/test_push.py and tests/test_push_retry.py.
         "process": None,
-        "renudge": None,
         "send_test": None,
     },
     "slate.service.email": {

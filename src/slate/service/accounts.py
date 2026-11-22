@@ -46,6 +46,7 @@ PUSH_REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     "comment",
     "status",
     "update",
@@ -53,9 +54,8 @@ PUSH_REASONS = (
     "moved",
     "watching",
 )
-# Inbox reasons a person can choose to get by email (service/email.py). Not `chat`: a busy
-# channel is a toast, never an email.
-EMAIL_REASONS = tuple(r for r in PUSH_REASONS if r != "chat")
+# Email uses the same reason vocabulary and applies its level floor at delivery.
+EMAIL_REASONS = PUSH_REASONS
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 # What auto-watch can follow (service/watchers.py; kept here so prefs need no import cycle).
 AUTO_WATCH = ("created", "assigned", "commented")
@@ -530,11 +530,21 @@ def _validate_prefs(prefs: dict[str, Any]) -> None:
     to = prefs.get("email_to")
     if to is not None and not (isinstance(to, str) and len(to) <= 254 and EMAIL_RE.match(to)):
         raise Invalid("email_to must be one email address")
-    renudge = prefs.get("chat_renudge_minutes")
-    if renudge is not None and (
-        isinstance(renudge, bool) or not isinstance(renudge, int) or not 0 <= renudge <= 24 * 60
+    minutes = prefs.get("escalate_after_minutes")
+    if minutes is not None and (
+        isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 2**31 - 1
     ):
-        raise Invalid("chat_renudge_minutes must be a whole number of minutes, 0 (off) to 1440")
+        raise Invalid("escalate_after_minutes must be a nonnegative whole number of minutes")
+    quiet = prefs.get("quiet_hours")
+    if quiet is not None and not (
+        isinstance(quiet, dict)
+        and quiet.keys() == {"from", "to"}
+        and all(
+            isinstance(t, str) and re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", t)
+            for t in quiet.values()
+        )
+    ):
+        raise Invalid("quiet_hours needs from and to in HH:MM")
     auto = prefs.get("auto_watch")
     if auto is not None and not (
         isinstance(auto, dict)

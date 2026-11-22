@@ -41,6 +41,7 @@ export const EVENT_TYPES = [
   'item.unwatched',
   'inbox.read',
   'inbox.cleared',
+  'inbox.escalated',
   'message.posted',
   'message.edited',
   'message.deleted',

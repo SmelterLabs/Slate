@@ -408,6 +408,10 @@ export interface Prefs {
   digest_hour?: number;
   /** Inbox reasons pushed to phone and desktop (default lib/push DEFAULT_PUSH_REASONS). */
   push_reasons?: string[];
+  /** Quiet notification hours in workspace time. */
+  quiet_hours?: { from: string; to: string } | null;
+  /** Minutes before an unanswered question escalates to the phone (0 turns it off). */
+  escalate_after_minutes?: number;
   /** Where email notifications go, and which inbox reasons are emailed when still unseen
    * after five minutes (default lib/push DEFAULT_EMAIL_REASONS). */
   email_to?: string;
