@@ -19,7 +19,8 @@ from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.lists import list_out
 from slate.api.schemas import PAGE_BODY_MAX, ChildIn, ItemOut, ListOut
 from slate.api.uploads import BASE64_MAX_CHARS, file_response, read_body
-from slate.service import access, docs
+from slate.models import DOC_TITLE_MAX
+from slate.service import access, doc_files, doc_pages, doc_threads
 from slate.service import attachments as attachments_svc
 
 router = APIRouter(tags=["docs"])
@@ -31,7 +32,9 @@ Kind = Literal["page", "file", "folder"]
 class DocIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = Field(default=None, max_length=200, description="Default: the template's")
+    title: str | None = Field(
+        default=None, max_length=DOC_TITLE_MAX, description="Default: the template's"
+    )
     body_md: str | None = Field(
         default=None, max_length=PAGE_BODY_MAX, description="Markdown; default: the template's"
     )
@@ -64,7 +67,7 @@ class ReplaceSection(BaseModel):
 class DocPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=DOC_TITLE_MAX)
     icon: str | None = Field(default=None, max_length=16, description="One emoji; null clears")
     body_md: str | None = Field(
         default=None, max_length=PAGE_BODY_MAX, description="Replaces the whole body"
@@ -99,7 +102,7 @@ class DocMoveIn(BaseModel):
 class DocDuplicateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=DOC_TITLE_MAX)
     subpages: bool = Field(default=True, description="Copy the subpages too")
 
 
@@ -388,7 +391,9 @@ class Base64RevisionIn(Base64FileIn):
 class PromoteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = Field(default=None, max_length=200, description="Default: the filename")
+    title: str | None = Field(
+        default=None, max_length=DOC_TITLE_MAX, description="Default: the filename"
+    )
     parent_id: str | None = Field(default=None, description="Under this page")
     list_id: str | None = Field(default=None, description="Or a top doc in this list")
     section_id: str | None = Field(default=None, description="Or in this section")
@@ -396,7 +401,7 @@ class PromoteIn(BaseModel):
 
 
 def out(session: Any, doc: Any) -> dict:
-    return docs.doc_out(session, doc)
+    return doc_pages.doc_out(session, doc)
 
 
 @router.get("/docs", response_model=list[DocSummaryOut])
@@ -419,7 +424,7 @@ def list_docs(
     there and all under them; `workspace` = docs in no list or section; `embeds=<task or doc
     id>` = pages that embed or link it; `archived` = the archived docs themselves; `kind` and
     `tag` narrow further."""
-    rows = docs.list_docs(
+    rows = doc_pages.list_docs(
         session,
         q=q,
         list_id=list_id,
@@ -432,26 +437,26 @@ def list_docs(
         kind=kind,
         tag=tag,
     )
-    return docs.summaries(session, rows, q)
+    return doc_pages.summaries(session, rows, q)
 
 
 @router.get("/docs/templates", response_model=list[DocTemplateOut])
 def templates(_: ReadAuth) -> list[dict]:
     """Starting points for a new page (`template` on create)."""
-    return docs.templates()
+    return doc_pages.templates()
 
 
 @router.post("/docs", status_code=status.HTTP_201_CREATED, response_model=DocOut)
 def create_doc(body: DocIn, auth: WriteAuth, session: DbSession) -> dict:
     """A new page: in a list, a section, the workspace (neither), or under `parent_id`."""
-    doc = docs.create_doc(session, auth.actor, **body.model_dump(exclude_none=True))
+    doc = doc_pages.create_doc(session, auth.actor, **body.model_dump(exclude_none=True))
     return out(session, doc)
 
 
 @router.get("/docs/{doc_id}", response_model=DocOut)
 def get_doc(doc_id: str, _: ReadAuth, session: DbSession) -> dict:
     """The page with its body, path, subpages, outline, embedded tasks, links and files."""
-    return out(session, docs.get_doc(session, doc_id))
+    return out(session, doc_pages.get_doc(session, doc_id))
 
 
 @router.patch("/docs/{doc_id}", response_model=DocOut)
@@ -461,56 +466,60 @@ def update_doc(doc_id: str, body: DocPatch, auth: WriteAuth, session: DbSession)
     changes = body.model_dump(exclude_unset=True)
     if body.replace_section is not None:
         changes["replace_section"] = body.replace_section.model_dump()
-    return out(session, docs.update_doc(session, auth.actor, doc_id, changes))
+    return out(session, doc_pages.update_doc(session, auth.actor, doc_id, changes))
 
 
 @router.post("/docs/{doc_id}/move", response_model=DocOut)
 def move_doc(doc_id: str, body: DocMoveIn, auth: WriteAuth, session: DbSession) -> dict:
     """Move a page and its subpages under another page, or to the top of a list, a section or
     the workspace (no parent and no place)."""
-    return out(session, docs.move_doc(session, auth.actor, doc_id, body.model_dump()))
+    return out(session, doc_pages.move_doc(session, auth.actor, doc_id, body.model_dump()))
 
 
 @router.post("/docs/{doc_id}/archive", response_model=DocOut)
 def archive_doc(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Hide a page and its subpages."""
-    return out(session, docs.archive_doc(session, auth.actor, doc_id))
+    return out(session, doc_pages.archive_doc(session, auth.actor, doc_id))
 
 
 @router.post("/docs/{doc_id}/unarchive", response_model=DocOut)
 def unarchive_doc(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
-    return out(session, docs.unarchive_doc(session, auth.actor, doc_id))
+    return out(session, doc_pages.unarchive_doc(session, auth.actor, doc_id))
 
 
 @router.delete("/docs/{doc_id}", response_model=DeletedOut)
 def delete_doc(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Delete an archived page and its subpages for good (the history of events stays)."""
-    return {"deleted": docs.delete_doc(session, auth.actor, doc_id)}
+    return {"deleted": doc_pages.delete_doc(session, auth.actor, doc_id)}
 
 
 @router.post("/docs/{doc_id}/duplicate", status_code=status.HTTP_201_CREATED, response_model=DocOut)
 def duplicate_doc(doc_id: str, body: DocDuplicateIn, auth: WriteAuth, session: DbSession) -> dict:
     """Copy a page (and its subpages) next to the original."""
-    copy = docs.duplicate_doc(session, auth.actor, doc_id, title=body.title, subpages=body.subpages)
+    copy = doc_pages.duplicate_doc(
+        session, auth.actor, doc_id, title=body.title, subpages=body.subpages
+    )
     return out(session, copy)
 
 
 @router.get("/docs/{doc_id}/versions", response_model=list[VersionOut])
 def versions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """Page history, newest first, without bodies (one version per sitting of edits)."""
-    rows = [docs.version_out(v, body=False) for v in docs.versions_of(session, doc_id)]
+    rows = [doc_pages.version_out(v, body=False) for v in doc_pages.versions_of(session, doc_id)]
     return access.scrub(session, rows)
 
 
 @router.get("/docs/{doc_id}/versions/{version_no}", response_model=VersionOut)
 def version(doc_id: str, version_no: int, _: ReadAuth, session: DbSession) -> dict:
-    return access.scrub(session, docs.version_out(docs.get_version(session, doc_id, version_no)))
+    return access.scrub(
+        session, doc_pages.version_out(doc_pages.get_version(session, doc_id, version_no))
+    )
 
 
 @router.post("/docs/{doc_id}/versions/{version_no}/restore", response_model=DocOut)
 def restore(doc_id: str, version_no: int, auth: WriteAuth, session: DbSession) -> dict:
     """Bring back an older version's title and body (as a new version)."""
-    return out(session, docs.restore_version(session, auth.actor, doc_id, version_no))
+    return out(session, doc_pages.restore_version(session, auth.actor, doc_id, version_no))
 
 
 @router.get("/docs/{doc_id}/diff", response_model=DiffOut)
@@ -522,7 +531,7 @@ def diff(
     to_version: Annotated[int | None, Query(alias="to", ge=1)] = None,
 ) -> dict:
     """What changed in the body between two versions (`to` default: the current text)."""
-    return docs.diff(session, doc_id, from_version, to_version)
+    return doc_pages.diff(session, doc_id, from_version, to_version)
 
 
 @router.post("/docs/{doc_id}/tasks", status_code=status.HTTP_201_CREATED, response_model=DocTaskOut)
@@ -532,7 +541,7 @@ def create_task(doc_id: str, body: DocTaskIn, auth: WriteAuth, session: DbSessio
     from slate.service import items
 
     fields = body.model_dump(exclude_none=True)
-    item, doc = docs.create_task(session, auth.actor, doc_id, **fields)
+    item, doc = doc_pages.create_task(session, auth.actor, doc_id, **fields)
     return {"item": items.views(session, [item])[0], "doc": out(session, doc)}
 
 
@@ -552,11 +561,11 @@ async def add_file(
     session: DbSession,
 ) -> dict:
     """Upload an image or file into the page (raw body, up to 10 MB); paste its `markdown`."""
-    data = await read_body(request, docs.MAX_FILE_BYTES)
+    data = await read_body(request, doc_files.MAX_FILE_BYTES)
     # The body is read on the event loop; the write (which waits for the write lock) runs in
     # the threadpool like any sync route, so a held lock never stalls other requests.
     f = await run_in_threadpool(
-        docs.add_file,
+        doc_files.add_file,
         session,
         auth.actor,
         doc_id,
@@ -564,7 +573,7 @@ async def add_file(
         data=data,
         content_type=request.headers.get("content-type"),
     )
-    return docs.file_out(f)
+    return doc_files.file_out(f)
 
 
 @router.post(
@@ -572,7 +581,7 @@ async def add_file(
 )
 def add_file_base64(doc_id: str, body: Base64FileIn, auth: WriteAuth, session: DbSession) -> dict:
     """The same upload for clients that can only send JSON."""
-    f = docs.add_file(
+    f = doc_files.add_file(
         session,
         auth.actor,
         doc_id,
@@ -580,7 +589,7 @@ def add_file_base64(doc_id: str, body: Base64FileIn, auth: WriteAuth, session: D
         data=attachments_svc.decode_base64(body.content_base64),
         content_type=body.content_type,
     )
-    return docs.file_out(f)
+    return doc_files.file_out(f)
 
 
 @router.get("/sections/{section_id}/documents", response_model=SectionDocumentsOut)
@@ -588,9 +597,7 @@ def section_documents(section_id: str, auth: ReadAuth, session: DbSession) -> di
     """The project home's documents hub: the section's drawers with counts, its pages
     outside any drawer, and what needs you (open Asks to you; open review threads by others
     on docs you touched)."""
-    from slate.service import doc_hub
-
-    out = doc_hub.section_documents(session, section_id, auth.actor.account_id)
+    out = doc_pages.section_documents(session, section_id, auth.actor.account_id)
     out["drawers"] = [{**d, "list": list_out(session, d["list"])} for d in out["drawers"]]
     return out
 
@@ -605,7 +612,7 @@ def drawer(
     """A drawer's entries at its top or inside `folder`: folders and documents in tree order,
     each with its current and pinned revision, tags, thread counts and (for a folder) how
     many entries it holds; plus the folder path and the drawer's counts."""
-    out = docs.drawer_listing(session, list_id, folder)
+    out = doc_pages.drawer_listing(session, list_id, folder)
     out["list"] = list_out(session, out["list"])
     return out
 
@@ -616,7 +623,7 @@ def drawer(
 def to_drawer(doc_id: str, auth: WriteAuth, session: DbSession) -> ListOut:
     """Turn a top-level page into a drawer of the same name in its section: its subpages
     become the drawer's entries and the page itself moves in too (its text is kept)."""
-    return list_out(session, docs.to_drawer(session, auth.actor, doc_id))
+    return list_out(session, doc_pages.to_drawer(session, auth.actor, doc_id))
 
 
 @router.post("/docs/{doc_id}/revisions/{revision_no}/pin", response_model=DocOut)
@@ -625,31 +632,33 @@ def pin_revision(
 ) -> dict:
     """Mark a revision as the one in use. One pin per document;
     pinning another revision moves it."""
-    return out(session, docs.pin_revision(session, auth.actor, doc_id, revision_no, body.note))
+    return out(session, doc_files.pin_revision(session, auth.actor, doc_id, revision_no, body.note))
 
 
 @router.delete("/docs/{doc_id}/pin", response_model=DocOut)
 def unpin_revision(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
-    return out(session, docs.unpin_revision(session, auth.actor, doc_id))
+    return out(session, doc_files.unpin_revision(session, auth.actor, doc_id))
 
 
 @router.post("/docs/{doc_id}/top", response_model=DocOut)
 def pin_to_top(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Pin a document (file, page or folder) to the top of its drawer or folder listing, for
     everyone. Pinned entries come first in `GET /lists/{id}/drawer`, oldest pin first."""
-    return out(session, docs.pin_to_top(session, auth.actor, doc_id))
+    return out(session, doc_pages.pin_to_top(session, auth.actor, doc_id))
 
 
 @router.delete("/docs/{doc_id}/top", response_model=DocOut)
 def unpin_from_top(doc_id: str, auth: WriteAuth, session: DbSession) -> dict:
     """Take a document off the top of its listing."""
-    return out(session, docs.unpin_from_top(session, auth.actor, doc_id))
+    return out(session, doc_pages.unpin_from_top(session, auth.actor, doc_id))
 
 
 @router.get("/docs/{doc_id}/revisions", response_model=list[DocRevisionOut])
 def revisions(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """A file doc's revisions, newest first (metadata; the bytes are at each `url`)."""
-    return access.scrub(session, [docs.revision_out(f) for f in docs.revisions_of(session, doc_id)])
+    return access.scrub(
+        session, [doc_files.revision_out(f) for f in doc_files.revisions_of(session, doc_id)]
+    )
 
 
 @router.get(
@@ -665,9 +674,7 @@ def compare_revisions(
     """What changed between two revisions of a file doc (`to` default: the current one), by
     type: text files line by line; CSV, TSV and XLSX cell by cell per sheet; PDFs by their
     extracted text (approximate); images and the rest have no server diff."""
-    from slate.service import doc_compare
-
-    return doc_compare.compare(session, doc_id, from_no, to_no)
+    return doc_threads.compare(session, doc_id, from_no, to_no)
 
 
 @router.post(
@@ -688,10 +695,10 @@ async def add_revision(
 ) -> dict:
     """Upload the next revision of a file doc (raw body, up to 25 MB). The previous revision
     stays, marked superseded. `note` says what changed; it is required."""
-    data = await read_body(request, docs.MAX_REVISION_BYTES)
+    data = await read_body(request, doc_files.MAX_REVISION_BYTES)
     # Reading the file's text and the write both run in the threadpool (see `add_file`).
     f = await run_in_threadpool(
-        docs.add_revision,
+        doc_files.add_revision,
         session,
         auth.actor,
         doc_id,
@@ -700,7 +707,7 @@ async def add_revision(
         note=note,
         content_type=request.headers.get("content-type"),
     )
-    return docs.revision_out(f)
+    return doc_files.revision_out(f)
 
 
 @router.post(
@@ -712,7 +719,7 @@ def add_revision_base64(
     doc_id: str, body: Base64RevisionIn, auth: WriteAuth, session: DbSession
 ) -> dict:
     """The same upload for clients that can only send JSON."""
-    f = docs.add_revision(
+    f = doc_files.add_revision(
         session,
         auth.actor,
         doc_id,
@@ -721,14 +728,14 @@ def add_revision_base64(
         note=body.note,
         content_type=body.content_type,
     )
-    return docs.revision_out(f)
+    return doc_files.revision_out(f)
 
 
 @router.post("/docs/{doc_id}/revisions/{revision_no}/restore", response_model=DocOut)
 def restore_revision(doc_id: str, revision_no: int, auth: WriteAuth, session: DbSession) -> dict:
     """Make an older revision current again, as a new revision with its bytes."""
-    docs.restore_revision(session, auth.actor, doc_id, revision_no)
-    return out(session, docs.get_doc(session, doc_id))
+    doc_files.restore_revision(session, auth.actor, doc_id, revision_no)
+    return out(session, doc_pages.get_doc(session, doc_id))
 
 
 @router.post(
@@ -741,7 +748,7 @@ def promote_attachment(
 ) -> dict:
     """Move a task's attachment into Docs & Files: a new file doc with the bytes as revision
     1; the task loses the attachment and gets a comment linking the doc."""
-    doc = docs.promote_attachment(
+    doc = doc_files.promote_attachment(
         session, auth.actor, attachment_id, **body.model_dump(exclude_none=True)
     )
     return out(session, doc)
@@ -753,11 +760,11 @@ def download_file(
 ) -> Response:
     """The file's bytes; images, PDFs and plain text show inline unless `?download=true`
     (HTML, SVG and XML always download)."""
-    f = docs.get_file(session, file_id)
+    f = doc_files.get_file(session, file_id)
     return file_response(f.filename, f.content_type, f.data, download=download)
 
 
 @router.delete("/doc-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_file(file_id: str, auth: WriteAuth, session: DbSession) -> Response:
-    docs.remove_file(session, auth.actor, file_id)
+    doc_files.remove_file(session, auth.actor, file_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

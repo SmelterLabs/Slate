@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.docs import DocOut, out
-from slate.service import doc_threads
+from slate.service import doc_pages, doc_threads
 
 router = APIRouter(tags=["docs"])
 
@@ -137,7 +137,7 @@ def _out(session: Any, c: Any) -> dict:
 @router.get("/docs/{doc_id}/comments", response_model=list[DocCommentOut])
 def list_comments(doc_id: str, _: ReadAuth, session: DbSession) -> list[dict]:
     """Every comment on the doc, oldest first; threads are the rows sharing a `parent_id`."""
-    doc = doc_threads.docs_svc.get_doc(session, doc_id)
+    doc = doc_pages.get_doc(session, doc_id)
     return doc_threads.views(session, doc, doc_threads.comments_of(session, doc_id))
 
 

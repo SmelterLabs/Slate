@@ -1,18 +1,4 @@
-"""Page text (part of `slate.service.docs`): templates, the body, page history, and filing a
-task from a page.
-
-A title or body save by the account that made the newest version, within `FOLD_MINUTES` of its
-last save, folds into that version; anything else (another account, a pause, `new_version`, a
-restore) starts a new one. The event log still has every save. Embeds are plain text so agents
-read and write them without a special API: `[[task:<id>]]` on a line of its own renders as a
-live task card on the board (inline, a chip), `[[doc:<id>]]` links another page.
-
-Writes: `doc.created`, `doc.updated` (field `title`, `icon`, `body_md` or `version_no`),
-`doc.version_restored`, `doc.mentioned` (when a save adds `@handle`s the page did not have,
-`after` = `{doc_id, title, mentions, excerpt}`, so the inbox, check-in and push hear
-about it like a comment mention; only newly added handles count, and a push agent among them is
-woken for a doc turn).
-"""
+"""Document pages and drawers: their tree, versions, links, listings and views."""
 
 from __future__ import annotations
 
@@ -22,28 +8,34 @@ from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, undefer
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.orm import Session, load_only, undefer
 
+from slate.db import contains
 from slate.ids import new_id
-from slate.models import Doc, DocFile, DocVersion, Item, utcnow
-from slate.service import guests
+from slate.models import (
+    DOC_TITLE_MAX,
+    Doc,
+    DocComment,
+    DocFile,
+    DocLink,
+    DocTag,
+    DocVersion,
+    Event,
+    Item,
+    List,
+    Section,
+    Tag,
+    utcnow,
+)
+from slate.service import access, doc_files, guests
+from slate.service import lists as lists_svc
+from slate.service import tags as tags_svc
 from slate.service.comments import mentions_in
 from slate.service.core import Actor, Change, apply_change
-from slate.service.doc_tree import (
-    KINDS,
-    MAX_DEPTH,
-    all_docs,
-    depth,
-    fresh_doc,
-    get_doc,
-    place,
-    renumber,
-    root_of,
-    siblings,
-    tree_order,
-)
 from slate.service.errors import Conflict, Invalid, NotFound
+from slate.service.lists import get_list
+from slate.service.sections import get_section
 
 MAX_BODY = 500_000
 FOLD_MINUTES = 10
@@ -100,8 +92,8 @@ def _title(value: Any) -> str:
     text = " ".join(str(value or "").split())
     if not text:
         raise Invalid("title is empty")
-    if len(text) > 200:
-        raise Invalid("title is longer than 200 characters")
+    if len(text) > DOC_TITLE_MAX:
+        raise Invalid(f"title is longer than {DOC_TITLE_MAX} characters")
     return text
 
 
@@ -243,7 +235,7 @@ def diff(
 
 def unified(before: str, after: str, from_label: str, to_label: str) -> tuple[str, int, int]:
     """A line-by-line unified diff and its added and removed line counts. Page versions and
-    file revisions (`doc_compare`) are compared by the same rule."""
+    file revisions (`doc_threads.compare`) are compared by the same rule."""
     lines = list(
         difflib.unified_diff(
             before.splitlines(),
@@ -423,9 +415,6 @@ def create_doc(
     in `list_id`, `section_id` or the workspace. `template` fills title, icon and body that
     the caller did not give. It goes last among its siblings, or before `before_id`.
     `kind = file` makes a file doc, empty until `add_revision`; its body is the description."""
-    from slate.service.doc_files import created_from_name
-    from slate.service.doc_listing import _set_tags
-    from slate.service.doc_shape import sync_links
 
     if kind not in KINDS:
         raise Invalid(f"kind must be one of {', '.join(KINDS)}")
@@ -460,7 +449,7 @@ def create_doc(
         position=len(group),
     )
     if kind == "file":
-        dated = created_from_name(doc.title)
+        dated = doc_files.created_from_name(doc.title)
         if dated is not None:
             doc.created_at = dated  # the date in the name is the file's date
     at = next((n for n, d in enumerate(group) if d.id == before_id), len(group))
@@ -496,8 +485,6 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
     `base_revision`: the revision the caller edited; a mismatch is a 409 and nothing changes.
     `new_version: true` (or a `note`) closes the current page-history version, named by `note`.
     """
-    from slate.service.doc_listing import _set_tags
-    from slate.service.doc_shape import sync_links
 
     unknown = set(changes) - UPDATABLE
     if unknown:
@@ -510,9 +497,8 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
     note = str(changes.get("note") or "").strip()[:200] or None
     seal = bool(changes.get("new_version")) or note is not None
     tag_names = changes.get("tags")
-    from slate.service import docs as docs_svc
 
-    with docs_svc.apply_change(session, actor) as cx:
+    with apply_change(session, actor) as cx:
         # The check and the new body are worked out from the doc as it stands under the write
         # lock, so a save that committed since this request began is never overwritten unseen:
         # a stale `base_revision` is a 409 and two `append_md` calls both land.
@@ -588,7 +574,6 @@ def update_doc(session: Session, actor: Actor, doc_id: str, changes: Mapping[str
 def restore_version(session: Session, actor: Actor, doc_id: str, version_no: int) -> Doc:
     """Put an older version's title and body back. Nothing is lost: the restore is itself a
     new version, and the text it replaced stays in the one before."""
-    from slate.service.doc_shape import sync_links
 
     doc = get_doc(session, doc_id)
     old = get_version(session, doc_id, version_no)
@@ -627,8 +612,6 @@ def duplicate_doc(
     Each copy starts its own history at version 1. Only the copied docs are read, and a copied
     file keeps its revision's extracted text and tables (the bytes are the same), so nothing is
     parsed while the write lock is held."""
-    from slate.service.doc_files import _revision_row, current_revisions, revision_out
-    from slate.service.doc_shape import sync_links
 
     src = get_doc(session, doc_id)
     docs = all_docs(session)
@@ -651,7 +634,7 @@ def duplicate_doc(
     for d in full.values():
         d.body_md  # noqa: B018 - load bodies before the change (no queries inside it)
 
-    current = current_revisions(session, list(copied.values()))
+    current = doc_files.current_revisions(session, list(copied.values()))
     if current:  # bytes, text and tables of the copied revisions, in one query, before the change
         session.scalars(
             select(DocFile)
@@ -678,7 +661,7 @@ def duplicate_doc(
         f = current.get(from_id)
         if f is None:
             return []
-        rev = _revision_row(
+        rev = doc_files.revision_row(
             cx.actor,
             to.id,
             f.filename,
@@ -696,7 +679,10 @@ def duplicate_doc(
         _insert(session, cx, copy, version, [m for m in moved if m is not copy])
         for rev in copy_revision(cx, src.id, copy):
             cx.record(
-                "doc.revision_added", subject_id=copy.id, after=revision_out(rev), covers=[rev]
+                "doc.revision_added",
+                subject_id=copy.id,
+                after=doc_files.revision_out(rev),
+                covers=[rev],
             )
         if subpages:
             stack = [(src.id, copy.id)]
@@ -710,7 +696,7 @@ def duplicate_doc(
                         cx.record(
                             "doc.revision_added",
                             subject_id=dup.id,
-                            after=revision_out(rev),
+                            after=doc_files.revision_out(rev),
                             covers=[rev],
                         )
                     stack.append((child.id, dup.id))
@@ -741,7 +727,6 @@ def create_task(
     Exactly one item is created (AGENTS.md rule 1).
     """
     from slate.service import items as items_svc
-    from slate.service.doc_shape import sync_links
 
     doc = get_doc(session, doc_id)
     target = list_id or root_of(session, doc).list_id
@@ -749,9 +734,8 @@ def create_task(
         raise Invalid("list_id is required: this doc is not in a list")
     link = f"From doc [[doc:{doc.id}]]"
     desc = str(fields.pop("body_md", "") or "").strip()
-    from slate.service import docs as docs_svc
 
-    with docs_svc.apply_change(session, actor) as cx:
+    with apply_change(session, actor) as cx:
         # Checked against the doc as it stands under the write lock (see `update_doc`).
         doc = fresh_doc(session, doc_id)
         latest = _version(session, doc)
@@ -794,3 +778,892 @@ def create_task(
         )
         sync_links(cx, doc)
     return item, doc
+
+
+# --- Document tree ---
+
+
+MAX_DEPTH = 8  # a top page is depth 1
+KINDS = ("page", "file", "folder")
+
+
+def get_doc(session: Session, doc_id: str) -> Doc:
+    doc = session.get(Doc, doc_id)
+    if doc is None:
+        raise NotFound(f"doc {doc_id} not found")
+    return doc
+
+
+def fresh_doc(session: Session, doc_id: str) -> Doc:
+    """The doc as the database has it now, body included, overwriting this session's copy.
+    Read it first thing inside `apply_change` (nothing is dirty yet, so nothing flushes) when a
+    check or an edit depends on the current text: the copy loaded before the write lock may
+    be stale by the time the lock is held."""
+    doc = session.scalar(
+        select(Doc)
+        .options(undefer(Doc.body_md))
+        .where(Doc.id == doc_id)
+        .execution_options(populate_existing=True)
+    )
+    if doc is None:
+        raise NotFound(f"doc {doc_id} not found")
+    return doc
+
+
+def all_docs(session: Session, *, fresh: bool = False) -> list[Doc]:
+    """Every doc without bodies: enough to walk the tree. `fresh` overwrites rows this session
+    already holds with what the database has now (for a check made under the write lock)."""
+    stmt = select(Doc)
+    if fresh:
+        stmt = stmt.execution_options(populate_existing=True)
+    return list(
+        session.scalars(
+            stmt.options(
+                load_only(
+                    Doc.id,
+                    Doc.kind,
+                    Doc.pinned_revision_no,
+                    Doc.pinned_note,
+                    Doc.top_pinned_at,
+                    Doc.top_pinned_by,
+                    Doc.title,
+                    Doc.icon,
+                    Doc.parent_id,
+                    Doc.section_id,
+                    Doc.list_id,
+                    Doc.position,
+                    Doc.revision,
+                    Doc.version_no,
+                    Doc.created_by,
+                    Doc.created_at,
+                    Doc.updated_by,
+                    Doc.updated_at,
+                    Doc.archived_at,
+                )
+            ).order_by(Doc.position, Doc.created_at)
+        )
+    )
+
+
+def ancestors(by_id: Mapping[str, Doc], doc: Doc) -> list[Doc]:
+    """Parent first, top page last. Stops on a broken link rather than looping."""
+    out: list[Doc] = []
+    seen = {doc.id}
+    cur = by_id.get(doc.parent_id) if doc.parent_id else None
+    while cur is not None and cur.id not in seen:
+        out.append(cur)
+        seen.add(cur.id)
+        cur = by_id.get(cur.parent_id) if cur.parent_id else None
+    return out
+
+
+def top_of(by_id: Mapping[str, Doc], doc: Doc) -> Doc:
+    """The top page above `doc` (itself when it is one): the doc that carries the location."""
+    chain = ancestors(by_id, doc)
+    return chain[-1] if chain else doc
+
+
+def root_of(session: Session, doc: Doc) -> Doc:
+    cur = doc
+    seen = {doc.id}
+    while cur.parent_id and cur.parent_id not in seen:
+        seen.add(cur.parent_id)
+        cur = get_doc(session, cur.parent_id)
+    return cur
+
+
+def _descendants(docs: Sequence[Doc], doc_id: str) -> list[Doc]:
+    children: dict[str, list[Doc]] = {}
+    for d in docs:
+        if d.parent_id:
+            children.setdefault(d.parent_id, []).append(d)
+    out: list[Doc] = []
+    seen = {doc_id}
+    stack = list(children.get(doc_id, []))
+    while stack:
+        d = stack.pop()
+        if d.id in seen:  # a broken tree (a parent cycle) must not walk forever
+            continue
+        seen.add(d.id)
+        out.append(d)
+        stack.extend(children.get(d.id, []))
+    return out
+
+
+def tree_order(docs: Sequence[Doc]) -> list[Doc]:
+    """Depth-first, siblings by position; docs whose parent is not in the set start a branch."""
+    ids = {d.id for d in docs}
+    children: dict[str | None, list[Doc]] = {}
+    for d in docs:
+        key = d.parent_id if d.parent_id in ids else None
+        children.setdefault(key, []).append(d)
+    for group in children.values():
+        group.sort(key=lambda d: (d.position, d.created_at, d.id))
+    out: list[Doc] = []
+    seen: set[str] = set()
+
+    def walk(key: str | None) -> None:
+        for d in children.get(key, []):
+            if d.id in seen:
+                continue
+            seen.add(d.id)
+            out.append(d)
+            walk(d.id)
+
+    walk(None)
+    return out
+
+
+def _hidden_places(session: Session) -> tuple[set[str], set[str]]:
+    lists = set(session.scalars(select(List.id).where(List.archived_at.is_not(None))))
+    sections = set(session.scalars(select(Section.id).where(Section.archived_at.is_not(None))))
+    return lists, sections
+
+
+def live(session: Session, docs: Sequence[Doc], by_id: Mapping[str, Doc]) -> list[Doc]:
+    """The docs a listing shows: not archived, under no archived page, and not in an archived
+    list or section."""
+    dead_lists, dead_sections = _hidden_places(session)
+
+    def visible(d: Doc) -> bool:
+        chain = ancestors(by_id, d)
+        if d.archived_at is not None or any(a.archived_at is not None for a in chain):
+            return False
+        t = chain[-1] if chain else d
+        return t.list_id not in dead_lists and t.section_id not in dead_sections
+
+    return [d for d in docs if visible(d)]
+
+
+def depth(by_id: Mapping[str, Doc], doc: Doc) -> int:
+    return 1 + len(ancestors(by_id, doc))
+
+
+def height(docs: Sequence[Doc], doc_id: str) -> int:
+    """Levels in the subtree rooted at doc_id, counting itself."""
+    children: dict[str, list[str]] = {}
+    for d in docs:
+        if d.parent_id:
+            children.setdefault(d.parent_id, []).append(d.id)
+
+    def h(i: str, seen: frozenset[str]) -> int:
+        kids = [k for k in children.get(i, []) if k not in seen]
+        return 1 + max((h(k, seen | {k}) for k in kids), default=0)
+
+    return h(doc_id, frozenset({doc_id}))
+
+
+def siblings(
+    docs: Sequence[Doc],
+    parent_id: str | None,
+    section_id: str | None,
+    list_id: str | None,
+    exclude: str | None = None,
+) -> list[Doc]:
+    if parent_id is not None:
+        group = [d for d in docs if d.parent_id == parent_id]
+    else:
+        group = [
+            d
+            for d in docs
+            if d.parent_id is None
+            and d.list_id == list_id
+            and (list_id is not None or d.section_id == section_id)
+        ]
+    group = [d for d in group if d.id != exclude]
+    group.sort(key=lambda d: (d.position, d.created_at, d.id))
+    return group
+
+
+def renumber(ordered: Sequence[Doc]) -> list[Doc]:
+    """Give siblings positions 0..n in order; returns the rows whose position changed (for the
+    caller's event to cover)."""
+    changed = []
+    for n, d in enumerate(ordered):
+        if d.position != n:
+            d.position = n
+            changed.append(d)
+    return changed
+
+
+def place(
+    session: Session, list_id: str | None, section_id: str | None
+) -> tuple[str | None, str | None]:
+    """A top page's (section_id, list_id); a list fixes its section."""
+    if list_id is not None:
+        lst = get_list(session, list_id)
+        if section_id is not None and section_id != lst.section_id:
+            raise Invalid("that list is in another section")
+        return lst.section_id, lst.id
+    if section_id is not None:
+        return get_section(session, section_id).id, None
+    return None, None
+
+
+def _place_of(doc: Doc) -> dict[str, Any]:
+    return {
+        "parent_id": doc.parent_id,
+        "section_id": doc.section_id,
+        "list_id": doc.list_id,
+        "position": doc.position,
+    }
+
+
+# --- writes ---------------------------------------------------------------------------------
+
+
+def move_doc(session: Session, actor: Actor, doc_id: str, to: Mapping[str, Any]) -> Doc:
+    """Move a page (with its subpages) under another page (`parent_id`), or to the top level of
+    a list, a section or the workspace (`list_id` / `section_id` / neither); before
+    `before_id` among its new siblings, or last."""
+    unknown = set(to) - {"parent_id", "list_id", "section_id", "before_id"}
+    if unknown:
+        raise Invalid(f"move does not take {sorted(unknown)}")
+    access.check_object(session, get_doc(session, doc_id))  # edit where it is now, too
+
+    parent_id = to.get("parent_id")
+    if parent_id is not None:
+        if to.get("list_id") is not None or to.get("section_id") is not None:
+            raise Invalid("a subpage lives where its top page lives; give parent_id or a place")
+        sec, lst = None, None
+    else:
+        sec, lst = place(session, to.get("list_id"), to.get("section_id"))
+    with apply_change(session, actor) as cx:
+        # The tree is read and checked under the write lock (nothing is dirty yet, so the read
+        # flushes nothing): a move that committed since this request began is seen, so two
+        # moves at once cannot make a page its own ancestor or nest past MAX_DEPTH.
+        docs = all_docs(session, fresh=True)
+        by_id = {d.id: d for d in docs}
+        doc = by_id[doc_id]
+        if parent_id is not None:
+            parent = by_id.get(parent_id)
+            if parent is None:
+                raise Invalid(f"parent doc {parent_id} does not exist")
+            if parent_id == doc.id or doc in ancestors(by_id, parent):
+                raise Invalid("a page cannot move under itself or one of its subpages")
+            if depth(by_id, parent) + height(docs, doc.id) > MAX_DEPTH:
+                raise Invalid(f"pages nest {MAX_DEPTH} deep at most")
+        before = _place_of(doc)
+        group = siblings(docs, parent_id, sec, lst, exclude=doc.id)
+        before_id = to.get("before_id")
+        at = next((n for n, d in enumerate(group) if d.id == before_id), len(group))
+        doc.parent_id, doc.section_id, doc.list_id = parent_id, sec, lst
+        changed = renumber([*group[:at], doc, *group[at:]])
+        if _place_of(doc) != before or changed:
+            cx.record(
+                "doc.moved",
+                subject_id=doc.id,
+                before=before,
+                after=_place_of(doc),
+                covers=[doc, *changed],
+            )
+    return doc
+
+
+def archive_doc(session: Session, actor: Actor, doc_id: str) -> Doc:
+    """Hide a page and everything under it (unarchive brings them back)."""
+    doc = get_doc(session, doc_id)
+    with apply_change(session, actor) as cx:
+        cx.set(doc, "archived_at", doc.archived_at or utcnow(), "doc.archived")
+    return doc
+
+
+def unarchive_doc(session: Session, actor: Actor, doc_id: str) -> Doc:
+    doc = get_doc(session, doc_id)
+    with apply_change(session, actor) as cx:
+        cx.set(doc, "archived_at", None, "doc.unarchived")
+    return doc
+
+
+def delete_doc(session: Session, actor: Actor, doc_id: str) -> list[str]:
+    """Delete an archived page and its subpages for good (their versions and files go too;
+    the events stay). Returns the deleted ids, subpages first."""
+    doc = get_doc(session, doc_id)
+    if doc.archived_at is None:
+        raise Invalid("archive the doc first; only an archived doc can be deleted for good")
+    docs = all_docs(session)
+    doomed = [*reversed(_descendants(docs, doc.id)), doc]
+    rows = {d.id: session.get(Doc, d.id) for d in doomed}
+    for d in rows.values():
+        d.body_md  # noqa: B018 - load the deferred body for the snapshot before the change
+    with apply_change(session, actor) as cx:
+        for d in doomed:
+            cx.delete(rows[d.id], "doc.deleted")
+            session.flush()  # subpages first: parent_id does not cascade
+            session.execute(delete(DocLink).where(DocLink.doc_id == d.id))
+    return [d.id for d in doomed]
+
+
+# --- Listings and drawers ---
+
+
+def list_docs(
+    session: Session,
+    *,
+    q: str | None = None,
+    list_id: str | None = None,
+    section_id: str | None = None,
+    parent_id: str | None = None,
+    workspace: bool = False,
+    archived: bool = False,
+    embeds: str | None = None,
+    limit: int | None = None,
+    kind: str | None = None,
+    tag: str | None = None,
+) -> list[Doc]:
+    """Docs in tree order (siblings by position). Filters AND together. `kind` keeps pages or
+    files; `tag` (a name or id) keeps docs carrying it.
+
+    `list_id` / `section_id`: top pages there and everything under them. `workspace`: only
+    pages not in any list or section. `parent_id`: direct subpages. `archived`: the archived
+    pages themselves (not their subpages); otherwise archived pages, their subpages, and pages
+    in archived lists or sections are hidden. `q`: case-insensitive substring of title or body.
+    `embeds`: pages that embed or link that task or doc id.
+    """
+    docs = all_docs(session)
+    by_id = {d.id: d for d in docs}
+
+    if archived:
+        pool = [d for d in docs if d.archived_at is not None]
+    else:
+        pool = live(session, docs, by_id)
+    if list_id is not None:
+        pool = [d for d in pool if top_of(by_id, d).list_id == list_id]
+    if section_id is not None:
+        pool = [d for d in pool if top_of(by_id, d).section_id == section_id]
+    if workspace:
+        pool = [
+            d
+            for d in pool
+            if top_of(by_id, d).section_id is None and top_of(by_id, d).list_id is None
+        ]
+    if parent_id is not None:
+        pool = [d for d in pool if d.parent_id == parent_id]
+    if kind is not None:
+        if kind not in KINDS:
+            raise Invalid(f"kind must be one of {', '.join(KINDS)}")
+        pool = [d for d in pool if d.kind == kind]
+    if tag is not None:
+        tag_row = tags_svc.get_tag(session, tag)
+        tagged = set(session.scalars(select(DocTag.doc_id).where(DocTag.tag_id == tag_row.id)))
+        pool = [d for d in pool if d.id in tagged]
+    if q or embeds:
+        stmt = select(Doc.id)
+        if q:
+            # A file matches on its current revision's name and text, the ones a hit quotes.
+            newest = (
+                select(DocFile.doc_id, func.max(DocFile.revision_no).label("no"))
+                .where(DocFile.revision_no.is_not(None))
+                .group_by(DocFile.doc_id)
+                .subquery()
+            )
+            named = (
+                select(DocFile.doc_id)
+                .join(
+                    newest,
+                    and_(DocFile.doc_id == newest.c.doc_id, DocFile.revision_no == newest.c.no),
+                )
+                .where(
+                    or_(contains(DocFile.filename, q), contains(DocFile.text, q)),
+                )
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(contains(Doc.title, q), contains(Doc.body_md, q), Doc.id.in_(named))
+            )
+        if embeds:
+            stmt = stmt.where(
+                Doc.id.in_(
+                    select(DocLink.doc_id).where(
+                        DocLink.target_id == embeds, DocLink.target_kind.in_(("task", "doc"))
+                    )
+                )
+            )
+        hits = set(session.scalars(stmt))
+        pool = [d for d in pool if d.id in hits]
+    ordered = tree_order(pool)
+    return ordered[:limit] if limit else ordered
+
+
+def in_scope(
+    session: Session,
+    *,
+    list_id: str | None = None,
+    section_id: str | None = None,
+    include_archived: bool = True,
+) -> list[Doc]:
+    """Pages for an export: everything under top pages in the list or section (every page when
+    neither is given), archived ones too unless `include_archived` is false."""
+    docs = all_docs(session)
+    by_id = {d.id: d for d in docs}
+
+    def keep(d: Doc) -> bool:
+        if list_id is not None and top_of(by_id, d).list_id != list_id:
+            return False
+        if section_id is not None and top_of(by_id, d).section_id != section_id:
+            return False
+        if include_archived:
+            return True
+        return d.archived_at is None and all(a.archived_at is None for a in ancestors(by_id, d))
+
+    return tree_order([d for d in docs if keep(d)])
+
+
+def snippet(body: str, q: str, width: int = 80) -> str | None:
+    at = body.lower().find(q.lower())
+    if at < 0:
+        return None
+    start = max(0, at - width // 2)
+    end = min(len(body), at + len(q) + width // 2)
+    text = " ".join(body[start:end].split())
+    return ("…" if start else "") + text + ("…" if end < len(body) else "")
+
+
+def doc_ref(d: Doc) -> dict[str, Any]:
+    """A doc named in another payload: id, title, icon and kind."""
+    return {"id": d.id, "title": d.title, "icon": d.icon, "kind": d.kind}
+
+
+def kind_counts(docs: Sequence[Doc], threads: Mapping[str, tuple[int, int]]) -> dict[str, int]:
+    """Documents (not folders), files and folders among `docs`, and their open review threads
+    (`threads` is `doc_threads.counts` for them)."""
+    return {
+        "docs": sum(1 for d in docs if d.kind != "folder"),
+        "files": sum(1 for d in docs if d.kind == "file"),
+        "folders": sum(1 for d in docs if d.kind == "folder"),
+        "open_threads": sum(threads.get(d.id, (0, 0))[1] for d in docs),
+    }
+
+
+def doc_summary(doc: Doc, current: DocFile | None = None) -> dict[str, Any]:
+    """The index row. `current` is a file doc's newest revision (see `current_revisions`)."""
+    return {
+        "id": doc.id,
+        "kind": doc.kind,
+        "file": doc_files.revision_out(current) if current is not None else None,
+        "pinned": (
+            {
+                "revision_no": doc.pinned_revision_no,
+                "note": doc.pinned_note,
+                "file_id": getattr(current, "pinned_file_id", None),
+            }
+            if doc.pinned_revision_no is not None
+            else None
+        ),
+        "pinned_to_top": (
+            {"at": doc.top_pinned_at, "by": doc.top_pinned_by}
+            if doc.top_pinned_at is not None
+            else None
+        ),
+        "title": doc.title,
+        "icon": doc.icon,
+        "parent_id": doc.parent_id,
+        "section_id": doc.section_id,
+        "list_id": doc.list_id,
+        "position": doc.position,
+        "revision": doc.revision,
+        "version_no": doc.version_no,
+        "created_by": doc.created_by,
+        "created_at": doc.created_at,
+        "updated_by": doc.updated_by,
+        "updated_at": doc.updated_at,
+        "archived_at": doc.archived_at,
+    }
+
+
+def tags_of(session: Session, doc_ids: Sequence[str]) -> dict[str, list[str]]:
+    """{doc_id: sorted tag names} for the given docs (one query)."""
+    out: dict[str, list[str]] = {d: [] for d in doc_ids}
+    if doc_ids:
+        for doc_id, name in session.execute(
+            select(DocTag.doc_id, Tag.name)
+            .join(Tag, Tag.id == DocTag.tag_id)
+            .where(DocTag.doc_id.in_(doc_ids))
+            .order_by(Tag.name)
+        ):
+            out[doc_id].append(name)
+    return out
+
+
+def _with_counts(session: Session, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add `comment_count`, `open_threads` (open review threads) and `tags` to summary rows."""
+    from slate.service.doc_threads import counts
+
+    ids = [r["id"] for r in rows]
+    found = counts(session, ids)
+    tags = tags_of(session, ids)
+    for r in rows:
+        r["comment_count"], r["open_threads"] = found.get(r["id"], (0, 0))
+        r["tags"] = tags.get(r["id"], [])
+    return access.scrub(session, rows)  # a guest's copy names no workspace agent
+
+
+def _set_tags(cx: Change, doc: Doc, names: Sequence[str]) -> None:
+    """Replace the doc's tags; unknown names are created. One `doc.updated` (field `tags`)."""
+    session = cx.session
+    wanted = {t.id: t.name for t in tags_svc.ensure_tags(session, cx.actor, names)}
+    rows = list(session.scalars(select(DocTag).where(DocTag.doc_id == doc.id)))
+    current = {r.tag_id for r in rows}
+    if current == set(wanted):
+        return
+    current_names = dict(session.execute(select(Tag.id, Tag.name).where(Tag.id.in_(current))).all())
+    removed = [r for r in rows if r.tag_id not in wanted]
+    added = [DocTag(doc_id=doc.id, tag_id=t) for t in wanted if t not in current]
+    for r in removed:
+        session.delete(r)
+    for r in added:
+        session.add(r)
+    cx.record(
+        "doc.updated",
+        subject_id=doc.id,
+        field="tags",
+        before=sorted(current_names.values()),
+        after=sorted(wanted.values()),
+        covers=[*removed, *added],
+    )
+
+
+def summaries(session: Session, docs: Sequence[Doc], q: str | None = None) -> list[dict[str, Any]]:
+    current = doc_files.current_revisions(session, docs)
+    out = _with_counts(session, [doc_summary(d, current.get(d.id)) for d in docs])
+    if q and docs:
+        bodies = dict(
+            session.execute(
+                select(Doc.id, Doc.body_md).where(Doc.id.in_([d.id for d in docs]))
+            ).all()
+        )
+        for row in out:
+            row["snippet"] = snippet(bodies.get(row["id"], ""), q)
+        # A file: the hit is in its current revision's extracted text, read for those alone.
+        need = {
+            current[row["id"]].id: row
+            for row in out
+            if row["snippet"] is None and getattr(current.get(row["id"]), "has_text", False)
+        }
+        if need:
+            for file_id, text in session.execute(
+                select(DocFile.id, DocFile.text).where(DocFile.id.in_(list(need)))
+            ):
+                need[file_id]["snippet"] = snippet(text or "", q)
+    return out
+
+
+# --- drawers: a list of documents -------------------------------------------------------------
+
+
+def pin_to_top(session: Session, actor: Actor, doc_id: str) -> Doc:
+    """Pin a document (file, page or folder) to the top of its drawer or folder listing. Shared
+    by everyone who sees the drawer; a second pin sits under the first. One `doc.pinned_to_top`;
+    pinning what is pinned changes nothing."""
+    doc = get_doc(session, doc_id)
+    if doc.top_pinned_at is not None:
+        return doc
+    with apply_change(session, actor) as cx:
+        doc.top_pinned_at = utcnow()
+        doc.top_pinned_by = actor.account_id
+        cx.record(
+            "doc.pinned_to_top",
+            subject_id=doc.id,
+            field="top_pinned_at",
+            before=None,
+            after={"at": doc.top_pinned_at, "by": doc.top_pinned_by},
+            covers=[doc],
+        )
+    return doc
+
+
+def unpin_from_top(session: Session, actor: Actor, doc_id: str) -> Doc:
+    doc = get_doc(session, doc_id)
+    if doc.top_pinned_at is None:
+        return doc
+    before = {"at": doc.top_pinned_at, "by": doc.top_pinned_by}
+    with apply_change(session, actor) as cx:
+        doc.top_pinned_at = None
+        doc.top_pinned_by = None
+        cx.record(
+            "doc.unpinned_from_top",
+            subject_id=doc.id,
+            field="top_pinned_at",
+            before=before,
+            after=None,
+            covers=[doc],
+        )
+    return doc
+
+
+def pinned_first(docs: Sequence[Doc]) -> list[Doc]:
+    """Pinned entries first (oldest pin first), then the rest in the order given."""
+    pinned = sorted(
+        (d for d in docs if d.top_pinned_at is not None), key=lambda d: (d.top_pinned_at, d.id)
+    )
+    return pinned + [d for d in docs if d.top_pinned_at is None]
+
+
+def drawer_listing(session: Session, list_id: str, folder_id: str | None = None) -> dict[str, Any]:
+    """What a drawer shows: the entries at its top (or inside `folder_id`), pinned ones first,
+    then tree order, each a summary plus `children_count`; the folder and its path; counts for
+    the whole drawer."""
+    from slate.service.doc_threads import counts as thread_counts
+
+    lst = get_list(session, list_id)
+    if lst.kind != "drawer":
+        raise Invalid(f"'{lst.name}' is a task list, not a drawer")
+    docs = list_docs(session, list_id=lst.id)
+    by_id = {d.id: d for d in docs}
+    folder = None
+    path: list[Doc] = []
+    if folder_id is not None:
+        folder = by_id.get(folder_id)
+        if folder is None or folder.kind != "folder":
+            raise Invalid("that folder is not in this drawer")
+        path = list(reversed(ancestors(by_id, folder))) + [folder]
+    entries = pinned_first(tree_order([d for d in docs if d.parent_id == folder_id]))
+    kids: dict[str, int] = {}
+    for d in docs:
+        if d.parent_id is not None:
+            kids[d.parent_id] = kids.get(d.parent_id, 0) + 1
+    rows = summaries(session, entries)
+    for row in rows:
+        row["children_count"] = kids.get(row["id"], 0)
+    threads = thread_counts(session, [d.id for d in docs])
+    return {
+        "list": lst,
+        "folder": summaries(session, [folder])[0] if folder is not None else None,
+        "path": [doc_ref(d) for d in path],
+        "entries": rows,
+        "counts": kind_counts(docs, threads),
+    }
+
+
+def to_drawer(session: Session, actor: Actor, doc_id: str) -> List:
+    """Turn a top-level page into a drawer of the same name in its section: a new drawer list,
+    the page's subpages moved to the drawer's top (in order), then the page itself (its text is
+    kept). A subpage, or a page in no section, is refused."""
+    from slate.service import lists as lists_svc
+
+    doc = get_doc(session, doc_id)
+    if doc.parent_id is not None:
+        raise Invalid("a subpage cannot become a drawer; use its top page")
+    if doc.kind == "folder":
+        raise Invalid("a folder cannot become a drawer")
+    section_id = doc.section_id
+    if section_id is None and doc.list_id is not None:
+        section_id = get_list(session, doc.list_id).section_id
+    if section_id is None:
+        raise Invalid("a workspace page has no section to hold a drawer; move it first")
+    docs = all_docs(session)
+    children = tree_order([d for d in docs if d.parent_id == doc.id and d.archived_at is None])
+
+    with apply_change(session, actor):  # one change: a refused move leaves no empty drawer
+        drawer = lists_svc.create_list(
+            session, actor, section_id=section_id, name=doc.title, kind="drawer"
+        )
+        move_doc(session, actor, doc.id, {"list_id": drawer.id})
+        for child in children:
+            move_doc(session, actor, child.id, {"list_id": drawer.id})
+    return drawer
+
+
+# --- Links and full document views ---
+
+
+def sync_links(cx: Change, doc: Doc) -> None:
+    """Make `doc_links` say exactly which tasks and pages this page embeds. The table is an
+    index of the body, kept in the change that saves it: the body's own event is the record,
+    so the rows have none (`core.BOOKKEEPING_MODELS`). No-op when the set is unchanged, and
+    for a folder (folders have no body to embed in)."""
+    session = cx.session
+    with session.no_autoflush:
+        rows = list(session.scalars(select(DocLink).where(DocLink.doc_id == doc.id)))
+    wanted = (
+        {(kind, ref) for kind, ref in EMBED_RE.findall(doc.body_md)}
+        if doc.kind != "folder"
+        else set()
+    )
+    have = {(r.target_kind, r.target_id) for r in rows}
+    if have == wanted:
+        return
+    removed = [r for r in rows if (r.target_kind, r.target_id) not in wanted]
+    added = [
+        DocLink(doc_id=doc.id, target_kind=kind, target_id=ref)
+        for kind, ref in sorted(wanted)
+        if (kind, ref) not in have
+    ]
+    for r in removed:
+        session.delete(r)
+    for r in added:
+        session.add(r)
+
+
+def backlinks(session: Session, doc_id: str, docs: list[Doc] | None = None) -> list[dict[str, Any]]:
+    """Live pages that embed this one, as refs. One indexed lookup; a page in an archived list
+    or section, or under an archived page, is left out, the same as a listing would. `docs` is
+    the tree the caller already loaded, so a page read walks it once."""
+    ids = set(
+        session.scalars(
+            select(DocLink.doc_id).where(DocLink.target_kind == "doc", DocLink.target_id == doc_id)
+        )
+    )
+    if not ids:
+        return []
+    if docs is None:
+        docs = all_docs(session)
+    by_id = {d.id: d for d in docs}
+    with session.no_autoflush:
+        hidden_lists = set(session.scalars(select(List.id).where(List.archived_at.is_not(None))))
+        hidden_sections = set(
+            session.scalars(select(Section.id).where(Section.archived_at.is_not(None)))
+        )
+    out = []
+    for d in docs:
+        if d.id not in ids:
+            continue
+        chain = ancestors(by_id, d)
+        if d.archived_at is not None or any(a.archived_at is not None for a in chain):
+            continue
+        top = chain[-1] if chain else d
+        if top.list_id in hidden_lists or top.section_id in hidden_sections:
+            continue
+        out.append(doc_ref(d))
+    return access.scrub(session, out)
+
+
+def doc_out(session: Session, doc: Doc) -> dict[str, Any]:
+    """The whole page: body, path, outline, embedded tasks (as item views), linked pages,
+    pages that link here, and uploaded files."""
+    from slate.service import items as items_svc
+
+    docs = all_docs(session)
+    by_id = {d.id: d for d in docs}
+    refs = embeds_in(doc.body_md)
+    tasks = list(
+        session.scalars(select(Item).where(Item.id.in_(refs["tasks"]), Item.trashed_at.is_(None)))
+    )
+    order = {ref: n for n, ref in enumerate(refs["tasks"])}
+    tasks.sort(key=lambda i: order[i.id])
+    linked = [by_id[ref] for ref in refs["docs"] if ref in by_id]
+    rows = doc_files.file_rows(session, DocFile.doc_id == doc.id, order_by=DocFile.created_at)
+    files = [f for f in rows if f.revision_no is None]
+    revisions = sorted((f for f in rows if f.revision_no is not None), key=lambda f: -f.revision_no)
+    kids = [
+        d for d in tree_order([d for d in docs if d.parent_id == doc.id]) if d.archived_at is None
+    ]
+    kid_current = doc_files.current_revisions(session, kids)
+    current = revisions[0] if revisions else None
+    if current is not None and doc.pinned_revision_no is not None:
+        current.pinned_file_id = next(  # type: ignore[attr-defined]
+            (f.id for f in revisions if f.revision_no == doc.pinned_revision_no), None
+        )
+    out = _with_counts(session, [doc_summary(doc, current)])[0]
+    out.update(
+        body_md=doc.body_md,
+        path=[
+            {"id": a.id, "title": a.title, "icon": a.icon} for a in reversed(ancestors(by_id, doc))
+        ],
+        children=_with_counts(session, [doc_summary(d, kid_current.get(d.id)) for d in kids]),
+        outline=outline(doc.body_md),
+        facts=parse_facts(doc.body_md),
+        tasks=items_svc.views(session, tasks),
+        missing_tasks=[ref for ref in refs["tasks"] if ref not in {t.id for t in tasks}],
+        docs=[doc_ref(d) for d in linked],
+        backlinks=[
+            {"id": d["id"], "title": d["title"], "icon": d["icon"]}
+            for d in backlinks(session, doc.id, docs)
+        ],
+        files=[doc_files.file_out(f) for f in files],
+        revisions=[doc_files.revision_out(f) for f in revisions],
+        words=len(doc.body_md.split()),
+    )
+    return access.scrub(session, out)
+
+
+# --- Project document hub ---
+
+
+def section_documents(session: Session, section_id: str, me: str | None) -> dict[str, Any]:
+    """`me` is the viewer's account id (what `needs_you` is about)."""
+    from slate.service import doc_threads
+
+    get_section(session, section_id)
+    caller = access.current(session)
+    if caller is not None and caller.section_level(section_id) == 0:
+        raise NotFound("section not found")
+    docs = list_docs(session, section_id=section_id)
+    ids = [d.id for d in docs]
+    by_id = {d.id: d for d in docs}
+    drawers = [
+        lst for lst in lists_svc.list_lists(session, section_id=section_id) if lst.kind == "drawer"
+    ]
+    counts = doc_threads.counts(session, ids) if ids else {}
+
+    needs: list[dict[str, Any]] = []
+    if me is not None and ids:
+        touched = (
+            set(
+                session.scalars(
+                    select(DocComment.doc_id).where(
+                        DocComment.doc_id.in_(ids), DocComment.author_id == me
+                    )
+                )
+            )
+            | {d.id for d in docs if d.updated_by == me or d.created_by == me}
+            | set(
+                session.scalars(
+                    select(Event.subject_id).where(
+                        Event.subject_id.in_(ids),
+                        Event.actor_id == me,
+                        Event.type.in_(
+                            ("doc.updated", "doc.revision_added", "doc.version_restored")
+                        ),
+                    )
+                )
+            )
+        )
+        roots = session.scalars(
+            select(DocComment)
+            .where(
+                DocComment.doc_id.in_(ids),
+                DocComment.parent_id.is_(None),
+                DocComment.resolved_at.is_(None),
+                or_(
+                    DocComment.assignee_id == me,
+                    (DocComment.surface == "review") & (DocComment.author_id != me),
+                ),
+            )
+            .order_by(DocComment.created_at)
+        )
+        for c in roots:
+            if c.assignee_id == me:
+                kind = "ask"
+            elif c.surface == "review" and c.doc_id in touched:
+                kind = "thread"
+            else:
+                continue
+            doc = by_id[c.doc_id]
+            needs.append(
+                {
+                    "kind": kind,
+                    "doc": doc_ref(doc),
+                    "list_id": top_of(by_id, doc).list_id,
+                    "comment": doc_threads.views(session, doc, [c])[0],
+                    "url": f"/#/docs/{doc.id}?comment={c.id}",
+                }
+            )
+
+    out_drawers = []
+    for lst in drawers:
+        mine = [d for d in docs if top_of(by_id, d).list_id == lst.id]
+        out_drawers.append(
+            {
+                "list": lst,
+                "counts": kind_counts(mine, counts),
+                "needs_you": sum(1 for n in needs if n["list_id"] == lst.id),
+            }
+        )
+    pages = [d for d in docs if d.parent_id is None and d.list_id is None and d.kind != "folder"]
+    return {
+        "drawers": out_drawers,
+        "pages": summaries(session, pages),
+        "needs_you": needs,
+        "counts": {k: v for k, v in kind_counts(docs, counts).items() if k != "folders"},
+    }

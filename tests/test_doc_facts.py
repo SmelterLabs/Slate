@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from slate.service.docs import parse_facts
+from slate.service.doc_pages import parse_facts
 
 API = "/api/v1"
 

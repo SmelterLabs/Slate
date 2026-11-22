@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from slate.models import DocVersion, Event
-from slate.service import docs
+from slate.service import doc_pages as docs
 
 API = "/api/v1"
 

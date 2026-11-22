@@ -10,7 +10,7 @@ import zlib
 
 import pytest
 
-from slate.service import doc_compare
+from slate.service import doc_files as doc_compare
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"

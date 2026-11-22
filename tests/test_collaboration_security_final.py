@@ -12,7 +12,8 @@ from sqlalchemy import select
 from conftest import API
 from slate.db import SessionLocal
 from slate.models import Account, Event, utcnow
-from slate.service import access, doc_compare, push, reminders
+from slate.service import access, push, reminders
+from slate.service import doc_files as doc_compare
 from slate.service.core import event_payload
 from test_assigned_comments import _item
 from test_collaboration_attention import guest

@@ -61,7 +61,7 @@ class _Statements:
 
 
 def test_duplicate_reads_only_the_copied_docs_and_never_reextracts(client, alex, todo, monkeypatch):
-    from slate.service import doc_compare
+    from slate.service import doc_files as doc_compare
 
     for n in range(3):  # unrelated files elsewhere in the workspace
         _file_doc(client, alex, f"Other {n}", b"a,b\n1,2\n")
@@ -112,7 +112,7 @@ def test_two_moves_at_once_cannot_make_a_page_its_own_ancestor(client, alex, tod
     from contextlib import contextmanager
 
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
     from slate.service.errors import Invalid
 
     a = _doc(client, alex, title="A", list_id=todo["id"])
@@ -141,7 +141,7 @@ def test_a_move_rechecks_depth_against_the_tree_as_it_stands(client, alex, todo,
     from contextlib import contextmanager
 
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
     from slate.service.errors import Invalid
 
     monkeypatch.setattr(docs_svc, "MAX_DEPTH", 3)
@@ -170,7 +170,7 @@ def test_a_move_rechecks_depth_against_the_tree_as_it_stands(client, alex, todo,
 def test_walking_a_broken_tree_ends():
     from types import SimpleNamespace
 
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
 
     a = SimpleNamespace(id="a", parent_id="b")
     b = SimpleNamespace(id="b", parent_id="a")
@@ -187,7 +187,7 @@ def _race_first_change(monkeypatch, other_write):
     from contextlib import contextmanager
 
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
 
     real = docs_svc.apply_change
     raced = []
@@ -208,7 +208,7 @@ def test_a_save_against_a_stale_revision_is_refused_even_mid_flight(
     client, alex, todo, monkeypatch
 ):
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
     from slate.service.errors import Conflict
 
     d = _doc(client, alex, title="Plan", list_id=todo["id"], body_md="v1")
@@ -227,7 +227,7 @@ def test_a_save_against_a_stale_revision_is_refused_even_mid_flight(
 
 def test_two_appends_at_once_both_land(client, alex, todo, monkeypatch):
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
 
     d = _doc(client, alex, title="Log", list_id=todo["id"], body_md="## Log")
     actor = _actor(client, alex)
@@ -243,7 +243,7 @@ def test_two_appends_at_once_both_land(client, alex, todo, monkeypatch):
 
 def test_create_task_from_a_doc_checks_the_doc_as_it_stands(client, alex, todo, monkeypatch):
     from slate.db import SessionLocal
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
     from slate.service.errors import Conflict
 
     d = _doc(client, alex, title="Plan", list_id=todo["id"], body_md="call the venue")
@@ -430,7 +430,7 @@ def test_a_refused_promote_leaves_nothing_half_done(client, alex, todo):
 
 
 def test_a_refused_step_of_to_drawer_undoes_the_new_drawer(client, alex, todo, monkeypatch):
-    from slate.service import docs as docs_svc
+    from slate.service import doc_pages as docs_svc
     from slate.service.errors import Invalid
 
     page = _doc(client, alex, title="Contracts", list_id=todo["id"])
@@ -610,7 +610,8 @@ def test_search_treats_percent_and_underscore_as_plain_characters(client, alex, 
 
 
 def test_page_versions_and_file_revisions_diff_by_one_rule(client, alex, todo):
-    from slate.service import doc_compare, docs
+    from slate.service import doc_files as doc_compare
+    from slate.service import doc_pages as docs
 
     assert not hasattr(doc_compare, "tables_of") and not hasattr(doc_compare, "extract_text")
     text, added, removed = docs.unified("a\nb\n", "a\nc\nd\n", "v1", "v2")
@@ -645,13 +646,13 @@ def test_an_upload_that_lands_while_another_is_read_takes_the_next_number(
     upload committed after it looked at the history does not make it collide."""
     from slate.db import SessionLocal
     from slate.models import Source
-    from slate.service import docs as docs_svc
+    from slate.service import doc_files as docs_svc
     from slate.service.core import Actor
 
     d = _file_doc(client, alex, "Quote", b"a,b\n1,2\n")
     me = client.get(f"{API}/me", headers=alex).json()
     actor = Actor(account_id=me["account"]["id"], source=Source.api)
-    real = docs_svc._revision_row
+    real = docs_svc.revision_row
     raced = []
 
     def racing(*a, **k):
@@ -661,7 +662,7 @@ def test_an_upload_that_lands_while_another_is_read_takes_the_next_number(
                 docs_svc.add_revision(other, actor, d["id"], filename="b.csv", data=b"b", note="b")
         return real(*a, **k)
 
-    monkeypatch.setattr(docs_svc, "_revision_row", racing)
+    monkeypatch.setattr(docs_svc, "revision_row", racing)
     with SessionLocal() as mine:
         rev = docs_svc.add_revision(mine, actor, d["id"], filename="a.csv", data=b"a", note="a")
     assert rev.revision_no == 3

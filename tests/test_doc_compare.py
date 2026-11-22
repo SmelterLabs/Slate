@@ -74,7 +74,7 @@ def _pdf(text: str) -> bytes:
 
 
 def test_workbook_compare_keeps_actual_shape():
-    from slate.service.doc_compare import _xlsx_sheets
+    from slate.service.doc_files import _xlsx_sheets
 
     assert _xlsx_sheets(_xlsx([["Only cell"]])) == [("Quote", [["Only cell"]])]
 
@@ -119,7 +119,7 @@ def test_unreadable_word_compare_does_not_claim_identical_text(client, alex):
 
 
 def test_docx_extraction_rejects_entities_and_oversize(monkeypatch):
-    from slate.service import doc_compare
+    from slate.service import doc_files as doc_compare
     from slate.settings import settings
 
     monkeypatch.setattr(settings, "doc_extract_max_bytes", 200)
@@ -216,7 +216,7 @@ def test_images_and_unknown_types_have_no_server_diff(client, alex):
 
 def test_compare_reads_stored_tables_and_never_parses_on_read(client, alex, monkeypatch):
     """Compare answers from the tables stored at upload; it never re-extracts a revision."""
-    from slate.service import doc_compare
+    from slate.service import doc_files as doc_compare
 
     x = _file_doc(client, alex, title="Book")
     xt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

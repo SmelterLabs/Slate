@@ -38,8 +38,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_id
 from slate.models import Doc, DocComment, DocFile, Event, utcnow
-from slate.service import access, guests
-from slate.service import docs as docs_svc
+from slate.service import access, doc_files, doc_pages, guests
 from slate.service.comments import authors_of, mentions_in
 from slate.service.core import Actor, Change, apply_change, event_payload, snapshot
 from slate.service.errors import Forbidden, Invalid, NotFound
@@ -77,7 +76,7 @@ def get_comment(session: Session, comment_id: str) -> DocComment:
 
 def comments_of(session: Session, doc_id: str) -> list[DocComment]:
     """Every comment on the doc, oldest first (threads are rebuilt from `parent_id`)."""
-    docs_svc.get_doc(session, doc_id)
+    doc_pages.get_doc(session, doc_id)
     return list(
         session.scalars(
             select(DocComment)
@@ -132,7 +131,7 @@ def views(session: Session, doc: Doc, comments: Sequence[DocComment]) -> list[di
 
 
 def view(session: Session, c: DocComment) -> dict[str, Any]:
-    return views(session, docs_svc.get_doc(session, c.doc_id), [c])[0]
+    return views(session, doc_pages.get_doc(session, c.doc_id), [c])[0]
 
 
 def counts(session: Session, doc_ids: Sequence[str]) -> dict[str, tuple[int, int]]:
@@ -165,7 +164,7 @@ def activity(session: Session, doc_id: str, *, limit: int = 200) -> dict[str, An
     """What the side panel shows: the doc's comments and the events it folds into the
     conversation as activity lines (revisions, title and body saves, moves, resolved threads),
     each newest last."""
-    doc = docs_svc.get_doc(session, doc_id)
+    doc = doc_pages.get_doc(session, doc_id)
     rows = comments_of(session, doc_id)
     events = list(
         session.scalars(
@@ -318,7 +317,7 @@ def add_comment(
     discussion. `parent_id` makes it a reply in that thread (one level). `suggestion_md` (pages
     only, with a quoted anchor) proposes a replacement for the quote. `assignee` (handle or id)
     makes it an Ask for that account. Replies notify participants; resolution is explicit."""
-    doc = docs_svc.get_doc(session, doc_id)
+    doc = doc_pages.get_doc(session, doc_id)
     body = _body(body_md)
     parent: DocComment | None = None
     cols: dict[str, Any] = {}
@@ -431,7 +430,7 @@ def edit_comment(session: Session, actor: Actor, comment_id: str, *, body_md: st
     body = _body(body_md)
     if body == c.body_md:
         return c
-    doc = docs_svc.get_doc(session, c.doc_id)
+    doc = doc_pages.get_doc(session, c.doc_id)
     before = c.body_md
     old = set(mentions_in(session, before))
     added = guests.reachable_handles(
@@ -506,7 +505,7 @@ def assign_comment(
         target is None or c.resolved_at is None
     ):
         return c
-    doc = docs_svc.get_doc(session, c.doc_id)
+    doc = doc_pages.get_doc(session, c.doc_id)
     with apply_change(session, actor) as cx:
         before = c.assignee_id
         c.assignee_id = target.id if target else None
@@ -538,7 +537,7 @@ def accept_suggestion(session: Session, actor: Actor, comment_id: str) -> tuple[
         raise Invalid("this comment carries no suggestion")
     if c.accepted_at is not None:
         raise Invalid("this suggestion was already accepted")
-    doc = docs_svc.get_doc(session, c.doc_id)
+    doc = doc_pages.get_doc(session, c.doc_id)
     if doc.kind == "file" or not c.anchor_quote:
         raise Invalid("a suggestion applies to quoted page text only")
     if c.anchor_page_revision != doc.revision:
@@ -554,7 +553,7 @@ def accept_suggestion(session: Session, actor: Actor, comment_id: str) -> tuple[
         if at < 0 or body.find(c.anchor_quote, at + 1) >= 0:
             raise Invalid("the quoted text is missing or ambiguous; re-anchor it")
     new_body = body[:at] + c.suggestion_md + body[at + len(c.anchor_quote) :]
-    docs_svc.update_doc(
+    doc_pages.update_doc(
         session, actor, doc.id, {"body_md": new_body, "base_revision": doc.revision}
     )
     root = c if c.parent_id is None else get_comment(session, c.parent_id)
@@ -572,4 +571,106 @@ def accept_suggestion(session: Session, actor: Actor, comment_id: str) -> tuple[
         )
         if root.resolved_at is None:
             _resolve(cx, root, actor.account_id, "accepted")
-    return c, docs_svc.get_doc(session, doc.id)
+    return c, doc_pages.get_doc(session, doc.id)
+
+
+# --- File revision comparison ---
+
+
+NOT_INDEXED = (
+    "revision {no} is not indexed (its text was not extracted: larger than the server reads "
+    "for search, or unreadable), so there is no server diff: compare by eye"
+)
+
+
+def _table_diff(name: str, before: list[list[str]], after: list[list[str]]) -> dict[str, Any]:
+    """Rows aligned by index (a spreadsheet re-saved keeps its shape); changed cells, rows only
+    in one side. Good enough for a quote that changed a price; not a merge algorithm."""
+    changed = []
+    common = min(len(before), len(after))
+    for r in range(common):
+        b_row, a_row = before[r], after[r]
+        for c in range(max(len(b_row), len(a_row))):
+            bv = b_row[c] if c < len(b_row) else ""
+            av = a_row[c] if c < len(a_row) else ""
+            if bv != av:
+                changed.append({"row": r, "col": c, "before": bv, "after": av})
+    return {
+        "name": name,
+        "changed": changed,
+        "added_rows": list(range(common, len(after))),
+        "removed_rows": list(range(common, len(before))),
+        "rows": after,
+        "before_rows": before,
+    }
+
+
+def compare(
+    session: Session, doc_id: str, from_no: int, to_no: int | None = None
+) -> dict[str, Any]:
+    """What changed between two revisions (`to` default: the current one)."""
+    doc = doc_pages.get_doc(session, doc_id)
+    if doc.kind != "file":
+        raise Invalid("this doc is a page; use GET /docs/{id}/diff for page versions")
+    old = doc_files.get_revision(session, doc_id, from_no)
+    if to_no is None:
+        latest = doc_files.revisions_of(session, doc_id)
+        new = session.get(DocFile, latest[0].id) if latest else old
+    else:
+        new = doc_files.get_revision(session, doc_id, to_no)
+    assert new is not None
+    out: dict[str, Any] = {
+        "doc_id": doc.id,
+        "from_revision": old.revision_no,
+        "to_revision": new.revision_no,
+        "from": doc_files.revision_out(old),
+        "to": doc_files.revision_out(new),
+        "kind": "none",
+        "approximate": False,
+        "diff": "",
+        "added": 0,
+        "removed": 0,
+        "sheets": [],
+        "message": None,
+    }
+    kind_old = doc_files.text_kind(old.filename, old.content_type)
+    kind_new = doc_files.text_kind(new.filename, new.content_type)
+    # Only what upload stored is read here: never the bytes, never a parser (re-extracting
+    # two large workbooks on every GET takes seconds).
+    if kind_old in ("table", "xlsx") and kind_new in ("table", "xlsx"):
+        for rev in (old, new):
+            if rev.tables_json is None:
+                out["message"] = NOT_INDEXED.format(no=rev.revision_no)
+                return out
+        before = [(str(n), r) for n, r in old.tables_json]
+        after = [(str(n), r) for n, r in new.tables_json]
+        names = [n for n, _ in after] + [n for n, _ in before if n not in {x for x, _ in after}]
+        b_by = dict(before)
+        a_by = dict(after)
+        sheets = []
+        for name in names:
+            sheets.append(_table_diff(name, b_by.get(name, []), a_by.get(name, [])))
+        if len(before) == 1 and len(after) == 1 and before[0][0] != after[0][0]:
+            # A CSV renamed between uploads is still one table.
+            sheets = [_table_diff(after[0][0], before[0][1], after[0][1])]
+        out.update(kind="table", sheets=sheets)
+        out["added"] = sum(len(s["changed"]) + len(s["added_rows"]) for s in sheets)
+        out["removed"] = sum(len(s["removed_rows"]) for s in sheets)
+        return out
+    if kind_old != "none" and kind_new != "none":
+        for rev in (old, new):
+            if rev.text is None:
+                # Unknown text is not evidence of identical files.
+                out["message"] = NOT_INDEXED.format(no=rev.revision_no)
+                return out
+        diff, added, removed = doc_pages.unified(
+            old.text, new.text, f"rev{old.revision_no or 0}", f"rev{new.revision_no or 0}"
+        )
+        out.update(
+            kind="text",
+            approximate=(kind_old in ("pdf", "docx") or kind_new in ("pdf", "docx")),
+            diff=diff,
+            added=added,
+            removed=removed,
+        )
+    return out

@@ -4,7 +4,7 @@
 
 Three queries, each already access-filtered by the session's read criteria (service/access.py),
 so a guest only finds what it can see: tasks through `items.query_items(q=)` (title and body),
-docs through `docs.list_docs(q=)` (title, page text and the text inside files), and chat
+docs through `doc_pages.list_docs(q=)` (title, page text and the text inside files), and chat
 messages through a `LIKE` over `messages.body_md`, the one query new here. All three match with
 `db.contains`: any case (Unicode, not only A-Z), and `%` and `_` typed by the caller literal.
 
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from slate.db import contains
 from slate.models import List, Message, Section
-from slate.service import access, chat, docs
+from slate.service import access, chat, doc_pages
 from slate.service import items as items_svc
 from slate.service.errors import Invalid
 
@@ -69,7 +69,7 @@ def _tasks(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
             "kind": "task",
             "id": i.id,
             "title": i.title,
-            "snippet": docs.snippet(i.body_md or "", q) or docs.snippet(i.title, q),
+            "snippet": doc_pages.snippet(i.body_md or "", q) or doc_pages.snippet(i.title, q),
             "where": lists.get(i.list_id),
             "at": i.updated_at,
             "list_id": i.list_id,
@@ -79,8 +79,8 @@ def _tasks(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _docs(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
-    rows = docs.list_docs(session, q=q, limit=limit)
-    summaries = {s["id"]: s for s in docs.summaries(session, rows, q)}
+    rows = doc_pages.list_docs(session, q=q, limit=limit)
+    summaries = {s["id"]: s for s in doc_pages.summaries(session, rows, q)}
     places = {d.id: access.doc_place(session, d) for d in rows}
     lists = _names(session, List, {lid for _, lid in places.values() if lid})
     sections = _names(session, Section, {sid for sid, _ in places.values() if sid})
@@ -99,7 +99,7 @@ def _docs(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
                 "kind": "doc",
                 "id": d.id,
                 "title": d.title,
-                "snippet": summaries.get(d.id, {}).get("snippet") or docs.snippet(d.title, q),
+                "snippet": summaries.get(d.id, {}).get("snippet") or doc_pages.snippet(d.title, q),
                 "where": where,
                 "at": d.updated_at,
                 "list_id": list_id,
@@ -132,7 +132,7 @@ def _messages(session: Session, q: str, limit: int) -> list[dict[str, Any]]:
             "kind": "message",
             "id": m.id,
             "title": names[m.channel] or m.channel,
-            "snippet": docs.snippet(m.body_md, q),
+            "snippet": doc_pages.snippet(m.body_md, q),
             "where": chat.place(m.channel, names[m.channel]),
             "at": m.created_at,
             "channel": m.channel,
