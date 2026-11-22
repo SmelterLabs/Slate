@@ -242,7 +242,9 @@ Slate stays the doorbell: it never launches an agent.
   In a reply ending, put one trailing `SLATE: ask alex: <question> [a | b]` line per question,
   up to four. Slate reads back from the end, allowing blank lines, and stops at a different
   handle or other text. The ask lines live in the question block, and everything before the
-  run stays in the reply body. Other endings keep their closing line in the comment. An agent only
+  run stays in the reply body. Other endings keep their closing line in the comment. A malformed
+  agent ask returns 422 with the validation reason and posts no comment. A valid ending that
+  cannot apply leaves the comment body as written. An agent only
   asked something on a card may ask whoever asked it (the third-person rule below).
 - **Answering an ask** (`comments.answer`, `POST /comments/{id}/answer {option}`, MCP
   `slate_comment answer`): the person asked (or an admin) picks one of the options. It posts a

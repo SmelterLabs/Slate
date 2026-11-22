@@ -45,9 +45,8 @@ pasting its answer) can finish it. From an agent account it is that agent's repo
 (service/reports.py: done completes the task when the agent is assigned; review sets its
 badge; later clears its badge and leaves the task for its due time, which must still be to
 come; answered clears its own badge; ask makes this comment the ask). From anyone else,
-`done` completes the task and the rest change nothing. A comment with no closing line changes
-nothing, and a line that cannot apply (no done status, a bad question) leaves the comment as
-it is.
+`done` completes the task and the rest change nothing. A malformed agent ask is refused before
+posting. An ending that cannot apply leaves the body as is.
 """
 
 from __future__ import annotations
@@ -400,10 +399,10 @@ def _apply_closing_line(
     # The line's text is the status; without it the comment's first line is (reports.report).
     said = {"reply": body, "status": reports.standing_line(line.status or "")}
     outcome = "done" if line.outcome == "review" and not said["status"] else line.outcome
+    ask = reports.check_ask(questions=line.questions) if is_agent and outcome == "ask" else None
     try:
         if outcome == "ask":
-            if is_agent:
-                ask = reports.check_ask(questions=line.questions)
+            if ask is not None:
                 reports.report(
                     session, actor, item.id, state="blocked", comment=False,
                     waiting_on=line.waiting_on, _ask=ask, _ask_comment_id=comment_id,

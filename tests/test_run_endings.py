@@ -606,14 +606,45 @@ def test_an_agent_comment_uses_the_trailing_run_of_ask_lines(client, alex, todo,
         _events(client, alex, item["id"], "item.reported")[-1]["after"]["comment_id"]
         == response.json()["id"]
     )
-    other = _item(client, alex, todo["id"], assignees=["my-agent"])
-    text = "Report.\n" + "\n".join(["SLATE: ask alex: Too many?"] * 5)
-    refused = client.post(
-        f"{API}/items/{other['id']}/comments", json={"body_md": text}, headers=token
+
+
+@pytest.mark.parametrize(
+    ("ending", "reason"),
+    [
+        ("\n".join(["SLATE: ask alex: Too many?"] * 5), "1 to 4 questions"),
+        ("SLATE: ask alex: " + "x" * 201, "question is one line of 1 to 200 characters"),
+        ("SLATE: ask alex: Choose? [Only one]", "options are 2 to 4 answers"),
+    ],
+)
+def test_a_malformed_agent_ask_comment_is_refused(client, alex, todo, make_account, ending, reason):
+    _, agent = make_account("my-agent")
+    item = _item(client, alex, todo["id"])
+    route = f"{API}/items/{item['id']}/comments"
+    text = f"Report.\n{ending}"
+    response = client.post(route, json={"body_md": text}, headers=agent)
+    assert response.status_code == 422, response.text
+    assert reason in response.json()["detail"]
+    assert _comments(client, alex, item["id"]) == []
+    assert _view(client, alex, item["id"])["waiting_on_account_id"] is None
+
+    response = client.post(route, json={"body_md": text}, headers=alex)
+    assert response.status_code == 201, response.text
+    assert response.json()["body_md"] == text and response.json()["ask"] is None
+
+
+def test_a_valid_ask_that_cannot_wait_on_its_recipient_stays_a_comment(
+    client, alex, todo, make_account
+):
+    _, agent = make_account("my-agent")
+    make_account("other-agent")
+    item = _item(client, alex, todo["id"])
+    text = "Report.\nSLATE: ask other-agent: Which one?"
+    response = client.post(
+        f"{API}/items/{item['id']}/comments", json={"body_md": text}, headers=agent
     )
-    assert refused.status_code == 201
-    assert refused.json()["body_md"] == text and refused.json()["ask"] is None
-    assert _view(client, alex, other["id"])["waiting_on_account_id"] is None
+    assert response.status_code == 201, response.text
+    assert response.json()["body_md"] == text and response.json()["ask"] is None
+    assert _view(client, alex, item["id"])["waiting_on_account_id"] is None
 
 
 def test_closing_line_reads_the_new_endings():

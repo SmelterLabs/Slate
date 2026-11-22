@@ -639,7 +639,7 @@ The item's comments, oldest first, with reactions and mentions.
 
 Scope: `write` · MCP: `slate_comment add`
 
-`@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or up to four trailing `SLATE: ask <handle>: <question> [option | option]` lines for the same person also reports back on the task. An agent's ask stores the questions on its comment and uses the preceding text as its reply. A person's `done` completes the task.
+`@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or up to four trailing `SLATE: ask <handle>: <question> [option | option]` lines for the same person also reports back on the task. An agent's ask stores the questions on its comment and uses the preceding text as its reply. A malformed agent ask returns 422 with the validation reason and posts nothing. A person's `done` completes the task.
 
 - Body: `CommentIn`: `body_md`\*, `assignee`, `keep_open`
 - Returns: `201` [CommentOut](#commentout)
