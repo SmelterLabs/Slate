@@ -36,7 +36,7 @@ README). The internals:
   a batch never answers `ok` for writes that were thrown away. `$ref.path` substitution only replaces strings that are exactly a
   ref expression *and* name an earlier ref; anything else stays literal. **Views after commit**
   (`views`, default `"final"`): `_run_one` gives write actions a `Local` whose `later` list is set,
-  so `mcp_tools._item_views()` returns `batch.Later(id)` marks instead of building `ItemOut` dicts;
+  so `mcp_tools.item_views()` returns `batch.Later(id)` marks instead of building `ItemOut` dicts;
   `batch._finish()` builds every marked task with one `items.views()` call after the commit (outside
   the write lock) and swaps the marks in. A `$ref` path into a mark builds that one view on the spot
   (`.id` needs none), so refs keep their at-that-op meaning. Read actions and helpers that

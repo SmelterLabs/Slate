@@ -111,13 +111,13 @@ def board_bundle() -> str | None:
 
 
 def _warm_items() -> None:
-    from slate.api.items import _ITEM_ADAPTER
+    from slate.api.items import ITEM_ADAPTER
     from slate.service import item_cache, items
 
     try:
         with SessionLocal() as session:
             n = item_cache.warm(
-                session, lambda s: items.query_items(s, only_ids=True), items.views, _ITEM_ADAPTER
+                session, lambda s: items.query_items(s, only_ids=True), items.views, ITEM_ADAPTER
             )
         log.info("item cache warm: %d items", n)
     except Exception:  # a cold cache is only slower

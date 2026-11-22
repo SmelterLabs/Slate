@@ -101,7 +101,7 @@ def test_an_upload_waiting_for_the_write_lock_does_not_stop_other_requests(clien
     held = threading.Event()
 
     def hold() -> None:
-        with core._write_lock:  # stands in for a slow change (a big batch, an import)
+        with core.write_lock:  # stands in for a slow change (a big batch, an import)
             held.set()
             released.wait(5)
 

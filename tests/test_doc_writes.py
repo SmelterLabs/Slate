@@ -475,7 +475,7 @@ def test_a_doc_upload_waiting_for_the_write_lock_does_not_stall_other_requests(
     held = threading.Event()
 
     def hold() -> None:
-        with core._write_lock:  # any slow change holding the lock
+        with core.write_lock:  # any slow change holding the lock
             held.set()
             release.wait(5)
 
