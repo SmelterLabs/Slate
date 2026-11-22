@@ -1127,15 +1127,15 @@ def finish(
             options=options,
             status=status,
         )
-        from slate.service import today as today_svc
-
         # A turn that consumed Slate's stalled poke and answered again, on an open card,
         # stalled; any finish other than answered ends a stall.
+        now = utcnow()
         newly_stalled = (
             outcome == "answered"
             and item.stalled_at is None
             and item.parked_until is None
-            and not today_svc.is_later(item, now=utcnow())
+            and (item.start_at is None or item.start_at <= now)
+            and (item.due_at is None or item.due_at <= now)
             and session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST))
             is not None
             and start is not None
@@ -1143,7 +1143,7 @@ def finish(
             and not _ended(session, item, SimpleNamespace(asked_only=False))
         )
         if newly_stalled:
-            item.stalled_at = utcnow()  # rides on item.reported
+            item.stalled_at = now  # rides on item.reported
         elif outcome != "answered":
             item.stalled_at = None
         changes: dict[str, Any] = {}

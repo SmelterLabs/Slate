@@ -429,20 +429,27 @@ def test_reference_list_does_not_poke_an_answered_card(client, alex, todo, make_
     assert not _events(client, alex, item["id"], "item.run_requested")
 
 
-def test_parked_card_is_not_poked_or_marked_stalled(client, alex, todo, make_account, db):
+@pytest.mark.parametrize("defer", ["parked", "later"])
+def test_deferred_card_is_not_poked_or_marked_stalled(client, alex, todo, make_account, db, defer):
     _, agent = make_account("my-agent")
     item = _answered(client, alex, agent, todo, assignees=["my-agent"])
     route = f"{API}/items/{item['id']}"
-    until = (utcnow() + timedelta(days=3)).date().isoformat()
-    parking = {"parked_until": until, "parked_note": "Waiting for the draft"}
-    client.patch(route, headers=alex, json=parking).raise_for_status()
+    until = utcnow() + timedelta(days=10)
+    if defer == "later":
+        client.patch(f"{API}/me/prefs", headers=alex, json={"lead_days": 20}).raise_for_status()
+        deferred, clear = {"due_at": until.isoformat()}, {"due_at": None}
+    else:
+        deferred = {
+            "parked_until": until.date().isoformat(),
+            "parked_note": "Waiting for the draft",
+        }
+        clear = {"parked_until": None, "parked_note": None}
+    client.patch(route, headers=alex, json=deferred).raise_for_status()
     assert _tick(db) == 0
-    client.patch(
-        route, headers=alex, json={"parked_until": None, "parked_note": None}
-    ).raise_for_status()
+    client.patch(route, headers=alex, json=clear).raise_for_status()
     assert _tick(db) == 1
     assert _next(client, agent)["item"]["id"] == item["id"]
-    client.patch(route, headers=alex, json=parking).raise_for_status()
+    client.patch(route, headers=alex, json=deferred).raise_for_status()
     _done(client, agent, item["id"], outcome="answered", reply="Still waiting.")
     assert not _view(client, alex, item["id"])["stalled"]
     assert not _events(client, alex, item["id"], "item.stalled")

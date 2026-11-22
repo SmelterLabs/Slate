@@ -246,7 +246,6 @@ READS = {
         "sweep",
         "lead_days_for",
         "sweep_weekday_for",
-        "non_reference_list_filter",
         "is_parked",
         "is_later",
         "is_stale",
