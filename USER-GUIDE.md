@@ -41,6 +41,21 @@ Nothing is hard-coded:
 
 **List settings** edits a list's name and its columns (statuses): rename, add, reorder with ▲▼, pick a colour from the dot, choose the **default** (where new items start) and the **kind**, which tells Slate what the column means: *Open* (not started), *Active* (in progress), *Done* (what **Complete** uses) or *Cancelled*. Removing a column that still has items asks where to move them. **Kind** at the top turns an empty list into a drawer (see *Docs & Files*).
 
+Use the filing note in **List settings** to say what belongs here and what finished work looks
+like. The first line appears in Quick add, and agents see the full note in their briefs. Pick a
+default owner to assign new cards filed without assignees. Choose up to five default tags to add
+to the tags on each new card.
+
+A **Reference list** holds things you want to keep handy, such as reading links. Its cards stay
+searchable and openable. Slate leaves them out of work counts, **My Work**, **Agenda**, the digest,
+agent pickup, and project planning. They skip due-date alerts. Reminders you set for a specific
+time still fire.
+
+To set up a project, choose **This is a project** in the section's ⋯ menu. The sidebar shows the
+first eligible card due, with its owner and date. To qualify, a card needs an assignee and a due
+date, and must be open, unblocked, and on a work list. **Later** and **Parked** cards do not count.
+If no card qualifies, the section managers see **No next step** in **Needs you** and their digest.
+
 ## The board
 
 **Everything** is where Slate opens. Its first view, **This week**, is the due board: **Overdue** (red) · **Today** (yellow) · one column per day for the next six days · **Future** · **No due date** · **Done** (finished today). Days with nothing due fold into a thin strip; click one to open it, or use a column's ⋯ → **Collapse column** (remembered per view on your account). Days roll over at midnight workspace time without a reload. The second view, **Agenda**, lists what is overdue, due today and waiting on you, across every section, most urgent first (`#/today` opens it).
@@ -135,29 +150,40 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 The thin bar across the top holds your favorites: one click opens a list, a section, a saved view or a task. Star a list or section with the ☆ that appears when you hover it in the menu (or **Add to favorites** in its ⋯, or drag the list onto the bar). Pin a view from its tab's ⋯; a pinned view shows a small ★. Press `s` to star the open task or the card under the pointer. Drag chips to reorder them; hover a chip and click × to remove it. Favorites are yours alone. Archiving a list or view hides its chip until it is restored. On a phone the bar is one sideways-scrolling row, hidden when you have none.
 
-**List settings.** Add a note to say what belongs in the list and how to finish
-its cards. Quick add shows the note's first line, and agents see the full note in
-their briefs. Choose an enabled account as the default owner for new cards filed
-without assignees. Default tags are added alongside any tags on the new card.
-Use **Reference list** for
-reading links and notes. You can search for and open its cards. Slate leaves them
-out of work counts and skips due-date alerts for them. Reminders set for a
-specific time still fire.
-
 ## Search, My Work, Needs you and Inbox
 
 **Search everything.** Press **Ctrl K** (⌘K on a Mac), or tap ⌕ on a phone. Type part of a task, list, view or tag. After two letters Slate also searches task descriptions, doc pages, the text inside files, and chat, grouped under **Tasks**, **Docs** and **Chat**: a doc opens on its page, a chat hit opens its thread. Start with `>` for commands (go to Inbox, dark mode, undo, manage tags, health), `#` for tags. If nothing matches, the last row creates the task.
 
 **My Work** (`g h`) says what to do next: **Needs you** first, then your tasks by due date, what depends on another task, what you handed to others, your newest notifications and what you finished this week.
 
-**Needs you** is the cards that cannot move until you act. Every page uses the same four words for why:
+**Later** holds cards with a future start date. It also holds cards without a start date that are
+due more than 14 days away by default. Open the folded **Later** group at the bottom of a list to
+see them. Under **Notifications**, use **Hide cards due more than N days away** to change the
+window. Setting it to 0 turns off the due-date rule. A future start date still applies.
+
+**Parked** cards are waiting for someone outside Slate. Use **Waiting on someone until a date**
+next to the due date on the task. Enter who or what you are waiting for and the return date. The
+card stays in its list and returns to work at 6 am on that date, with a reminder. Parked cards
+stay out of My Work and Agenda and do not count as overdue.
+
+**Decide** in **My Work** lists your open cards more than 14 days overdue, excluding Later,
+Parked, and reference cards. Choose **This week**, **New date**, or **Drop**. Drop moves a card
+to a cancelled column, or a done column if there is no cancelled column. **Weekly sweep day**
+in Notifications sets when Decide moves to the top and appears in your digest. The default is Friday.
+
+**Needs you** collects cards and projects that need your attention:
 
 - **Waiting on Alex** (your name): a person has to answer, usually because an agent asked you a question. The question is the card's headline in **Needs you** and at the top of the task window, with one button per answer when the agent offered some; tap one, or type a reply. Elsewhere it names whoever it waits on. The card has a red ring and a red **Waiting on Alex** chip. In the task window the question sits in a red box: **Answer** jumps to the message and puts you in the reply box (your reply goes to that agent and the card stops waiting); **Not waiting on me** clears it when there is nothing to answer. While the agent that asked is still blocked, this box stands in for its badge in the window: it also shows how long ago the agent reported, **Open ↗** to where it is working, and **✕ Clear badge**, which takes the agent's blocked badge off the card and leaves the wait.
 - **Agent blocked**: an agent on your card stopped and named nobody. Nothing is asked of you, and **Run now** in the red box carries it on.
 - **Could not run**: the agent's run broke (a crash, a missing tool), not something for you to answer. It never counts in **Needs you**. Slate runs the card again on its own after 5 minutes, and again after 30; if the third run fails too, the card's people (or the owner) get one notification, "My Agent could not run: …". **Run now** tries again at once.
 - **Asked of you**: an open question addressed to you.
 - **Ready for review**: an agent finished something you need to check; its one line says what to check.
-- **Stalled**: the agent stopped without finishing, twice: it answered and left the card open, Slate ran it again four hours later, and it answered again. A neutral mark with **Run now**; it counts in **Needs you** for the card's people and whoever filed it, below questions, and they get one notification, "My Agent stopped without finishing: …". Run now, a new question for the agent, or any other ending clears it.
+- **Stalled**: the agent replied and left the card open. After four hours, Slate asks it to try
+  once more if the card is free to work on. If it replies again without finishing, the card
+  shows **Stalled** and **Run now**. The card's creator and person assignees see it in **Needs you**.
+  Person assignees and watchers who can still see the card get an alert. If there are none, the
+  owner gets it. Run now, a new question to an agent, or a finish other than a reply clears the mark.
+- **No next step**: a project you manage needs an eligible card with an assignee and a due date.
 
 *Depends on*, agents still working and overdue dates are not counted. **The number** on My Work in the menu, the pill (bottom right on a computer, top bar on a phone), the window title **(3) Slate** and the installed app's taskbar or dock icon is this same count. Click the pill for the list. Each list in the menu shows a small count when it holds cards that need you. Unread chat has its own badge on **Chat**; overdue and due today are the badge on **Everything**.
 
@@ -169,13 +195,16 @@ specific time still fire.
 
 **Reminders.** **Remind me** in the task window sets reminders; a task has none until you add one. For a task with a due date, **Before due** switches on as many alerts as you like: at the due time, 5, 15 or 30 minutes, 1 or 2 hours, 1 or 2 days or a week before, or any other amount. Below that are one-off times (in 20 minutes, in an hour, this evening, tomorrow morning, next Monday, or any date and time). You can add a note, and remind someone else if you can edit the task. Reminders show as chips under the task's fields; × removes one. A before-due alert follows the date if it moves; a task due on a day without a time counts as due at 5 pm, so "1 day before" is 5 pm the day before. Each new copy of a repeating task gets the same before-due alerts. A reminder lands in your Inbox and on your devices.
 
-**Your day.** Every morning Slate shows your open questions, oldest first. Then it shows what is overdue, due today and waiting on you, with what the agents will do today. Cards that are **Later** (future start date, or no start date and due more than your `lead_days` away — default 14, set 0 to turn off), **Parked** (waiting on someone outside until a date, with a short note; returns automatically at 6 am workspace time with a reminder), or **Stale** (more than 14 days overdue) stay out of the daily overdue list. On your **weekly sweep day** (default Friday; configurable in settings) stale cards arrive under **Decide** oldest first, and `GET /today/sweep` lists them any day. Sections marked as a **project** compute their **next step** (the earliest-due open, unblocked, assigned, non-later, non-parked card) and surface projects with no next step in their managers' digest and `GET /projects`. Nothing comes on an empty day. A digest follows what you can see now: a task no longer shared with you drops out, even from one already queued.
+**Your day.** The morning digest starts with your open questions, oldest first. It shows your
+overdue and due-today cards, work waiting on you, and what agents are scheduled to do. Later,
+Parked and reference cards stay out of these work sections. Your cards more than 14 days
+overdue appear under **Decide** on your sweep day. The digest lists projects you manage that
+have no next step. It arrives only when there is something to show, and respects your current access.
 
 **Notifications** (the bell at the bottom of the menu, or search "notifications"):
 
 - **Turn on for this device** makes this computer or phone show Slate's news even when Slate is closed (the browser must be running). Tapping one opens the task. Do it once on each device; **Send a test** checks it. On iPhone this works only in the installed app, on iOS 16.4 or later. On a Mac the browser also needs macOS's own permission: if pushes arrive silently, the panel after a test says where to look (System Settings → Notifications → your browser → Allow; turn off Focus).
 - **Tell me when** lists each kind of thing (mentions and questions, replies, new messages in chats you can see, assignments, someone waiting on you, an agent that could not run a task, due dates, a task no longer blocked, reminders, your day, tasks you follow or watch, and Slate alerts for owners and admins) with a box for each way to be told: **Toast / push** and, when the server has email set up, **Email**. Type your address under the grid; **Send a test email** checks it reaches you. An email goes out only if you still have not seen the thing in Slate five minutes later, and a burst arrives as one email. A plain chat message only notifies; the channel's unread badge is its record. A busy channel replaces its own notification instead of stacking them.
-- **Nudge me again about chat I still have not read**: one more push, **Still unread: #Example Project**, if a message is still unread after 5, 10 (the default), 30 or 60 minutes, or never.
 - **Quiet hours and escalation.** Quiet hours hold low-level pop-ups and send one summary at the end. Level 4 can reach you during quiet hours. An open question or an unread message or mention from a person gets one louder alert after two hours by default.
 - **Daily digest**: on or off, and the hour it comes. **Upcoming reminders** lists everything you will be reminded about.
 
@@ -192,7 +221,7 @@ Slate works in the phone's browser and installs to the home screen like an app. 
 
 **Sharing into Slate** (Android, installed app): tap **Share** on a web page, video or message and pick **Slate**. Quick add opens with the page's title, the link saved into the description (*drop the note* leaves it off) and the list you used last. A link shared on its own becomes "Read example.com/…" (or "Watch …" for a video). On iPhone, paste the link into quick add instead.
 
-**Touch.** Press and hold a card, row, checklist item, favorite, list or page until it lifts, then slide it where it should go; near an edge the screen scrolls along. Hold and let go without moving for the card's menu. Swipe a row on My Work or in the List layout right to complete it, left to snooze it to tomorrow (with Undo). Pull down at the top of a page to refresh. Without signal, a grey bar says you are offline; changes made then are not saved, and Slate says so.
+**Touch.** Press and hold a card, row, checklist item, favorite, list or page until it lifts, then slide it where it should go; near an edge the screen scrolls along. Hold and let go without moving for the card's menu. Swipe a row on My Work or in the List layout right to complete it, left to move its due date to tomorrow (with Undo). Pull down at the top of a page to refresh. Without signal, a grey bar says you are offline; changes made then are not saved, and Slate says so.
 
 ## Chat
 
@@ -314,14 +343,13 @@ The **Ask** picker starts on the card's agent (on a shared project's card, on th
 
 ### When agent tasks run
 
-A task assigned to an agent with a runner starts on its own: at once if it has no due date; at 6:00 in the morning on the due day if the due date has no time; or at the due time. **Run now** starts it sooner: the robot button on the card (hover), the card's ⋯, or by the comment box. It is offered when an agent is assigned and the task is open. The card shows **Waiting for pickup…** until the agent reports working. Each agent runs several cards at once, up to its runner's limit, and the rest wait their turn. A task requested while the runner is off waits for it to reconnect. If nothing picks it up, the card says **Not picked up yet. Check agent status.**, or **No live connection seen…** when the agent has not connected recently; both link to Agents. **Run now** on a card the agent is already working says so ("My Agent already has it, working 4 min"); on a card waiting on you, it tells the agent to go on without an answer.
+A task assigned to an agent with a runner starts on its own: at once if it has no due date; at 6:00 in the morning on the due day if the due date has no time; or at the due time. **Run now** starts it sooner: the robot button on the card (hover), the card's ⋯, or by the comment box. It is offered when an agent is assigned and the task is open. It clears parking and lets the agent pick up a card before its start date. The saved start date stays in place. The card shows **Waiting for pickup…** until the agent reports working. Each agent runs several cards at once, up to its runner's limit, and the rest wait their turn. A task requested while the runner is off waits for it to reconnect. If nothing picks it up, the card says **Not picked up yet. Check agent status.**, or **No live connection seen…** when the agent has not connected recently; both link to Agents. **Run now** on a card the agent is already working says so ("My Agent already has it, working 4 min"); on a card waiting on you, it tells the agent to go on without an answer.
 
 ### Following the work
 
-The agent reports as it goes: working (with how far along), blocked, ready for review, could not run, or done. Every card it reported on carries one line on where it stands and whose move it is ("Your move", or a name), in the row, on the card and at the top of the task window; its long reply stays in the conversation. A working badge with no run behind it goes after 30 minutes. The report is a small badge on the card, "🤖 My Agent · Working 40%", and in full at the top of the task window with its note. A working badge pulses and fades if nobody refreshes it for six hours; blocked is red (**Waiting on Alex**, or **Agent blocked** when it named nobody); ready for review is amber. Done clears the badge and completes the task. Each report is in the history, and its note is a comment from the agent.
+The agent reports as it goes: working (with how far along), blocked, ready for review, could not run, or done. After the agent reports an outcome, the card shows a standing line with where it stands and whose move it is ("Your move", or a name), in the row, on the card and at the top of the task window; its long reply stays in the conversation. A working badge with no run behind it goes after 30 minutes. The report is a small badge on the card, "🤖 My Agent · Working 40%", and in full at the top of the task window with its note. A working badge pulses and fades if nobody refreshes it for six hours; blocked is red (**Waiting on Alex**, or **Agent blocked** when it named nobody); ready for review is amber. Done clears the badge and completes the task. Reports appear in the card's history. A run's reply appears in the conversation.
 
-- **Later.** When the agent has done what it can and the rest waits for the due time (you already gave it the go), it says so in its comment and leaves no badge: the card is not waiting on you, stays assigned, and the due time runs the agent again.
-- **Paused.** If a run stops without saying where things stand, the card waits on you with a "Paused" note; reply on the card to let it carry on.
+- **Waiting for the scheduled run.** When the agent has done what it can and the rest waits for the due time (you already gave it the go), it says so in its comment and leaves no badge: the card is not waiting on you, stays assigned, and the due time runs the agent again.
 - **A run that lost contact.** If the agent stops checking in, Slate does not start the task again blindly: the badge turns blocked with *Execution lease expired*, because the run may still be going. Check that it really stopped, then press **✕ Clear**; the agent can pick the card up again. A card that was closed while the agent worked on it gets no such badge: the agent is told to stop, and the run is settled on its own. An agent that closes its own card can still post its final answer.
 - **Ready for review** clears only when you press **Mark reviewed** on the badge or change the card's status yourself; opening and closing the window does not.
 - **✕ Clear** on a blocked badge takes it off the card; it leaves the card's *Waiting on* field alone.
@@ -333,7 +361,9 @@ The agent reports as it goes: working (with how far along), blocked, ready for r
 
 **Show an agent a screenshot**: paste it into the comment box. The agent is told which files are on the card and can open them.
 
-**Agents in other apps.** Some agents live in another company's app and Slate cannot start them. On the Agents page an admin sets how each agent is woken: **a runner** (Run now), **its own app checks Slate** (the card says **Nudge**: you get a notification to open that app; the Agents page has the prompt to save as a scheduled task there), or **by hand** (the card says **Copy brief**: the task as a prompt to paste into the agent's app). Paste the agent's answer back as a comment. A last line `SLATE: done: Sent the invoice.` completes the task (the text after the second colon is the card's line); `SLATE: ask alex: Start now? [Yes | No]` from the agent's own account asks Alex that question. Details: [docs/agents/pull-agents.md](docs/agents/pull-agents.md).
+**Agents in other apps.** Some agents live in another company's app and Slate cannot start them. On the Agents page an admin sets how each agent is woken: **a runner** (Run now), **its own app checks Slate** (the card says **Nudge**: you get a notification to open that app; the Agents page has the prompt to save as a scheduled task there), or **by hand** (the card says **Copy brief**: the task as a prompt to paste into the agent's app). Paste the agent's answer back as a comment. Use the last line `SLATE: done: Sent the invoice.` to complete the task. A person can
+paste a completion. Review and question lines apply through the agent's own account. For example,
+`SLATE: ask alex: Start the import? [Yes | No]` asks Alex the question and offers two answers. Details: [docs/agents/pull-agents.md](docs/agents/pull-agents.md).
 
 ### The Agents page
 

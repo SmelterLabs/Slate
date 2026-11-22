@@ -375,6 +375,59 @@ def test_parked_hides_from_today_digest_due_and_work_next_then_unparks_at_0600(
     assert note["body"] == "Back today: Chargeback (was waiting on card issuer)"
 
 
+@pytest.mark.parametrize("hold", ["parked", "later"])
+def test_run_now_overrides_the_planning_hold(client, alex, todo, make_account, db, hold):
+    _, agent_headers = make_account("my-agent", ("write",), kind="agent")
+    start_at = (utcnow() + timedelta(days=3)).isoformat()
+    planning = (
+        {
+            "parked_until": (dates.local_today() + timedelta(days=3)).isoformat(),
+            "parked_note": "Draft",
+        }
+        if hold == "parked"
+        else {"start_at": start_at}
+    )
+    created = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={"list_id": todo["id"], "title": "Draft", "assignees": ["my-agent"]},
+    )
+    created.raise_for_status()
+    item_id = created.json()["id"]
+    planned = client.patch(f"{API}/items/{item_id}", headers=alex, json=planning)
+    planned.raise_for_status()
+    item = planned.json()
+    assert client.post(f"{API}/work/next", headers=agent_headers, json={}).json()["item"] is None
+    requested = client.post(f"{API}/items/{item_id}/run", headers=alex)
+    assert requested.status_code == 202, requested.text
+    updated = client.get(f"{API}/items/{item_id}", headers=alex).json()
+    if hold == "parked":
+        assert updated["parked_until"] is None and updated["parked_note"] is None
+        events = db.query(Event).filter_by(item_id=item_id).order_by(Event.id).all()
+        assert [(e.type, e.field) for e in events[-3:]] == [
+            ("item.updated", "parked_until"),
+            ("item.updated", "parked_note"),
+            ("item.run_requested", "run_requested_at"),
+        ]
+    else:
+        assert updated["start_at"] == item["start_at"] and updated["later"] is True
+    picked_up = client.post(f"{API}/work/next", headers=agent_headers, json={})
+    assert picked_up.status_code == 200, picked_up.text
+    assert picked_up.json()["item"]["id"] == item_id
+
+
+def test_retired_chat_renudge_preference_is_ignored(client, alex):
+    result = client.patch(
+        f"{API}/me/prefs",
+        headers=alex,
+        json={"chat_renudge_minutes": 30, "escalate_after_minutes": 75},
+    )
+    result.raise_for_status()
+    for prefs in [result.json(), client.get(f"{API}/me", headers=alex).json()["prefs"]]:
+        assert "chat_renudge_minutes" not in prefs
+        assert prefs["escalate_after_minutes"] == 75
+
+
 def test_unpark_falls_back_to_owner_when_no_person_assignee_or_watcher(
     client, alex, make_account, db
 ):

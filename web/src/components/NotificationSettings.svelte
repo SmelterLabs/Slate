@@ -48,14 +48,6 @@
   const escalateAfter = $derived(board.prefs.escalate_after_minutes ?? 120);
   const leadDays = $derived(board.prefs.lead_days ?? 14);
   const sweepWeekday = $derived(board.prefs.sweep_weekday ?? 4);
-  const renudge = $derived(board.prefs.chat_renudge_minutes ?? 10);
-  const RENUDGE_CHOICES: { minutes: number; label: string }[] = [
-    { minutes: 0, label: 'Never' },
-    { minutes: 5, label: 'after 5 minutes' },
-    { minutes: 10, label: 'after 10 minutes' },
-    { minutes: 30, label: 'after 30 minutes' },
-    { minutes: 60, label: 'after an hour' },
-  ];
   const AUTO_WATCH: { key: 'created' | 'assigned' | 'commented'; label: string }[] = [
     { key: 'created', label: 'Tasks I create' },
     { key: 'assigned', label: 'Tasks I am assigned' },
@@ -264,17 +256,6 @@
         <button class="secondary" disabled={busy || !mailTo} onclick={() => void mailTest()}>Send a test email</button>
       </div>
     {/if}
-    <label class="inline ns-renudge">
-      <span>Nudge me again about chat I still have not read</span>
-      <select
-        aria-label="Nudge again about unread chat"
-        disabled={!reasons.has('chat')}
-        value={renudge}
-        onchange={(e) => void board.setPrefs({ chat_renudge_minutes: Number(e.currentTarget.value) })}
-      >
-        {#each RENUDGE_CHOICES as c (c.minutes)}<option value={c.minutes}>{c.label}</option>{/each}
-      </select>
-    </label>
   </section>
 
   <section class="ns-block" aria-label="Quiet hours and phone alerts">
@@ -503,11 +484,6 @@
   }
   .ns-email input[type='email'] {
     min-width: 220px;
-  }
-  .ns-renudge {
-    margin-top: 8px;
-    gap: 8px;
-    flex-wrap: wrap;
   }
   .ns-quiet {
     gap: 8px;

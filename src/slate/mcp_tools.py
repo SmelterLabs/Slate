@@ -693,17 +693,21 @@ ITEM_ACTIONS = {
         ids=_joined("ids"),
     ),
     "create": bind(
-        items_api.create_item, "file ONE item in list_id (parent_id instead makes it one subtask)"
+        items_api.create_item,
+        "file one item in list_id or one subtask under parent_id. Without either, use the "
+        "configured active inbox list if your token can edit it",
     ),
     "update": bind(
         items_api.update_item,
-        "change any fields; null clears; status, assignees and tags replace the set",
+        "patch item fields. status selects a list column. assignees and tags replace their "
+        "whole sets. When parking a card, send parked_until and parked_note together",
         with_id(ItemPatch, "id", "Item id"),
     ),
     "report": bind(
         items_api.report,
         "say what you are doing on it: working, blocked, review or failed sets a badge; "
-        "done and idle clear it. Take a task with slate_work next",
+        "done and idle clear it. Report status is the card's standing line and is required "
+        "for review. Use slate_work next for a leased take",
         with_id(ReportIn, "id", "Item id"),
         send="set",
     ),
@@ -723,10 +727,9 @@ ITEM_ACTIONS = {
     ),
     "brief": bind(
         items_api.get_brief,
-        "the task as one paste-ready prompt (title, due, description, checklists, recent "
-        "comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: "
-        "review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> "
-        "[option | option]`; a comment ending so reports back",
+        "a prompt with the card, recent comments, its list's filing note and closing-line "
+        "instructions. An agent can put standing text after the second colon, as in "
+        "SLATE: review: Check the totals. A bare SLATE: review is treated as done",
         query_model(items_api.get_brief, id=ITEM_ID),
     ),
     "bulk_update": bind(

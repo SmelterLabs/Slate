@@ -59,21 +59,22 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 
 | Outcome | Badge | Who the card waits on | Also |
 |---|---|---|---|
-| `done` | cleared | cleared (the card closes) | completes the card |
+| `done` | cleared | clears with completion | completes the card unless the agent took it only to answer a question |
 | `review` | `review` | unchanged | needs a `status` (what to check); the person it is for is whose move it is |
 | `later` | cleared | unchanged | needs a run time still to come |
 | `ask` | `blocked`, note = the question | the person asked | the question is an Ask to them |
 | `answered` | cleared | unchanged | the turn's Asks resolve (`answered`); not offered again until a new Ask or Run now |
 | `failed` | `failed`, note = what broke | unchanged | retried at 5 and 30 minutes; the third failure is `item.run_failed` |
-| `blocked` | `blocked` | an agent, or nobody | |
+| `blocked` | `blocked` | sets an agent if named; otherwise preserves the existing field | use `ask` to wait on a person |
 | `release` | cleared | unchanged | un-assigns the agent |
 
 A failed run is offered again only when its retry time has come (`work.RETRY_AFTER`, the
 scheduler's `item.run_requested` with `reason: "retry"`) or someone presses Run now, which also
 starts the count over (`work._failures`).
 
-Every agent finish but `failed` and `release` resolves the Asks its turn took, and every agent
-report but `working` sets the card's standing line (`after.status`).
+Every agent finish except `failed` and `release` resolves the questions the turn took or
+read within its settlement boundary. Only agent reports other than `working` set the
+card's standing line (`after.status`).
 
 ## Stalled card
 
@@ -83,7 +84,7 @@ Declared: `items.stalled_at`. Read: the item view's `stalled` (set and open). Sh
 | State | Means | Leaves by |
 |---|---|---|
 | not stalled | normal | the agent's newest finish is `answered`, 4 hours pass with nothing else: Slate pokes it once (`item.run_requested`, `reason: "stalled"`); that run ends `answered` again: stalled (`item.stalled`) |
-| stalled | the agent stopped without finishing twice | Run now, a new Ask for an agent, or any finish other than `answered` |
+| stalled | an eligible card received a retry and the retry ended `answered` while the card still had no future schedule | Run now, a new question for an agent, parking, a future start or due date, closing the card, or a finish other than `answered` |
 
 A `working` badge with no lease and no report for 30 minutes is cleared by the scheduler
 (an `idle` report, `reason: "stale"`), so an open card never shows a run that is not there.

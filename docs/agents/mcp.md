@@ -10,12 +10,10 @@ to a tool that exists but is not listed is a one-line error naming that flag. A 
 is not a tool at all is `unknown tool`. Every tool called inside `slate_batch` must also be
 listed for that connection.
 
-`slate_today` is not a tool. Overdue and due today are `slate_work next` and
-`slate_item list`. The `slate://today` resource is still there. `slate_item` has no
-`assign`, `tag`, `set_status`, or `comment` action: update the item, or add a comment with
-`slate_comment`. `slate_work finish` does not take a next task; call `next` again.
-`plan`, `chat_clear`, and `doc_clear` are not agent tools (the board still has
-`GET /agents/plan` and the clear routes).
+Read due work with the `slate://today` resource or REST `GET /today`. Use
+`slate_item update` to set assignees, tags or the list column, and `slate_comment add`
+to post a comment. Finish returns the settled item. Call `slate_work next` separately for
+another turn. The agent plan and a person's turn-clear controls use REST.
 
 Every tool and action, with the REST call it matches, is in
 [reference/mcp.md](reference/mcp.md) (generated). The short loop is

@@ -72,8 +72,10 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
 | Due, failed, stalled, unblocked, nudge, access | 2 | 2 |
 | Digest | 1 | 1 |
 | Watching, status, update and other reasons | 0 | 0 |
+| No next step and Decide | 0 | 0 |
 
-An urgent card adds one, capped at 4. Level 0 stays in the inbox. Push levels 1 and 2
+An urgent card adds one, capped at 4. No next step and Decide stay at level 0 even for urgent
+work. Level-0 inbox entries do not release an alert. Push levels 1 and 2
 are silent, and levels 3 and 4 have sound. Email requires at least level 3 and five minutes
 unseen. The alert bridge uses level 2 or higher and sends level 4 to the phone.
 Per-channel reason filters still apply at every level.
@@ -96,7 +98,8 @@ summaries represent multiple entries and have no item or source entry. The route
 Push, email and the alert bridge apply their own delivery filters to these releases.
 
 The scheduler records a recipient-only `inbox.escalated` event once per original entry.
-An open question or an unread message or mention by a person reaches level 4 after
+An open task question with the card still waiting on its recipient, or an unread chat message or
+mention by a person, reaches level 4 after
 `escalate_after_minutes` (120 by default, 0 to disable). The escalation keeps its original
 reason and begins "Still waiting: ". A due card with no person assignee also reaches its
 person creator or the workspace owner.
@@ -129,9 +132,8 @@ and `tests/test_push_retry.py`.
 
 ## Email notifications and the waiting bell
 
-- **Why**: an easy way to see "something needs me" without opening a view that
-  has the card, and a ClickUp-style "how and for what" without a wall of options. SMS is out of
-  scope.
+- **Delivery choices**: the waiting bell links to unread work, and notification settings
+  choose which reasons can reach each channel.
 - **The bell** (`web/src/components/WaitingBell.svelte`, `lib/waiting.ts`): top right of the
   favorites bar on a desktop, left of Agents (phones keep the top bar's bell). Chips: `@N` for
   unread mentions/Asks, a chat bubble with N for messages (unread replies and comments in the
