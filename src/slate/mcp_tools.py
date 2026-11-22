@@ -29,7 +29,7 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, Response
 from mcp import types as mcp_types
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, model_validator
 from pydantic.fields import FieldInfo
 from sqlalchemy.orm import Session
 
@@ -422,14 +422,45 @@ class CheckinQuery(P):
     )
 
 
-class WorkNext(NextIn):
+class WorkNext(omit(NextIn, "resume")):
     wait: int = Field(
         default=0, ge=0, le=MCP_WAIT, description="Seconds to wait for a task when none is free"
     )
 
 
-class WorkFinish(FinishIn):
+class WorkFinish(omit(FinishIn, "comment")):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "if": {"properties": {"outcome": {"const": "failed"}}, "required": ["outcome"]},
+            "then": {
+                "required": ["note"],
+                "properties": {"note": {"type": "string", "pattern": r"\S"}},
+            },
+            "else": {
+                "if": {
+                    "properties": {"hand_to": {"type": "string", "minLength": 1}},
+                    "required": ["hand_to"],
+                },
+                "else": {"not": {"required": ["note"]}},
+            },
+        },
+    )
     item_id: str = Field(description="The task you hold")
+    note: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="With failed: what broke, never posted. With hand_to: the hand-off message.",
+    )
+
+    @model_validator(mode="after")
+    def failure_note(self):
+        if self.outcome == "failed":
+            if not (self.note or "").strip():
+                raise ValueError("failed needs a note: what broke")
+        elif not self.hand_to and "note" in self.model_fields_set:
+            raise ValueError("note is only for failed or hand_to; use reply to post a comment")
+        return self
 
 
 class RecurrenceRef(P):
@@ -673,7 +704,7 @@ ITEM_ACTIONS = {
         items_api.report,
         "say what you are doing on it: working, blocked, review or failed sets a badge; "
         "done and idle clear it. Take a task with slate_work next",
-        with_id(omit(ReportIn, "claim"), "id", "Item id"),
+        with_id(ReportIn, "id", "Item id"),
         send="set",
     ),
     "run": bind(
@@ -1048,9 +1079,10 @@ CHECKIN_ACTIONS = {
 }
 
 
-def _take_next(lc: Local, p: NextIn) -> dict:
+def _take_next(lc: Local, p: WorkNext) -> dict:
+    body = NextIn.model_validate(p.model_dump(exclude_unset=True))
     got = longpoll.wait_sync(
-        lambda: work_api.take_next(lc.session, lc.actor, p), p.wait, lc.session
+        lambda: work_api.take_next(lc.session, lc.actor, body), p.wait, lc.session
     )
     return got or work_api.nothing()
 
@@ -1912,7 +1944,7 @@ TOOLS: dict[str, ToolSpec] = {
             "slate_search",
             "Slate search",
             "Find text in tasks, pages and chat.",
-            {"action": "search", "params": {"q": "passport", "limit": 30}},
+            {"params": {"q": "passport", "limit": 30}},
             SEARCH_ACTIONS,
             read_only=True,
         ),
@@ -1961,6 +1993,7 @@ def _params_schema(
             if isinstance(prop, dict):
                 prop.pop("default", None)
     params: dict[str, Any] = {
+        **{key: schema[key] for key in ("if", "then", "else") if key in schema},
         "type": "object",
         "additionalProperties": False,
         "properties": props,

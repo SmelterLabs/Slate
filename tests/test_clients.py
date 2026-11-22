@@ -158,6 +158,15 @@ def test_work_loop_next_heartbeat_finish(client, alex, todo, agent):
     assert agent.next()["item"]["id"] == second["id"]
 
 
+def test_finish_rejects_a_combined_take_before_sending(agent, monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail("finish must reject the removed option before sending")
+
+    monkeypatch.setattr(agent, "post", unexpected)
+    with pytest.raises(TypeError, match="call next separately"):
+        agent.finish("example", next={"wait": 30})
+
+
 def test_work_forever_does_every_free_task_once(client, alex, todo, agent):
     a = _assign(client, alex, todo, "A")
     b = _assign(client, alex, todo, "B")

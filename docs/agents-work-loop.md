@@ -64,7 +64,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `next_since` jumps to it, so a cursor never rereads and other people's busy boards cost an agent
   nothing. `item.created` is never news (its `item.assigned` follows). In `CACHEABLE`: both halves
   are event-backed.
-- **Claim** (`report(..., claim=True)`, REST/MCP `claim: true`, with `working` only): an atomic
+- **Interactive claim** (`report(..., claim=True)`, REST or MCP `slate_item report` with
+  `state: working` and `claim: true`): an atomic
   take. Inside `apply_change()` (so under the write lock) it refreshes the item and raises
   `Conflict` (409) when another account's flag is younger than `reports.CLAIM_FRESH` (6 h, the age
   the board dims a badge); it implies `assign_me`. Two agents racing for one item cannot both win.
@@ -73,8 +74,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   and loads only the returned items, and the route serialises with `api.checkin.dump()` (trims the
   queue items) straight to a `Response`. Without the cap an agent holding 400 items would get
   about 333 KB per check-in.
-- **Hand to an agent** (`task/HandOff.svelte`): one atomic `POST /batch` of `item assign` (adds the
-  agent) and `item comment` (`@agent <instructions>`). No endpoint of its own: the agent sees it
+- **Hand to an agent**: in one atomic `POST /batch`, call `item update` with the new assignee set
+  and `comment add` with `@agent <instructions>`. The agent sees it
   through its inbox or stream.
 - **Board:** `AgentBadge.svelte` (card and task window), `AgentsPage.svelte` at `#/agents` (a page,
   not a scope: `parseRoute` returns `page: 'agents'` and the selected scope is left alone), store
@@ -168,10 +169,9 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   skipped except reminders, digests, its own `item.run_requested` (Run now from another session
   of the same agent) and its own reconcile of an expired run (`item.work_finished` with
   `reconciled` and `expired`), which wake its runner. Counts as a live stream on the Agents page.
-- **MCP gotchas:** nested pydantic models in tool params put `$ref`s in the merged input schema, so
-  `slate_work finish`'s `next` is a plain object validated into `WorkNext`; and a `ValidationError`
-  escaping a local action surfaces as a bare JSON-RPC "Invalid request parameters", so build
-  response models from raw values, never from an already-dumped dict.
+- **MCP work models:** `slate_work next` uses the server's default resume behavior.
+  `slate_work finish` uses `reply` for a comment and `note` for a machine failure or hand-off.
+  Take more work in a separate `next` call. The resident runner uses the REST models.
 
 ## Run now, the due gate and the runner
 
@@ -398,7 +398,7 @@ The agent-facing version is `docs/agents/pull-agents.md`.
   memory is the only bridge to its other chats), and the `SLATE:` closing line. `ask` defaults to
   the caller if it's a person, else the first owner (`default_ask`).
 - **The `SLATE:` line** (`brief.closing_line`, applied in `comments._apply_closing_line`): only when
-  `add_comment(closing_line=True)`, which REST and MCP (`slate_item comment`, `slate_comment add`)
+  `add_comment(closing_line=True)`, which REST and MCP (`slate_comment add`)
   pass. Slate's own comments (report notes) never do, so a note can't re-trigger. An agent author is
   reported through `reports.report(state, comment=False, complete=<assigned>)`; `answered`
   clears its own badge only; `ask <handle>: <question> [a | b]` is a `blocked` report with the
@@ -654,7 +654,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
 
 ## Agent plan: "about to"
 
-`GET /agents/plan` (read; `api/agents.py`, `service/agents.plan`; MCP `slate_work plan`) answers
+`GET /agents/plan` (read; `api/agents.py`, `service/agents.plan`) answers
 `{horizon_hours: 24, agents: [{id, handle, display_name, next: [...], leases: [...]}]}`, agents with
 the soonest work first. It is the "about to" view: what each agent
 will run in the next day, from the work loop's own rule rather than a looser copy of it.

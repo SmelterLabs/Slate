@@ -21,7 +21,8 @@ A connection lists the core unless told otherwise: `slate_work`, `slate_item`, `
 lists every tool. `--tools core,slate_doc,slate_chat` adds the named tools. The flag wins over
 the environment variable. HTTP (`install`) reads `SLATE_MCP_TOOLS` only. An unknown name fails
 at startup. A call to a tool that exists but is not listed is one line naming `--tools all` /
-`SLATE_MCP_TOOLS=all`, not `unknown tool`.
+`SLATE_MCP_TOOLS=all`, not `unknown tool`. Each operation nested in an MCP batch must use a
+tool listed for that connection. The REST batch endpoint uses its own operation and scope rules.
 
 Arguments are `{action, params, session_ref?}`. A single-action tool (`slate_checkin`,
 `slate_agents`, `slate_batch`, `slate_events`) takes no `action`. `params` is validated against
@@ -85,7 +86,7 @@ action calls is in the generated `docs/agents/reference/mcp.md`.
 **`tests/test_mcp_parity.py` is the guard:** it runs every action's `rest` binding on traceable
 sample params and fails when a REST query parameter or body field is never sent, when the action
 sends a key the route rejects, or when an MCP param reaches nothing; deliberate differences (the
-narrow actions, and `report`'s `claim`, which stays on REST) sit in its small allowlist with a
+narrow work request models) sit in its small allowlist with a
 reason each. It also fails
 when an action's scope is not its route's: the MCP door checks `Action.scope` itself, since REST's
 `require` never runs there. A few actions pass their own `local=` to `bind`, because their local

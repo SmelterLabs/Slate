@@ -41,6 +41,7 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from slate import __version__, db, monitor
+from slate.batch import BatchIn
 from slate.mcp_tools import (
     CORE,
     RULE,
@@ -311,6 +312,14 @@ def build_server(get_backend: GetBackend, names: list[str] | None = None) -> Ser
             )
         try:
             name, model, session_ref = _parse_call(spec, params.arguments or {})
+            if isinstance(model, BatchIn):
+                for op in model.ops:
+                    nested = op.tool if op.tool.startswith("slate_") else f"slate_{op.tool}"
+                    if nested in TOOLS and nested not in listed:
+                        return _error(
+                            f"{nested} is not listed; start slate-mcp with --tools all "
+                            "or set SLATE_MCP_TOOLS=all"
+                        )
             result = await get_backend(ctx).run(spec, name, model, session_ref)
         except (ToolError, ServiceError) as exc:
             return _error(str(exc))

@@ -10,10 +10,12 @@ import httpx
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import select
 
+from conftest import API
 from slate import mcp_server, mcp_tools
 from slate.app import create_app
 from slate.db import SessionLocal
@@ -181,10 +183,142 @@ def test_each_action_validates_against_its_own_branch(spec):
 
 
 @pytest.mark.parametrize("spec", list(mcp_tools.TOOLS.values()), ids=lambda spec: spec.name)
-def test_every_example_is_a_call_the_server_accepts(spec):
-    text = mcp_tools.description(spec)
-    raw = text.split("Example: ", 1)[1]
-    mcp_server._parse_call(spec, json.loads(raw))
+async def test_every_example_is_a_call_the_server_accepts(spec, client, alex, todo, make_account):
+    def seed(path, **body):
+        response = client.post(f"{API}{path}", headers=alex, json=body)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    headers = alex
+    async with http_mcp(alex) as admin:
+        tool = next(t for t in (await admin.list_tools()).tools if t.name == spec.name)
+        args = json.loads(tool.description.split("Example: ", 1)[1])
+        Draft202012Validator(tool.input_schema).validate(args)
+        params = args.get("params", {})
+        if spec.name in {"slate_item", "slate_automation", "slate_recurrence", "slate_export"}:
+            params["list_id"] = todo["id"]
+        elif spec.name in {"slate_comment", "slate_checklist", "slate_reminder", "slate_work"}:
+            if spec.name == "slate_work":
+                account, headers = make_account("my-agent")
+                card = seed(
+                    "/items", title="Example", list_id=todo["id"], assignees=[account["id"]]
+                )
+                async with http_mcp(headers) as worker:
+                    taken = ok(await call(worker, "slate_work", "next", item_id=card["id"]))
+                params["run_id"] = taken["lease"]["run_id"]
+            else:
+                fields = {"due_at": "2030-01-02"} if spec.name == "slate_reminder" else {}
+                card = seed("/items", title="Example", list_id=todo["id"], **fields)
+            params["id" if spec.name == "slate_comment" else "item_id"] = card["id"]
+        elif spec.name == "slate_doc":
+            params["id"] = seed("/docs", title="Example")["id"]
+        elif spec.name == "slate_favorite":
+            params["target_id"] = todo["id"]
+        elif spec.name == "slate_list":
+            params["section_id"] = todo["section_id"]
+        elif spec.name == "slate_share":
+            account, _ = make_account("my-agent")
+            params.update(account_id=account["id"], scope_id=todo["id"])
+        elif spec.name == "slate_tag":
+            seed("/tags", name=params["tag"])
+        elif spec.name == "slate_batch":
+            params["ops"][0]["params"]["list_id"] = todo["id"]
+        Draft202012Validator(tool.input_schema).validate(args)
+        if headers is alex:
+            ok(await admin.call_tool(spec.name, args))
+    if headers is not alex:
+        async with http_mcp(headers) as worker:
+            ok(await worker.call_tool(spec.name, args))
+
+
+def test_work_schema_exposes_claim_and_only_mcp_finish_controls():
+    work = Draft202012Validator(mcp_tools.input_schema(mcp_tools.TOOLS["slate_work"]))
+    item = Draft202012Validator(mcp_tools.input_schema(mcp_tools.TOOLS["slate_item"]))
+    work.check_schema(work.schema)
+    item.check_schema(item.schema)
+    assert work.is_valid({"action": "next", "params": {"kinds": ["task"]}})
+    assert not work.is_valid({"action": "next", "params": {"resume": False}})
+    assert not work.is_valid({"action": "next", "params": {"outcome": "done"}})
+    done = {"item_id": "Ab12Cd34Ef56", "outcome": "done", "reply": "Filed."}
+    assert work.is_valid({"action": "finish", "params": done})
+    assert not work.is_valid({"action": "finish", "params": {**done, "comment": False}})
+    assert not work.is_valid({"action": "finish", "params": {**done, "note": "Filed."}})
+    assert not work.is_valid({"action": "finish", "params": {**done, "outcome": "failed"}})
+    assert work.is_valid(
+        {
+            "action": "finish",
+            "params": {
+                "item_id": "Ab12Cd34Ef56",
+                "outcome": "review",
+                "hand_to": "alex",
+                "note": "Check the draft.",
+            },
+        }
+    )
+    assert item.is_valid(
+        {
+            "action": "report",
+            "params": {"id": "Ab12Cd34Ef56", "state": "working", "claim": True},
+        }
+    )
+
+
+async def test_interactive_claim_and_failed_finish_use_separate_workflows(alex, make_account):
+    account, agent = make_account("my-agent")
+    async with http_mcp(alex) as admin:
+        todo = await make_list(admin)
+        first = ok(await call(admin, "slate_item", "create", list_id=todo["id"], title="Draft"))
+        second = ok(
+            await call(
+                admin,
+                "slate_item",
+                "create",
+                list_id=todo["id"],
+                title="Publish",
+                assignees=[account["id"]],
+            )
+        )
+    async with http_mcp(agent, tools=None) as mcp:
+        claimed = ok(
+            await call(mcp, "slate_item", "report", id=first["id"], state="working", claim=True)
+        )
+        assert claimed["agent"]["state"] == "working"
+        assert not ok(await call(mcp, "slate_work", "held"))
+        assert "resume" in err(
+            await call(mcp, "slate_work", "next", item_id=second["id"], resume=False)
+        )
+        taken = ok(await call(mcp, "slate_work", "next", item_id=second["id"], kinds=["task"]))
+        proof = {"item_id": second["id"], "run_id": taken["lease"]["run_id"]}
+        assert "note" in err(
+            await call(mcp, "slate_work", "finish", **proof, outcome="done", note="Done")
+        )
+        finished = ok(
+            await call(mcp, "slate_work", "finish", **proof, outcome="failed", note="Disk full")
+        )
+        assert finished["item"]["agent"]["state"] == "failed"
+
+
+@pytest.mark.parametrize("atomic", [True, False])
+async def test_hidden_tools_cannot_run_inside_mcp_batch(alex, atomic):
+    async with http_mcp(alex, tools="core,slate_batch") as client:
+        hidden = err(
+            await call(
+                client,
+                "slate_batch",
+                atomic=atomic,
+                ops=[{"tool": "section", "action": "list"}],
+            )
+        )
+        assert "slate_section is not listed" in hidden
+        visible = ok(
+            await call(
+                client,
+                "slate_batch",
+                atomic=atomic,
+                ops=[{"tool": "slate_list", "action": "list"}],
+            )
+        )
+        assert visible["results"][0]["result"] == []
 
 
 async def test_the_default_list_is_the_core(alex):
@@ -751,7 +885,7 @@ async def exercise_work(mcp, todo: dict) -> None:
             "finish",
             item_id=first["id"],
             outcome="done",
-            note="ok",
+            reply="ok",
             run_id=got["lease"]["run_id"],
         )
     )
@@ -769,7 +903,7 @@ async def exercise_work(mcp, todo: dict) -> None:
         )
     )
     assert out.get("next") is None  # nulls are left out of tool results
-    empty = ok(await call(mcp, "slate_work", "next", resume=False, list_id=todo["id"], tag="x"))
+    empty = ok(await call(mcp, "slate_work", "next", list_id=todo["id"], tag="x"))
     assert empty.get("item") is None and empty["remaining"] == 0
     assert "hand_to" in err(
         await call(mcp, "slate_work", "finish", item_id=second["id"], outcome="done", hand_to=me)

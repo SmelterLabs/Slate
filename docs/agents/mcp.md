@@ -7,7 +7,8 @@ comment, and search. Every other tool is listed when the server is started with
 `--tools all` (or `SLATE_MCP_TOOLS=all`), or named: `--tools core,slate_doc,slate_chat`.
 The HTTP server reads `SLATE_MCP_TOOLS` only (`slate serve` has no `--tools` flag). A call
 to a tool that exists but is not listed is a one-line error naming that flag. A name that
-is not a tool at all is `unknown tool`.
+is not a tool at all is `unknown tool`. Every tool called inside `slate_batch` must also be
+listed for that connection.
 
 `slate_today` is not a tool. Overdue and due today are `slate_work next` and
 `slate_item list`. The `slate://today` resource is still there. `slate_item` has no

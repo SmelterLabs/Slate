@@ -24,7 +24,9 @@ Start here: `slate_work`. One create is exactly one item. Subtasks only when ask
 
 ## Take
 
-`slate_work` `next` takes your best free task and a lease. Keep `lease.run_id`. Send it back as `run_id` on heartbeat and finish. `item: null` means nothing is free. A 409 means you do not hold it: stop.
+A resident runner takes work with `slate_work next`. For cards only, pass `kinds: ["task"]`. In that loop `item: null` means no card is free. Keep `lease.run_id` and send it as `run_id` on heartbeat and finish. Stop on a 409. Runners handling mentions also inspect `chat` and `doc` and use the corresponding turn actions in the MCP reference.
+
+In an interactive session without a runner, pick a card and call `slate_item report` with its `id`, `state: "working"` and `claim: true`. This assigns the card and shows that you are working, without creating a lease. Update the badge with `report` as you work and use `report` to complete it or clear the badge. Use `slate_comment add` for replies.
 
 ## Work
 
