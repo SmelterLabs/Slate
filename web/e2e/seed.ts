@@ -1,11 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceDay } from '../src/lib/quickadd';
 import { setWorkspaceTimezone } from '../src/lib/timezone';
 
-// The e2e server runs in one fixed sample zone (playwright.config.ts). Date helpers the
-// specs borrow from the board must agree with it, so every spec gets it by importing this.
-setWorkspaceTimezone('America/Chicago');
+export const WORKSPACE_TIMEZONE = 'America/Chicago';
+setWorkspaceTimezone(WORKSPACE_TIMEZONE);
+
+// Playwright shares one instant across setup and workers so a run can straddle midnight.
+export const calendarNow = () => new Date(process.env.SLATE_E2E_NOW!);
+export const today = () => workspaceDay(calendarNow());
 
 export const SEED_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '.e2e', 'seed.json');
 

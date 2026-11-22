@@ -1,9 +1,10 @@
 // The card's ⋯ menu Due row (Today, Tomorrow, a date picker) and the copy-ID chip in each card's
 // bottom-right corner: it copies the ID, says "Copied", and never opens or drags the card.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, signIn } from './support';
+import { today } from './seed';
+import { api, calendarTest as test, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const capture = screenshots();
@@ -80,7 +81,7 @@ test('the Due row offers Today, Tomorrow and a date picker, and marks the curren
   await shot(page, 'card-menu-due', await around(c, menu));
 
   // A picked date lands on the task, and the menu shows it as the current choice.
-  const target = addDays(workspaceDay(new Date()), 9);
+  const target = addDays(today(), 9);
   await menu.getByLabel('Due date').fill(target);
   await expect.poll(() => dueDay(ids['Pick my date'])).toBe(target);
   await expect(menu).toHaveCount(0);
@@ -90,7 +91,7 @@ test('the Due row offers Today, Tomorrow and a date picker, and marks the curren
   await expect(page.locator('.card-menu').getByRole('button', { name: 'Pick a date' })).toHaveClass(/\bon\b/);
   await shot(page, 'card-menu-picked', await around(c, page.locator('.card-menu')));
   await page.locator('.card-menu').getByRole('button', { name: 'Today', exact: true }).click();
-  await expect.poll(() => dueDay(ids['Pick my date'])).toBe(workspaceDay(new Date()));
+  await expect.poll(() => dueDay(ids['Pick my date'])).toBe(today());
   await c.hover();
   await c.getByRole('button', { name: 'Task actions' }).click();
   await expect(page.locator('.card-menu').getByRole('button', { name: 'Today', exact: true })).toHaveClass(/\bon\b/);
