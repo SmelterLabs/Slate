@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+import pytest
+
 from conftest import API
+from slate.models import utcnow
+from slate.service import item_cache, items, sections
 
 
 def _item(client, alex, todo, title="one"):
@@ -42,42 +48,104 @@ def test_large_json_is_gzipped(client, alex, todo):
 
 
 def test_unchanged_read_is_a_304_and_any_change_breaks_the_tag(client, alex, todo):
-    item = _item(client, alex, todo)
-    first = client.get(f"{API}/items?list_id={todo['id']}", headers=alex)
+    path = f"{API}/lists/{todo['id']}"
+    first = client.get(path, headers=alex)
     etag = first.headers["etag"]
-    again = client.get(f"{API}/items?list_id={todo['id']}", headers={**alex, "If-None-Match": etag})
+    again = client.get(path, headers={**alex, "If-None-Match": etag})
     assert again.status_code == 304 and again.content == b""
     assert again.headers["etag"] == etag
 
-    client.patch(f"{API}/items/{item['id']}", json={"title": "two"}, headers=alex)
-    after = client.get(f"{API}/items?list_id={todo['id']}", headers={**alex, "If-None-Match": etag})
-    assert after.status_code == 200 and after.json()[0]["title"] == "two"
+    client.patch(path, json={"name": "Updated"}, headers=alex).raise_for_status()
+    after = client.get(path, headers={**alex, "If-None-Match": etag})
+    assert after.status_code == 200 and after.json()["name"] == "Updated"
     assert after.headers["etag"] != etag
 
 
 def test_tag_is_per_url_and_per_token(client, alex, todo, make_account):
-    _item(client, alex, todo)
     _, agent = make_account("agent", ("read",))
-    a = client.get(f"{API}/items", headers=alex).headers["etag"]
-    b = client.get(f"{API}/items?q=x", headers=alex).headers["etag"]
-    c = client.get(f"{API}/items", headers=agent).headers["etag"]
+    a = client.get(f"{API}/lists", headers=alex).headers["etag"]
+    b = client.get(f"{API}/lists/{todo['id']}", headers=alex).headers["etag"]
+    c = client.get(f"{API}/lists", headers=agent).headers["etag"]
     assert len({a, b, c}) == 3
     # Someone else's tag never short-circuits: a different token gets the full answer.
-    r = client.get(f"{API}/items", headers={**agent, "If-None-Match": a})
+    r = client.get(f"{API}/lists", headers={**agent, "If-None-Match": a})
     assert r.status_code == 200
 
 
-def test_no_304_without_a_token(client, alex, todo):
-    _item(client, alex, todo)
-    etag = client.get(f"{API}/items", headers=alex).headers["etag"]
-    r = client.get(f"{API}/items", headers={"If-None-Match": etag})
+def test_no_304_without_a_token(client, alex):
+    etag = client.get(f"{API}/lists", headers=alex).headers["etag"]
+    r = client.get(f"{API}/lists", headers={"If-None-Match": etag})
     assert r.status_code == 401
 
 
 def test_time_dependent_reads_are_not_tagged(client, alex, todo):
     _item(client, alex, todo)
-    assert "etag" not in client.get(f"{API}/today", headers=alex).headers
-    assert "etag" not in client.get(f"{API}/items?stale=true", headers=alex).headers
+    for path in ("today", "items?stale=true", "checkin", "sections"):
+        assert "etag" not in client.get(f"{API}/{path}", headers=alex).headers
+
+
+@pytest.mark.parametrize("date_field", ["start_at", "due_at"])
+def test_conditional_item_reads_recalculate_later(client, alex, todo, monkeypatch, date_field):
+    now = utcnow()
+    monkeypatch.setattr(item_cache, "utcnow", lambda: now)
+    monkeypatch.setattr(items, "utcnow", lambda: now)
+    monkeypatch.setattr(sections, "utcnow", lambda: now)
+    client.patch(f"{API}/me/prefs", headers=alex, json={"lead_days": 2}).raise_for_status()
+    section_id = todo["section_id"]
+    client.patch(
+        f"{API}/sections/{section_id}", headers=alex, json={"project": True}
+    ).raise_for_status()
+    planning = {"due_at": (now + timedelta(days=3)).isoformat()}
+    if date_field == "start_at":
+        planning = {
+            "start_at": (now + timedelta(days=1)).isoformat(),
+            "due_at": (now + timedelta(days=2)).isoformat(),
+        }
+    item = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": todo["id"],
+            "title": "Draft",
+            "assignees": ["alex"],
+            **planning,
+        },
+    ).json()
+    listing = f"{API}/items?list_id={todo['id']}"
+    detail = f"{API}/items/{item['id']}"
+    before_list = client.get(listing, headers=alex)
+    before_detail = client.get(detail, headers=alex)
+    checkin = f"{API}/checkin"
+    before_checkin = client.get(checkin, headers=alex)
+    before_sections = client.get(f"{API}/sections", headers=alex)
+    assert before_list.json()[0]["later"] is True
+    assert before_detail.json()["later"] is True
+    assert before_checkin.json()["queue"][0]["later"] is True
+    assert (
+        next(row for row in before_sections.json() if row["id"] == section_id)["next_step"] is None
+    )
+
+    now += timedelta(days=2)
+    for path, before in [
+        (listing, before_list),
+        (detail, before_detail),
+        (checkin, before_checkin),
+    ]:
+        headers = {**alex, "If-None-Match": before.headers.get("etag", "*")}
+        after = client.get(path, headers=headers)
+        assert after.status_code == 200
+        assert after.headers["x-slate-cursor"] == before.headers["x-slate-cursor"]
+        body = after.json()
+        row = body[0] if path == listing else body["queue"][0] if path == checkin else body
+        assert row["later"] is False
+
+    after_sections = client.get(
+        f"{API}/sections",
+        headers={**alex, "If-None-Match": before_sections.headers.get("etag", "*")},
+    )
+    assert after_sections.status_code == 200
+    section = next(row for row in after_sections.json() if row["id"] == section_id)
+    assert section["next_step"]["item_id"] == item["id"]
 
 
 def test_cursor_header_lets_a_reader_follow_on_without_a_gap(client, alex, todo):

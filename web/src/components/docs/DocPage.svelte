@@ -319,7 +319,7 @@
         }}
       ></textarea>
       <div class="doc-tags" data-testid="doc-tags">
-        <TagEditor tags={doc.tags ?? []} onchange={(tags) => void docs.setTags(doc.id, tags)} />
+        <TagEditor tags={doc.tags ?? []} onchange={(tags) => docs.setTags(doc.id, tags)} />
       </div>
       {#if isFile}
         <p class="doc-meta muted" data-testid="file-meta">

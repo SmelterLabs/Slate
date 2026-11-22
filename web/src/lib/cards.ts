@@ -114,5 +114,6 @@ export function isCollapsed(
   collapseEmpty: boolean,
 ): boolean {
   if (key in manual) return manual[key];
+  if (key === 'later') return true;
   return collapseEmpty && count === 0;
 }

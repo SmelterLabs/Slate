@@ -130,6 +130,7 @@ export const EVENT_TYPES = [
   'item.reminder',
   'item.reminder_set',
   'item.reminder_removed',
+  'item.unparked',
   'account.digest',
   'health.alert',
   'health.recovered',

@@ -1,21 +1,28 @@
 // @vitest-environment happy-dom
 import { flushSync, mount, unmount } from 'svelte';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Prefs } from '../lib/types';
 
-const { patch } = vi.hoisted(() => ({ patch: vi.fn() }));
+const { get, patch, post } = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
+const answer = async (path: string) => (path === '/me/digest' ? null : []);
 vi.mock('../lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/api')>()),
-  get: vi.fn(async (path: string) => path === '/me/digest' ? null : []),
+  get,
   patch,
+  post,
 }));
 
+import { ApiError } from '../lib/api';
 import { board } from '../lib/store.svelte';
 import NotificationSettings from './NotificationSettings.svelte';
 
+beforeEach(() => get.mockImplementation(answer));
 afterEach(() => {
   board.me = null;
+  get.mockReset();
   patch.mockReset();
+  post.mockReset();
+  vi.unstubAllGlobals();
 });
 
 it('round-trips the quiet hours and escalation controls through account preferences', async () => {
@@ -47,6 +54,7 @@ it('round-trips the quiet hours and escalation controls through account preferen
   };
 
   try {
+    expect(target.querySelector('[aria-label="Nudge again about unread chat"]')).toBeNull();
     expect(input(enable).checked).toBe(false);
     expect(input(minutes).value).toBe('120');
     await save(enable, true);
@@ -103,4 +111,74 @@ it('reports invalid or empty settings and restores the saved inputs', async () =
     await unmount(app);
     target.remove();
   }
+});
+
+describe('this device', () => {
+  const ALEX = { account: { id: 'P1', handle: 'alex', display_name: 'Alex', kind: 'person' as const }, token_id: 'T1', scopes: ['write'], prefs: {} };
+  const OFFLINE = () => new ApiError(0, 'You are offline: showing what was already loaded');
+  let subscribed = false;
+
+  /** A browser that can show notifications; `subscribed` says whether this one is. */
+  function pushBrowser(permission: NotificationPermission) {
+    const sub = { endpoint: 'https://push.example.com/1', unsubscribe: vi.fn(async () => { subscribed = false; return true; }) };
+    vi.stubGlobal('PushManager', function PushManager() {});
+    vi.stubGlobal('Notification', { permission });
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => (subscribed ? sub : null) } }) },
+    });
+  }
+
+  async function open() {
+    board.me = structuredClone(ALEX);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(NotificationSettings, { target });
+    const state = () => target.querySelector('.ns-state')?.textContent ?? '';
+    const button = (name: string) =>
+      [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === name);
+    return { state, button, close: async () => { await unmount(app); target.remove(); } };
+  }
+
+  it('says it could not check, offers to check again, and adds no toast while offline', async () => {
+    pushBrowser('default');
+    let reachable = false;
+    get.mockImplementation(async (path: string) => {
+      if (path !== '/push/key') return answer(path);
+      if (!reachable) throw OFFLINE();
+      return { enabled: true, public_key: 'BKey' };
+    });
+    const win = await open();
+    try {
+      await vi.waitFor(() => expect(win.state()).toBe('Could not check notifications for this device.'));
+      expect(board.toast).toBeNull();
+      reachable = true;
+      win.button('Check again')!.click();
+      await vi.waitFor(() => expect(win.state()).toBe('Off for this device.'));
+    } finally {
+      await win.close();
+    }
+  });
+
+  it('does not still say "on" after turning off failed to reach Slate', async () => {
+    pushBrowser('granted');
+    subscribed = true;
+    let reachable = true;
+    get.mockImplementation(async (path: string) => {
+      if (path !== '/push/key') return answer(path);
+      if (!reachable) throw OFFLINE();
+      return { enabled: true, public_key: 'BKey' };
+    });
+    post.mockImplementation(async () => { throw OFFLINE(); });
+    const win = await open();
+    try {
+      await vi.waitFor(() => expect(win.state()).toBe('On for this device.'));
+      reachable = false;
+      win.button('Turn off here')!.click();
+      await vi.waitFor(() => expect(win.state()).toBe('Could not check notifications for this device.'));
+      expect(subscribed).toBe(false);
+    } finally {
+      await win.close();
+    }
+  });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dueLabel, isOverdue } from '../lib/format';
+  import { dueLabel, isOverdue, shortDate } from '../lib/format';
   import { priorityLabel } from '../lib/priority';
   import { rowHandlers } from '../lib/itemrow';
   import { board } from '../lib/store.svelte';
@@ -81,6 +81,7 @@
         {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
         {#if item.stalled}<StalledBadge {item} />{/if}
       </span>
+    {#if item.parked_until && item.parked_note}<span class="muted small" data-parked>Waiting on {item.parked_note} until {shortDate(item.parked_until, board.now)}</span>{/if}
       {#if item.standing}<StandingLine standing={item.standing} />{/if}
     </span>
     {#if armed}<QuickActions {item} /><CardMenu {item} bind:open={menuOpen} />{/if}

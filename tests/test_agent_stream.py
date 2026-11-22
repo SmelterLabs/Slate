@@ -58,9 +58,11 @@ async def test_assignment_arrives_as_news_and_a_work_hint_within_a_second(live):
         stream = await _open(client, stack, f"{API}/checkin/stream", headers=_bearer(tok))
         assert await stream.ready() == []
 
-        start = time.monotonic()
         item = await _item(client, live.admin_token, todo["id"], "Do it", assignees=["agent"])
-        got = [await stream.event(timeout=1), await stream.event(timeout=1)]
+        # Both notifications share one deadline after the acknowledged write.
+        start = time.monotonic()
+        async with asyncio.timeout(1):
+            got = [await stream.event(), await stream.event()]
         assert time.monotonic() - start < 1
         kinds = {(m.event, m.data.get("why")) for m in got}
         assert ("news", "assigned") in kinds

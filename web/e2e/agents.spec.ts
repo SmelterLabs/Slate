@@ -172,3 +172,24 @@ test('a long blocked badge stays inside its card and keeps the agent name', asyn
   await api('POST', `/items/${item.id}/report`, { state: 'idle', comment: false }, agent);
   await api('DELETE', `/items/${item.id}`);
 });
+
+test('a member opens the Agents page without an error: statistics are for owners and admins', async ({ page }) => {
+  const member = await api<{ id: string }>('POST', '/accounts', {
+    handle: `member-${Date.now()}`,
+    display_name: 'Member',
+    kind: 'person',
+    role: 'member',
+  });
+  const { token } = await api<{ token: string }>('POST', `/accounts/${member.id}/tokens`, { scopes: ['read', 'write'] });
+  const stats: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('/api/v1/stats')) stats.push(r.url()); });
+  await signIn(page, token);
+  // The plan is read in the same moment the statistics would be: once it has answered, so
+  // would they have.
+  const plan = page.waitForResponse((r) => r.url().includes('/api/v1/agents/plan'));
+  await page.goto('/#/agents');
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  await plan;
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(stats).toEqual([]);
+});

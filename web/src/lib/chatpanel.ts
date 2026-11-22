@@ -87,7 +87,7 @@ export function readPanelState(raw: string | null | undefined): PanelState {
     const width = typeof v.width === 'number' && Number.isFinite(v.width) && v.width > 0 ? v.width : PANEL_DEFAULT_WIDTH;
     return { open: v.open === true, channel: v.channel, thread: typeof v.thread === 'string' ? v.thread : null, width };
   } catch {
-    return DEFAULT_PANEL;
+    return DEFAULT_PANEL; // an invalid saved layout falls back to the default
   }
 }
 

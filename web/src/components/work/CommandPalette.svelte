@@ -2,7 +2,6 @@
   import { chat } from '../../lib/chat.svelte';
   import { priorityLabel } from '../../lib/priority';
   import { chatHref } from '../../lib/chat';
-  import { notifySettings } from '../../lib/notify.svelte';
   import { inbox } from '../../lib/inbox.svelte';
   import { type Candidate, type Hit, pushRecent, rank, segments } from '../../lib/palette';
   import { parseQuickAdd } from '../../lib/quickadd';
@@ -73,7 +72,7 @@
         id: 'notifications',
         label: 'Notifications and reminders',
         keywords: 'push phone desktop digest remind alerts',
-        run: () => (notifySettings.open = true),
+        run: () => (inbox.settingsOpen = true),
       },
       { kind: 'action', id: 'inbox-read', label: 'Mark all notifications read', keywords: 'inbox clear', run: () => void inbox.readAll() },
       { kind: 'action', id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', keywords: 'help keys', run: () => onshortcuts() },

@@ -16,7 +16,7 @@ function stored(): PanelState {
   try {
     return readPanelState(localStorage.getItem(STORAGE_KEY));
   } catch {
-    return DEFAULT_PANEL;
+    return DEFAULT_PANEL; // storage is optional for the panel
   }
 }
 

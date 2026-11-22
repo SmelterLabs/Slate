@@ -14,8 +14,8 @@ schemas, set annotations per tool and build `isError` results ourselves. SDK doc
 <https://py.sdk.modelcontextprotocol.io/>.
 
 **Tools.** One per resource, in `mcp_tools.TOOLS` order (`tests/test_mcp.py` `TOOLS` is the list
-of record). There is no `slate_today` tool: overdue and due today are `slate_work next` and
-`slate_item list`. `slate://today` still renders, from `TODAY_SPEC`, which is not in `TOOLS`.
+of record). Read overdue and due-today work through `slate://today` or REST `GET /today`.
+The MCP resource renders from `TODAY_SPEC`.
 A connection lists the core unless told otherwise: `slate_work`, `slate_item`, `slate_comment`,
 `slate_search`, `slate_list` (`mcp_tools.CORE`). `slate-mcp --tools all` or `SLATE_MCP_TOOLS=all`
 lists every tool. `--tools core,slate_doc,slate_chat` adds the named tools. The flag wins over

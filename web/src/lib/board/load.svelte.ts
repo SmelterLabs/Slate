@@ -11,6 +11,7 @@ import type {
   Item,
   ItemDetail,
   List,
+  Prefs,
   Recurrence,
   SavedView,
   Section,
@@ -19,25 +20,41 @@ import type {
 import { BoardViews } from './views.svelte';
 
 export class BoardLoad extends BoardViews {
+  /** `later` on every held item was computed with the old lead_days: fetch them again. */
+  override async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
+    const token = this.token;
+    const saved = await super.setPrefs(changes);
+    if (saved && token && this.token === token && 'lead_days' in changes) this.refreshLater();
+    return saved;
+  }
+
+  protected refreshLater() {
+    void this.refetchItems(Object.keys(this.items));
+  }
+
   // Full reloads overlap (a burst of list.statuses_changed, a share change during a refresh):
   // only the newest one may write, so an older answer never overwrites a newer one.
   #loadGen = 0;
+  #structureGen = 0;
 
   protected async loadAll() {
     const gen = ++this.#loadGen;
+    const structureGen = ++this.#structureGen;
     const [sections, lists, items, views, favorites] = await Promise.all([
       get<Section[]>('/sections'),
       get<List[]>('/lists'),
       get<Item[]>('/items'),
       get<SavedView[]>('/views'),
       get<Favorite[]>('/favorites'),
-      agents.refreshRoster(),
+      agents.refreshRoster((what, e) => this.loadFailed(what, e)),
     ]);
     if (gen !== this.#loadGen) return; // a newer load is answering instead
     this.views = Object.fromEntries(views.map((v) => [v.id, v]));
     this.favorites = favorites;
-    this.sections = sections.sort((a, b) => a.position - b.position);
-    this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
+    if (structureGen === this.#structureGen) {
+      this.sections = sections.sort((a, b) => a.position - b.position);
+      this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
+    }
     this.items = Object.fromEntries(structuredClone(items).map((i) => [i.id, i]));
     this.syncAll(items);
     void this.loadTags(); // tag colours on chips
@@ -72,8 +89,14 @@ export class BoardLoad extends BoardViews {
             const p = await get<{ participants: Account[] }>(`/sections/${s.id}/project`);
             for (const a of p.participants) known[a.id] ??= a;
             agentsBySection[s.id] = p.participants.filter((a) => a.kind === 'agent');
-          } catch {
-            // not this account's project after all: nothing to name
+          } catch (e) {
+            // Access can change between loading the sections and loading a project: a project
+            // gone or no longer shared names no one.
+            if (e instanceof ApiError && [403, 404].includes(e.status)) return;
+            const previous = this.sectionAgents[s.id] ?? [];
+            agentsBySection[s.id] = previous;
+            for (const a of previous) known[a.id] ??= a;
+            this.loadFailed('load project participants', e);
           }
         }),
     );
@@ -82,10 +105,13 @@ export class BoardLoad extends BoardViews {
   }
 
   protected async loadStructure() {
+    const gen = ++this.#structureGen;
+    const token = this.token;
     const [sections, lists] = await Promise.all([
       get<Section[]>('/sections'),
       get<List[]>('/lists'),
     ]);
+    if (gen !== this.#structureGen || token !== this.token) return;
     this.sections = sections.sort((a, b) => a.position - b.position);
     this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
   }
@@ -128,7 +154,7 @@ export class BoardLoad extends BoardViews {
           }
         }
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
+        this.loadFailed('refresh tasks', e);
       }
     }
   }
@@ -143,6 +169,8 @@ export class BoardLoad extends BoardViews {
       if (e instanceof ApiError && e.status === 404) {
         delete this.items[id];
         this.sync(id);
+      } else {
+        this.loadFailed('refresh task', e);
       }
     }
   }
@@ -150,8 +178,8 @@ export class BoardLoad extends BoardViews {
   async loadTags() {
     try {
       this.tags = await get<Tag[]>('/tags');
-    } catch {
-      // Autocomplete is a nicety; typing a tag still works without it.
+    } catch (e) {
+      this.loadFailed('load tags', e);
     }
   }
 
@@ -159,8 +187,8 @@ export class BoardLoad extends BoardViews {
     try {
       const rules = await get<Recurrence[]>('/recurrences');
       this.recurrences = Object.fromEntries(rules.map((r) => [r.id, r]));
-    } catch {
-      // labels fall back to "Recurring"
+    } catch (e) {
+      this.loadFailed('load repeat rules', e);
     }
   }
 
@@ -169,7 +197,9 @@ export class BoardLoad extends BoardViews {
       const r = await get<Recurrence>(`/recurrences/${id}`);
       this.recurrences[id] = r;
       return r;
-    } catch {
+    } catch (e) {
+      // A rule can be deleted before an item refresh drops its reference.
+      if (!(e instanceof ApiError && e.status === 404)) this.loadFailed('load repeat rule', e);
       return null;
     }
   }
@@ -178,7 +208,7 @@ export class BoardLoad extends BoardViews {
     try {
       this.favorites = await get<Favorite[]>('/favorites');
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
+      this.loadFailed('load favorites', e);
     }
   }
 
@@ -201,8 +231,8 @@ export class BoardLoad extends BoardViews {
         this.#markRead(open);
       }
       this.commentDots = dots;
-    } catch {
-      /* the next comment or reload retries */
+    } catch (e) {
+      this.loadFailed('refresh unread comments', e);
     }
   }
 
@@ -231,7 +261,9 @@ export class BoardLoad extends BoardViews {
         await this.loadRule(d.recurrence_id);
       }
     } catch (e) {
+      if (this.openId !== id) return; // the request belonged to a task that was closed
       if (e instanceof ApiError && e.status === 404) this.close();
+      else this.loadFailed('load task details', e);
     }
   }
 }

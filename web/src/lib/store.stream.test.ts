@@ -146,9 +146,20 @@ describe('applying events', () => {
     const lists = () => calls.filter((p) => p === '/lists').length;
     const [i0, l0] = [items(), lists()];
     await emit(ev({ type: 'list.updated', item_id: null, subject_id: 'L1' }));
+    await vi.advanceTimersByTimeAsync(100);
     await settle();
     expect(lists()).toBe(l0 + 1);
     expect(items()).toBe(i0);
+  });
+
+  it.each([503, 403])('applies the failed-read rule to a structure reload returning %i', async (status) => {
+    const before = board.sections;
+    routes.set('/sections', () => ({ status, body: { detail: 'Unavailable' } }));
+    await emit(ev({ type: 'list.updated', item_id: null, subject_id: 'L1' }));
+    await vi.advanceTimersByTimeAsync(100);
+    await settle();
+    expect(board.toast).toBe(status === 503 ? 'Could not refresh board structure: Unavailable' : null);
+    expect(board.sections).toBe(before);
   });
 
   it("an event about the open task refreshes the task window's detail", async () => {
@@ -174,6 +185,116 @@ describe('applying events', () => {
     await settle();
     expect(tagLoads()).toBe(before + 1); // a burst of tag events is one reload
     expect(board.tags.find((t) => t.name === 'garden')?.color).toBe('#C8102E');
+  });
+
+  it('an item event in a project section schedules one debounced structure reload', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true, next_step: null },
+    ];
+    const sections = () => calls.filter((p) => p === '/sections').length;
+    const before = sections();
+    await emit(ev({ field: 'due_at', after: '2026-11-01T22:00:00Z' }), ev({ field: 'title', after: 'Again' }));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(sections()).toBe(before);
+    await vi.advanceTimersByTimeAsync(100);
+    await settle();
+    expect(sections()).toBe(before + 1); // a burst is one reload
+  });
+
+  it('an item event outside a project section schedules no structure reload', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Plain', slug: 'plain', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: false, next_step: null },
+    ];
+    const sections = () => calls.filter((p) => p === '/sections').length;
+    const before = sections();
+    await emit(ev({ field: 'due_at', after: '2026-11-01T22:00:00Z' }));
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(sections()).toBe(before);
+  });
+
+  it('moving the next step out of its project refreshes the source section', async () => {
+    const project = { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work' as const, created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true };
+    const step = { item_id: 'I1', title: 'Launch', assignee_ids: [ME.account.id], due_at: '2026-11-01' };
+    board.sections = [{ ...project, next_step: step }];
+    board.lists.L2 = { ...board.lists.L1, id: 'L2', section_id: 'S2' };
+    routes.set('/sections', () => [{ ...project, next_step: null }]);
+    routes.set('/items', () => [item({ list_id: 'L2' })]);
+
+    await emit(ev({ type: 'item.moved', field: 'list_id', before: 'L1', after: 'L2' }));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(board.items.I1.list_id).toBe('L2');
+    expect(board.sections[0].next_step).toBeNull();
+    expect(board.projectNeeds.map((need) => need.section.id)).toEqual(['S1']);
+  });
+
+  it('refreshes a project when an uncached restored card returns to it', async () => {
+    const project = { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work' as const, created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true };
+    board.sections = [{ ...project, next_step: null }];
+    const step = { item_id: 'I3', title: 'Send the draft', assignee_ids: [ME.account.id], due_at: '2026-11-01' };
+    routes.set('/items', () => [item({ id: 'I3', title: step.title })]);
+    routes.set('/sections', () => [{ ...project, next_step: step }]);
+    await emit(ev({ type: 'item.restored', item_id: 'I3', after: { archived_at: null, trashed_at: null } }));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(board.items.I3.title).toBe(step.title);
+    expect(board.sections[0].next_step).toEqual(step);
+  });
+
+  it('signing out cancels a queued project refresh', async () => {
+    board.sections = [{ id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true }];
+    const before = calls.filter((path) => path === '/sections').length;
+    await emit(ev({ field: 'title', after: 'Rename' }));
+    board.signOut();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(calls.filter((path) => path === '/sections')).toHaveLength(before);
+  });
+
+  it('a slow project refresh cannot replace a newer next step', async () => {
+    const project = { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work' as const, created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true };
+    board.sections = [{ ...project, next_step: null }];
+    const older = deferred<unknown>();
+    routes.set('/sections', () => older.promise);
+    await emit(ev({ field: 'title', after: 'Old next step' }));
+    await vi.advanceTimersByTimeAsync(400);
+    const step = { item_id: 'I1', title: 'New next step', assignee_ids: [ME.account.id], due_at: '2026-11-01' };
+    routes.set('/sections', () => [{ ...project, next_step: step }]);
+    await emit(ev({ field: 'title', after: step.title }));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(board.sections[0].next_step).toEqual(step);
+    older.resolve([{ ...project, next_step: null }]);
+    await settle();
+    expect(board.sections[0].next_step).toEqual(step);
+  });
+
+  it('a lead-days change from another device refetches held cards', async () => {
+    routes.set('/items', () => [item({ later: true }), item({ id: 'I2' })]);
+    await emit(ev({ type: 'account.prefs_changed', item_id: null, subject_id: ME.account.id, after: { lead_days: 2 } }));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(board.prefs.lead_days).toBe(2);
+    expect(board.items.I1.later).toBe(true);
+  });
+
+  it('when the board day rolls over, later cards are refetched so they can come back', async () => {
+    board.items.I1 = { ...board.items.I1, later: true, due_at: '2026-10-24T22:00:00Z' };
+    routes.set('/items', () => [item({ later: false, due_at: '2026-10-24T22:00:00Z' })]);
+    // 2026-10-22 23:59:50 in Chicago (UTC-5): the next 30 s clock tick crosses midnight.
+    vi.setSystemTime(new Date('2026-10-23T04:59:50Z'));
+    board.now = new Date('2026-10-23T04:59:50Z');
+    const before = requests.length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await settle();
+    const refetches = requests.slice(before).filter((r) => r.path === '/items');
+    expect(refetches).toHaveLength(1); // one batch for the Later cards, nothing else
+    expect(board.items.I1.later).toBe(false); // the server's recomputed flag replaced the stale one
+    expect(board.items.I2.title).toBe('Paint fence');
+  });
+
+  it('the needs total counts item needs and project needs together', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true, next_step: null },
+    ];
+    expect(board.projectNeeds.map((p) => p.section.id)).toEqual(['S1']);
+    expect(board.needsTotal).toBe(board.needsMe.length + 1);
   });
 
   it('a lone event applies on the next tick, with no batching wait', async () => {

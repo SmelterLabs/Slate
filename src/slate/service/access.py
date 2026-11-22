@@ -922,10 +922,32 @@ def _guest_criteria() -> list[Any]:
                 c.actor_id.not_in(guests.workspace_agents()),
                 c.subject_id.not_in(_hidden_comments()),
                 ~_assigns_only_agents(c),
+                ~_hidden_agent_transition(c),
             ),
             include_aliases=True,
         ),
     ]
+
+
+def _hidden_agent_transition(c: Any) -> Any:
+    """Guest-invisible agent activity recorded with someone else as the event actor."""
+    hidden = guests.workspace_agents()
+    targets = func.json_each(c.after_json, "$.for").table_valued("value").alias("run_targets")
+    return or_(
+        and_(
+            c.type == "item.reported",
+            func.coalesce(func.json_extract(c.after_json, "$.state"), "") == "idle",
+            func.coalesce(func.json_extract(c.before_json, "$.by"), "").in_(hidden),
+        ),
+        and_(
+            c.type == "item.run_requested",
+            func.coalesce(func.json_extract(c.after_json, "$.reason"), "").in_(
+                ("retry", "stalled")
+            ),
+            exists(select(targets.c.value).where(targets.c.value.in_(hidden))),
+            ~exists(select(targets.c.value).where(targets.c.value.not_in(hidden))),
+        ),
+    )
 
 
 def _assigns_only_agents(c: Any) -> Any:
@@ -1201,7 +1223,16 @@ def check_object(
 # What a workspace agent's task asks and when it runs (service/guests.py): a guest changes none
 # of it. `completed_at` going back to null is a reopen, which would put the task back in the
 # agent's queue.
-_STEERING = ("title", "body_md", "acceptance_md", "due_at", "due_date_only", "start_at")
+_STEERING = (
+    "title",
+    "body_md",
+    "acceptance_md",
+    "due_at",
+    "due_date_only",
+    "start_at",
+    "parked_until",
+    "parked_note",
+)
 
 
 def _steers(item: Item, field_name: str | None, value: Any) -> bool:
@@ -1250,11 +1281,12 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
     if caller is None or caller.unrestricted:
         return body if isinstance(body, dict) else {}
     body = body if isinstance(body, dict) else {}
+    all_groups = (*DIGEST_GROUPS, "decide")
     groups = {
         key: [r for r in body.get(key, []) if isinstance(r, dict) and isinstance(r.get("id"), str)]
         if isinstance(body.get(key), list)
         else []
-        for key in DIGEST_GROUPS
+        for key in all_groups
     }
     questions = [
         row
@@ -1285,27 +1317,54 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
                 safe[key].append(
                     {k: row[k] for k in ("id", "title", "due_at", "priority") if k in row}
                 )
-    result = {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
+    out: dict[str, Any] = {
+        "date": body.get("date"),
+        "counts": {k: len(safe[k]) for k in DIGEST_GROUPS},
+        **{k: safe[k] for k in DIGEST_GROUPS},
+    }
+    if safe["decide"]:
+        out["decide"] = safe["decide"]
+    raw_projects = body.get("projects_without_next_step")
+    if isinstance(raw_projects, list):
+        visible_secs = {
+            p["id"]: p["name"]
+            for p in raw_projects
+            if isinstance(p, dict)
+            and isinstance(p.get("id"), str)
+            and isinstance(p.get("name"), str)
+            and caller.section_level(p["id"]) >= EDIT
+        }
+        if visible_secs:
+            out["projects_without_next_step"] = [
+                {"id": sid, "name": name} for sid, name in visible_secs.items()
+            ]
     if questions:
-        docs = _visible_docs(list(caller.lists or {}), caller.doc_sections(), caller.general)
-        visible_docs = set(
-            session.scalars(
-                select(_docs.c.id).where(
-                    _docs.c.id.in_(docs),
-                    _docs.c.id.in_([row["doc_id"] for row in questions if "doc_id" in row]),
+        comment_ids = [r["comment_id"] for r in questions if isinstance(r.get("comment_id"), str)]
+        with reading_as(session, caller):
+            task_asks = set(
+                session.execute(
+                    select(Comment.item_id, Comment.id).where(Comment.id.in_(comment_ids))
                 )
             )
-        )
-        result["questions"] = [
+            doc_asks = set(
+                session.execute(
+                    select(DocComment.doc_id, DocComment.id).where(DocComment.id.in_(comment_ids))
+                )
+            )
+        out["questions"] = [
             {
                 k: row[k]
                 for k in ("id", "comment_id", "title", "question", "at", "age_minutes", "doc_id")
                 if k in row
             }
             for row in questions
-            if row["id"] in (visible_docs if "doc_id" in row else visible)
+            if (
+                (row["id"], row.get("comment_id")) in doc_asks and row["id"] == row["doc_id"]
+                if "doc_id" in row
+                else row["id"] in visible and (row["id"], row.get("comment_id")) in task_asks
+            )
         ]
-    return result
+    return out
 
 
 # --- Webhook addresses in automation rules --------------------------------------------------
@@ -1356,11 +1415,26 @@ def hook_urls_for(
     return (before, after) if author == reader_id else masked
 
 
+def _escalation_source(session: Session, after: Any) -> Event | None:
+    source_id = after.get("event_id") if isinstance(after, dict) else None
+    if not isinstance(source_id, str):
+        return None
+    return session.scalar(
+        select(Event).where(Event.id == source_id, Event.type != "inbox.escalated")
+    )
+
+
 def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
     """An event's `before` and `after` as this session's caller may read them: every reader of
     stored events goes through here (`core.event_payload`, the audit log)."""
     if session is None:
         return ev.before_json, ev.after_json
+    if (
+        ev.type == "inbox.escalated"
+        and current(session) is not None
+        and _escalation_source(session, ev.after_json) is None
+    ):
+        return None, None
     if ev.type.startswith("automation."):
         found = caller(session)
         return hook_urls_for(
@@ -1371,7 +1445,14 @@ def event_snapshots(session: Session | None, ev: Event) -> tuple[Any, Any]:
             scrub(session, ev.after_json),
         )
     if ev.type != "account.digest":
-        return scrub(session, ev.before_json), scrub(session, ev.after_json)
+        before = ev.before_json
+        if (
+            ev.type == "item.reported"
+            and isinstance(before, dict)
+            and before.get("by") in hidden_agents(session)[0]
+        ):
+            before = None
+        return scrub(session, before), scrub(session, ev.after_json)
     reader = current(session)
     return (
         digest_snapshot(session, ev.before_json, reader) if ev.before_json is not None else None,
@@ -1496,6 +1577,12 @@ class EventGate:
             payload = self._for_guest(session, payload)
             if payload is None:
                 return None
+        if self.access is not None and payload.get("type") == "inbox.escalated":
+            from slate.service.core import event_payload
+
+            source = _escalation_source(session, payload.get("after"))
+            if source is None or self.project(session, event_payload(source)) is None:
+                return None
         if str(payload.get("type", "")).startswith("automation."):
             before, after = hook_urls_for(
                 session,
@@ -1508,7 +1595,7 @@ class EventGate:
         if payload.get("type") != "account.digest":
             return payload
         after = digest_snapshot(session, payload.get("after"), self.access)
-        if not any((after.get("counts") or {}).values()):
+        if not after.get("questions") and not any((after.get("counts") or {}).values()):
             return None
         before = payload.get("before")
         return {
@@ -1526,6 +1613,8 @@ class EventGate:
         "item.activity",
         "item.work_",
         "item.run_requested",
+        "item.run_failed",
+        "item.stalled",
         "item.stop_requested",
         "item.watched",
         "item.unwatched",
@@ -1577,6 +1666,22 @@ class EventGate:
             if self._hidden_comment[subject]:
                 return None
         before, after = payload.get("before"), payload.get("after")
+        if (
+            type_ == "item.reported"
+            and isinstance(before, dict)
+            and before.get("by") in self._agents
+        ):
+            if isinstance(after, dict) and after.get("state") == "idle":
+                return None
+            payload = {**payload, "before": None}
+        if (
+            type_ == "item.run_requested"
+            and isinstance(after, dict)
+            and after.get("reason") in ("retry", "stalled")
+        ):
+            targets = after.get("for")
+            if isinstance(targets, list) and targets and all(t in self._agents for t in targets):
+                return None
         if (
             type_ == "comment.deleted"
             and isinstance(before, dict)

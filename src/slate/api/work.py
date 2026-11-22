@@ -505,11 +505,10 @@ class DocFinishOut(BaseModel):
 @router.post("/work/next", response_model=NextOut)
 async def next_task(body: NextIn, auth: WriteAuth, session: DbSession) -> dict[str, Any]:
     """Take your next task in one call: the best open task assigned to you or waiting on you
-    (with `pool`, also unassigned ones) that is not blocked by an open task, not started
-    later, not held by another agent and not waiting on a person. Order: priority, due
-    date, board position. An agent's assigned task with a due date
-    waits for its run time (06:00 workspace time on the day for a date-only due date, else
-    the due time) unless someone pressed Run now. `item_id` takes that task or nothing. It is yours
+    (with `pool`, also unassigned ones). Dependencies and existing runs still hold the card.
+    Order: priority, due date, board position. Run now overrides a future start and the
+    assigned agent's due-time gate (06:00 workspace time on a date-only due day, else the due
+    time). `item_id` takes that task or nothing. It is yours
     (live 'working' badge, assigned) for `lease_seconds`; heartbeat to keep it, finish to
     report back. With `wait`, holds the request up to that many seconds until a task frees
     up. `item` is null when none is free.
@@ -706,8 +705,8 @@ def doc_finish(body: DocFinishIn, auth: WriteAuth, session: DbSession) -> dict:
 @router.post("/work/{item_id}/heartbeat", response_model=HeartbeatOut)
 def heartbeat(item_id: str, body: HeartbeatIn, auth: WriteAuth, session: DbSession) -> dict:
     """Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progress`
-    also update the card's badge live. 409 means you lost it (the lease ran out and another
-    agent took the task): stop working on it.
+    also update the card's badge live. On 409, stop working: the server no longer accepts
+    this run's authority. An expired lease is quarantined until it is reconciled.
 
     The answer also says what changed for the run while it works: `messages` (Asks addressed
     to you since the take; hand them to the running agent and send their ids back as `seen`)
@@ -771,14 +770,14 @@ def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 @router.post("/work/{item_id}/finish", response_model=FinishOut)
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
-    later, ask, answered, failed, blocked, release), a note posted as your comment, a
+    later, ask, answered, failed, blocked, release), a reply posted as a comment, a
     one-line `status` saying where the card stands (required with review), and
     `hand_to` to pass the task to another account. Your lease ends. Take the next task
-    with `POST /work/next`. Agent finishes consume only Ask
-    assignments present at take, so the same open Ask cannot repeatedly dispatch done,
-    review, blocked or released work. Asks remain visible and explicitly resolvable; only
-    asked-only agent done resolves its taken Asks (without completing the task). New or
-    reassigned Asks during the run remain pending. Human finishes never resolve Asks."""
+    with `POST /work/next`. An agent finish settles Asks included at take and later Asks
+    acknowledged in order with `seen`. Stop settles Asks sent before it. The first unread
+    Ask and later Asks stay pending unless covered by Stop. Outcomes failed and release
+    leave Asks unresolved, as do human finishes. An agent that was only asked can answer
+    with done without completing the card."""
 
     def report() -> dict:
         item = work.finish(session, auth.actor, item_id, **body.model_dump())

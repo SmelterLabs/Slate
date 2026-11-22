@@ -34,7 +34,7 @@
   import type { Comment, ItemDetail, SlateEvent } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
   import Composer from './Composer.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
   import LiveActivity from './LiveActivity.svelte';
   import WatchersPicker from './WatchersPicker.svelte';
 
@@ -140,7 +140,7 @@
     try {
       return localStorage.getItem('slate.lastAsk');
     } catch {
-      return null;
+      return null; // the Ask picker still works without a remembered recipient
     }
   }
 
@@ -249,7 +249,7 @@
 
   function sourceLabel(ev: SlateEvent): string {
     const rule = automationOf(ev);
-    if (rule) automationNames.ensure();
+    if (rule) automationNames.ensure((what, e) => board.loadFailed(what, e));
     if (rule) return `by automation${automationNames.name(rule) ? ` “${automationNames.name(rule)}”` : ''}`;
     return SOURCES[ev.source];
   }

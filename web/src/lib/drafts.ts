@@ -31,7 +31,7 @@ export function parseDraft(raw: string | null, now = Date.now()): string {
     if (typeof d?.t !== 'string' || typeof d.at !== 'number') return '';
     return now - d.at > DRAFT_TTL_MS ? '' : d.t;
   } catch {
-    return '';
+    return ''; // damaged or unavailable draft data
   }
 }
 
@@ -40,7 +40,7 @@ export function readDraft(key: string, store = storage(), now = Date.now()): str
   try {
     return parseDraft(store.getItem(DRAFT_PREFIX + key), now);
   } catch {
-    return '';
+    return ''; // damaged or unavailable draft data
   }
 }
 

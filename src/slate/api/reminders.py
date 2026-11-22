@@ -78,6 +78,11 @@ class DigestQuestion(BaseModel):
     doc_id: str | None = None
 
 
+class DigestProject(BaseModel):
+    id: str
+    name: str
+
+
 class DigestOut(BaseModel):
     questions: list[DigestQuestion] = Field(default_factory=list)
     date: str
@@ -85,6 +90,14 @@ class DigestOut(BaseModel):
     overdue: list[DigestItem]
     today: list[DigestItem]
     waiting: list[DigestItem]
+    decide: list[DigestItem] = Field(
+        default_factory=list,
+        description="On your sweep day: stale cards (>14 days overdue), oldest first",
+    )
+    projects_without_next_step: list[DigestProject] = Field(
+        default_factory=list,
+        description="Project sections you manage that currently have no next step",
+    )
     agents: list[DigestAgent] = Field(
         default_factory=list,
         description="Agents today: what each agent runs by the end of the day (only when "

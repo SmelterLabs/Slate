@@ -25,7 +25,6 @@
   import TaskModal from './components/task/TaskModal.svelte';
   import MediaViewer from './components/task/MediaViewer.svelte';
   import { task } from './lib/task.svelte';
-  import { notifySettings } from './lib/notify.svelte';
   import { syncPush } from './lib/push';
   import HomePage from './components/work/HomePage.svelte';
   import InboxPage from './components/work/InboxPage.svelte';
@@ -165,7 +164,7 @@
     if (board.ready && !kiosk) prefetchPages();
   });
   $effect(() => {
-    if (board.ready) void syncPush().catch(() => {});
+    if (board.ready) void syncPush().catch((e) => board.loadFailed('sync device notifications', e));
   });
   $effect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -187,7 +186,7 @@
   // that means "stop and act". Unread chat keeps its own badge on Chat. While the window is not
   // in front and chat is unread, the title flips between that and "New in #Todo" every
   // FLASH_MS: a browser cannot flash a taskbar button, so the title, the toast and the push
-  // (service/push.py `chat`, `renudge`) are what chat gets.
+  // are what chat gets.
   let inFront = $state(typeof document === 'undefined' || (!document.hidden && document.hasFocus()));
   $effect(() => {
     const update = () => (inFront = !document.hidden && document.hasFocus());
@@ -201,12 +200,12 @@
     };
   });
   $effect(() => {
-    const { title, count } = windowBadge(board.token ? board.needsMe.length : 0);
+    const { title, count } = windowBadge(board.token ? board.needsTotal : 0);
     const flash = board.token && !inFront ? flashTitle(chat.channels) : null;
     document.title = title;
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
-    if (count) void nav.setAppBadge?.(count).catch(() => {});
-    else void nav.clearAppBadge?.().catch(() => {});
+    if (count) void nav.setAppBadge?.(count).catch(() => { /* the browser badge is optional */ });
+    else void nav.clearAppBadge?.().catch(() => { /* the in-app count is still current */ });
     if (!flash) return;
     let other = true;
     const timer = setInterval(() => {
@@ -466,7 +465,7 @@
     {#if board.shareTarget}
       <ShareDialog kind={board.shareTarget.kind} id={board.shareTarget.id} />
     {/if}
-    {#if notifySettings.open}
+    {#if inbox.settingsOpen}
       {@const NotificationSettings = pages.notifications.component}
       {#if NotificationSettings}<NotificationSettings />{:else}<PageLoad page={pages.notifications} dialog />{/if}
     {/if}

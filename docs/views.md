@@ -39,7 +39,7 @@ build`, `npm test` (Vitest, then Playwright against a real `slate serve`).
 
 ## Structure and editors on the board
 
-All in `web/`; the only server pieces are the recurrence preview and adopt (`docs/recurrence.md`).
+The board editors are in `web/`. They use the section, list, item and recurrence APIs.
 Details in `docs/board.md`.
 
 - **Nav** (`Nav.svelte`): + Section, per-section + and ⋯, per-list ⋯ (`Menu.svelte`), inline
@@ -52,7 +52,8 @@ Details in `docs/board.md`.
 - **List settings** (`ListSettings.svelte`, opened by `board.openListSettings(listId)`; mounted by
   Nav, outside the `.nav` element because the phone nav is CSS-transformed and would trap a fixed
   panel): one `PUT /lists/{id}/statuses` with `fallback` when removed statuses still hold items
-  (counted client-side by `strandedCount()`), then `PATCH default_status` if it moved.
+  (counted client-side by `strandedCount()`), then `PATCH default_status` if it moved. The same
+  panel patches `note_md`, `default_assignee_id`, `default_tags` and `reference` on the list.
 - **Field editors** (in the task window, `docs/task-window.md`): `DatePicker` (quick picks and
   optional time; `lib/when.ts`), `TagEditor` (autocomplete from `GET /tags`), `AssigneePicker`, move
   to list (`POST /items/bulk {list_id}`), one-click complete (`board.toggleComplete`), unarchive,
@@ -70,6 +71,23 @@ Details in `docs/board.md`.
   class; the CSS is the "structure from the nav, list settings, drawer editors, recurrence editor"
   block in `app.css`. ScopePage's ⚙ on list pages calls `board.openListSettings`. One-click
   complete is the store's `toggleComplete` (with Undo), shared by cards and the task window.
+
+### Planning and filing
+
+- The list view groups cards with `later: true` under a folded **Later** group. The server
+  calculates the flag from the start date or due date and the viewer's `lead_days`. Quick add
+  displays the first line of the list's filing note. Reference cards stay in the list and search.
+- The task window sets `parked_until` and `parked_note` together. The card and row show what
+  it waits for and the return date. `item.unparked` clears that display. The scheduler sends
+  the return reminder at 06:00 workspace time on the return date.
+- **This is a project** sets `project` on a section. `GET /projects` lists active projects,
+  with projects lacking a next step first. It selects by due time, priority, then position among
+  open, assigned, dated, unblocked cards on work lists, excluding Later and Parked cards. If
+  the selected next step is hidden from the caller, it returns no next step for that caller.
+- **Decide** reads `GET /today/sweep` for the caller's assigned open work more than 14 days
+  overdue, oldest first. Later, Parked and reference cards are excluded. It uses ordinary item
+  edits to change the due date or list column. The preferred `sweep_weekday` is counted from
+  Monday (0) to Sunday (6), with Friday (4) as the default.
 
 ## Views board
 

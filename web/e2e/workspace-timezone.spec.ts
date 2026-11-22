@@ -22,6 +22,8 @@ test('workspace metadata changes home, cards and new rules; stored rule zones su
   await expect(page.locator('.work-head')).toContainText('Wednesday, January 2');
   await page.screenshot({ path: info.outputPath('tokyo-home.png') });
   await page.goto(`/#/list/${list.id}`);
+  // The server's clock is today, so a 2030 due date is Later and that column starts folded.
+  await page.locator('.column[data-group="later"] .column-strip').click();
   const card = page.locator('.card', { hasText: 'Timezone boundary' });
   await expect(card).toContainText('8:30 am');
   await card.getByText('Timezone boundary', { exact: true }).click();
