@@ -75,7 +75,7 @@ function fromSnapshot(data: BoardData, snap: Record<string, unknown>): Item | nu
     blocked: false,
     comment_count: 0,
     ask: null,
-    later: false,
+    later: typeof snap.later === 'boolean' ? snap.later : undefined,
     parked_until: (snap.parked_until as string | null) ?? null,
     parked_note: (snap.parked_note as string | null) ?? null,
   };
@@ -150,12 +150,9 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       if (built) {
         data.items[id] = built;
         bumpParent(data, built.parent_id, 1);
-        // The snapshot is the row's columns: it cannot say `later` (computed for the caller),
-        // so the item view is fetched as well.
-        fx.refetch.push(id);
-      } else {
-        fx.refetch.push(id);
       }
+      // A row snapshot normally lacks the server's caller-specific Later flag.
+      if (built?.later === undefined) fx.refetch.push(id);
       break;
     }
     case 'item.trashed': // after = {trashed_at, archived_at}: hidden like an archived item

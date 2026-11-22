@@ -93,6 +93,47 @@ beforeEach(() => {
   task.filter = 'all';
 });
 
+it('requires both a note and a future date to park, and clears them together', async () => {
+  const detail = makeDetail({ waiting_on_account_id: null, agent: null });
+  board.items = { I1: detail };
+  board.detail = detail;
+  const update = vi.spyOn(board, 'update').mockResolvedValue(true);
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const app = mount(TaskModal, { target });
+  flushSync();
+
+  const button = target.querySelector<HTMLButtonElement>('[data-park-save]')!;
+  const note = target.querySelector<HTMLInputElement>('[aria-label="Waiting on note"]')!;
+  const date = target.querySelector<HTMLInputElement>('[aria-label="Waiting until date"]')!;
+  const fill = (el: HTMLInputElement, value: string) => {
+    el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  };
+  try {
+    expect(button.disabled).toBe(true);
+    fill(note, '  Bank reply  ');
+    fill(date, '2026-10-29');
+    expect(button.disabled).toBe(true);
+    fill(date, '2026-10-30');
+    expect(button.disabled).toBe(false);
+    button.click();
+    const parked = { parked_note: 'Bank reply', parked_until: '2026-10-30' };
+    expect(update).toHaveBeenLastCalledWith('I1', parked);
+
+    board.items.I1 = { ...detail, ...parked };
+    board.detail = { ...detail, ...parked };
+    flushSync();
+    target.querySelector<HTMLButtonElement>('[data-park-clear]')!.click();
+    expect(update).toHaveBeenLastCalledWith('I1', { parked_note: null, parked_until: null });
+  } finally {
+    await unmount(app);
+    target.remove();
+    update.mockRestore();
+  }
+});
+
 describe('TaskModal ask and waiting banner', () => {
   it('shows the question as heading, "<Agent> asks" below it, renders duplicate option labels, and removes buttons when answered while open', async () => {
     const ask = {

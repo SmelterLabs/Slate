@@ -27,6 +27,7 @@ export class BoardStream extends BoardLoad {
   #backoff = 1000;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #refetchQueue = new Set<string>();
+  #projectRefetch = new Set<string>();
   #refetchTimer: ReturnType<typeof setTimeout> | undefined;
   #clock: ReturnType<typeof setInterval> | undefined;
   #viewsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -34,7 +35,6 @@ export class BoardStream extends BoardLoad {
   #tagsTimer: ReturnType<typeof setTimeout> | undefined;
   #ruleQueue = new Set<string>();
   #ruleTimer: ReturnType<typeof setTimeout> | undefined;
-  #projectTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     super();
@@ -183,6 +183,10 @@ export class BoardStream extends BoardLoad {
     this.#source = null;
     clearTimeout(this.#retryTimer);
     clearTimeout(this.#reloadTimer);
+    this.#reloadAll = false;
+    clearTimeout(this.#refetchTimer);
+    this.#refetchQueue.clear();
+    this.#projectRefetch.clear();
     clearInterval(this.#clock);
     clearTimeout(this.#drainTimer);
     this.#drainTimer = undefined;
@@ -191,13 +195,17 @@ export class BoardStream extends BoardLoad {
   }
 
   #reloadTimer: ReturnType<typeof setTimeout> | undefined;
+  #reloadAll = false;
 
-  /** Reload everything soon: one load for a burst of events that each ask for it. */
-  #scheduleReload() {
+  /** Coalesce structure and full reloads. A full reload also loads the structure. */
+  #scheduleReload(all: boolean) {
+    this.#reloadAll ||= all;
     clearTimeout(this.#reloadTimer);
     this.#reloadTimer = setTimeout(() => {
       this.#reloadTimer = undefined;
-      this.loadAll().catch((e) => this.flash(String(e)));
+      const load = this.#reloadAll ? this.loadAll() : this.loadStructure();
+      this.#reloadAll = false;
+      load.catch((e) => this.flash(String(e)));
     }, 100);
   }
 
@@ -340,8 +348,10 @@ export class BoardStream extends BoardLoad {
     for (const fn of this.#listeners) fn(ev);
     // This account's board prefs changed, here or on another device: show the same thing.
     if (ev.type === 'account.prefs_changed' && this.me && ev.subject_id === this.me.account.id) {
+      const leadDays = this.prefs.lead_days;
       this.me.prefs = this.takePrefs((ev.after ?? {}) as Prefs);
       applyTheme(asTheme(this.me.prefs.theme));
+      if (this.prefs.lead_days !== leadDays) this.refreshLater();
       return;
     }
     // A share, role or privacy change about this account: what the board may show changed.
@@ -363,7 +373,9 @@ export class BoardStream extends BoardLoad {
       const state = (ev.after as { state?: string } | null)?.state;
       if (state && state !== 'idle') delete this.runRequested[ev.item_id];
     }
-    const parentBefore = ev.item_id ? this.items[ev.item_id]?.parent_id : null;
+    const before = ev.item_id ? this.items[ev.item_id] : undefined;
+    const parentBefore = before?.parent_id;
+    const listBefore = before?.list_id;
     const fx = applyEvent(this, ev);
     if (ev.item_id) {
       this.sync(ev.item_id);
@@ -391,16 +403,17 @@ export class BoardStream extends BoardLoad {
       clearTimeout(this.#favoritesTimer);
       this.#favoritesTimer = setTimeout(() => void this.loadFavorites(), 50);
     }
-    if (fx.reload) this.#scheduleReload();
-    else if (fx.structure) void this.loadStructure();
-    // A card in a project section moved: its section's computed next step may have changed.
-    // One debounced structure reload, the way the tag and rule reloads above are debounced.
-    if (ev.item_id && !fx.structure) {
-      const item = this.items[ev.item_id];
-      const section = item && this.sections.find((s) => s.id === this.lists[item.list_id]?.section_id);
-      if (section?.project) {
-        clearTimeout(this.#projectTimer);
-        this.#projectTimer = setTimeout(() => void this.loadStructure(), 300);
+    if (fx.reload || fx.structure) this.#scheduleReload(fx.reload);
+    else if (ev.item_id && ev.type.startsWith('item.')) {
+      // Check both sides of a move or removal. Next step belongs to the server.
+      const listAfter = this.items[ev.item_id]?.list_id;
+      const snapshot = (ev.after ?? ev.before) as { list_id?: string } | null;
+      const source = ev.field === 'list_id' && typeof ev.before === 'string' ? ev.before : undefined;
+      if (this.#inProject(listBefore, listAfter, snapshot?.list_id, source)) {
+        this.#scheduleReload(false);
+      } else if (!listBefore && !listAfter && fx.refetch.includes(ev.item_id)) {
+        // Restoring an uncached card can omit its list from the event.
+        this.#projectRefetch.add(ev.item_id);
       }
     }
     // Someone joined or left a project: its names and its agents (the Ask default) changed.
@@ -441,8 +454,19 @@ export class BoardStream extends BoardLoad {
   }
 
   async #flushRefetch() {
+    const gen = this.#startGen;
     const ids = [...this.#refetchQueue];
+    const pendingProjects = [...this.#projectRefetch];
     this.#refetchQueue.clear();
+    this.#projectRefetch.clear();
     await this.refetchItems(ids);
+    if (gen === this.#startGen && this.#inProject(...pendingProjects.map((id) => this.items[id]?.list_id))) {
+      this.#scheduleReload(false);
+    }
+  }
+
+  #inProject(...listIds: (string | undefined)[]) {
+    const sections = listIds.map((id) => id && this.lists[id]?.section_id);
+    return this.sections.some((section) => section.project && sections.includes(section.id));
   }
 }

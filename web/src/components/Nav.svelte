@@ -505,7 +505,7 @@
               e.preventDefault();
               onpick();
               void board.open(step.item_id);
-            }}>Next: {step.title}{#if who} · {who}{/if} · {shortDate(step.due_at, board.now)}</a
+            }}>Next: {step.title}{#if who}{' · '}{who}{/if} · {shortDate(step.due_at, board.now)}</a
           >
         {:else}
           <a class="nav-next nav-next-none" href="#/section/{section.id}" data-no-next-step={section.id} onclick={onpick}

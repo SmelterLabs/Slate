@@ -354,6 +354,15 @@ describe('applyEvent', () => {
     const fx = applyEvent(d, ev({ type: 'item.created', item_id: 'I2', after: snapshotOf({ id: 'I2', title: 'New' }, 'st_ready') }));
     expect(d.items.I2.title).toBe('New');
     expect(fx.refetch).toEqual(['I2']);
+    expect(d.items.I2.later).toBeUndefined();
+  });
+
+  it('uses a supplied later flag without refetching the created item', () => {
+    const d = data();
+    const after = { ...snapshotOf({ id: 'I2' }, 'st_ready'), later: true };
+    const fx = applyEvent(d, ev({ type: 'item.created', item_id: 'I2', after }));
+    expect(d.items.I2.later).toBe(true);
+    expect(fx.refetch).toEqual([]);
   });
 
   it('patches parked fields and clears them on item.unparked', () => {

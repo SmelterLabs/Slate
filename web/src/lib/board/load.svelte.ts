@@ -22,19 +22,24 @@ import { BoardViews } from './views.svelte';
 export class BoardLoad extends BoardViews {
   /** `later` on every held item was computed with the old lead_days: fetch them again. */
   override async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
-    await super.setPrefs(changes);
-    if ('lead_days' in changes) {
-      const ids = Object.keys(this.items);
-      if (ids.length) void this.refetchItems(ids);
-    }
+    const token = this.token;
+    const saved = await super.setPrefs(changes);
+    if (saved && token && this.token === token && 'lead_days' in changes) this.refreshLater();
+    return saved;
+  }
+
+  protected refreshLater() {
+    void this.refetchItems(Object.keys(this.items));
   }
 
   // Full reloads overlap (a burst of list.statuses_changed, a share change during a refresh):
   // only the newest one may write, so an older answer never overwrites a newer one.
   #loadGen = 0;
+  #structureGen = 0;
 
   protected async loadAll() {
     const gen = ++this.#loadGen;
+    const structureGen = ++this.#structureGen;
     const [sections, lists, items, views, favorites] = await Promise.all([
       get<Section[]>('/sections'),
       get<List[]>('/lists'),
@@ -46,8 +51,10 @@ export class BoardLoad extends BoardViews {
     if (gen !== this.#loadGen) return; // a newer load is answering instead
     this.views = Object.fromEntries(views.map((v) => [v.id, v]));
     this.favorites = favorites;
-    this.sections = sections.sort((a, b) => a.position - b.position);
-    this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
+    if (structureGen === this.#structureGen) {
+      this.sections = sections.sort((a, b) => a.position - b.position);
+      this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
+    }
     this.items = Object.fromEntries(structuredClone(items).map((i) => [i.id, i]));
     this.syncAll(items);
     void this.loadTags(); // tag colours on chips
@@ -92,10 +99,13 @@ export class BoardLoad extends BoardViews {
   }
 
   protected async loadStructure() {
+    const gen = ++this.#structureGen;
+    const token = this.token;
     const [sections, lists] = await Promise.all([
       get<Section[]>('/sections'),
       get<List[]>('/lists'),
     ]);
+    if (gen !== this.#structureGen || token !== this.token) return;
     this.sections = sections.sort((a, b) => a.position - b.position);
     this.lists = Object.fromEntries(lists.map((l) => [l.id, l]));
   }
