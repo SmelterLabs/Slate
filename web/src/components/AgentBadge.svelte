@@ -35,8 +35,8 @@
   const safeUrl = $derived(safeAgentUrl(flag.url, board.me?.link_schemes));
   // A desktop app's link (myapp://...) is handed to the OS in this tab; a web link opens a new one.
   const newTab = $derived(!!safeUrl && /^https?:/i.test(safeUrl));
-  // A review says what the person is to check (the standing line), not the reply's first line.
-  const note = $derived((flag.state === 'review' && item?.standing?.line) || flag.note);
+  // The full task-window review badge says what to check.
+  const note = $derived((full && flag.state === 'review' && item?.standing?.line) || flag.note);
   const tip = $derived(`${who}: ${label}${pct != null ? ` (${pct}%)` : ''} · ${when}` + (note ? `\n${note}` : ''));
 </script>
 

@@ -47,6 +47,30 @@ describe('Standing line and stalled mark on Card, ItemRow, and TableRow', () => 
     move_id: 'me',
   };
 
+  it('keeps the agent note in review tooltips on the card, list and table', async () => {
+    const review = item({
+      standing,
+      agent: { state: 'review', by: 'sc', at: standing.at, note: 'The report is ready.' },
+    });
+    const card = document.createElement('div');
+    const list = document.createElement('div');
+    const table = document.createElement('tbody');
+    const apps = [
+      mount(Card, { target: card, props: { item: review, config: CFG } }),
+      mount(ItemRow, { target: list, props: { item: review, config: CFG } }),
+      mount(TableRow, { target: table, props: { item: review, columns: [] } }),
+    ];
+    try {
+      for (const target of [card, list, table]) {
+        const tip = target.querySelector('.agent-badge')?.getAttribute('title');
+        expect(tip).toContain(review.agent!.note);
+        expect(tip).not.toContain(standing.line);
+      }
+    } finally {
+      await Promise.all(apps.map((app) => unmount(app)));
+    }
+  });
+
   it('Card shows standing line with full text on title, Your move / account name / nothing, and neutral Stalled with Run now', async () => {
     const target = document.createElement('div');
     const cardItem = item({
