@@ -118,6 +118,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | Type | Meaning |
 |---|---|
 | `inbox.cleared` | Inbox entries were cleared. |
+| `inbox.escalated` | An open question or unseen person entry reached its escalation delay. |
 | `inbox.read` | Inbox entries were marked read. |
 
 ## invitation

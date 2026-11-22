@@ -2,13 +2,9 @@
 
 An account opts in with two prefs: `email_to` (one address) and `email_reasons` (inbox
 reasons, the same words as `push_reasons`; default `DEFAULT_REASONS` once an address is
-set). `process()` reads events after the `engine_cursors` row `email` and queues one
-`email_deliveries` row per event and recipient whose reason was chosen, due `UNSEEN_DELAY`
-later. When it is due, the row is sent only if the account still has not seen it: the inbox
-entry is not read, the card was not opened since, and a chat message is still unread. Every
-due row for one account goes out together as one email, so a burst is one message, not ten.
-Access and preferences are rechecked at send time, like push (service/push.py), and the text
-is rendered under the recipient's read filter.
+set). The shared attention stream releases alerts after quiet hours and agent turns.
+Email sends eligible releases after five unseen minutes. The inbox entry, card or chat must
+still be unread. Due releases for one account go out together under its current access.
 
 Receipts are bookkeeping (`core.BOOKKEEPING_MODELS`): queueing and sending write no event.
 """
@@ -29,6 +25,7 @@ from sqlalchemy.orm import Session
 from slate.models import (
     Account,
     AccountKind,
+    AttentionAlert,
     ChannelRead,
     EmailDelivery,
     Event,
@@ -37,8 +34,7 @@ from slate.models import (
     ItemRead,
     utcnow,
 )
-from slate.service import access, cursors, inbox, push
-from slate.service.core import event_payload
+from slate.service import attention, cursors
 from slate.settings import settings
 
 log = logging.getLogger(__name__)
@@ -73,18 +69,6 @@ def _recipients(session: Session) -> dict[str, Account]:
     }
 
 
-def _reason(session: Session, ev: Event, account: Account, f: inbox.Follows) -> str | None:
-    """The account's reason for `ev` if it chose to be emailed for it, else None."""
-    why = inbox.reason_for(ev, account, f)
-    if not push.wanted(reasons_for(account), why, ev, f):
-        return None
-    if why in inbox.FOLLOW_REASONS and inbox.waiting_covers(
-        ev, why, inbox.waits(session, account.id, [ev.item_id or ""])
-    ):
-        return None
-    return why
-
-
 def seen(session: Session, account: Account, ev: Event) -> bool:
     """Whether the account has seen `ev` on the board since it happened."""
     state = session.get(InboxState, account.id)
@@ -107,60 +91,38 @@ def seen(session: Session, account: Account, ev: Event) -> bool:
 
 
 def process(session: Session, send: Sender | None, now: datetime | None = None) -> int:
-    """Queue new events for the accounts that chose them, then send what is due."""
-    session.expire_all()
+    """Queue releases eligible for email, then send what is due."""
     now = now or utcnow()
-    recipients = _recipients(session)
-    gates = {aid: access.EventGate(aid) for aid in recipients}
-    for gate in gates.values():
-        gate.load(session)
-    follows = {aid: inbox.follows(session, aid) for aid in recipients}
-
-    def handle(ev: Event) -> list[EmailDelivery]:
-        rows = []
-        for aid, account in recipients.items():
-            if gates[aid].project(session, event_payload(ev)) is None:
+    attention.release(session, now)
+    for aid, account in _recipients(session).items():
+        reasons = reasons_for(account)
+        for alert in attention.released(
+            session, account, since=now - DELIVERY_WINDOW, render=False
+        ):
+            event_id = alert["event_id"]
+            expires = alert["source_at"] + DELIVERY_WINDOW
+            if (
+                alert["loudness"] < 3
+                or alert["reason"] not in reasons
+                or expires <= now
+                or session.get(EmailDelivery, (aid, event_id)) is not None
+            ):
                 continue
-            if _reason(session, ev, account, follows[aid]) is None:
-                continue
-            if session.get(EmailDelivery, (aid, ev.id)) is None:
-                rows.append(
-                    EmailDelivery(
-                        account_id=aid,
-                        event_id=ev.id,
-                        attempts=0,
-                        state="pending",
-                        send_after=max(ev.at, now - UNSEEN_DELAY) + UNSEEN_DELAY,
-                        expires_at=ev.at + DELIVERY_WINDOW,
-                    )
+            session.add(
+                EmailDelivery(
+                    account_id=aid,
+                    event_id=event_id,
+                    attempts=0,
+                    state="pending",
+                    send_after=max(alert["source_at"] + UNSEEN_DELAY, alert["released_at"]),
+                    expires_at=expires,
                 )
-        return rows
-
+            )
     cursors.follow(
-        session,
-        CURSOR,
-        now=now,
-        window=DELIVERY_WINDOW,
-        handle=handle,
-        follows=follows,
-        refresh=lambda aid: inbox.follows(session, aid),
-        active=bool(recipients),
+        session, CURSOR, now=now, window=DELIVERY_WINDOW, handle=lambda _: (), active=False
     )
+    session.commit()
     return _drain(session, send, now) if send is not None else 0
-
-
-def _render(session: Session, account: Account, ev: Event, reason: str) -> dict | None:
-    gate = access.EventGate(account.id)
-    gate.load(session)
-    if gate.denied or gate.project(session, event_payload(ev)) is None:
-        return None
-    with access.unrestricted(session):
-        if gate.access is not None:
-            access.attach(session, gate.access)
-        try:
-            return push.notification_for(session, ev, reason)
-        finally:
-            session.info.pop(access.ACCESS_KEY, None)
 
 
 def _link(url: str) -> str:
@@ -215,15 +177,25 @@ def _drain(session: Session, send: Sender, now: datetime) -> int:
         session.expire_all()
         account = session.get(Account, aid)
         to = address(account) if account and not account.disabled_at else None
-        f = inbox.follows(session, aid) if to else None
         notes, sending = [], []
         for row in group:
             ev = session.get(Event, row.event_id)
             try:
-                reason = _reason(session, ev, account, f) if ev and f is not None else None
+                release = session.get(AttentionAlert, (aid, row.event_id))
+                if release is not None and release.cursor is None and now < row.expires_at:
+                    continue
                 note = None
-                if reason and now < row.expires_at and not seen(session, account, ev):
-                    note = _render(session, account, ev, reason)
+                if (
+                    to
+                    and ev
+                    and release
+                    and release.loudness >= 3
+                    and release.reason in reasons_for(account)
+                    and now < row.expires_at
+                    and not seen(session, account, ev)
+                ):
+                    alerts = attention.released(session, account, event_id=row.event_id, limit=1)
+                    note = alerts[0] if alerts else None
             except SQLAlchemyError:
                 raise  # the database, not this row: the engine retries the step
             except Exception:

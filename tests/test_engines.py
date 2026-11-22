@@ -153,20 +153,20 @@ def test_an_email_that_cannot_be_rendered_fails_alone(
     sent = []
     send = lambda to, subject, text, html: sent.append(text)  # noqa: E731
     email.process(db, send)
-    _, agent = make_account("my-agent")
-    first = _item(client, agent, todo, "First")
-    second = _item(client, agent, todo, "Second")
+    _, person = make_account("alex-reviewer", kind="person")
+    first = _item(client, person, todo, "First")
+    second = _item(client, person, todo, "Second")
     for it in (first, second):
-        client.post(f"{API}/items/{it['id']}/comments", json={"body_md": "@alex"}, headers=agent)
+        client.post(f"{API}/items/{it['id']}/comments", json={"body_md": "@alex"}, headers=person)
     email.process(db, send)
-    real = email._render
+    real = push.notification_for
 
-    def render(session, account, ev, reason):
+    def render(session, ev, reason):
         if ev.item_id == first["id"]:
             raise ValueError("cannot render")
-        return real(session, account, ev, reason)
+        return real(session, ev, reason)
 
-    monkeypatch.setattr(email, "_render", render)
+    monkeypatch.setattr(push, "notification_for", render)
     assert email.process(db, send, now=utcnow() + timedelta(minutes=6)) == 1
     assert "Second" in sent[0] and "First" not in sent[0]
     states = sorted(r.state for r in db.scalars(select(EmailDelivery)))

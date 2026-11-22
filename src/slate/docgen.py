@@ -257,6 +257,7 @@ EVENT_DOCS: dict[str, str] = {
     "automation.updated": "An automation rule changed (or was turned on or off).",
     "automation.deleted": "An automation rule was deleted.",
     "automation.secret_rotated": "An automation's signing secret was rotated.",
+    "inbox.escalated": "An open question or unseen person entry reached its escalation delay.",
     "inbox.read": "Inbox entries were marked read.",
     "inbox.cleared": "Inbox entries were cleared.",
     "doc.created": "A doc page was created (or duplicated); `after` is the page.",

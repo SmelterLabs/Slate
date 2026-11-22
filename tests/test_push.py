@@ -131,9 +131,10 @@ def test_mentions_and_assignments_are_pushed(client, alex, todo, db, browser, ma
     client.patch(f"{API}/items/{it['id']}", json={"assignees": ["alex"]}, headers=agent)
     client.patch(f"{API}/items/{it['id']}", json={"title": "Fix the gutter"}, headers=agent)
 
-    # Being assigned auto-watches the task, so the title change is pushed too.
-    assert push.process(db, webpush.send) == 3
-    assert [n["reason"] for n in browser.received] == ["mention", "assigned", "update"]
+    assert push.process(db, webpush.send) == 2
+    assert [n["reason"] for n in browser.received] == ["mention", "assigned"]
+    assert [n["loudness"] for n in browser.received] == [2, 1]
+    assert all(n["silent"] for n in browser.received)
     mention = browser.received[0]
     assert mention["title"] == "Agent mentioned you"
     assert mention["body"] == "Fix the gutter: Look @alex"  # the title as it is now
@@ -265,8 +266,8 @@ def test_chat_messages_are_pushed_to_whoever_can_read_the_channel(
     assert first["tag"] == f"chat:{key}"  # a busy channel replaces its toast, not stacks it
     assert guest_browser.received == []  # Todo is not shared with the guest
 
-    entries = client.get(f"{API}/inbox", headers=alex).json()
-    assert all(e["reason"] != "chat" for e in entries)
+    entries = client.get(f"{API}/inbox", headers=alex, params={"reason": "chat"}).json()
+    assert any(e["reason"] == "chat" and e["loudness"] == 1 for e in entries)
 
     # Turning the reason off stops it.
     client.patch(f"{API}/me/prefs", json={"push_reasons": ["mention"]}, headers=alex)
@@ -274,61 +275,8 @@ def test_chat_messages_are_pushed_to_whoever_can_read_the_channel(
     assert push.process(db, webpush.send) == 0
 
 
-def test_chat_still_unread_is_nudged_once_more(client, alex, todo, db, browser, make_account):
-    """Ten minutes after the newest unread message, one more push per channel; reading the
-    channel or a newer message resets it; the first run after a start seeds without sending."""
-    from datetime import timedelta
-
-    from slate.models import utcnow
-
-    client.post(f"{API}/push/subscriptions", json=browser.body(), headers=alex)
-    push.process(db, webpush.send)
-    _, agent = make_account("agent")
-    key = f"list:{todo['id']}"
-    client.post(f"{API}/channels/{key}/messages", json={"body_md": "Gutter is done"}, headers=agent)
-    client.post(
-        f"{API}/channels/{key}/messages", json={"body_md": "Photos attached"}, headers=agent
-    )
-    push.process(db, webpush.send)
-    assert [n["reason"] for n in browser.received] == ["chat", "chat"]
-    browser.received.clear()
-
-    nudged: push.Nudged = {}
-    now = utcnow()
-    assert push.renudge(db, webpush.send, nudged, now=now + timedelta(minutes=5)) == 0  # too soon
-    assert push.renudge(db, webpush.send, nudged, now=now + timedelta(minutes=11)) == 1
-    (note,) = browser.received
-    assert note["title"] == "Still unread: #Todo"
-    assert note["body"] == "2 messages from Agent, waiting since you last looked"
-    assert note["url"] == f"/#/chat/{key}" and note["tag"] == f"chat:{key}" and note["renudge"]
-    # Not again for the same newest message.
-    assert push.renudge(db, webpush.send, nudged, now=now + timedelta(hours=2)) == 0
-    # A newer message starts the clock over, once.
-    client.post(f"{API}/channels/{key}/messages", json={"body_md": "Invoice too"}, headers=agent)
-    browser.received.clear()
-    later = utcnow()
-    assert push.renudge(db, webpush.send, nudged, now=later + timedelta(minutes=11)) == 1
-    assert browser.received[0]["body"].startswith("3 messages from Agent")
-    # Reading the channel ends it; Alex's own message never counts.
-    r = client.post(f"{API}/channels/{key}/read", json={}, headers=alex)
-    assert r.status_code in (200, 204), r.text
-    client.post(f"{API}/channels/{key}/messages", json={"body_md": "Thanks"}, headers=alex)
-    assert push.renudge(db, webpush.send, nudged, now=later + timedelta(hours=1)) == 0
-
-    # Off for the account, or seeded at start: nothing is sent.
-    client.post(f"{API}/channels/{key}/messages", json={"body_md": "One more"}, headers=agent)
-    fresh: push.Nudged = {}
-    assert push.renudge(db, webpush.send, fresh, now=utcnow() + timedelta(hours=1), seed=True) == 0
-    assert push.renudge(db, webpush.send, fresh, now=utcnow() + timedelta(hours=1)) == 0
-    client.patch(f"{API}/me/prefs", json={"chat_renudge_minutes": 0}, headers=alex)
-    assert push.renudge(db, webpush.send, {}, now=utcnow() + timedelta(hours=1)) == 0
-    bad = client.patch(f"{API}/me/prefs", json={"chat_renudge_minutes": 9999}, headers=alex)
-    assert bad.status_code == 422
-
-
 def test_an_agent_starting_work_is_not_pushed(client, alex, todo, db, browser, make_account):
-    """A watcher hears that an agent finished, not that it started: the start follows the
-    watcher's own message by a second, so a toast for it is noise."""
+    """Ordinary watching entries are inbox-only."""
     client.post(f"{API}/push/subscriptions", json=browser.body(), headers=alex)
     _, agent = make_account("agent")
     it = item(client, alex, todo)  # filing it auto-watches it
@@ -344,7 +292,7 @@ def test_an_agent_starting_work_is_not_pushed(client, alex, todo, db, browser, m
 
     report(state="review", note="Drafted it", comment=False)
     push.process(db, webpush.send)
-    assert [n["title"] for n in browser.received] == ["Agent is ready for review"]
+    assert browser.received == []
     # The start is still in the Inbox: only the toast is held back.
     inbox = client.get(f"{API}/inbox", headers=alex).json()
     states = [e["event"]["after"]["state"] for e in inbox if e["event"]["type"] == "item.reported"]

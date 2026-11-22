@@ -1,7 +1,7 @@
 """The in-process scheduler: one asyncio task that calls each hook every N seconds.
 
     hooks = [recurrences.materialize, notify.due_events_tick, notify.reminders_tick,
-             notify.digest_tick, trash.purge_expired, work.expire_leases,
+             attention.escalate, notify.digest_tick, trash.purge_expired, work.expire_leases,
              chatwake.expire, docwake.expire, sessions.notify_expiring,
              chat_files.sweep_unsent]
     last_tick_at                          # UTC time of the last finished tick (for /healthz)
@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from slate import db, monitor, notify
 from slate.models import utcnow
 from slate.service import (
+    attention,
     chat_files,
     chatwake,
     docwake,
@@ -58,6 +59,7 @@ hooks: list[Hook] = [
     recurrences.materialize,
     notify.due_events_tick,
     notify.reminders_tick,
+    attention.escalate,
     notify.digest_tick,
     trash.purge_expired,
     work.expire_leases,
@@ -72,6 +74,7 @@ POLLERS: dict[Hook, str] = {
     notify.due_events_tick: "due",
     notify.reminders_tick: "reminders",
     notify.digest_tick: "digest",
+    attention.escalate: "escalation",
     trash.purge_expired: "trash",
     work.expire_leases: "leases",
     chatwake.expire: "chat_turns",

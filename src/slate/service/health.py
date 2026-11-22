@@ -57,7 +57,7 @@ from slate.models import (
     utcnow,
 )
 from slate.service import access
-from slate.service.core import apply_change
+from slate.service.core import apply_change, jsonable
 from slate.service.errors import Forbidden
 from slate.settings import settings
 
@@ -65,6 +65,7 @@ from slate.settings import settings
 POLLERS: dict[str, tuple[str, timedelta]] = {
     "reminders": ("Reminders", timedelta(minutes=1)),
     "digest": ("Daily digest", timedelta(minutes=1)),
+    "escalation": ("Notification escalation", timedelta(minutes=1)),
     "due": ("Due and overdue nudges", timedelta(minutes=1)),
     "recurring": ("Recurring tasks", timedelta(minutes=1)),
     "trash": ("Trash purge", timedelta(minutes=1)),
@@ -524,7 +525,9 @@ def worst(checks: list[dict[str, Any]]) -> str:
     return {0: "ok", 1: "warn", 2: "fail"}.get(rank, "ok")
 
 
-def report(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
+def report(
+    session: Session, *, now: datetime | None = None, viewer: Account | None = None
+) -> dict[str, Any]:
     now = now or utcnow()
     uptime = time.time() - fastlane.stats.started
     r: dict[str, Any] = {
@@ -548,6 +551,37 @@ def report(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
         "backups": _backups(),
     }
     r["checks"] = _checks(r, uptime)
+    if viewer is not None:
+        from slate.service import access, attention
+
+        failed = session.scalar(
+            select(func.count())
+            .select_from(PushDelivery)
+            .where(
+                PushDelivery.account_id == viewer.id,
+                PushDelivery.failed_at >= now - timedelta(days=1),
+            )
+        )
+        removed = session.scalar(
+            select(func.count())
+            .select_from(Event)
+            .where(
+                Event.type == "push.expired",
+                Event.actor_id == viewer.id,
+                Event.at >= now - timedelta(days=7),
+            )
+        )
+        with access.reading_as(session, viewer):
+            waiting = sum(
+                q["at"] < jsonable(now - timedelta(days=1))
+                for q in attention.open_questions(session, viewer.id, now)
+            )
+        for key, label, count in (
+            ("push_failed_24h", "Your push failures in the past day", failed),
+            ("push_removed_7d", "Your push devices removed in the past week", removed),
+            ("questions_open_24h", "Your questions open for more than a day", waiting),
+        ):
+            r["checks"].append(_check(key, label, "warn" if count else "ok", str(count)))
     backup = _backup_check(r["backups"], now)
     if backup is not None:
         r["checks"].append(backup)

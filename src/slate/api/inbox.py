@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
-from slate.service import inbox
+from slate.service import attention, inbox
 
 router = APIRouter(tags=["inbox"])
 
 Reason = Literal[
     "mention",
+    "chat",
     "reply",
     "assigned",
     "waiting",
@@ -52,6 +53,7 @@ class InboxEntry(BaseModel):
     event: InboxEvent
     reason: Reason = Field(description="Why you are hearing about it")
     read: bool
+    loudness: int = Field(ge=0, le=4, description="Notification level for the recipient")
     item_title: str | None = Field(
         description="The item's title, `#channel` for chat, or the page's title for a doc"
     )
@@ -91,6 +93,36 @@ def list_inbox(
 ) -> list[dict]:
     """Your notifications from the last 30 days, newest first; cleared ones are left out."""
     return inbox.entries(session, auth.account, limit=limit, unread_only=unread, reason=reason)
+
+
+class ReleasedAlert(BaseModel):
+    cursor: str
+    at: str
+    loudness: int = Field(ge=1, le=4)
+    title: str
+    body: str
+    item_id: str | None
+    reason: Reason
+    entry: InboxEntry | None
+
+
+@router.get("/inbox/alerts", response_model=list[ReleasedAlert])
+def list_alerts(
+    auth: ReadAuth,
+    session: DbSession,
+    response: Response,
+    after: str | None = Query(default=None, pattern=r"^(?:0|[0-9A-Za-z]{12})$"),
+    limit: int = Query(default=100, ge=1, le=inbox.MAX_ENTRIES),
+) -> list[dict]:
+    """Released notifications in cursor order. Start without after to get X-Slate-Cursor."""
+    if after is None:
+        response.headers["X-Slate-Cursor"] = attention.latest_cursor(session, auth.account.id)
+        return []
+    alerts = attention.released(
+        session, auth.account, after=after, limit=limit, token_id=auth.principal.token_id
+    )
+    response.headers["X-Slate-Cursor"] = alerts[-1]["cursor"] if alerts else after
+    return alerts
 
 
 @router.get("/inbox/count", response_model=InboxCount)
