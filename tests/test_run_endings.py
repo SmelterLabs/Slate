@@ -629,6 +629,38 @@ def test_closing_line_reads_the_new_endings():
     assert closing_line("SLATE: blocked waiting_on alex") is None
 
 
+@pytest.mark.parametrize("via_comment", [True, False])
+def test_next_turn_brief_quotes_the_asks_questions(client, alex, todo, make_account, via_comment):
+    _, agent = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    path = f"{API}/items/{item['id']}"
+    prompts = ["Which file first?", "Ship today?"]
+    if via_comment:
+        ending = "\n".join(f"SLATE: ask alex: {q}" for q in prompts)
+        response = client.post(
+            f"{path}/comments", json={"body_md": f"Inventory is complete.\n{ending}"}, headers=agent
+        )
+        assert response.status_code == 201, response.text
+    else:
+        _next(client, agent, item_id=item["id"])
+        response = _finish(
+            client,
+            agent,
+            item["id"],
+            outcome="ask",
+            reply="Inventory is complete.",
+            questions=[{"question": q} for q in prompts],
+        )
+        assert response.status_code == 200, response.text
+    response = client.post(
+        f"{path}/comments", json={"body_md": "The first one, and yes."}, headers=alex
+    )
+    assert response.status_code == 201, response.text
+    assert _next(client, agent, item_id=item["id"])["reply"]["body_md"] == "The first one, and yes."
+    text = client.get(f"{path}/brief", headers=agent).json()["text"]
+    assert "> Inventory is complete.\n> 1. Which file first?\n> 2. Ship today?" in text
+
+
 def test_an_agents_ask_line_asks_and_a_plain_comment_changes_nothing(
     client, alex, todo, make_account
 ):

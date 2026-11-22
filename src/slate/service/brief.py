@@ -221,7 +221,13 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
                     ensure_ascii=False,
                 )
             )
-            out.append("\n".join("> " + line for line in body.splitlines()))
+            lines = body.splitlines()
+            if c.ask_json is not None:
+                lines.extend(
+                    f"{i}. {question['question']}"
+                    for i, question in enumerate(c.ask_json["questions"], 1)
+                )
+            out.append("\n".join("> " + line for line in lines))
     lst = session.get(List, item.list_id)
     if lst and lst.note_md and lst.note_md.strip():
         out += ["", "This list:", lst.note_md.strip()]
