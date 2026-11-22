@@ -6,7 +6,8 @@
 a chat product with no API), and what a runner adapter can send as its first turn: the title,
 due date, description, checklist, attached files and recent comments, then the run rule
 (RUN_RULE), and for the caller's own turn what it must know about it: the card stalled
-(STALLED_RULE), or its last run failed and why (FAILED_RULE). The rule
+(STALLED_RULE), its last run failed and why (FAILED_RULE), or it was only asked on a card
+that is not its own, where `done` answers and leaves the card open (ASKED_RULE). The run rule
 tells the agent to look in its own memory for related work first and to save what it learns
 (a card runs in a fresh session, so memory is how one card's work reaches the next), and
 asks it to end its answer with one line Slate understands:
@@ -41,6 +42,7 @@ from slate.models import (
     Comment,
     List,
     Role,
+    WorkLease,
 )
 from slate.service.items import get_item
 
@@ -71,6 +73,15 @@ FAILED_RULE = (
     "instructions; do not end this run the same way:"
 )
 FAILURE_CHARS = 1200
+ASKED_RULE = (
+    "You were asked something on this card; it is not assigned to you. `SLATE: done` here "
+    "only answers the question: the card stays open and Slate does not close it for you. If "
+    "whoever asked wants the card closed or finished, close it yourself first by setting its "
+    "status to done with your Slate tools (`slate_item update`, or `PATCH /api/v1/items/<id>` "
+    "with `status`), check that it took, and only then say it is closed. If you cannot, say "
+    "so plainly and say who must mark it done. Never write that the card is closed, or that "
+    "you are closing it, unless you set that status yourself in this turn."
+)
 
 _LINE = re.compile(
     r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
@@ -222,4 +233,13 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
             if len(failed) > FAILURE_CHARS:
                 failed = failed[:FAILURE_CHARS] + "…"
             out += ["", FAILED_RULE, "\n".join("> " + line for line in failed.splitlines())]
+        # Asked, not assigned: its `done` answers and leaves the card open (work.finish).
+        lease = session.get(WorkLease, item.id)
+        if (
+            lease is not None
+            and lease.account_id == account_id
+            and lease.asked_only
+            and item.completed_at is None
+        ):
+            out += ["", ASKED_RULE]
     return "\n".join(out)

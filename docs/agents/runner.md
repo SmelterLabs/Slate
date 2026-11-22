@@ -191,7 +191,8 @@ The server settles questions against the attempt proof. `/work/next` returns the
 for the take and any reply. Every agent finish except `failed` and `release` resolves questions
 in its settlement boundary. The boundary includes the take and the mid-run messages read in
 order. Stop settles messages sent before it. A human finish leaves questions open. An asked-only
-`done` leaves the card open if it was open. Questions beyond the boundary stay pending. Leave
+`done` leaves the card open if it was open, and the brief for that turn says so: an agent told
+to close the card sets its status to done itself before it answers. Questions beyond the boundary stay pending. Leave
 settlement to the server.
 
 The generic runner, Python/TypeScript clients, gateway/CLI and runner-example adapters all use the
