@@ -77,6 +77,7 @@ describe('the question block on a comment', () => {
   it('shows one question for the viewer, open, with live answers', () => {
     const el = show(AskQuestions, { comment: askComment() });
     expect(text(el.querySelector('.aq-head'))).toBe('Question for you Open');
+    expect(el.querySelector('[data-open-ask-for-me]')?.getAttribute('data-open-ask-for-me')).toBe('C1');
     expect([...el.querySelectorAll('[data-ask-question]')].map(text)).toEqual(['Start the import now?']);
     const buttons = [...el.querySelectorAll<HTMLButtonElement>('button[data-answer-option]')];
     expect(buttons.map(text)).toEqual(['Yes', 'No']);
@@ -105,6 +106,7 @@ describe('the question block on a comment', () => {
     let el = show(AskQuestions, { comment: askComment({ assignee_id: 'other' }) });
     expect(text(el.querySelector('.aq-head'))).toBe('Question for Sam Open');
     expect(el.querySelectorAll('button')).toHaveLength(0);
+    expect(el.querySelector('[data-open-ask-for-me]')).toBeNull();
     close!();
     el = show(AskQuestions, { comment: askComment({ resolved_at: '2026-10-29T11:00:00Z' }) });
     expect(text(el.querySelector('.aq-head'))).toBe('Question for you Answered');
@@ -208,8 +210,12 @@ describe('the review banner for the viewer', () => {
   it('says what to check, who finished, and marks it reviewed', () => {
     const el = show(TurnBanner, { itemId: 'I1', wait: null, review, flag });
     const banner = el.querySelector('[data-banner="review"]')!;
+    expect([...banner.children].map((child) => child.className.split(' ')[0])).toEqual([
+      'wq-heading', 'wq-head', 'wq-actions',
+    ]);
     expect(text(banner.querySelector('.wq-heading'))).toBe('Check the totals in the March column');
     expect(text(banner.querySelector('.wq-sub'))).toContain('My Agent finished and asks you to check');
+    expect(text(banner.querySelector('.wq-sub [data-waiting-age]'))).toContain('1 h');
     expect(text(banner)).not.toContain('first line');
     expect(banner.querySelector('[data-standing]')).toBeNull();
     banner.querySelector<HTMLButtonElement>('[data-mark-reviewed]')!.click();

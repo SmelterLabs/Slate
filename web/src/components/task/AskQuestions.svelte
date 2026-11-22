@@ -14,14 +14,21 @@
 
   const questions = $derived(comment.ask ? askQuestions(comment.ask) : []);
   const open = $derived(!comment.resolved_at);
-  const live = $derived(open && questions.length === 1 && !!comment.assignee_id && comment.assignee_id === task.me);
+  const forMe = $derived(!!comment.assignee_id && comment.assignee_id === task.me);
+  const live = $derived(open && forMe && questions.length === 1);
   const forWhom = $derived(
-    comment.assignee_id === task.me ? 'you' : (board.accountName(comment.assignee_id ?? '') ?? 'someone'),
+    forMe ? 'you' : (board.accountName(comment.assignee_id ?? '') ?? 'someone'),
   );
 </script>
 
 {#if questions.length}
-  <section class="aq" class:answered={!open} data-ask-box data-ask-state={open ? 'open' : 'answered'}>
+  <section
+    class="aq"
+    class:answered={!open}
+    data-ask-box
+    data-ask-state={open ? 'open' : 'answered'}
+    data-open-ask-for-me={open && forMe ? comment.id : undefined}
+  >
     <header class="aq-head">
       <span>{questions.length > 1 ? 'Questions' : 'Question'} for {forWhom}</span>
       <span class="aq-state">{open ? 'Open' : 'Answered'}</span>

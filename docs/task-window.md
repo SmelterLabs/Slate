@@ -284,7 +284,7 @@ selection").
   caches it per `rev`. Shown by `NeedsBadge.svelte` (desktop: a pill docked bottom-right on every
   page except My Work and Inbox, opening the list; phone: a pill in the top bar linking to My Work)
   and `work/NeedsPanel.svelte` (grouped by reason at the top of My Work and the Inbox, with Mark
-  reviewed). A row waiting through an ask has the ask's headline as its title (the question, or
+  reviewed). A row waiting on the viewer through an ask has the ask's headline as its title (the question, or
   "3 questions: <first>"), with one button per option when the ask has one question and
   **Answer →** (opens the card) when it has several; a review row's second line is the standing
   line. Each sidebar list shows a `.needs-mark` (count, colored by its most urgent reason) from
@@ -297,7 +297,8 @@ selection").
   saying it shows a red "Waiting on Alex" chip under the title (`data-waits-on-me`) whatever the
   card's field settings, replacing the gray Waiting-on pill in the footer. Why: once an agent's
   flag is cleared, a small gray footer pill would be the card's only sign while the pill and the
-  sidebar are red.
+  sidebar are red. The question badge counts the questions in the viewer's structured Ask
+  alongside any other open Asks addressed to them.
 - **Standing**: the item view's `standing` (`{line, by_id, at, move_id}`, service/reports.py
   and `items._move_id`) is the agent's one line on where the card stands and whose move it is;
   the row, the card and the top of the window show it, with "Your move" when `move_id` is the
@@ -315,8 +316,8 @@ selection").
   question addressed to the viewer; otherwise options are plain chips. Every component reads an
   ask's questions through `conversation.askQuestions(ask)` (`ask.questions`, or the single
   `question` and `options` a server without multi-question asks sends). When the thread opens or
-  grows while pinned to the bottom and the newest open question would sit above the fold (a long
-  report under it), the feed brings that question to the top instead, once per question.
+  grows while pinned to the bottom and the viewer's newest open Ask would sit above the fold (a
+  long report under it), the feed brings that Ask to the top once.
 - **Your move, in the window** (`task/TurnBanner.svelte`, one component for the waiting and
   review banners; `TaskModal` decides which and passes the flag whose parts it carries). A card
   that waits on the viewer through an ask with one question opens with the question as the red

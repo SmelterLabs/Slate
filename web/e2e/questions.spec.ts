@@ -12,6 +12,24 @@ const REPORT = [
   'Totals are in the March column.',
 ].join('\n');
 
+test('a long single-question Ask opens at the top of its comment and in view', async ({ page }) => {
+  const { agent, listId } = seed();
+  const item = await api<{ id: string }>('POST', '/items', { list_id: listId, title: 'Review the invoice draft', assignees: ['agent'] });
+  const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  const question = 'Send the draft invoice?';
+  await api('POST', `/work/${item.id}/finish`, {
+    run_id: taken.lease.run_id, outcome: 'ask', waiting_on: 'alex',
+    question, options: ['Yes', 'No'], reply: REPORT.repeat(4),
+  }, agent);
+
+  await signIn(page);
+  await page.goto(`/#/list/${listId}?task=${item.id}`);
+  const comment = page.locator('.tw article[data-chat="agent"]').filter({ hasText: 'Weekly run finished' });
+  const block = comment.locator(':scope > [data-ask-box]:first-child');
+  await expect(block.locator('[data-ask-question]')).toHaveText(question);
+  await expect(block).toBeInViewport();
+});
+
 test.fixme('an ask with three questions leads its comment and is answered in one go', async ({ page }) => {
   // fixme: needs the server slice (`questions` on a finish); this worktree's API refuses it.
   const { agent, listId } = seed();
@@ -93,6 +111,11 @@ test('a review for Alex says what to check, and Mark reviewed clears it', async 
   await expect(banner).not.toContainText('Weekly run finished');
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
   await expect(tw.locator('[data-standing]')).toHaveCount(0);
+  const heading = await banner.locator('[data-review-check]').boundingBox();
+  const metadata = await banner.locator('.wq-sub').boundingBox();
+  const action = await banner.locator('[data-mark-reviewed]').boundingBox();
+  expect(heading!.y + heading!.height).toBeLessThanOrEqual(metadata!.y);
+  expect(metadata!.y + metadata!.height).toBeLessThanOrEqual(action!.y);
 
   await banner.locator('[data-mark-reviewed]').click();
   await expect(banner).toHaveCount(0);

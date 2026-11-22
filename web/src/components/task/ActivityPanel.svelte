@@ -145,9 +145,8 @@
     }
   }
 
-  // Stay pinned to the bottom when new rows arrive, unless the reader scrolled up. An open
-  // question that the bottom would leave above the fold (a long comment under it) is brought to
-  // the top of the feed instead, once per question: it is what the reader is here to answer.
+  // Stay pinned to the bottom unless the reader scrolled up. Bring the viewer's newest open Ask
+  // to the top once if the bottom would hide it above a long comment.
   let pinned = true;
   let askShown: string | null = null;
   $effect(() => {
@@ -158,11 +157,13 @@
     void tick().then(() => {
       if (!feed) return;
       feed.scrollTop = feed.scrollHeight;
-      const ask = [...feed.querySelectorAll<HTMLElement>('[data-ask-state="open"]')].at(-1);
-      const id = ask?.closest('[data-comment]')?.getAttribute('data-comment') ?? null;
-      if (!ask || id === askShown || ask.getBoundingClientRect().top >= feed.getBoundingClientRect().top) return;
+      const ask = [...feed.querySelectorAll<HTMLElement>('[data-open-ask-for-me]')].at(-1);
+      const id = ask?.dataset.openAskForMe;
+      if (!ask || !id || id === askShown) return;
+      const offset = ask.getBoundingClientRect().top - feed.getBoundingClientRect().top;
+      if (offset >= 0) return;
       askShown = id;
-      feed.scrollTop += ask.getBoundingClientRect().top - feed.getBoundingClientRect().top - 8;
+      feed.scrollTop += offset - 8;
     });
   });
 
