@@ -7,7 +7,7 @@
 // Not counted: agents still working, dependency blocks (they clear themselves), overdue dates
 // (the Overdue column and Today count already say so), and anything waiting on someone else.
 
-import { isOpen } from './format';
+import { isOpen, isParked } from './format';
 import { atLeast, sectionLevel } from './permissions';
 import type { Account, Item, List, MyAccess, Section } from './types';
 import { AGENT_BLOCKED, READY_FOR_REVIEW, STALLED, waitingOn } from './words';
@@ -39,6 +39,8 @@ const RANK: Record<Need, number> = { waiting: 0, blocked: 1, asked: 2, review: 3
 /** Why this item needs `me`, or null. */
 export function needOf(item: Item, me: string, accounts: Record<string, Account>): Need | null {
   if (item.archived_at || item.trashed_at || !isOpen(item) || item.agent?.state === 'failed') return null;
+  // Set aside on purpose (parked, or not yet started): the server's Today leaves these out too.
+  if (item.later || isParked(item)) return null;
   if (item.waiting_on_account_id === me) return 'waiting';
   // On my card: I filed it, I'm on it, or an agent filed it for nobody in particular.
   const mine =
