@@ -1,10 +1,9 @@
 // Bootstrap Alex, add an agent, seed one section, one list and a few items. Writes
 // the tokens and ids to .e2e/seed.json for the specs.
 import { writeFileSync } from 'node:fs';
-import { workspaceDay } from '../src/lib/quickadd';
 import { workspaceInstant } from '../src/lib/views';
 import { addDays } from '../src/lib/when';
-import { BASE_URL, SEED_FILE, type Seed } from './seed';
+import { BASE_URL, SEED_FILE, today, type Seed } from './seed';
 
 async function call<T>(method: string, path: string, token: string | null, body?: unknown) {
   const res = await fetch(`${BASE_URL}/api/v1${path}`, {
@@ -64,7 +63,7 @@ export default async function globalSetup() {
     list_id: list.id,
     title: 'Pay the water bill',
     priority: 'urgent',
-    due_at: '2026-01-05',
+    due_at: addDays(today(), -2),
     body_md: 'Account **4411**. See [the portal](https://example.com).',
   });
   await call('POST', '/items', alex, { parent_id: live.id, title: 'A subtask' });
@@ -80,8 +79,8 @@ export default async function globalSetup() {
       { name: 'Finished', kind: 'done' },
     ],
   });
-  const today = workspaceDay(new Date());
-  const at = (days: number, h: number, m = 0) => workspaceInstant(addDays(today, days), h, m).toISOString();
+  const day = today();
+  const at = (days: number, h: number, m = 0) => workspaceInstant(addDays(day, days), h, m).toISOString();
   const errand = (body: Record<string, unknown>) =>
     call<{ id: string }>('POST', '/items', alex, { list_id: tasks.id, ...body });
   const todayItem = await errand({ title: 'Today errand', due_at: at(0, 23, 59), tags: ['errand'], priority: 'high' });

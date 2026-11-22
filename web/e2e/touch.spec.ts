@@ -1,8 +1,11 @@
 // Drag by finger (lib/touchdrag.ts) on an iPhone and an iPad, and manual order by mouse on a
 // desktop: real touch events through Chromium's DevTools protocol, so the browser scrolls,
 // fires its own long-press menu and synthesizes clicks exactly as it would under a finger.
-import { expect, test, type Page } from '@playwright/test';
-import { api, countRequests, screenshots, seed, shotsDir, signedIn } from './support';
+import { expect, type Page } from '@playwright/test';
+import { workspaceDay } from '../src/lib/quickadd';
+import { addDays } from '../src/lib/when';
+import { today } from './seed';
+import { api, calendarTest as test, countRequests, screenshots, seed, shotsDir, signedIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shot = screenshots();
@@ -98,9 +101,6 @@ async function order(listId: string, status: string): Promise<string[]> {
     .map((i) => i.title);
 }
 
-const DAY = 86_400_000;
-const atDay = (n: number) => new Date(Date.now() + n * DAY).toISOString();
-
 /** A sideways swipe: no hold, a quick slide. */
 async function swipeRow(page: Page, selector: string, dx: number) {
   const c = await center(page, selector);
@@ -188,7 +188,7 @@ test.describe('iPhone', () => {
     const { listId, ids } = await makeList('Touch swipes', []);
     for (const title of ['Swipe done', 'Swipe later']) {
       ids[title] = (
-        await api<{ id: string }>('POST', '/items', { list_id: listId, title, assignees: ['alex'], due_at: atDay(-2) })
+        await api<{ id: string }>('POST', '/items', { list_id: listId, title, assignees: ['alex'], due_at: addDays(today(), -2) })
       ).id;
     }
     await signedIn(page, '/#/home');
@@ -205,9 +205,9 @@ test.describe('iPhone', () => {
     await expect
       .poll(async () => {
         const it = await api<{ due_at: string }>('GET', `/items/${ids['Swipe later']}`);
-        return Math.round((Date.parse(it.due_at) - Date.now()) / DAY);
+        return workspaceDay(new Date(it.due_at));
       })
-      .toBeGreaterThanOrEqual(0);
+      .toBe(addDays(today(), 1));
     // A short swipe springs back and changes nothing.
     const before = await api<{ due_at: string }>('GET', `/items/${ids['Swipe later']}`);
     const changes = countRequests(page, 'PATCH', `/items/${ids['Swipe later']}`);

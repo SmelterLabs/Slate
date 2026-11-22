@@ -21,8 +21,8 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   restart between a run and the cursor's commit repeats nothing; a crash in the middle of a rule's
   actions, before its run is logged, can run that rule once more after the restart (each action
   is its own change). An event that cannot be handled at all is logged and skipped.
-  `slate/automator.py` runs it in a worker thread, woken by the bus (a change usually reaches its
-  rule in well under a second) with a 5 s poll as a backstop. It runs when
+  The scheduler registers the step with `engine.run`. The shared loop runs it in a worker
+  thread, wakes it on bus events, and polls every 5 s as a backstop. The engine runs when
   `SLATE_AUTOMATIONS_ENABLED` (default on; off in pytest; on in the board e2e, which keeps the
   scheduler off).
 - **Actor**: actions run as the `slate` system agent, `source=system`, `session_ref=automation:<rule

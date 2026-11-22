@@ -108,7 +108,7 @@ def test_update_walks_the_rule_before_taking_the_write_lock(db, actor, chores, m
     real = recurrences._anchor
 
     def anchor(*args, **kwargs):
-        held.append(core._write_lock._is_owned())
+        held.append(core.write_lock._is_owned())
         return real(*args, **kwargs)
 
     monkeypatch.setattr(recurrences, "_anchor", anchor)

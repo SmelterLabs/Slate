@@ -6,9 +6,9 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { workspaceDay } from '../src/lib/quickadd';
 import { workspaceInstant } from '../src/lib/views';
 import { addDays } from '../src/lib/when';
+import { today } from './seed';
 import { api, signIn } from './support';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,8 +40,8 @@ test('a card that went overdue while the board was open still leaves Today when 
 }) => {
   // The board's clock reads noon yesterday (workspace time) whatever the hour of the run, and
   // the card was due at 10 that morning: on the board it is today's, past due and an hour past
-  // overdue, and the server, whose clock is later still, sends both events for it.
-  const day = addDays(workspaceDay(new Date()), -1);
+  // overdue, and the scheduler tick runs at the later shared e2e instant.
+  const day = addDays(today(), -1);
   const due = workspaceInstant(day, 10);
   await page.clock.install({ time: workspaceInstant(day, 12) });
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Pickups home', audience: 'personal' });

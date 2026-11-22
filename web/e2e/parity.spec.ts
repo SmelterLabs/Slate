@@ -1,7 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
-import { workspaceDay } from '../src/lib/quickadd';
+import { expect, type Page } from '@playwright/test';
+import { today } from './seed';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, seed, signIn } from './support';
+import { api, calendarTest as test, screenshots, seed, signIn } from './support';
 
 const shot = screenshots('SLATE_PARITY_SHOTS');
 
@@ -28,11 +28,10 @@ async function setup(): Promise<Built> {
   }
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Parity', audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Projects' });
-  const today = workspaceDay(new Date());
   const ids: Record<string, string> = {};
   for (const [title, extra] of [
-    ['Plan the deck', { due_at: today, tags: ['parity-a'] }],
-    ['Build the deck', { due_at: addDays(today, 2), tags: ['parity-b'] }],
+    ['Plan the deck', { due_at: today(), tags: ['parity-a'] }],
+    ['Build the deck', { due_at: addDays(today(), 2), tags: ['parity-b'] }],
     ['Paint the shed', {}],
   ] as const) {
     ids[title] = (await api<{ id: string }>('POST', '/items', { list_id: list.id, title, ...extra })).id;

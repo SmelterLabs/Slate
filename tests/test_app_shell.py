@@ -9,7 +9,7 @@ import re
 from fastapi.testclient import TestClient
 
 from slate import app as app_module
-from slate import emailer, mailer
+from slate import engine, mailer
 from slate.app import create_app
 from slate.settings import settings
 
@@ -29,7 +29,12 @@ def test_email_runs_on_smtp_settings_alone(monkeypatch):
     monkeypatch.setattr(settings, "push_enabled", False)
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
     monkeypatch.setattr(settings, "smtp_from", "slate@example.com")
-    monkeypatch.setattr(emailer, "start", lambda: started.append("email") or None)
+
+    async def track_email(name, step, *, poll_seconds, start=None):
+        if name == "email":
+            started.append(name)
+
+    monkeypatch.setattr(engine, "run", track_email)
     assert mailer.enabled()
     with TestClient(create_app()):
         pass

@@ -133,10 +133,10 @@ def _resolve(value: Any, refs: dict[str, Any], session: Any) -> Any:
 def _now(session: Any, value: Any) -> Any:
     """`value` with its `Later` marks built as the task stands now (inside the batch)."""
     if isinstance(value, Later):
-        from slate.mcp_tools import _item_views
+        from slate.mcp_tools import item_views
 
         row = session.get(Item, value.id)
-        return _item_views(_Views(session), [row])[0] if row is not None else None
+        return item_views(_Views(session), [row])[0] if row is not None else None
     if isinstance(value, list) and any(isinstance(v, Later) for v in value):
         return [_now(session, v) for v in value]
     return value
@@ -174,7 +174,7 @@ def _fill(value: Any, built: dict[str, dict]) -> Any:
 
 def _finish(session: Any, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build every task the results name, once each and all together, after the commit."""
-    from slate.mcp_tools import _item_views
+    from slate.mcp_tools import item_views
 
     ids: list[str] = []
     _marks(results, ids)
@@ -182,7 +182,7 @@ def _finish(session: Any, results: list[dict[str, Any]]) -> list[dict[str, Any]]
         return results
     wanted = list(dict.fromkeys(ids))
     rows = list(session.scalars(select(Item).where(Item.id.in_(wanted))))
-    built = {v["id"]: v for v in _item_views(_Views(session), rows)}
+    built = {v["id"]: v for v in item_views(_Views(session), rows)}
     return _fill(results, built)
 
 

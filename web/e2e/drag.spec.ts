@@ -2,10 +2,11 @@
 // a list grouped by status, the day board (This week), and boards grouped by tag or section.
 // Mouse drags go through real mouse moves (not one jump), so the browser runs its own drag.
 // A column that can't take a card says why when you let go, instead of snapping back silently.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, signedIn } from './support';
+import { today } from './seed';
+import { api, calendarTest as test, signedIn } from './support';
 
 interface Lab {
   sectionId: string;
@@ -19,7 +20,6 @@ test.afterAll(async () => {
   for (const id of made.splice(0)) await api('PATCH', `/sections/${id}`, { archived: true });
 });
 
-const today = () => workspaceDay(new Date());
 
 async function lab(cards: { title: string; due_at?: string; tags?: string[] }[], lists = 1): Promise<Lab> {
   const sectionId = (await api<{ id: string }>('POST', '/sections', { name: `Drag lab ${Date.now()}`, audience: 'personal' })).id;
@@ -110,7 +110,7 @@ test.describe('mouse', () => {
     await expect(column(page, tomorrow)).toHaveClass(/collapsed/);
     await mouseDrag(page, card(page, 'Due today card'), column(page, tomorrow));
     await expect(column(page, tomorrow)).toContainText('Due today card');
-    await expect.poll(async () => (await get<{ due_at: string }>(l.ids['Due today card'])).due_at.slice(0, 10)).toBe(tomorrow);
+    await expect.poll(async () => workspaceDay(new Date((await get<{ due_at: string }>(l.ids['Due today card'])).due_at))).toBe(tomorrow);
 
     await mouseDrag(page, card(page, 'Late card'), column(page, 'today'));
     await expect(column(page, 'today')).toContainText('Late card');
@@ -186,6 +186,6 @@ test.describe('finger', () => {
     const from = await centerOf(page, card(page, 'Finger day card'));
     const to = await centerOf(page, column(page, tomorrow));
     await fingerDrag(page, from, to);
-    await expect.poll(async () => (await get<{ due_at: string }>(l.ids['Finger day card'])).due_at.slice(0, 10)).toBe(tomorrow);
+    await expect.poll(async () => workspaceDay(new Date((await get<{ due_at: string }>(l.ids['Finger day card'])).due_at))).toBe(tomorrow);
   });
 });

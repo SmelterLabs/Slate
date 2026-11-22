@@ -1,12 +1,20 @@
 // Shared helpers for the browser tests: call the API, sign in, open More in the left menu,
 // take optional screenshots. Every spec imports these instead of carrying its own copy.
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL, seed } from './seed';
+import { BASE_URL, calendarNow, seed } from './seed';
 
 export { BASE_URL, seed, SEED_FILE, type Seed } from './seed';
+
+// Calendar specs share the seed's date without freezing timers or elapsed-time specs.
+export const calendarTest = test.extend({
+  page: async ({ page }, use) => {
+    await page.clock.setFixedTime(calendarNow());
+    await use(page);
+  },
+});
 
 /**
  * Call the Slate API as `token` (Alex by default) and return the JSON body (`undefined` for

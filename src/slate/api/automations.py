@@ -170,10 +170,8 @@ def delete_automation(automation_id: str, auth: WriteAuth, session: DbSession) -
 @router.post("/automations/{automation_id}/run", response_model=RunOut)
 def run_automation(automation_id: str, body: RunNowIn, auth: WriteAuth, session: DbSession) -> dict:
     """Run the rule's actions on one item now (trigger and conditions skipped)."""
-    from slate import automator
-
     run = automations.run_now(
-        session, auth.actor, automation_id, item_id=body.item_id, send=automator.send
+        session, auth.actor, automation_id, item_id=body.item_id, send=automations.send
     )
     return automations.run_views(session, [run])[0]
 

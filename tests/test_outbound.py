@@ -18,8 +18,8 @@ import time
 import httpx
 import pytest
 
-from slate import automator, outbound, webpush
-from slate.service import accounts, push
+from slate import outbound, webpush
+from slate.service import accounts, automations, push
 from slate.service.core import Actor
 from slate.service.errors import Invalid
 from slate.settings import settings
@@ -158,7 +158,7 @@ def test_a_name_that_rebinds_to_loopback_after_the_check_is_never_reached(net, l
     rx = listener()
     url = f"https://rebind.example.com:{rx.port}/hook"
     net.answers["rebind.example.com"] = [PUBLIC, "127.0.0.1"]
-    ok, _ = automator.send(url, {"automation": {"id": "a"}}, "s")
+    ok, _ = automations.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and rx.connections == 0
     assert net.lookups.count("rebind.example.com") == 1
     assert net.dialled == [(PUBLIC, rx.port)]
@@ -168,7 +168,7 @@ def test_a_failed_lookup_is_refused_not_passed(net, listener):
     rx = listener()
     url = f"https://flaky.example.com:{rx.port}/hook"
     net.answers["flaky.example.com"] = [socket.gaierror("SERVFAIL"), "127.0.0.1"]
-    ok, detail = automator.send(url, {"automation": {"id": "a"}}, "s")
+    ok, detail = automations.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and "resolve" in detail and rx.connections == 0
     assert net.dialled == []
 
@@ -177,7 +177,7 @@ def test_the_checked_address_keeps_the_url_name_as_host(net, listener, monkeypat
     monkeypatch.setattr(settings, "outbound_private_targets", True)
     rx = listener()
     net.answers["rx.example.com"] = ["127.0.0.1", "10.9.9.9"]
-    ok, detail = automator.send(
+    ok, detail = automations.send(
         f"http://rx.example.com:{rx.port}/hook", {"automation": {"id": "a"}}, "s"
     )
     assert ok is True, detail
@@ -190,11 +190,11 @@ def test_the_checked_address_keeps_the_url_name_as_host(net, listener, monkeypat
 
 def test_a_receiver_that_drips_its_headers_is_cut_off_at_the_deadline(net, listener, monkeypatch):
     monkeypatch.setattr(settings, "outbound_private_targets", True)
-    monkeypatch.setattr(automator, "TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(automations, "TIMEOUT_SECONDS", 1.0)
     rx = listener(drip=0.2)
     url = f"http://127.0.0.1:{rx.port}/hook"
     started = time.monotonic()
-    ok, detail = automator.send(url, {"automation": {"id": "a"}}, "s")
+    ok, detail = automations.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and "Timeout" in detail
     assert time.monotonic() - started < 3
 
@@ -219,8 +219,8 @@ def test_automation_deliveries_sign_a_timestamp(monkeypatch):
         seen.append(request)
         return httpx.Response(204)
 
-    monkeypatch.setattr(automator, "transport", httpx.MockTransport(rx))
-    ok, _ = automator.send("https://rx.example.com/a", {"automation": {"id": "a"}}, "whsec_x")
+    monkeypatch.setattr(automations, "transport", httpx.MockTransport(rx))
+    ok, _ = automations.send("https://rx.example.com/a", {"automation": {"id": "a"}}, "whsec_x")
     assert ok
     _check_signatures(seen[0], "whsec_x")
     assert json.loads(seen[0].read()) == {"automation": {"id": "a"}}

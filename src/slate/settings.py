@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     static_dir: Path | None = None  # built board; None = not served
     scheduler_enabled: bool = True
     scheduler_interval_seconds: float = 60.0
-    # The automations engine (slate.automator). Separate from the scheduler so the board's e2e
+    # The automations engine (slate.scheduler). Separate from the scheduler so the board's e2e
     # tests can run rules live while recurrence and due events stay off.
     automations_enabled: bool = True
-    # Phone and desktop notifications (slate.pusher). Also needs secret_key (VAPID is derived).
+    # Phone and desktop notifications (service/push.py). Also needs secret_key (VAPID is derived).
     push_enabled: bool = True
     # The key encrypts automation signing secrets and derives the Web Push signing key.
     secret_key: str | None = None
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     ai_url: str = ""
     ai_model: str = "gemma4:latest"
     ai_timeout: float = 120.0
-    # Email notifications (slate.emailer, service/email.py): any SMTP server. Port 465 is
+    # Email notifications (service/email.py): any SMTP server. Port 465 is
     # implicit TLS, anything else uses STARTTLS when the server offers it. Empty host = off
     # (the board hides the Email column). `public_url` is the board's address, so a link in
     # an email opens the right place (e.g. https://slate.example.com).

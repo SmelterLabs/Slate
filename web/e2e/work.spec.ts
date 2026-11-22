@@ -1,7 +1,9 @@
 // Productivity: the command palette, natural quick add, My Work, the inbox (live from an
 // agent's comment), undo, j/k and g-chords.
-import { expect, test, type Page } from '@playwright/test';
-import { api, screenshots, seed, signedIn } from './support';
+import { expect, type Page } from '@playwright/test';
+import { addDays } from '../src/lib/when';
+import { today, WORKSPACE_TIMEZONE } from './seed';
+import { api, calendarTest as test, screenshots, seed, signedIn } from './support';
 
 const shot = screenshots();
 
@@ -84,7 +86,7 @@ test('quick add reads a natural date, time, priority and tag', async ({ page }) 
   expect(item.tags).toEqual(['personal']);
   const due = new Date(item.due_at!);
   const hm = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'America/Chicago',
+    timeZone: WORKSPACE_TIMEZONE,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
@@ -127,8 +129,8 @@ test('an agent mention lands in the inbox live; opening it marks it read', async
 
 test('My Work shows my tasks by due date', async ({ page }) => {
   const listId = await scratch('Mine');
-  await api('POST', '/items', { list_id: listId, title: 'Mine today', assignees: ['alex'], due_at: new Date(Date.now() + 3600_000).toISOString() });
-  await api('POST', '/items', { list_id: listId, title: 'Mine late', assignees: ['alex'], due_at: '2026-01-02' });
+  await api('POST', '/items', { list_id: listId, title: 'Mine today', assignees: ['alex'], due_at: today() });
+  await api('POST', '/items', { list_id: listId, title: 'Mine late', assignees: ['alex'], due_at: addDays(today(), -2) });
   await api('POST', '/items', { list_id: listId, title: 'Not mine', assignees: ['agent'] });
   await signedIn(page, '/#/home', { ready: true });
   const region = page.getByRole('region', { name: 'My Work' });

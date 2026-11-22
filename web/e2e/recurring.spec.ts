@@ -1,9 +1,10 @@
 // ClickUp's recurrence options: "When done" with reopen and skip weekends from the task window,
 // the repeat label on cards, and future repeats drawn on the calendar.
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, signedIn } from './support';
+import { today } from './seed';
+import { api, calendarTest as test, screenshots, signedIn } from './support';
 
 const shot = screenshots('SLATE_RECUR_SHOTS');
 
@@ -14,11 +15,10 @@ async function scratch(name: string) {
 
 test('recur when done: reopen the same task, skip weekends, label on the card', async ({ page }, info) => {
   const list = await scratch(`Filters ${info.repeatEachIndex + 1}`);
-  const today = workspaceDay(new Date());
   const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
     title: 'Change AC filter',
-    due_at: today,
+    due_at: today(),
   });
   await api('POST', `/items/${item.id}/checklists`, { name: 'Steps', items: ['Buy filter', 'Swap it'] });
   await signedIn(page, `/#/list/${list.id}`);
@@ -55,7 +55,7 @@ test('recur when done: reopen the same task, skip weekends, label on the card', 
     .poll(async () => (await api<{ status: { kind: string } }>('GET', `/items/${item.id}`)).status.kind)
     .toBe('open');
   const back = await api<{ due_at: string }>('GET', `/items/${item.id}`);
-  expect(workspaceDay(new Date(back.due_at)) > addDays(today, 20)).toBe(true);
+  expect(workspaceDay(new Date(back.due_at)) > addDays(today(), 20)).toBe(true);
   const weekday = new Date(`${workspaceDay(new Date(back.due_at))}T12:00:00Z`).getUTCDay();
   expect([0, 6]).not.toContain(weekday);
   // The reopened card moves to Later. Open that column after the live update folds it.
@@ -67,11 +67,10 @@ test('recur when done: reopen the same task, skip weekends, label on the card', 
 
 test('the rule editor sets who each new one is assigned to', async ({ page }) => {
   const list = await scratch('Reviews');
-  const today = workspaceDay(new Date());
   const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
     title: 'Friday report',
-    due_at: today,
+    due_at: today(),
     assignees: ['alex'],
   });
   await signedIn(page, `/#/list/${list.id}`);

@@ -52,7 +52,7 @@ list. The same tree also holds **file docs**.
   **`doc.mentioned`** (the page-mention event, with `comment_id` and `asked`), so the inbox,
   check-in and push (`"X asked you in <doc>"`, url `#/docs/<id>?comment=<id>`) route them
   with no rules of their own. A push agent mentioned or asked on a page also gets a doc turn
-  (`service/docwake.py`, `docs/agents-work-loop.md` "Doc mentions wake an agent"): its runner
+  (`service/turns.py`, `docs/agents-work-loop.md` "Doc mentions wake an agent"): its runner
   answers with a comment in the thread; no task or item run starts. Events:
   `doc.commented` (after = the view), `doc.comment_edited`, `doc.comment_resolved` (`reason`
   resolved | replied | accepted | reopened), `doc.comment_assigned`, `doc.suggestion_accepted`; all

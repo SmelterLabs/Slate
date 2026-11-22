@@ -42,7 +42,7 @@ class Auth:
         return self.principal.account
 
 
-def _unauthorized(detail: str) -> HTTPException:
+def unauthorized(detail: str) -> HTTPException:
     return HTTPException(
         status.HTTP_401_UNAUTHORIZED, detail=detail, headers={"WWW-Authenticate": "Bearer"}
     )
@@ -86,12 +86,12 @@ def require(scope: str) -> Callable[..., Auth]:
             if token and request.method not in ("GET", "HEAD", "OPTIONS"):
                 check_browser_write(request)
         elif scheme.lower() != "bearer":
-            raise _unauthorized("missing bearer token")
+            raise unauthorized("missing bearer token")
         principal = accounts.authenticate(session, token, cookie=cookie_auth, touch=False)
         if principal is not None and accounts.needs_touch(session, principal.token_id):
             await run_in_threadpool(accounts.touch_token, session, principal.token_id)
         if principal is None:
-            raise _unauthorized("invalid or revoked token")
+            raise unauthorized("invalid or revoked token")
         # slate.fastlane.Timing counts the call for this token on the Health page.
         request.state.caller = (principal.token_id, principal.account.id)
         if not principal.has(scope):

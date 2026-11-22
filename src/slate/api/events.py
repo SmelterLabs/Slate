@@ -50,7 +50,7 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 
 from slate import db
-from slate.api.auth import DbSession, ReadAuth, WriteAuth, _unauthorized
+from slate.api.auth import DbSession, ReadAuth, WriteAuth, unauthorized
 from slate.api.schemas import ItemOut
 from slate.models import Account, AccountKind, Event, Token, utcnow
 from slate.presence import presence
@@ -231,7 +231,7 @@ def stream_auth(
     scheme, _, header_token = (authorization or "").partition(" ")
     if authorization:
         if scheme.lower() != "bearer" or not header_token:
-            raise _unauthorized("missing bearer token")
+            raise unauthorized("missing bearer token")
         plaintext = header_token.strip()
     elif token:
         plaintext = token
@@ -242,7 +242,7 @@ def stream_auth(
             session, plaintext, cookie=not authorization and not token
         )
         if principal is None:
-            raise _unauthorized("invalid or revoked token")
+            raise unauthorized("invalid or revoked token")
         if not principal.has("read"):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="token lacks 'read' scope")
         gate = access.EventGate(principal.account.id, principal.token_id)

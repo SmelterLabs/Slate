@@ -1,8 +1,8 @@
 """The in-process scheduler: one asyncio task that calls each hook every N seconds.
 
-    hooks = [recurrences.materialize, notify.due_events_tick, notify.reminders_tick,
-             attention.escalate, notify.digest_tick, trash.purge_expired, work.expire_leases,
-             chatwake.expire, docwake.expire, sessions.notify_expiring,
+    hooks = [recurrences.materialize, due.run_due_checks, reminders.fire_reminders,
+             attention.escalate, reminders.send_digests, trash.purge_expired, work.expire_leases,
+             EXPIRE_CHAT, EXPIRE_DOC, sessions.notify_expiring,
              chat_files.sweep_unsent]
     last_tick_at                          # UTC time of the last finished tick (for /healthz)
     POLLERS                               # each hook's key on the Health page
@@ -32,21 +32,26 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from slate import db, monitor, notify
+from slate import db, engine, mailer, monitor, webpush
 from slate.models import utcnow
 from slate.service import (
     attention,
+    automations,
     chat_files,
-    chatwake,
-    docwake,
+    due,
+    email,
     health,
+    push,
     recurrences,
+    reminders,
     sessions,
     trash,
+    turns,
     work,
 )
 from slate.settings import settings
@@ -55,30 +60,33 @@ log = logging.getLogger(__name__)
 
 Hook = Callable[[Session, datetime], Any]
 
+EXPIRE_CHAT = partial(turns.expire, "chat")
+EXPIRE_DOC = partial(turns.expire, "doc")
+
 hooks: list[Hook] = [
     recurrences.materialize,
-    notify.due_events_tick,
-    notify.reminders_tick,
+    due.run_due_checks,
+    reminders.fire_reminders,
     attention.escalate,
-    notify.digest_tick,
+    reminders.send_digests,
     trash.purge_expired,
     work.expire_leases,
-    chatwake.expire,
-    docwake.expire,
+    EXPIRE_CHAT,
+    EXPIRE_DOC,
     sessions.notify_expiring,
     chat_files.sweep_unsent,
 ]
 # Hook -> its key on the Health page (service/health.py POLLERS has the labels).
 POLLERS: dict[Hook, str] = {
     recurrences.materialize: "recurring",
-    notify.due_events_tick: "due",
-    notify.reminders_tick: "reminders",
-    notify.digest_tick: "digest",
+    due.run_due_checks: "due",
+    reminders.fire_reminders: "reminders",
+    reminders.send_digests: "digest",
     attention.escalate: "escalation",
     trash.purge_expired: "trash",
     work.expire_leases: "leases",
-    chatwake.expire: "chat_turns",
-    docwake.expire: "doc_turns",
+    EXPIRE_CHAT: "chat_turns",
+    EXPIRE_DOC: "doc_turns",
     sessions.notify_expiring: "sessions",
     chat_files.sweep_unsent: "chat_uploads",
 }
@@ -147,3 +155,56 @@ async def stop() -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+
+
+def _engine_step(process: Callable[[Session], Any]) -> Any:
+    with db.SessionLocal() as session:
+        return process(session)
+
+
+def _start_automations() -> None:
+    with db.SessionLocal() as session:
+        automations.start(session)
+
+
+def start_engines() -> list[asyncio.Task]:
+    """Register enabled event-log engines with the shared loop and track them on Health."""
+    push_enabled = settings.push_enabled and webpush.enabled()
+    email_enabled = mailer.enabled()
+    smtp_off = "SLATE_SMTP_HOST / SLATE_SMTP_FROM not set"
+    if settings.push_enabled and not push_enabled:
+        log.warning("push notifications off: SLATE_SECRET_KEY is not set")
+    if not email_enabled:
+        log.info("email notifications off: SLATE_SMTP_HOST / SLATE_SMTP_FROM not set")
+    specs = (
+        (
+            "automations",
+            settings.automations_enabled,
+            "SLATE_AUTOMATIONS_ENABLED=false",
+            5.0,
+            partial(automations.process, send=automations.send),
+            _start_automations,
+        ),
+        (
+            "push",
+            push_enabled,
+            "SLATE_SECRET_KEY is not set" if settings.push_enabled else "SLATE_PUSH_ENABLED=false",
+            5.0,
+            partial(push.process, send=webpush.send),
+            None,
+        ),
+        ("email", email_enabled, smtp_off, 30.0, partial(email.process, send=mailer.send), None),
+    )
+    tasks = []
+    for name, enabled, off, interval, process, start in specs:
+        task = None
+        if enabled:
+            task = asyncio.create_task(
+                engine.run(
+                    name, partial(_engine_step, process), poll_seconds=interval, start=start
+                ),
+                name=f"slate-{name}",
+            )
+            tasks.append(task)
+        monitor.track(name, task, off)
+    return tasks

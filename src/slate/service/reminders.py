@@ -21,7 +21,7 @@ one `account.digest` event per account per day, with what is overdue, due today 
 it. Nothing is recorded on a day with nothing in it. Idempotent: the day is in the event.
 
 Both kinds of event reach the account's inbox (reasons `reminder`, `digest`), its check-in
-(`why` the same) and phone/desktop push (slate.pusher).
+(`why` the same) and phone/desktop push (service/push.py).
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ def _open_items_filter():
     )
 
 
-def fire_reminders(session: Session, *, now: datetime | None = None) -> int:
+def fire_reminders(session: Session, now: datetime | None = None) -> int:
     """Scheduler hook: record `item.reminder` for every reminder whose time has come."""
     from slate.service.due import system_actor
 
@@ -384,7 +384,7 @@ def _sent_on(session: Session, account_id: str, date: str) -> bool:
     return last is not None and (last.after_json or {}).get("date") == date
 
 
-def send_digests(session: Session, *, now: datetime | None = None) -> int:
+def send_digests(session: Session, now: datetime | None = None) -> int:
     """Scheduler hook: one `account.digest` per account per day, at its digest hour."""
     from slate.service.due import system_actor
 

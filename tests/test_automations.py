@@ -373,7 +373,6 @@ def test_items_in_archived_lists_are_left_alone(client, db, world):
 def test_engine_step_and_webhook_sender(client, db, world, monkeypatch):
     import httpx
 
-    from slate import automator
     from slate.outbound import sign
 
     seen = []
@@ -384,7 +383,7 @@ def test_engine_step_and_webhook_sender(client, db, world, monkeypatch):
         return httpx.Response(500 if b"fail" in request.read() else 204)
 
     secret: list[str] = []
-    monkeypatch.setattr(automator, "transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(automations, "transport", httpx.MockTransport(handler))
     rule = _rule(
         client,
         world,
@@ -394,7 +393,7 @@ def test_engine_step_and_webhook_sender(client, db, world, monkeypatch):
     secret.append(rule["webhook_secret"])
     _item(db, world, title="fine")
     _item(db, world, title="fail")
-    assert automator.step() == 2
+    assert automations.process(db, send=automations.send) == 2
     assert [s[0] for s in seen] == [rule["id"], rule["id"]]
     runs = automations.list_runs(db, automation_id=rule["id"])
     assert sorted(r["status"] for r in runs) == ["failed", "ok"]

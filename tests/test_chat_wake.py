@@ -13,7 +13,7 @@ from conftest import API
 from conftest import workspace_events as _events
 from run_proofs import remember, run_fields
 from slate.models import ChatWake, utcnow
-from slate.service import chatwake
+from slate.service import turns
 
 
 def _agent(client, alex, handle="agent", wake="push"):
@@ -152,7 +152,7 @@ def test_remaining_counts_in_database_without_loading_wakes(client, alex, todo, 
 
     event.listen(db.bind, "before_cursor_execute", capture)
     try:
-        assert chatwake.remaining(db, agent["id"]) == 1
+        assert turns.remaining("chat", db, agent["id"]) == 1
     finally:
         event.remove(db.bind, "before_cursor_execute", capture)
     assert len(statements) == 1
@@ -312,7 +312,7 @@ def test_heartbeat_keeps_the_turn_and_expiry_drops_it(client, alex, todo, db):
 
     row = db.get(ChatWake, (agent["id"], key, ""))
     assert row is not None and row.taken_id == msg["id"]
-    released = chatwake.expire(db, utcnow() + timedelta(hours=1))
+    released = turns.expire("chat", db, utcnow() + timedelta(hours=1))
     assert released == 1
     ended = _events(client, alex, "message.agent_turn")[-1]
     assert ended["after"]["state"] == "expired" and ended["source"] == "system"
@@ -384,5 +384,5 @@ def test_the_channel_lists_its_open_agent_turns(client, alex, todo, db):
     # until it is reconciled or cleared (tests/test_turn_recovery.py).
     _post(client, alex, key, "@agent slow one")
     _next(client, ch, channel=key, lease_seconds=60)
-    chatwake.expire(db, utcnow() + timedelta(hours=1))
+    turns.expire("chat", db, utcnow() + timedelta(hours=1))
     assert _turns(client, alex, key) == [(agent["id"], None, "expired")]
