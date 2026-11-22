@@ -41,7 +41,6 @@ from slate.models import (
     StatusKind,
     utcnow,
 )
-from slate.service.items import priority_sort_key
 
 DEFAULT_LEAD_DAYS = 14
 DEFAULT_SWEEP_WEEKDAY = 4  # Friday (Monday = 0)
@@ -138,8 +137,11 @@ def today(
             groups["today"].append(item)
         else:
             groups["waiting"].append(item)
-    for items in groups.values():
-        items.sort(key=priority_sort_key)
+    # items imports lists, which imports sections, which imports this module.
+    from slate.service.items import priority_sort_key
+
+    for group in groups.values():
+        group.sort(key=priority_sort_key)
     first_ask = (
         select(Comment.item_id, func.min(Comment.created_at).label("asked_at"))
         .where(Comment.assignee_id == account_id, Comment.resolved_at.is_(None))

@@ -25,7 +25,6 @@ from slate.models import (
 from slate.service import today as today_svc
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Conflict, Invalid, NotFound
-from slate.service.items import PRIORITY_RANK
 
 
 def _audience(value: str) -> Audience:
@@ -107,6 +106,9 @@ def next_step_for(
                 has_assignee,
             )
         ).all()
+
+    # items imports this module through lists, so the rank table is read here, not at import.
+    from slate.service.items import PRIORITY_RANK
 
     def _key(item: Item) -> tuple[Any, ...]:
         rank = PRIORITY_RANK[item.priority] if item.priority else len(PRIORITY_RANK)
