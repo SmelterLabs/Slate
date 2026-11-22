@@ -1,10 +1,14 @@
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from conftest import API, workspace_events
+from slate.db import SessionLocal
 from slate.models import utcnow
-from slate.service import due, recurrences, reminders
+from slate.service import due, lists, recurrences, reminders
+from slate.service.core import Actor, Source
+from slate.service.errors import Invalid
 from test_mcp import call, http_mcp, ok
 
 
@@ -36,7 +40,13 @@ def test_list_fields_and_events(client, alex, todo, make_account):
     assert {e["field"]: e["after"] for e in changes if e["field"] in data} == data
     assert client.get(f"{API}/lists/{todo['id']}", headers=alex).json() == result
     blank = configure(
-        client, alex, todo, note_md=None, default_assignee_id=None, default_tags=[], reference=False
+        client,
+        alex,
+        todo,
+        note_md=None,
+        default_assignee_id=None,
+        default_tags=None,
+        reference=False,
     )
     assert blank["note_md"] is None and blank["default_assignee_id"] is None
     assert blank["default_tags"] == [] and blank["reference"] is False
@@ -50,7 +60,16 @@ def test_list_fields_and_events(client, alex, todo, make_account):
         },
     )
     assert created.status_code == 201, created.text
+    created_id = created.json()["id"]
     assert {key: created.json()[key] for key in data} == data
+    event = next(
+        e for e in workspace_events(client, alex, "list.created") if e["subject_id"] == created_id
+    )
+    assert {key: event["after"][key] for key in data} == data
+    assert not any(
+        e["subject_id"] == created_id and e["field"] in data
+        for e in workspace_events(client, alex, "list.updated")
+    )
 
 
 @pytest.mark.parametrize(
@@ -213,3 +232,207 @@ def test_reference_cards_only_fire_reminders_set_for_a_fixed_time(client, alex, 
         route, headers=alex, json={"at": (now + timedelta(hours=1)).isoformat()}
     ).raise_for_status()
     assert reminders.fire_reminders(db, now=now + timedelta(hours=2)) == 1
+
+
+def test_guest_filing_and_split_apply_the_hidden_default(client, alex, todo, make_account):
+    agent, _ = make_account("my-agent")
+    guest = client.post(
+        f"{API}/accounts",
+        headers=alex,
+        json={"kind": "person", "role": "guest", "handle": "guest", "display_name": "Guest"},
+    ).json()
+    token = client.post(
+        f"{API}/accounts/{guest['id']}/tokens", headers=alex, json={"scopes": ["write"]}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.put(
+        f"{API}/shares",
+        headers=alex,
+        json={
+            "account_id": guest["id"],
+            "scope_kind": "list",
+            "scope_id": todo["id"],
+            "level": "edit",
+        },
+    ).raise_for_status()
+    configure(client, alex, todo, default_assignee_id=agent["id"])
+    visible = client.get(f"{API}/lists", headers=headers).json()
+    assert next(row for row in visible if row["id"] == todo["id"])["default_assignee_id"] is None
+    assert (
+        client.get(f"{API}/lists/{todo['id']}", headers=headers).json()["default_assignee_id"]
+        is None
+    )
+    rejected = client.patch(
+        f"{API}/lists/{todo['id']}", headers=headers, json={"default_assignee_id": agent["id"]}
+    )
+    assert rejected.status_code in (403, 422)
+    assert agent["id"] not in rejected.text and agent["handle"] not in rejected.text
+
+    card = file(client, headers, list_id=todo["id"], body_md="Review the draft.")
+    split = client.post(
+        f"{API}/items/{card['id']}/split", headers=headers, json={"children": [{"title": "Child"}]}
+    )
+    assert split.status_code == 201, split.text
+    for item in (card, split.json()[0]):
+        assert item["assignees"] == []
+        full = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+        assert [a["id"] for a in full["assignees"]] == [agent["id"]]
+
+
+@pytest.mark.parametrize("invalid", ["disabled", "system"])
+def test_ineligible_account_cannot_be_a_default_owner(
+    client, alex, todo, make_account, db, invalid
+):
+    if invalid == "system":
+        ref = due.system_actor(db).account_id
+        db.commit()
+    else:
+        acct, _ = make_account("my-agent")
+        ref = acct["id"]
+        configure(client, alex, todo, default_assignee_id=ref)
+        client.patch(
+            f"{API}/accounts/{ref}", headers=alex, json={"disabled": True}
+        ).raise_for_status()
+        assert file(client, alex, list_id=todo["id"])["assignees"] == []
+    rejected = client.patch(
+        f"{API}/lists/{todo['id']}", headers=alex, json={"default_assignee_id": ref}
+    )
+    assert rejected.status_code == 422
+    assert ref not in rejected.text
+
+
+def test_filing_fields_cannot_write_other_list_state(db, client, alex, todo):
+    actor = Actor(client.get(f"{API}/me", headers=alex).json()["account"]["id"], Source.api)
+    with pytest.raises(Invalid, match="filing"):
+        lists.update_list(db, actor, todo["id"], filing={"name": "Changed through filing"})
+    with pytest.raises(Invalid, match="filing"):
+        lists.create_list(
+            db, actor, section_id=todo["section_id"], name="New", filing={"private": True}
+        )
+
+
+@pytest.mark.parametrize("kind", ["archived list", "archived section", "drawer", "reference"])
+def test_inbox_list_is_rechecked_at_use_and_set(client, alex, todo, kind):
+    setting = {"inbox_list_id": todo["id"]}
+    client.put(f"{API}/settings/inbox", headers=alex, json=setting).raise_for_status()
+    if kind == "archived section":
+        client.patch(
+            f"{API}/sections/{todo['section_id']}", headers=alex, json={"archived": True}
+        ).raise_for_status()
+    else:
+        changes = {
+            "archived list": {"archived": True},
+            "drawer": {"kind": "drawer"},
+            "reference": {"reference": True},
+        }
+        configure(client, alex, todo, **changes[kind])
+    rejected = client.post(f"{API}/items", headers=alex, json={"title": "Unrouted"})
+    assert (
+        rejected.status_code == 422
+        and rejected.json()["detail"] == "list_id is required (or parent_id)"
+    )
+    assert client.put(f"{API}/settings/inbox", headers=alex, json=setting).status_code == 422
+
+
+def test_inbox_list_is_unavailable_to_hidden_and_view_only_tokens(client, alex, todo, make_account):
+    agent, _ = make_account("my-agent")
+    other = client.post(
+        f"{API}/lists", headers=alex, json={"section_id": todo["section_id"], "name": "Other"}
+    ).json()
+    configure(client, alex, todo, private=True)
+    client.put(
+        f"{API}/settings/inbox", headers=alex, json={"inbox_list_id": todo["id"]}
+    ).raise_for_status()
+    for allowed in ([other["id"]], [todo["id"]]):
+        token = client.post(
+            f"{API}/accounts/{agent['id']}/tokens",
+            headers=alex,
+            json={"scopes": ["write"], "limit": {"list_ids": allowed}},
+        ).json()["token"]
+        rejected = client.post(
+            f"{API}/items", headers={"Authorization": f"Bearer {token}"}, json={"title": "Unrouted"}
+        )
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"] == "list_id is required (or parent_id)"
+        client.put(
+            f"{API}/shares",
+            headers=alex,
+            json={
+                "account_id": agent["id"],
+                "scope_kind": "list",
+                "scope_id": todo["id"],
+                "level": "view",
+            },
+        ).raise_for_status()
+
+
+def test_checkin_identifies_work_reference_and_drawer_lists(client, alex, todo):
+    reference = client.post(
+        f"{API}/lists",
+        headers=alex,
+        json={"section_id": todo["section_id"], "name": "Reading", "reference": True},
+    ).json()
+    drawer = client.post(
+        f"{API}/lists",
+        headers=alex,
+        json={"section_id": todo["section_id"], "name": "Files", "kind": "drawer"},
+    ).json()
+    rows = client.get(f"{API}/checkin", headers=alex).json()["lists"]
+    assert {row["id"]: (row["kind"], row["reference"]) for row in rows} == {
+        todo["id"]: ("tasks", False),
+        reference["id"]: ("tasks", True),
+        drawer["id"]: ("drawer", False),
+    }
+
+
+@pytest.mark.parametrize("which", ["due", "retry", "reminder"])
+def test_scheduler_rechecks_reference_under_its_write_lock(
+    client, alex, todo, make_account, db, monkeypatch, which
+):
+    now = utcnow()
+    _, agent = make_account("my-agent")
+    card = file(
+        client,
+        alex,
+        list_id=todo["id"],
+        assignees=["my-agent"],
+        due_at=None if which == "retry" else (now - timedelta(days=1)).isoformat(),
+    )
+    if which == "retry":
+        taken = client.post(f"{API}/work/next", headers=agent, json={"item_id": card["id"]}).json()
+        client.post(
+            f"{API}/work/{card['id']}/finish",
+            headers=agent,
+            json={"outcome": "failed", "note": "Unavailable", "run_id": taken["lease"]["run_id"]},
+        ).raise_for_status()
+    if which == "reminder":
+        client.post(
+            f"{API}/items/{card['id']}/reminders", headers=alex, json={"before_minutes": 0}
+        ).raise_for_status()
+    actor = Actor(client.get(f"{API}/me", headers=alex).json()["account"]["id"], Source.api)
+    module = reminders if which == "reminder" else due
+    tick = {
+        "due": due.emit_due_events,
+        "retry": due.retry_failed_runs,
+        "reminder": reminders.fire_reminders,
+    }[which]
+    change = module.apply_change
+    entered = False
+    due.system_actor(
+        db
+    )  # Ensure the interleaving lands after selection, not on system account creation.
+    db.commit()
+
+    @contextmanager
+    def race(session, system):
+        nonlocal entered
+        if not entered:
+            with SessionLocal() as other:
+                lists.update_list(other, actor, todo["id"], filing={"reference": True})
+            entered = True
+        with change(session, system) as cx:
+            yield cx
+
+    monkeypatch.setattr(module, "apply_change", race)
+    assert tick(db, now=now + timedelta(minutes=10)) == 0
+    assert entered, "the tick must reach its write scope before the reference toggle"

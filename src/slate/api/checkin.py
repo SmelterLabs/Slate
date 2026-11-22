@@ -71,10 +71,12 @@ class CheckinList(BaseModel):
     section_id: str
     name: str
     note_md: str | None
+    kind: Literal["tasks", "drawer"]
+    reference: bool
 
 
 class CheckinOut(BaseModel):
-    lists: list[CheckinList] = Field(description="Visible active lists and their filing notes")
+    lists: list[CheckinList] = Field(description="Visible active lists with filing notes and kinds")
     queue: list[ItemOut] = Field(
         description="Open items assigned to you or waiting on you, most urgent first (the "
         "first `queue_limit`; `fields` trims each)"
@@ -130,7 +132,8 @@ async def get_checkin(
         ),
     ] = 0,
 ) -> Response:
-    """What to work on and what changed for you, in one call. `queue`: your open items
+    """What to work on and what changed for you, in one call. `lists` gives visible active
+    lists with filing notes, kind and reference flag. `queue`: your open items
     (assigned or waiting on you). `news`: other accounts' events that concern you, each with
     `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching,
     reminder, digest); a chat mention or thread reply carries the message in `after`. Keep

@@ -15,21 +15,27 @@ from slate.api.schemas import (
 )
 from slate.models import List
 from slate.service import guests, items, lists, permissions, tags
+from slate.service.errors import Invalid
 
 router = APIRouter(tags=["lists"])
 
-_FILING_FIELDS = ("note_md", "default_assignee_id", "default_tags", "reference")
-
 
 def _filing_fields(session: Session, auth: WriteAuth, changes: dict) -> dict:
-    fields = {name: changes.pop(name) for name in _FILING_FIELDS if name in changes}
+    fields = {name: changes.pop(name) for name in lists.FILING_FIELDS if name in changes}
     if fields.get("default_assignee_id") is not None:
-        account = items.resolve_account(session, fields["default_assignee_id"])
-        guests.refuse(session, auth.actor.account_id, account)
+        error = "the default assignee must be an enabled work account you can assign"
+        try:
+            account = items.resolve_account(session, fields["default_assignee_id"])
+        except Invalid:
+            raise Invalid(error) from None
+        if not lists.valid_default_assignee(account) or not guests.may_reach(
+            session, auth.actor.account_id, account
+        ):
+            raise Invalid(error)
         fields["default_assignee_id"] = account.id
     if "default_tags" in fields:
         fields["default_tags"] = list(
-            dict.fromkeys(tags.normalize(tag) for tag in fields["default_tags"])
+            dict.fromkeys(tags.normalize(tag) for tag in (fields["default_tags"] or []))
         )
     return fields
 

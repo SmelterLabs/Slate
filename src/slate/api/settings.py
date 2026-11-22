@@ -49,7 +49,8 @@ def get_inbox_list(_: AdminAuth, session: DbSession) -> InboxListSetting:
 
 @router.put("/settings/inbox", response_model=InboxListSetting)
 def set_inbox_list(body: InboxListSetting, auth: AdminAuth, session: DbSession) -> InboxListSetting:
-    """Set or clear the workspace's default filing list (admin)."""
+    """Set or clear the workspace's default filing list (admin). Choose an active work list
+    you can file in."""
     lists.set_inbox_list(session, auth.actor, body.inbox_list_id)
     return body
 

@@ -111,6 +111,9 @@ class ListIn(_ListFields):
 
 
 class ListPatch(_ListFields):
+    default_tags: list[str] | None = Field(
+        default=None, max_length=5, description="Tags added when filing; null clears them"
+    )
     name: str | None = Field(default=None, min_length=1, max_length=100)
     kind: Literal["tasks", "drawer"] | None = Field(
         default=None,

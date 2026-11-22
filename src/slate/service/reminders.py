@@ -52,7 +52,7 @@ from slate.service import items as items_svc
 from slate.service import today as today_svc
 from slate.service.core import Actor, apply_change, jsonable
 from slate.service.errors import Forbidden, Invalid, NotFound
-from slate.service.lists import WORK_LIST
+from slate.service.lists import WORK_LIST, on_work_list
 
 MAX_PER_ITEM = 20
 MAX_BEFORE_MINUTES = 60 * 24 * 60  # 60 days
@@ -245,6 +245,8 @@ def fire_reminders(session: Session, *, now: datetime | None = None) -> int:
         actor = actor or system_actor(session)
         handle = session.scalar(select(Account.handle).where(Account.id == r.account_id))
         with apply_change(session, actor) as cx:
+            if r.before_minutes is not None and not on_work_list(session, item.id):
+                continue
             r.fired_for = at
             cx.record(
                 "item.reminder",

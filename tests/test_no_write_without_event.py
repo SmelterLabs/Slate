@@ -95,12 +95,15 @@ READS = {
     },
     "slate.service.sections": {"get_section", "list_sections"},
     "slate.service.lists": {
+        "can_file_inbox",
         "get_list",
         "inbox_list_id",
         "list_lists",
+        "on_work_list",
         "statuses_of",
         "resolve_status",
         "require_tasks",
+        "valid_default_assignee",
     },
     "slate.service.tags": {"normalize", "list_tags", "get_tag", "usage_counts"},
     # The deny-list check runs inside every change (core.Change); it only reads.

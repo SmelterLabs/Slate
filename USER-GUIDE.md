@@ -137,8 +137,9 @@ The thin bar across the top holds your favorites: one click opens a list, a sect
 
 **List settings.** Add a note to say what belongs in the list and how to finish
 its cards. Quick add shows the note's first line, and agents see the full note in
-their briefs. A default owner applies when a new card has no assignees. Default
-tags are added alongside any tags on the new card. Use **Reference list** for
+their briefs. Choose an enabled account as the default owner for new cards filed
+without assignees. Default tags are added alongside any tags on the new card.
+Use **Reference list** for
 reading links and notes. You can search for and open its cards. Slate leaves them
 out of work counts and skips due-date alerts for them. Reminders set for a
 specific time still fire.

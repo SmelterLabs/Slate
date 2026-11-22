@@ -174,7 +174,9 @@ def query_items(
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=ItemOut)
 def create_item(body: ItemIn, auth: WriteAuth, session: DbSession) -> dict:
     """Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest
-    four deep under a top task. Use `POST /items/{id}/split` to create several subtasks."""
+    four deep under a top task. With neither a list nor a parent, the configured inbox list
+    must be an active work list the caller can file in. Use `POST /items/{id}/split` to create
+    several subtasks."""
     item = items.create_item(session, auth.actor, **body.model_dump(exclude_none=True))
     return items.views(session, [item])[0]
 

@@ -426,7 +426,7 @@ Filters combine with AND. `status` is an id or name; `assignee` a handle; `tag` 
 
 Scope: `write` · MCP: `slate_item create`
 
-Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest four deep under a top task. Use `POST /items/{id}/split` to create several subtasks.
+Create exactly one item; never children. `parent_id` makes it a subtask; subtasks nest four deep under a top task. With neither a list nor a parent, the configured inbox list must be an active work list the caller can file in. Use `POST /items/{id}/split` to create several subtasks.
 
 - Body: `ItemIn`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id`
 - Returns: `201` [ItemOut](#itemout)
@@ -1223,7 +1223,7 @@ Who is around and what each is on: `online` (a request in the last 2 minutes or 
 
 Scope: `read` · ETag · MCP: `slate_checkin get`
 
-What to work on and what changed for you, in one call. `queue`: your open items (assigned or waiting on you). `news`: other accounts' events that concern you, each with `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after`. Keep `next_since` and pass it as `since` next time; without `since` you get the latest news. The queue is the most urgent `queue_limit` (50) of `queue_total`; `fields=id,title,due_at` keeps it small. With `since` and `wait`, an empty answer waits (long-poll) until news arrives or `wait` seconds pass; `/checkin/stream` is the same news pushed live.
+What to work on and what changed for you, in one call. `lists` gives visible active lists with filing notes, kind and reference flag. `queue`: your open items (assigned or waiting on you). `news`: other accounts' events that concern you, each with `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after`. Keep `next_since` and pass it as `since` next time; without `since` you get the latest news. The queue is the most urgent `queue_limit` (50) of `queue_total`; `fields=id,title,due_at` keeps it small. With `since` and `wait`, an empty answer waits (long-poll) until news arrives or `wait` seconds pass; `/checkin/stream` is the same news pushed live.
 
 - Query: `since`, `limit`, `queue_limit`, `fields`, `wait`
 - Returns: `200` [CheckinOut](#checkinout)
@@ -1968,7 +1968,7 @@ Read the workspace's default filing list.
 
 Scope: `admin`
 
-Set or clear the workspace's default filing list (admin).
+Set or clear the workspace's default filing list (admin). Choose an active work list you can file in.
 
 - Body: `InboxListSetting`: `inbox_list_id`\*
 - Returns: `200` [InboxListSetting](#inboxlistsetting)
