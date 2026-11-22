@@ -173,7 +173,7 @@
 
   <div class="field">
     <span class="muted small">Default tags</span>
-    <TagEditor tags={defaultTags} onchange={(t) => (defaultTags = t.slice(0, 5))} />
+    <TagEditor tags={defaultTags} maxTags={5} onchange={(t) => { defaultTags = t; }} />
   </div>
 
   {#if list.kind !== 'drawer'}
