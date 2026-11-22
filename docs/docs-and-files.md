@@ -78,7 +78,7 @@ list. The same tree also holds **file docs**.
   `docs.drawer_listing(list_id, folder)` is `GET /lists/{id}/drawer` (entries in tree order with
   `children_count`, the folder path, counts); `docs.to_drawer(page)` is `POST /docs/{id}/to-drawer`
   (a new drawer list named after a top-level page in a section; the page's subpages then the page
-  itself move to its top, each an ordinary `doc.moved`, all in one change). The hub (`service/doc_hub.py`) is
+  itself move to its top, each an ordinary `doc.moved`, all in one change). The hub (`doc_pages.section_documents`) is
   `drawers` (each with counts and how many `needs_you` entries are in it), `pages` (top-level,
   outside any drawer), `needs_you`, `counts`; it has no recent list or activity feed. MCP:
   `slate_doc drawer | to_drawer | pin_revision | unpin_revision`, `kind` on `slate_list create |
@@ -94,7 +94,7 @@ list. The same tree also holds **file docs**.
   same `tags` tasks do (`docs._set_tags`, one `doc.updated` field `tags` with sorted names
   before/after; `tags` on create and PATCH; `GET /docs?tag=&kind=`; summaries carry `tags`;
   `tags.usage_counts` adds docs, so the Tags page counts them).
-  `service/doc_hub.section_documents(session, section_id, me)` serves `GET /sections/{id}/documents`
+  `service/doc_pages.section_documents(session, section_id, me)` serves `GET /sections/{id}/documents`
   and MCP `slate_doc hub` (the shape under Drawers above): `needs_you` is the open roots (Asks
   addressed to `me`; review threads by someone else on a doc `me` created, edited or commented
   on), each with the board URL `/#/docs/<id>?comment=<cid>`. Guests see it only where they see the
@@ -105,7 +105,7 @@ list. The same tree also holds **file docs**.
   `DocsPage` has kind and file-group chips, a sort select and tag chips (state in `localStorage`
   `slate.docs.filter`); `DocPage` shows a `TagEditor` under the title (`docs.setTags`). Tests:
   `tests/test_doc_hub.py`, `web/e2e/hub.spec.ts`, Vitest for the helpers.
-- **Compare** (`service/doc_compare.py`): `doc_files.text` holds
+- **Compare** (`doc_threads.compare`): `doc_files.text` holds
   text extracted once on upload (`extract`: text files decoded utf-8-sig/utf-8/cp1252; CSV/TSV
   as they are; XLSX through `openpyxl` read-only, one `## Sheet` block per sheet, cells tab-joined;
   PDF through `pypdf` per page; `MAX_TEXT` 300k chars; never raises, a file that cannot be read
@@ -179,7 +179,9 @@ list. The same tree also holds **file docs**.
   `version_no`, archived_at), `doc_versions` (one row per sitting: title + body as they stood,
   author, note), `doc_files` (bytes in SQLite, deferred column), `doc_links` (one row per distinct `[[doc:<id>]]` or `[[task:<id>]]` embed, indexed by target). The migration also widens the
   favorites `favorite_kind` CHECK to `doc` (batch recreate).
-- **Service** `service/docs.py` is the public surface; the work lives in `doc_tree.py` (the page tree and moves), `doc_pages.py` (page text, versions and tasks from a page), `doc_files.py` (uploads and file revisions), `doc_listing.py` (search, tags, pins and drawers) and `doc_shape.py` (the page payload and its `doc_links`). Every write goes through them. Events:
+- **Service** `doc_pages.py` owns the page and drawer tree, versions, search, links and views.
+  `doc_files.py` owns uploads, revisions and extraction. `doc_threads.py` owns discussion,
+  review and file comparison. Each writes through the shared change path. Events:
   `doc.created|updated|moved|archived|unarchived|deleted|version_restored|file_added|file_removed`
   (file events carry metadata, never bytes). `update_doc` takes `title`, `icon`, `body_md` or
   `append_md` or `replace_section {heading, body_md}` (agents edit one section without resending the
@@ -307,7 +309,7 @@ list. The same tree also holds **file docs**.
   input) bounds every parser that reads inside an upload; it never blocks an upload (a small
   workspace uploads few spreadsheets and should meet no friction): an over-cap file is stored and
   viewable and simply not indexed (`has_text` false, like an unreadable file).
-  `doc_compare.extract(name, ctype, data) -> (text, tables)` reads a revision once at upload:
+  `doc_files.extract(name, ctype, data) -> (text, tables)` reads a revision once at upload:
   `_check_archive` measures an XLSX's zip
   members (declared sizes, total, a 200x inflation ratio over 4 MiB, then a chunked inflate under
   the same budget) before `openpyxl` opens it (openpyxl loads `xl/sharedStrings.xml` whole even

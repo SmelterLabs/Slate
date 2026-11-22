@@ -195,7 +195,7 @@ def test_export_and_health_see_file_docs(client, alex, todo):
     ],
 )
 def test_the_date_in_a_filename(name, expected):
-    from slate.service.docs import date_in_name
+    from slate.service.doc_files import date_in_name
 
     got = date_in_name(name)
     assert (got.isoformat() if got else None) == expected

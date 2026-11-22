@@ -279,6 +279,36 @@ def test_parked_validation_and_clear(client, alex):
     assert r2.json()["parked_note"] is None
 
 
+def test_bulk_parking_sets_and_clears_both_fields(client, alex):
+    _, lst = _make_section_and_list(client, alex)
+    ids = [
+        client.post(
+            f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": title}
+        ).json()["id"]
+        for title in ("First card", "Second card")
+    ]
+    until = (dates.local_today() + timedelta(days=1)).isoformat()
+    response = client.post(
+        f"{API}/items/bulk",
+        headers=alex,
+        json={"ids": ids, "changes": {"parked_until": until, "parked_note": "  Approval  "}},
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        item["id"]: (item["parked_until"], item["parked_note"]) for item in response.json()
+    } == {item_id: (until, "Approval") for item_id in ids}
+
+    response = client.post(
+        f"{API}/items/bulk",
+        headers=alex,
+        json={"ids": ids, "changes": {"parked_until": None}},
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        item["id"]: (item["parked_until"], item["parked_note"]) for item in response.json()
+    } == {item_id: (None, None) for item_id in ids}
+
+
 def test_parked_hides_from_today_digest_due_and_work_next_then_unparks_at_0600(
     client, alex, make_account, db
 ):

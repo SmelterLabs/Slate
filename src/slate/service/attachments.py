@@ -103,7 +103,7 @@ def clean(
 ) -> tuple[str, str]:
     """The stored name and type of an upload, or `Invalid` (no name, empty, over `limit`).
     Every upload is checked by these rules: attachments, chat files (service/chat_files.py) and
-    doc files (service/docs.py, `noun` "file")."""
+    doc files (service/doc_files.py, `noun` "file")."""
     name = _filename(filename)
     if not data:
         raise Invalid(f"{noun} is empty")

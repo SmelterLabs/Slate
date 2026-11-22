@@ -813,9 +813,9 @@ def _title(session: Session, doc_id: str) -> str | None:
 
 
 def _require_doc_comment(session: Session, doc_id: str) -> None:
-    from slate.service import docs as docs_svc  # noqa: PLC0415
+    from slate.service import doc_pages  # noqa: PLC0415
 
-    doc = docs_svc.get_doc(session, doc_id)
+    doc = doc_pages.get_doc(session, doc_id)
     a = access.current(session)
     if a is not None and a.doc_level(access.doc_place(session, doc)) < access.COMMENT:
         raise Forbidden("comment access required")

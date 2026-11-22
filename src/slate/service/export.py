@@ -47,8 +47,7 @@ from slate.models import (
     Section,
     utcnow,
 )
-from slate.service import access, agent_rules
-from slate.service import docs as docs_svc
+from slate.service import access, agent_rules, doc_files, doc_pages
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
 from slate.service import sections as sections_svc
@@ -182,14 +181,14 @@ def export_json(
     )
     visible = access.participant_ids(session)
     caller = access.current(session)
-    docs_in_scope = docs_svc.in_scope(
+    docs_in_scope = doc_pages.in_scope(
         session, list_id=list_id, section_id=section_id, include_archived=include_archived
     )
-    current = docs_svc.current_revisions(session, docs_in_scope)
+    current = doc_files.current_revisions(session, docs_in_scope)
     docs_rows = [
         {
             **snapshot(d),
-            "file": docs_svc.revision_out(current[d.id]) if d.id in current else None,
+            "file": doc_files.revision_out(current[d.id]) if d.id in current else None,
         }
         for d in docs_in_scope
     ]

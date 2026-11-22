@@ -9,7 +9,7 @@ import pytest
 
 from conftest import API
 from slate.service import attachments as attachments_svc
-from slate.service import docs as docs_svc
+from slate.service import doc_files as docs_svc
 
 
 def _chunks(total: int, size: int = 1024):

@@ -91,7 +91,7 @@ cap, declared and chunked; 25 MB raw and base64 uploads still pass; the field li
 
 ## DOCX resource contract
 
-`doc_compare._docx_text` reads only `word/document.xml`, in 64 KiB chunks, under the
+`doc_files._docx_text` reads only `word/document.xml`, in 64 KiB chunks, under the
 extraction cap above. A custom XML target builds no tree and never rescans descendants.
 Text and paragraph separators consume a running `MAX_TEXT` budget **before** StringIO writes;
 there is no full-output join followed by truncation. Parsing continues after the output cap
