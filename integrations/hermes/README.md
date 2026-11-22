@@ -84,7 +84,8 @@ existing model/provider settings.
    line of where the card stands. Review is for inspecting finished work and requires a
    status. A bare review is `done`. Use ask for each decision a person must make, even
    after the work is finished. Put one question per trailing line, up to four for the
-   same person. The adapter sends `questions` for several and `question` for one.
+   same person. A question written only in your reply is not shown to anyone as a question.
+   The adapter sends `questions` for several and `question` for one.
    `assistant.completed`, a transcript closing line and transport `done`
    do not prove execution success. Failure, cancellation, interruption, incomplete status,
    approval and step/budget limits finish `failed` (the machine text is `note`) and wait on

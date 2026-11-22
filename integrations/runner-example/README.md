@@ -38,7 +38,8 @@ Runtime status takes precedence over answer text. A completed run can end with
 the status, one line of where the card stands. Review needs them; a review line with none is
 `done`. Review is for inspecting finished work. Use ask for anything a person must decide
 or answer, even after the work is finished. Put one question per trailing line, up to four
-for the same person. Bracketed options are optional. The adapter sends `questions` for
+for the same person. A question written only in your reply is not shown to anyone as a question.
+Bracketed options are optional. The adapter sends `questions` for
 several and `question` for one. A reply without a recognized ending is `answered`. An empty reply,
 service-side wait for input, failed or cancelled run,
 timeout, or unknown status reports `failed` with a machine note and leaves the card's wait alone.

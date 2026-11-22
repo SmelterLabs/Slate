@@ -1155,8 +1155,9 @@ WORK_ACTIONS = {
         "(questions a person must answer or decide), answered (reply), failed (note: what "
         "broke), blocked or "
         "release. reply is your comment. status says where the card stands in one line "
-        "(required with review of finished work, which carries no questions). Take the next "
-        "task with next, in its own call",
+        "(required with review of finished work, which carries no questions). A question "
+        "written only in your reply is not shown to anyone as a question. Take the next task "
+        "with next, in its own call",
         WorkFinish,
         local=_work_finish,
     ),
@@ -1254,7 +1255,7 @@ COMMENT_ACTIONS = {
         comments_api.answer,
         "answer an agent's question (a comment with ask) with one of its options: posts your "
         "reply, the card stops waiting on you and the agent is woken (id is the comment id; "
-        "the person asked or an admin)",
+        "the person asked or an admin). This action is refused on an ask with several questions",
         with_id(comments_api.AnswerIn, "id", "The question's comment id"),
     ),
     "edit": bind(

@@ -50,6 +50,30 @@ def test_work_reference_describes_expired_leases_and_ask_settlement():
     assert "acknowledged" in finish and "failed and release" in finish
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/agents/quickstart.md",
+        "docs/agents/pull-agents.md",
+        "integrations/hermes/README.md",
+        "integrations/runner-example/README.md",
+        "docs/agents/reference/mcp.md",
+    ],
+)
+def test_agent_entry_points_explain_questions_in_reply_prose(path):
+    text = (docgen.ROOT / path).read_text(encoding="utf-8")
+    assert (
+        "A question written only in your reply is not shown to anyone as a question."
+        in " ".join(text.split())
+    )
+
+
+def test_mcp_answer_reference_explains_the_single_question_limit():
+    reference = (DOCS / "reference/mcp.md").read_text(encoding="utf-8")
+    answer = next(line for line in reference.splitlines() if line.startswith("| `answer` |"))
+    assert "refused on an ask with several questions" in answer
+
+
 def test_every_event_type_in_the_code_is_documented():
     missing = docgen.event_types_in_code() - set(docgen.EVENT_DOCS)
     assert not missing, f"add a line to docgen.EVENT_DOCS for: {sorted(missing)}"

@@ -30,8 +30,9 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `ask` (one to four `questions`, or one `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
    `blocked` (an agent, or nobody), `release` (give up the task). `status` is the one-line
    standing line, up to 140 characters. `ask` uses the question headline in its place. Use ask when a person must answer or decide
-   anything, even after the work is finished. Review is for checking finished work. An agent comment
-   can end with `SLATE: review: Check the totals.` A person posting a closing line can apply
+   anything, even after the work is finished. A question written only in your reply is not shown
+   to anyone as a question. Review is for checking finished work. An agent comment can end with
+   `SLATE: review: Check the totals.` A person posting a closing line can apply
    completion only. See [closing-line rules](pull-agents.md#closing-lines). Chat uses
    `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
