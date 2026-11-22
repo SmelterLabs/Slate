@@ -15,7 +15,7 @@
   const LABEL = $derived(
     Object.fromEntries(NEEDS.map((n) => [n.key, needLabel(n.key, board.me?.account.display_name)])) as Record<Need, string>,
   );
-  const ICON: Record<Need, IconName> = { waiting: 'hourglass', blocked: 'alert', asked: 'at', review: 'eye' };
+  const ICON: Record<Need, IconName> = { waiting: 'hourglass', blocked: 'alert', asked: 'at', review: 'eye', stalled: 'clock' };
   let cleared = $state<Set<string>>(new Set());
 
   function who(a: Attention): string | null {
@@ -37,6 +37,10 @@
     cleared = new Set(cleared).add(a.item.id);
     await task.clearAgentFlag(a.item.id);
   }
+  function runStalled(e: MouseEvent, a: Attention) {
+    e.stopPropagation();
+    void board.runAction(a.item);
+  }
   const shown = $derived(list.filter((a) => !cleared.has(a.item.id)));
   const groups = $derived(
     NEEDS.map((n) => ({ ...n, label: LABEL[n.key], rows: shown.filter((a) => a.need === n.key) })).filter((g) => g.rows.length),
@@ -50,6 +54,12 @@
     <span class="nd-act ghost">Reply →</span>
   {:else if a.need === 'waiting'}
     <span class="nd-act ghost">Answer →</span>
+  {:else if a.need === 'stalled'}
+    {#if board.canRun(a.item)}
+      <button class="nd-act" data-stalled-run onclick={(e) => runStalled(e, a)}>{board.runLabel(a.item)}</button>
+    {:else}
+      <span class="nd-act ghost">Open →</span>
+    {/if}
   {:else}
     <span class="nd-act ghost">Unblock →</span>
   {/if}
@@ -123,6 +133,7 @@
     --t-blocked: var(--need-blocked);
     --t-asked: var(--need-asked);
     --t-review: var(--need-review);
+    --t-stalled: var(--need-stalled);
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--panel);
@@ -138,6 +149,9 @@
   }
   .need-review {
     --tone: var(--t-review);
+  }
+  .need-stalled {
+    --tone: var(--t-stalled);
   }
   .nd-head {
     display: flex;

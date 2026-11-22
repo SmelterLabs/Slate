@@ -73,6 +73,8 @@ function fromSnapshot(data: BoardData, snap: Record<string, unknown>): Item | nu
     blocked: false,
     comment_count: 0,
     ask: null,
+    standing: null,
+    stalled: false,
   };
 }
 
@@ -176,8 +178,14 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
     }
     case 'item.status_changed': {
       const status = it ? statusOf(data, it.list_id, ev.after) : undefined;
-      if (it && status) it.status = { ...status };
-      else fx.refetch.push(id);
+      if (it && status) {
+        it.status = { ...status };
+        const hadStalled = !!it.stalled;
+        if (status.kind === 'done' || status.kind === 'cancelled') it.stalled = false;
+        if (it.standing || hadStalled) fx.refetch.push(id);
+      } else {
+        fx.refetch.push(id);
+      }
       // Items waiting on this one hear item.blocked / item.unblocked of their own.
       break;
     }
@@ -210,6 +218,7 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       const r = (ev.after ?? {}) as {
         state?: string;
         note?: string | null;
+        status?: string | null;
         progress?: number | null;
         url?: string | null;
         question?: string;
@@ -218,6 +227,16 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       // An ask report carries the question but not the comment id the answer button needs:
       // the item view supplies the full ask.
       if (typeof r.question === 'string') fx.refetch.push(id);
+      // Standing updates live from non-working reports; move_id is server-computed, so refetch.
+      if (r.state !== 'working' && typeof r.status === 'string' && r.status) {
+        it.standing = {
+          line: r.status,
+          by_id: ev.actor_id,
+          at: ev.at,
+          move_id: it.standing?.move_id ?? null,
+        };
+        if (!fx.refetch.includes(id)) fx.refetch.push(id);
+      }
       // A new or changed thread rides on the report: keep the row's agent_threads current so
       // the task window's session links live on after the badge clears (done).
       if (r.thread?.ref) {
@@ -237,12 +256,36 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
           : null;
       break;
     }
+    case 'item.work_finished': {
+      fx.today = false;
+      if (!it) break;
+      const r = (ev.after ?? {}) as { status?: string | null; outcome?: string };
+      if (typeof r.status === 'string' && r.status) {
+        it.standing = {
+          line: r.status,
+          by_id: ev.actor_id,
+          at: ev.at,
+          move_id: it.standing?.move_id ?? null,
+        };
+      }
+      if (r.outcome && r.outcome !== 'answered') it.stalled = false;
+      fx.refetch.push(id);
+      break;
+    }
     case 'item.run_requested': // Run now: the store shows "Requested…" (store.runRequested)
       fx.today = false;
+      if (it && it.stalled) it.stalled = false;
       break;
     case 'item.run_failed': // the card's failed badge comes from the item view
       fx.today = false;
       if (it) fx.refetch.push(id);
+      break;
+    case 'item.stalled':
+      fx.today = false;
+      if (it) {
+        it.stalled = true;
+        fx.refetch.push(id);
+      }
       break;
     case 'item.due_soon': // the scheduler's notices: `field` is due_at but `after` is
     case 'item.due': // {due_at, ...}, not a new value, and nothing on the item changed
@@ -262,7 +305,10 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
-        if (ev.field === 'waiting_on_account_id') it.ask = null;
+        if (ev.field === 'waiting_on_account_id') {
+          it.ask = null;
+          if (it.standing) fx.refetch.push(id);
+        }
         if (ev.field === 'list_id' || ev.field === 'parent_id') fx.refetch.push(id);
       } else {
         fx.refetch.push(id);

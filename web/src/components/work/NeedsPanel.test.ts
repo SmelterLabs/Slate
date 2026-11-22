@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { mount, unmount } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
+import type { Attention } from '../../lib/attention';
+import type { Item } from '../../lib/types';
 
 const { answer, askItem, boardState } = vi.hoisted(() => {
-  const askItem = {
+  const askItem: Item = {
     id: 'I1',
     list_id: 'L1',
     parent_id: null,
@@ -36,12 +38,15 @@ const { answer, askItem, boardState } = vi.hoisted(() => {
     answer: vi.fn(async () => true),
     askItem,
     boardState: {
-      needsMe: [{ item: askItem, need: 'waiting' as const }],
+      needsMe: [{ item: askItem, need: 'waiting' }] as Attention[],
       me: { account: { id: 'me', display_name: 'Alex' } },
       now: new Date('2026-10-29T12:00:00Z'),
       lists: { L1: { name: 'Home' } },
       accountName: (id: string) => (id === 'sc' ? 'My Agent' : undefined),
       open: vi.fn(),
+      canRun: () => true,
+      runLabel: () => 'Run now',
+      runAction: vi.fn(),
     },
   };
 });
@@ -74,7 +79,7 @@ describe('NeedsPanel ask row', () => {
       {
         item: {
           ...askItem,
-          ask: { ...askItem.ask, options: [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'] },
+          ask: { ...askItem.ask!, options: [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'] },
         },
         need: 'waiting',
       },
@@ -87,6 +92,24 @@ describe('NeedsPanel ask row', () => {
     expect(buttons).toHaveLength(4);
     expect(buttons[0].textContent.trim()).toBe(longOpt);
     expect(buttons[1].textContent.trim()).toBe(longOpt);
+    await unmount(app);
+  });
+
+  it('shows a stalled row with a Run now action', async () => {
+    boardState.needsMe = [
+      {
+        item: { ...askItem, id: 'I2', ask: null, agent: null, waiting_on_account_id: null, stalled: true },
+        need: 'stalled',
+      },
+    ];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const row = target.querySelector('[data-item="I2"]');
+    expect(row?.getAttribute('data-need')).toBe('stalled');
+    const runBtn = row?.querySelector<HTMLButtonElement>('[data-stalled-run]');
+    expect(runBtn?.textContent?.trim()).toBe('Run now');
+    runBtn?.click();
+    expect(boardState.runAction).toHaveBeenCalled();
     await unmount(app);
   });
 });

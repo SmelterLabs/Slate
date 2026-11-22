@@ -11,6 +11,7 @@
   --need-blocked: var(--danger);
   --need-asked: var(--accent);
   --need-review: var(--prio-high);
+  --need-stalled: var(--muted);
   --col-bg: color-mix(in srgb, var(--text) 5%, var(--bg));
   --col-today: color-mix(in srgb, var(--warning) 9%, var(--col-bg));
   --col-overdue: color-mix(in srgb, var(--overdue) 9%, var(--col-bg));

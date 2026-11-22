@@ -16,11 +16,17 @@ describe('missedHint', () => {
   });
 });
 
-describe('failed reason', () => {
-  it('is listed for push, in the fallback defaults, and in the notifications grid', () => {
-    expect(PUSH_REASONS.map((r) => r.key)).toContain('failed');
+describe('failed and stalled reasons', () => {
+  it('lists failed and stalled right after it for push, fallback defaults, and the notifications grid', () => {
+    const keys = PUSH_REASONS.map((r) => r.key);
+    expect(keys).toContain('failed');
+    expect(keys[keys.indexOf('failed') + 1]).toBe('stalled');
     expect(DEFAULT_PUSH_REASONS).toContain('failed');
-    expect(NOTIFY_GROUPS.flatMap((g) => g.reasons)).toContain('failed');
+    expect(DEFAULT_PUSH_REASONS[DEFAULT_PUSH_REASONS.indexOf('failed') + 1]).toBe('stalled');
+    const groups = NOTIFY_GROUPS.map((g) => g.key);
+    expect(groups).toContain('failed');
+    expect(groups[groups.indexOf('failed') + 1]).toBe('stalled');
+    expect(NOTIFY_GROUPS.flatMap((g) => g.reasons)).toContain('stalled');
   });
 });
 

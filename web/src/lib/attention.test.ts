@@ -35,6 +35,13 @@ describe('needOf', () => {
   it("review on another person's card is theirs", () => {
     expect(needOf(item({ created_by: 'guest', agent: flag('review') }), ME, accounts)).toBeNull();
   });
+  it('review with standing.move_id routes to the named reviewer rather than the filer', () => {
+    const forGuest = { line: 'Check draft', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: 'guest' };
+    const forMe = { line: 'Check draft', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: ME };
+    expect(needOf(item({ created_by: ME, agent: flag('review'), standing: forGuest }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, agent: flag('review'), standing: forGuest }), 'guest', accounts)).toBe('review');
+    expect(needOf(item({ created_by: 'guest', agent: flag('review'), standing: forMe }), ME, accounts)).toBe('review');
+  });
   it('a structured ask waiting on me is a need', () => {
     const ask = { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'], by_id: 'sc', at: '2026-10-29T10:00:00Z' };
     expect(needOf(item({ created_by: 'guest', waiting_on_account_id: ME, agent: flag('blocked'), ask }), ME, accounts)).toBe('waiting');
@@ -44,6 +51,22 @@ describe('needOf', () => {
     expect(needOf(item({ created_by: 'sc', agent: flag('failed') }), ME, accounts)).toBeNull();
     expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
     expect(needOf(item({ created_by: ME, open_asks: [ME], agent: flag('failed') }), ME, accounts)).toBeNull();
+  });
+  it('stalled counts for person assignees and the creator, not others, and ranks below asked', () => {
+    expect(needOf(item({ created_by: ME, stalled: true }), ME, accounts)).toBe('stalled');
+    expect(
+      needOf(
+        item({
+          created_by: 'guest',
+          assignees: [{ id: ME, handle: 'alex', display_name: 'Alex', kind: 'person' }],
+          stalled: true,
+        }),
+        ME,
+        accounts,
+      ),
+    ).toBe('stalled');
+    expect(needOf(item({ created_by: 'guest', stalled: true }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: 'sc', stalled: true }), ME, accounts)).toBeNull();
   });
   it('working agents, dependency blocks, closed and archived cards never count', () => {
     expect(needOf(item({ created_by: ME, agent: flag('working') }), ME, accounts)).toBeNull();
@@ -57,6 +80,7 @@ describe('attention', () => {
   it('most urgent first, then the oldest flag', () => {
     const list = attention(
       [
+        item({ id: 's', created_by: ME, stalled: true }),
         item({ id: 'r2', created_by: ME, agent: flag('review', '2026-10-29T12:00:00Z') }),
         item({ id: 'r1', created_by: ME, agent: flag('review', '2026-10-29T09:00:00Z') }),
         item({ id: 'a', created_by: ME, open_asks: [ME] }),
@@ -66,8 +90,8 @@ describe('attention', () => {
       ME,
       accounts,
     );
-    expect(list.map((x) => x.item.id)).toEqual(['w', 'a', 'r1', 'r2']);
-    expect(countBy(list)).toEqual({ waiting: 1, blocked: 0, asked: 1, review: 2 });
+    expect(list.map((x) => x.item.id)).toEqual(['w', 'a', 'r1', 'r2', 's']);
+    expect(countBy(list)).toEqual({ waiting: 1, blocked: 0, asked: 1, review: 2, stalled: 1 });
   });
   it('nobody signed in: nothing', () => {
     expect(attention([item({ waiting_on_account_id: ME })], '', accounts)).toEqual([]);

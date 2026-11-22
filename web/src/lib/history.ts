@@ -123,6 +123,8 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return 'read a message while working';
     case 'item.run_failed':
       return 'could not run';
+    case 'item.stalled':
+      return 'stopped without finishing';
     case 'item.work_started':
       return 'started working on this';
     case 'item.work_finished': {

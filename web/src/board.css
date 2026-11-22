@@ -519,6 +519,9 @@
 .card.cu.needs-me[data-need='review'] {
   --need-tone: var(--need-review);
 }
+.card.cu.needs-me[data-need='stalled'] {
+  --need-tone: var(--need-stalled);
+}
 .card-needs {
   align-self: flex-start;
   display: inline-flex;

@@ -12,6 +12,7 @@ export const DEPENDS_ON = 'Depends on';
 export const AGENT_BLOCKED = 'Agent blocked';
 export const READY_FOR_REVIEW = 'Ready for review';
 export const COULD_NOT_RUN = 'Could not run';
+export const STALLED = 'Stalled';
 
 /** The first word of a display name; "someone" when the account is unknown. */
 export function firstName(display: string | null | undefined): string {

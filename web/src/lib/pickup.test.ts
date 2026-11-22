@@ -96,8 +96,10 @@ describe('initial-load due gate', () => {
       { ...waiting, blocked: true },
       { ...waiting, waiting_on_account_id: 'person' },
       { ...waiting, archived_at: at },
+      { ...waiting, stalled: true },
       { ...waiting, status: { ...waiting.status!, kind: 'cancelled' as const } },
     ]) expect(pickupSince(card, undefined, now)).toBeUndefined();
+    expect(pickupSince({ ...waiting, stalled: true }, now.getTime(), now)).toBe(now.getTime());
   });
 
   it('does not overwrite working, review or blocked reports with inferred waiting', () => {
