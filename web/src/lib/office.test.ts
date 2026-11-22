@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import * as ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import {
   checkOfficeBounds,
@@ -102,14 +103,23 @@ async function zip(entries: Record<string, string>, deflate = false): Promise<Ar
 const sheetXml = (merges: string[]) =>
   `<worksheet><sheetData/><mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells></worksheet>`;
 
+// Import ExcelJS and build the inputs during collection. The tests then wait only for the
+// workbook reader, without racing cold module loading and a separate ZIP write.
+const gridWorkbook = new ExcelJS.Workbook();
+const grid = gridWorkbook.addWorksheet('Quote');
+grid.getCell('A1').value = 'first';
+grid.getCell('C5').value = 'last';
+const gridFile = new Blob([await gridWorkbook.xlsx.writeBuffer()]);
+
+const wideWorkbook = new ExcelJS.Workbook();
+const wide = wideWorkbook.addWorksheet('Wide');
+wide.getCell(1, SHEET_COLS + 50).value = 'far';
+wide.mergeCells(1, SHEET_COLS - 1, 3, SHEET_COLS + 10);
+const wideFile = new Blob([await wideWorkbook.xlsx.writeBuffer()]);
+
 describe('readWorkbook', () => {
   it('shows every row and column up to the last one used, blank spacers included', async () => {
-    const ExcelJS = await import('exceljs');
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Quote');
-    ws.getCell('A1').value = 'first';
-    ws.getCell('C5').value = 'last';
-    const [sheet] = await readWorkbook(new Blob([await wb.xlsx.writeBuffer()]));
+    const [sheet] = await readWorkbook(gridFile);
     expect(sheet.rows).toHaveLength(5);
     expect(sheet.widths).toHaveLength(3);
     expect(sheet.rows[4][2].text).toBe('last');
@@ -117,12 +127,7 @@ describe('readWorkbook', () => {
   });
 
   it('keeps the grid to the shown window and clips merges to it', async () => {
-    const ExcelJS = await import('exceljs');
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Wide');
-    ws.getCell(1, SHEET_COLS + 50).value = 'far';
-    ws.mergeCells(1, SHEET_COLS - 1, 3, SHEET_COLS + 10);
-    const [sheet] = await readWorkbook(new Blob([await wb.xlsx.writeBuffer()]));
+    const [sheet] = await readWorkbook(wideFile);
     expect(sheet.widths).toHaveLength(SHEET_COLS);
     expect(sheet.rows[0]).toHaveLength(SHEET_COLS - 1);
     expect(sheet.rows[0][SHEET_COLS - 2].colspan).toBe(2);
