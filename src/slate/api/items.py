@@ -392,7 +392,9 @@ def report(item_id: str, body: ReportIn, auth: WriteAuth, session: DbSession) ->
     the card waits on them and lands in their Today "waiting on me". `waiting_on` names the
     recipient. Waiting on a person without a structured ask is refused (422). Review is
     for inspecting finished work and cannot carry questions."""
-    item = reports.report(session, auth.actor, item_id, **body.model_dump())
+    ask = reports.check_ask(body.question, body.options, body.questions)
+    fields = body.model_dump(exclude={"question", "options", "questions"})
+    item = reports.report(session, auth.actor, item_id, ask=ask, **fields)
     return items.views(session, [item])[0]
 
 

@@ -405,7 +405,7 @@ def _apply_closing_line(
             if ask is not None:
                 reports.report(
                     session, actor, item.id, state="blocked", comment=False,
-                    waiting_on=line.waiting_on, _ask=ask, _ask_comment_id=comment_id,
+                    waiting_on=line.waiting_on, ask=ask, _ask_comment_id=comment_id,
                 )  # fmt: skip
                 return line.body or reports.ask_headline(ask), ask
         elif is_agent and outcome == "later":

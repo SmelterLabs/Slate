@@ -325,13 +325,10 @@ def report(
     reply: str | None = None,
     thread: Any = None,
     run_id: str | None = None,
-    question: str | None = None,
-    options: list[str] | None = None,
-    questions: list[dict[str, Any]] | None = None,
     status: str | None = None,
+    ask: dict[str, Any] | None = None,
     _taking: bool = False,
     _finishing: bool = False,
-    _ask: dict[str, Any] | None = None,
     _ask_comment_id: str | None = None,
 ) -> Item:
     if state not in STATES:
@@ -349,7 +346,6 @@ def report(
         raise Invalid("waiting_on goes with state 'blocked' or 'review'")
     if claim and state != "working":
         raise Invalid("claim goes with state 'working'")
-    ask = _ask if _ask is not None else check_ask(question, options, questions)
     if ask is not None and state != "blocked":
         raise Invalid("question goes with an ask (state 'blocked')")
     if ask is not None and status is not None:

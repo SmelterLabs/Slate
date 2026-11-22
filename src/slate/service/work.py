@@ -1175,7 +1175,7 @@ def finish(
             url=url,
             reply=reply,
             thread=thread,
-            _ask=ask,
+            ask=ask,
             status=status,
         )
         # A turn that consumed Slate's stalled poke and answered again, on an open card,
