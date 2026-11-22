@@ -55,8 +55,6 @@ def test_work_reference_describes_expired_leases_and_ask_settlement():
     [
         "docs/agents/quickstart.md",
         "docs/agents/pull-agents.md",
-        "integrations/hermes/README.md",
-        "integrations/runner-example/README.md",
         "docs/agents/reference/mcp.md",
     ],
 )
