@@ -25,33 +25,40 @@
 
 <svelte:document onmousedown={(e) => open && root && !root.contains(e.target as Node) && (open = false)} />
 
-{#snippet menu(floating = false)}
-  <ul class="menu" class:floating role="listbox" aria-label="Priorities">
-    {#each PRIORITIES as p (p)}
-      <li role="option" aria-selected={p === value}>
-        <button onclick={() => pick(p)}>
-          <span class="flag" style="color: var(--prio-{p})"><Icon name="flag" size={15} /></span>
-          {priorityLong(p)}
-        </button>
-      </li>
-    {/each}
-    {#if value}
-      <li role="option" aria-selected="false"><button class="muted" onclick={() => pick(null)}>Clear</button></li>
-    {/if}
-  </ul>
-{/snippet}
-
 {#if children}
+  <!-- On a card: the board's own menu, filled flags in the flag colours. -->
   <Dropdown float title="Priority" cls="pill pill-btn" bind:open label={children}>
-    {@render menu(true)}
+    <div class="menu">
+      {#each PRIORITIES as p (p)}
+        <button class="prio-flag-{p}" class:on={value === p} onclick={() => pick(p)}
+          ><Icon name="flag" fill /> {priorityLong(p)}</button
+        >
+      {/each}
+      {#if value}<button onclick={() => pick(null)}><Icon name="x" /> Clear</button>{/if}
+    </div>
   </Dropdown>
 {:else}
+  <!-- In the task window: a field that opens its own list. -->
   <div class="prio" bind:this={root}>
     <button class="value" class:empty={!current} aria-label="Priority: {current ?? 'none'}" aria-expanded={open} onclick={() => (open = !open)}>
       <span class="flag" style="color: var(--prio-{value ?? 'low'})"><Icon name="flag" size={15} /></span>
       {current ?? 'Empty'}
     </button>
-    {#if open}{@render menu()}{/if}
+    {#if open}
+      <ul class="menu prio-list" role="listbox" aria-label="Priorities">
+        {#each PRIORITIES as p (p)}
+          <li role="option" aria-selected={p === value}>
+            <button onclick={() => pick(p)}>
+              <span class="flag" style="color: var(--prio-{p})"><Icon name="flag" size={15} /></span>
+              {priorityLong(p)}
+            </button>
+          </li>
+        {/each}
+        {#if value}
+          <li role="option" aria-selected="false"><button class="muted" onclick={() => pick(null)}>Clear</button></li>
+        {/if}
+      </ul>
+    {/if}
   </div>
 {/if}
 
@@ -78,7 +85,7 @@
   .flag {
     display: inline-flex;
   }
-  .menu {
+  .prio-list {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
@@ -92,13 +99,7 @@
     border-radius: 8px;
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
   }
-  .menu.floating {
-    position: static;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
-  }
-  .menu button {
+  .prio-list button {
     width: 100%;
     display: flex;
     align-items: center;
@@ -110,7 +111,7 @@
     text-align: left;
     font-size: 13.5px;
   }
-  .menu button:hover {
+  .prio-list button:hover {
     background: var(--card-hover);
   }
 </style>
