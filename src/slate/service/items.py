@@ -21,6 +21,7 @@ from slate.dates import is_date_only_input, parse_when
 from slate.db import contains
 from slate.ids import new_id
 from slate.models import (
+    ITEM_TITLE_MAX,
     Account,
     AccountKind,
     AgentState,
@@ -98,8 +99,8 @@ def _title(value: str | None) -> str:
     title = (value or "").strip()
     if not title:
         raise Invalid("title is required")
-    if len(title) > 500:
-        raise Invalid("title is longer than 500 characters")
+    if len(title) > ITEM_TITLE_MAX:
+        raise Invalid(f"title is longer than {ITEM_TITLE_MAX} characters")
     return title
 
 
@@ -905,69 +906,9 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
         raise Invalid(f"unknown field(s): {', '.join(sorted(unknown))}")
     item = get_item(session, item_id)
 
-    # Validate everything before writing anything.
-    values: dict[str, Any] = {}
-    if "title" in changes:
-        values["title"] = _title(changes["title"])
-    if "priority" in changes:
-        values["priority"] = _priority(changes["priority"])
-    if "kind" in changes:
-        values["kind"] = _kind(changes["kind"])
-    for key in ("start_at", "due_at"):
-        if key in changes:
-            values[key] = parse_when(changes[key])
-    if "due_at" in changes:
-        values["due_date_only"] = _due_date_only(changes)
-    if "waiting_on_account_id" in changes:
-        ref = changes["waiting_on_account_id"]
-        values["waiting_on_account_id"] = resolve_account(session, ref).id if ref else None
-    if "acceptance_md" in changes:
-        values["acceptance_md"] = changes["acceptance_md"]
-    if "external_ref" in changes:
-        values["external_ref"] = _external_ref(changes["external_ref"])
-    if "position" in changes:
-        if changes["position"] is None:
-            raise Invalid("position cannot be null")
-        values["position"] = int(changes["position"])
-    status = None
-    if changes.get("status") is not None:
-        status = lists_svc.resolve_status(session, item.list_id, changes["status"])
-    elif "status" in changes:
-        raise Invalid("status cannot be null")
-    assignee_refs = changes.get("assignees")
-    if assignee_refs is not None:
-        for ref in assignee_refs:
-            resolve_account(session, ref)
-    tag_names = changes.get("tags")
-    if tag_names is not None:
-        tag_names = [tags_svc.normalize(n) for n in tag_names]
-
+    prepared = _prepare_changes(session, item, changes)
     with apply_change(session, actor) as cx:
-        if "external_ref" in values:
-            _claim_ref(session, values["external_ref"], item.id)
-        for key, value in values.items():
-            cx.set(item, key, value, "item.updated")
-        if "body_md" in changes:
-            new_body = _take_pasted(cx, item, changes["body_md"] or "")
-            if new_body != item.body_md:
-                before = item.body_md
-                version = _add_version(session, actor, item, new_body, changes.get("body_note"))
-                item.body_md = new_body
-                session.add(version)
-                cx.record(
-                    "item.updated",
-                    item_id=item.id,
-                    field="body_md",
-                    before=before,
-                    after=new_body,
-                    covers=[item, version],
-                )
-        if status is not None:
-            lists_svc.move_item_to_status(cx, item, status)
-        if assignee_refs is not None:
-            _set_assignees(cx, item, assignee_refs)
-        if tag_names is not None:
-            _set_tags(cx, item, tag_names)
+        _apply_changes(cx, item, prepared)
     return item
 
 
@@ -1079,8 +1020,10 @@ def bulk_update(
     if changes.get("archive") is False and any(i.trashed_at for i in items):
         raise Invalid("some of these items are in the trash; restore them instead")
     # Validate every item's changes before writing any of them.
-    for item, one in zip(items, per_item, strict=True):
-        _validate_changes(session, item, one, target_list=target)
+    prepared = [
+        _prepare_changes(session, item, one, target_list=target, bulk=True)
+        for item, one in zip(items, per_item, strict=True)
+    ]
 
     # A task's subtasks live in its list, so they move with it, at every depth.
     riders: list[tuple[Item, dict[str, Any]]] = []
@@ -1095,9 +1038,11 @@ def bulk_update(
                 mapped = _status_in(session, sub, target)
                 if mapped is not None:
                     ride["status"] = mapped
-                riders.append((sub, ride))
+                riders.append(
+                    (sub, _prepare_changes(session, sub, ride, target_list=target, bulk=True))
+                )
     with apply_change(session, actor) as cx:
-        for item, one in [*zip(items, per_item, strict=True), *riders]:
+        for item, one in [*zip(items, prepared, strict=True), *riders]:
             _apply_changes(cx, item, one)
         if "archive" in changes:  # the same reach as archive_item: every subtask goes too
             _set_archived(cx, items, utcnow() if changes["archive"] else None)
@@ -1119,83 +1064,120 @@ def _status_in(session: Session, item: Item, target: Any) -> str | None:
     return target.default_status_id
 
 
-def _validate_changes(
-    session: Session, item: Item, changes: Mapping[str, Any], *, target_list: Any
-) -> None:
-    """Raise before any write if `changes` would not apply to `item` (as update_item would)."""
-    if "title" in changes:
-        _title(changes["title"])
-    if "priority" in changes:
-        _priority(changes["priority"])
-    if "kind" in changes:
-        _kind(changes["kind"])
-    for key in ("start_at", "due_at"):
-        if key in changes:
-            parse_when(changes[key])
-    if "position" in changes and changes["position"] is None:
-        raise Invalid("position cannot be null")
-    if "status" in changes and changes["status"] is None:
-        raise Invalid("status cannot be null")
-    for key in ("assignees", "tags"):
-        if not isinstance(changes.get(key) or [], list):
-            raise Invalid(f"{key} must be a list")
-    if changes.get("status") is not None:
-        lists_svc.resolve_status(
-            session, target_list.id if target_list else item.list_id, changes["status"]
+def _prepare_changes(
+    session: Session,
+    item: Item,
+    changes: Mapping[str, Any],
+    *,
+    target_list: List | None = None,
+    bulk: bool = False,
+) -> dict[str, Any]:
+    """Validate before opening the write, keeping each entry point's event order."""
+    values = {
+        key: convert(changes[key])
+        for key, convert in (
+            ("title", _title),
+            ("priority", _priority),
+            ("kind", _kind),
+            ("start_at", parse_when),
+            ("due_at", parse_when),
         )
-    for ref in changes.get("assignees") or []:
-        resolve_account(session, ref)
-    if "waiting_on_account_id" in changes and changes["waiting_on_account_id"]:
-        resolve_account(session, changes["waiting_on_account_id"])
+        if key in changes
+    }
+    waiting = "waiting_on_account_id"
+    if not bulk:
+        if "due_at" in changes:
+            values["due_date_only"] = _due_date_only(changes)
+        if waiting in changes:
+            ref = changes[waiting]
+            values[waiting] = resolve_account(session, ref).id if ref else None
+
+    if "acceptance_md" in changes:
+        values["acceptance_md"] = changes["acceptance_md"]
+    if "external_ref" in changes:
+        values["external_ref"] = _external_ref(changes["external_ref"])
+    if "position" in changes:
+        if changes["position"] is None:
+            raise Invalid("position cannot be null")
+        values["position"] = int(changes["position"])
+    status_ref = changes.get("status")
+    if "status" in changes and status_ref is None:
+        raise Invalid("status cannot be null")
+    if bulk:
+        for key in ("assignees", "tags"):
+            if not isinstance(changes.get(key) or [], list):
+                raise Invalid(f"{key} must be a list")
+    status = (
+        lists_svc.resolve_status(
+            session, target_list.id if target_list else item.list_id, status_ref
+        )
+        if status_ref is not None
+        else None
+    )
+    assignees = changes.get("assignees")
+    if assignees is not None:
+        for ref in assignees:
+            resolve_account(session, ref)
+    if bulk:
+        if waiting in changes and changes[waiting]:
+            resolve_account(session, changes[waiting])
+        if "due_at" in changes:
+            values["due_date_only"] = _due_date_only(changes)
+
+    tags = changes.get("tags")
+    return {
+        "values": values,
+        "changes": changes,
+        "bulk": bulk,
+        "status": status if not bulk else status_ref,
+        "tags": (
+            [tags_svc.normalize(name) for name in tags] if tags is not None and not bulk else tags
+        ),
+    }
 
 
-def _apply_changes(cx: Change, item: Item, changes: Mapping[str, Any]) -> None:
-    """Write already-validated changes inside an open change scope. Mirrors update_item."""
+def _apply_changes(cx: Change, item: Item, prepared: Mapping[str, Any]) -> None:
+    """Write a prepared change inside the caller's atomic change scope."""
     session = cx.session
+    changes = prepared["changes"]
+    values = prepared["values"]
+    bulk = prepared["bulk"]
     if "list_id" in changes and changes["list_id"] != item.list_id:
         cx.set(item, "list_id", changes["list_id"], "item.moved")
-    simple = {
-        "title": ("title", _title),
-        "priority": ("priority", _priority),
-        "kind": ("kind", _kind),
-        "start_at": ("start_at", parse_when),
-        "due_at": ("due_at", parse_when),
-        "acceptance_md": ("acceptance_md", lambda v: v),
-        "external_ref": ("external_ref", _external_ref),
-        "position": ("position", int),
-    }
-    if "external_ref" in changes:
-        _claim_ref(session, _external_ref(changes["external_ref"]), item.id)
-    for key, (field, conv) in simple.items():
-        if key in changes:
-            cx.set(item, field, conv(changes[key]), "item.updated")
-    if "due_at" in changes:
-        cx.set(item, "due_date_only", _due_date_only(changes), "item.updated")
-    if "waiting_on_account_id" in changes:
+    if "external_ref" in values:
+        _claim_ref(session, values["external_ref"], item.id)
+    for key, value in values.items():
+        cx.set(item, key, value, "item.updated")
+    if bulk and "waiting_on_account_id" in changes:
         ref = changes["waiting_on_account_id"]
         waiting = resolve_account(session, ref).id if ref else None
         cx.set(item, "waiting_on_account_id", waiting, "item.updated")
-    if "body_md" in changes and (changes["body_md"] or "") != item.body_md:
-        new_body = _take_pasted(cx, item, changes["body_md"] or "")
-        version = _add_version(session, cx.actor, item, new_body, changes.get("body_note"))
-        before, item.body_md = item.body_md, new_body
-        session.add(version)
-        cx.record(
-            "item.updated",
-            item_id=item.id,
-            field="body_md",
-            before=before,
-            after=new_body,
-            covers=[item, version],
-        )
-    if changes.get("status") is not None:
-        lists_svc.move_item_to_status(
-            cx, item, lists_svc.resolve_status(session, item.list_id, changes["status"])
-        )
-    if "assignees" in changes:
+    if "body_md" in changes:
+        body = changes["body_md"] or ""
+        # Bulk skips identical input; a single update compares after replacing paste references.
+        if not bulk or body != item.body_md:
+            new_body = _take_pasted(cx, item, body)
+            if bulk or new_body != item.body_md:
+                version = _add_version(session, cx.actor, item, new_body, changes.get("body_note"))
+                before, item.body_md = item.body_md, new_body
+                session.add(version)
+                cx.record(
+                    "item.updated",
+                    item_id=item.id,
+                    field="body_md",
+                    before=before,
+                    after=new_body,
+                    covers=[item, version],
+                )
+    status = prepared["status"]
+    if status is not None:
+        if bulk:
+            status = lists_svc.resolve_status(session, item.list_id, status)
+        lists_svc.move_item_to_status(cx, item, status)
+    if "assignees" in changes and (bulk or changes["assignees"] is not None):
         _set_assignees(cx, item, changes["assignees"])
-    if "tags" in changes:
-        _set_tags(cx, item, changes["tags"])
+    if "tags" in changes and (bulk or prepared["tags"] is not None):
+        _set_tags(cx, item, prepared["tags"])
 
 
 def archive_item(session: Session, actor: Actor, item_id: str) -> Item:

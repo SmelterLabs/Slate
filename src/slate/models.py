@@ -293,6 +293,9 @@ class Status(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
+ITEM_TITLE_MAX = 500
+
+
 class Item(Base):
     __tablename__ = "items"
     __table_args__ = (
@@ -310,7 +313,7 @@ class Item(Base):
     list_id: Mapped[str] = mapped_column(ForeignKey("lists.id"), index=True)
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("items.id"), index=True)
     kind: Mapped[ItemKind] = mapped_column(_enum(ItemKind, "item_kind"), default=ItemKind.task)
-    title: Mapped[str] = mapped_column(String(500))
+    title: Mapped[str] = mapped_column(String(ITEM_TITLE_MAX))
     body_md: Mapped[str] = mapped_column(Text, default="")
     status_id: Mapped[str | None] = mapped_column(ForeignKey("statuses.id"), index=True)
     priority: Mapped[Priority | None] = mapped_column(_enum(Priority, "priority"))
@@ -851,9 +854,12 @@ class EmailDelivery(Base):
         return _state_of(SendState, value)
 
 
+DOC_TITLE_MAX = 200
+
+
 class Doc(Base):
-    """A doc page (service/docs.py and the doc_* modules). Pages nest without a depth limit beyond
-    `doc_tree.MAX_DEPTH`; only a top page (no parent) carries a location: a list, a section, or
+    """A doc page (service/doc_pages.py). Pages nest without a depth limit beyond
+    `doc_pages.MAX_DEPTH`; only a top page (no parent) carries a location: a list, a section, or
     neither (the whole workspace). Subpages inherit their top page's location.
 
     `revision` goes up on every title or body change, so a writer can say which text it edited
@@ -877,11 +883,11 @@ class Doc(Base):
     # mistaken for what is in use. Null = nothing pinned.
     pinned_revision_no: Mapped[int | None] = mapped_column(Integer)
     pinned_note: Mapped[str | None] = mapped_column(String(200))
-    # Pinned to the top of its drawer or folder listing (`doc_listing.pin_to_top`): shared,
+    # Pinned to the top of its drawer or folder listing (`doc_pages.pin_to_top`): shared,
     # not per account. Null = not pinned. Distinct from the revision pin above.
     top_pinned_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     top_pinned_by: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
-    title: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(DOC_TITLE_MAX))
     icon: Mapped[str | None] = mapped_column(String(16))
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("docs.id"), index=True)
     section_id: Mapped[str | None] = mapped_column(ForeignKey("sections.id"), index=True)
@@ -906,7 +912,7 @@ class DocVersion(Base):
     id: Mapped[str] = _pk()
     doc_id: Mapped[str] = mapped_column(ForeignKey("docs.id", ondelete="CASCADE"), index=True)
     version_no: Mapped[int] = mapped_column(Integer)
-    title: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(DOC_TITLE_MAX))
     body_md: Mapped[str] = mapped_column(Text)
     author_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"))
     created_at: Mapped[datetime] = _created()

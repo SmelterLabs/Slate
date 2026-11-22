@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from slate.models import ITEM_TITLE_MAX
 from slate.service import reports
 
 # Generous limits on the long text fields (characters), so one write cannot carry tens of
@@ -190,7 +191,7 @@ class _ItemFields(BaseModel):
 
 
 class ChildIn(_ItemFields):
-    title: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=ITEM_TITLE_MAX)
 
 
 class ItemIn(ChildIn):
@@ -204,7 +205,7 @@ class ItemIn(ChildIn):
 class ItemPatch(_ItemFields):
     """Send only the fields to change. `assignees` and `tags` replace the whole set."""
 
-    title: str | None = Field(default=None, min_length=1, max_length=500)
+    title: str | None = Field(default=None, min_length=1, max_length=ITEM_TITLE_MAX)
 
 
 class BulkChanges(ItemPatch):
