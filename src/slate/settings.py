@@ -31,25 +31,16 @@ class Settings(BaseSettings):
     automations_enabled: bool = True
     # Phone and desktop notifications (slate.pusher). Also needs secret_key (VAPID is derived).
     push_enabled: bool = True
-    # Webhooks. The key encrypts subscription secrets at rest: 32+ random bytes,
-    # base64 or hex. Unset outside tests means webhooks refuse to start (see slate.crypto).
+    # The key encrypts automation signing secrets and derives the Web Push signing key.
     secret_key: str | None = None
-    webhook_timeout_seconds: float = 10.0
-    # Delay before each retry; len() is the number of retries after the first attempt.
-    webhook_retry_seconds: list[float] = [10, 60, 300, 1800, 7200]
-    webhook_concurrency: int = 8
-    # Finished webhook delivery rows (ok, failed, skipped, retry) older than this are pruned
-    # by the dispatcher (service/deliveries.py `prune`); queued rows are never pruned. 0 keeps
-    # the whole delivery log for ever.
-    delivery_retention_days: int = 30
-    # Where webhooks and automation `webhook` actions may post. Private targets (loopback,
+    # Where automation `webhook` actions and Web Push may post. Private targets (loopback,
     # LAN and tailnet ranges, link-local, bare names, .local and friends) are refused unless
     # this is true, both when a URL is saved and again when it is resolved at send time:
     # otherwise any write token could probe the services next to Slate. Turn it on when a
     # receiver runs on the same host or network.
-    webhook_private_targets: bool = False
+    outbound_private_targets: bool = False
     # Hosts a browser's Web Push endpoint may be on (glob patterns). "*" allows any https
-    # host whose addresses are public (private ones need webhook_private_targets); the
+    # host whose addresses are public (private ones need outbound_private_targets); the
     # default is the push services of the common browsers.
     push_endpoint_hosts: list[str] = [
         "fcm.googleapis.com",

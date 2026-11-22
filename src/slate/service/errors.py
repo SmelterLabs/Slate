@@ -48,4 +48,4 @@ class Gone(ServiceError):
 
 
 class Unavailable(ServiceError):
-    """A feature is switched off by configuration (e.g. webhooks without SLATE_SECRET_KEY)."""
+    """A feature needs configuration that is missing."""

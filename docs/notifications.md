@@ -31,10 +31,9 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   previews it.
 - **Where they land**: inbox reasons `reminder` and `digest` (`inbox.reason_for`, checked before the
   "own events are not news" rule), check-in `why` `reminder`/`digest` (also in the check-in SQL
-  prefilter), webhooks with `assignee_me` (`deliveries.matches`), and push.
-- **Web Push** derives its VAPID key from `SLATE_SECRET_KEY` and follows the event log
-  from the `push` cursor. It uses the same recipient reason as the inbox, applies
-  `push_reasons` and checks access again on every attempt. Its payload contains
+  prefilter) and push.
+- **Web Push** derives its VAPID key from `SLATE_SECRET_KEY`. It uses the shared attention
+  stream, applies `push_reasons` and checks access again on every attempt. Its payload contains
   `title`, `body`, `url`, `tag`, `loudness` and `silent`.
   The endpoint allowlist and outbound address checks also apply on send. A device that
   returns 404 or 410, or reaches ten consecutive failures, records `push.expired`.

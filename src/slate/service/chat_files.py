@@ -1,8 +1,8 @@
 """Files on chat messages: a pasted screenshot, a dropped PDF.
 
 A file is uploaded to a channel first (`upload`). Until it is sent it is its uploader's alone:
-nobody else can read it, and its `message.file_uploaded` event names no channel, so no board,
-agent or webhook hears of it. `chat.post(file_ids=...)` then sends it with a message, in the
+nobody else can read it, and its `message.file_uploaded` event names no channel, so no board
+or agent hears of it. `chat.post(file_ids=...)` then sends it with a message, in the
 message's own change, so whoever hears `message.posted` (an agent woken by the mention
 included) finds the files on the message. From then on a file is read exactly where its
 message is (`read_bytes` goes through the caller's read filter: channel, share date,

@@ -5,7 +5,7 @@ Select text on a page (or a page and a spot on a file) and comment with an `anch
 review thread, with replies, Resolve, and on a page an optional `suggestion_md` the reader can
 Accept. A comment without an anchor is discussion. Every comment is stamped with the revision
 it was written on (`anchor_revision`, `outdated` when the doc has moved on). `@handle`
-mentions and `assignee` (an Ask) reach the inbox, check-in, push and webhooks as
+mentions and `assignee` (an Ask) reach the inbox, check-in and push as
 `doc.mentioned`.
 """
 
@@ -148,7 +148,8 @@ def add_comment(doc_id: str, body: DocCommentIn, auth: WriteAuth, session: DbSes
     """Comment on a page or file. With `anchor` it starts a review thread (a quoted span on a
     page; a page number and/or a spot on a file); without, it is discussion. `parent_id`
     replies in a thread. `suggestion_md` proposes replacement text for the quote (pages).
-    `assignee` makes it an Ask. `@handle` mentions and the Ask reach the inbox and webhooks."""
+    `assignee` makes it an Ask. `@handle` mentions and the Ask reach the inbox,
+    check-in and push."""
     fields = body.model_dump(exclude_none=True)
     if body.anchor is not None:
         fields["anchor"] = body.anchor.model_dump(exclude_none=True)

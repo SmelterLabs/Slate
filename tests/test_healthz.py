@@ -8,12 +8,10 @@ def test_healthz_reports_ok(client):
 
 
 def test_healthz_reports_deploy_fields(client):
-    from slate.settings import settings
 
     body = client.get("/healthz").json()
     # Scheduler is disabled in tests, so there is no tick age to report.
     assert body["scheduler_last_tick_age_s"] is None
-    assert body["webhooks_enabled"] is bool(getattr(settings, "secret_key", None))
     assert "db_path" not in body  # the file's location is not for an unauthenticated caller
     assert body["version"]
 

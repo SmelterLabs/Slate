@@ -47,16 +47,16 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
 - **Live paths.** The SSE stream builds an `access.EventGate` per connection: replays read through
   the caller's filter, live events pass `gate.allows()` (item -> list cache; message events by
   `after.channel`), and the gate reloads on `share.*`, `account.role_changed`, `list.*`,
-  `section.*`. Webhook fan-out and Web Push use the same gate for the subscription's owner. The
+  `section.*`. Web Push uses the same gate for the subscription's owner. The
   board reloads `/me` and its data when an event changes its own access
   (`lib/permissions.affectsMyAccess`). The replay and the gate agree: a restricted member with
   General gets `tag.*` and `account.*` from both.
 - **Personal events** (`access.is_personal`: `account.prefs_changed`, `account.digest`,
-  `channel.read`, `item.read`, `inbox.*`, `push.*`, `webhook.*`, `token.*`, `favorite.*`,
+  `channel.read`, `item.read`, `inbox.*`, `push.*`, `token.*`, `favorite.*`,
   `session.*`, `agent.connection_*`) are about one account's own settings and bookkeeping. Only that
   account and an admin read them, whatever else the caller reaches and whether or not anything is
   private: a criterion `read_criteria` adds for every bound non-admin caller (`_owned`: the
-  subject is the caller, the payload's `account_id` is, or the subject is a token, webhook,
+  subject is the caller, the payload's `account_id` is, or the subject is a token,
   favorite or push device it owns), and `EventGate._owns` for live events.
 - **Chat.** `parse_channel` 404s a channel the caller cannot read; General is hidden from guests and
   list-limited tokens; a section seen only through one of its lists has no section channel.
@@ -122,8 +122,7 @@ writes), `service/audit.py`, `api/permissions.py`, MCP `slate_share` and `slate_
   unrestricted access, and `run_now` needs edit on the item's list. The generic `list_id` branch
   also checks the destination of a `list_id` set (so a recurrence rule cannot be moved into a
   view-only list), and a `move_list` action needs edit on its target list when the rule is
-  created or changed (`automations.clean_actions`). A list-limited token cannot subscribe a webhook (the fan-out gate knows the
-  account, not the token). `EventGate.load` treats a disabled account or a revoked token as no
+  created or changed (`automations.clean_actions`). `EventGate.load` treats a disabled account or a revoked token as no
   access. Restricted callers bypass the item cache (`item_cache._restricted`): cached views are shared and theirs
   differ (filtered links).
 
@@ -148,7 +147,7 @@ admins included.
   | `archive_structure` | `section.archived`, `list.archived` |
   | `share` | `share.*`, `invitation.created`/`revoked`, `session.extended`, `account.role_changed`, `section.updated:private`, `list.updated:private` |
   | `tokens` | `token.created`/`revoked`, `agent.connection_created`/`revoked`, `account.created`/`disabled`/`enabled` |
-  | `automations` | `automation.created`/`updated`/`deleted`/`secret_rotated`, `webhook.created`/`updated`/`disabled`/`enabled` |
+  | `automations` | `automation.created`/`updated`/`deleted`/`secret_rotated` |
   | `export` | `GET /export` (JSON, CSV) and `/admin/backup`: a read, checked in `export.py` |
 
 - **Default** with no row: `delete`, `archive_structure`, `share`, `tokens` denied. Stored as

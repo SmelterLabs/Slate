@@ -1,14 +1,14 @@
 """Store shared pending and released alerts and terminal push failure times.
 
 Revision ID: 63af8de1487b
-Revises: d8f6b2e4c913
+Revises: a3e7f1c8b264
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "63af8de1487b"
-down_revision = "d8f6b2e4c913"
+down_revision = "a3e7f1c8b264"
 branch_labels = None
 depends_on = None
 

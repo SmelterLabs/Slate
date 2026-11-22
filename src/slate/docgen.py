@@ -112,7 +112,7 @@ EVENT_DOCS: dict[str, str] = {
     "`item.commented`). Check-in news `mentioned`.",
     "item.activity": "Not a stored event: lines an agent's run posted about what it is doing "
     "now (`after.lines` = `[{at, text}]`). It has no `id`, reaches only `/events/stream`, and "
-    "is never replayed, polled, sent to a webhook or kept in history.",
+    "is never replayed, polled or kept in history.",
     "item.reported": "An agent reported on an item: working, blocked, review, failed, done or "
     "idle (`after` = the report, with `url` = where the agent is working; `thread` = its own "
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
@@ -253,15 +253,10 @@ EVENT_DOCS: dict[str, str] = {
     "recurrence.rolled_forward": "A missed occurrence was rolled forward to the next date.",
     "recurrence.advanced": "The rule's cursor moved with nothing else to record.",
     "recurrence.reopened": "A recur-when-done rule reopened its done task with the next dates.",
-    "webhook.created": "A webhook subscription was created.",
-    "webhook.updated": "A webhook subscription's url, events or filter changed.",
-    "webhook.disabled": "A webhook subscription was disabled.",
-    "webhook.enabled": "A webhook subscription was enabled.",
-    "webhook.test": "`POST /webhooks/{id}/test` sent a test delivery.",
     "automation.created": "An automation rule was created.",
     "automation.updated": "An automation rule changed (or was turned on or off).",
     "automation.deleted": "An automation rule was deleted.",
-    "automation.secret_rotated": "An automation's incoming-webhook secret was rotated.",
+    "automation.secret_rotated": "An automation's signing secret was rotated.",
     "inbox.escalated": "An open question or unseen person entry reached its escalation delay.",
     "inbox.read": "Inbox entries were marked read.",
     "inbox.cleared": "Inbox entries were cleared.",
@@ -345,7 +340,7 @@ def render_events() -> str:
         "# Event types\n\n",
         "Every change in Slate is one event. The same shape comes from `GET /events`, the SSE "
         "stream (`event:` = type, `id:` = event id), check-in news (plus `why`, "
-        "`item_title`) and webhooks (plus `item` and `actor` summaries):\n\n",
+        "`item_title`):\n\n",
         "```json\n",
         '{"id": "0Vb3...", "type": "item.updated", "item_id": "Ab12Cd34Ef56", '
         '"subject_id": "Ab12Cd34Ef56", "actor_id": "Xy98...", "source": "api", '

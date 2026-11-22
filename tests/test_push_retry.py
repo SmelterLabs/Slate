@@ -152,7 +152,7 @@ def test_delivery_attempts_are_receipts_not_events(
 ):
     """Two source events x two devices queue four receipts, send them and expire them a day
     later without one event beyond the two that caused them (a `push.delivery` event per
-    attempt would reach every board, webhook, automation and check-in scan)."""
+    attempt would reach every board, automation and check-in scan)."""
     _, author = make_account("author")
     for suffix in ("a", "b"):
         client.post(

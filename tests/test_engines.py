@@ -10,10 +10,10 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import func, select
 
-from slate import automator, emailer, engine, monitor, notify, pusher
+from slate import automator, emailer, engine, monitor, pusher
 from slate.db import SessionLocal
-from slate.models import AutomationRun, Delivery, EmailDelivery, Event, PushDelivery, utcnow
-from slate.service import automations, deliveries, email, push
+from slate.models import AutomationRun, EmailDelivery, Event, PushDelivery, utcnow
+from slate.service import automations, email, push
 from slate.settings import settings
 
 API = "/api/v1"
@@ -52,8 +52,7 @@ async def test_every_engine_runs_the_shared_loop(monkeypatch):
     await automator.run()
     await pusher.run()
     await emailer.run()
-    await notify.Dispatcher().run()
-    assert seen == ["automations", "push", "email", "webhooks"]
+    assert seen == ["automations", "push", "email"]
 
 
 async def test_a_failing_engine_step_shows_on_health_and_alerts(client, alex, monkeypatch):
@@ -108,33 +107,6 @@ def test_health_counts_push_and_email_waiting(client, alex, db, todo):
 
 
 # --- one bad event or row is skipped, the rest go on ----------------------------------------
-
-
-def test_a_webhook_event_that_cannot_be_summarised_does_not_stop_the_rest(
-    client, alex, todo, db, monkeypatch
-):
-    from slate.service import webhooks
-    from slate.service.core import Actor
-
-    me = client.get(f"{API}/me", headers=alex).json()["account"]["id"]
-    webhooks.create_webhook(
-        db, Actor(account_id=me, source="api"), url="https://rx.example.com/h", events=["*"]
-    )
-    cursor = deliveries.latest_event_id(db)
-    bad = _item(client, alex, todo, "Bad")
-    _item(client, alex, todo, "Good")
-    real = deliveries.delivery_body
-
-    def body(session, ev, reader=None):
-        if ev.item_id == bad["id"]:
-            raise KeyError("broken summary")
-        return real(session, ev, reader)
-
-    monkeypatch.setattr(deliveries, "delivery_body", body)
-    new_cursor, queued = deliveries.fan_out(db, cursor, now=utcnow())
-    assert queued >= 1 and new_cursor == deliveries.latest_event_id(db)
-    queued_for = {db.get(Event, d.event_id).item_id for d in db.scalars(select(Delivery))}
-    assert bad["id"] not in queued_for and len(queued_for) == 1
 
 
 def test_a_push_that_cannot_be_built_fails_alone(client, alex, todo, db, make_account, monkeypatch):

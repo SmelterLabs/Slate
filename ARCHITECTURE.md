@@ -21,22 +21,21 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
  agents MCP ┤  mcp_server ───┘        │                      │
             │  scheduler (asyncio tick): recurrence, due     │
             │  events, reminders, ...                        │
-            │  engines (webhooks, automations, push, email)  │
+            │  engines (automations, push, email)            │
             │    ◄── events table                            │
             └───────────────────────────────────────────────┘
 ```
 
 - `service/` is the only module allowed to write to the database. Every write goes through
   `apply_change()`, which records the `events` row and publishes it to the in-process event bus.
-  The bus feeds the SSE stream and long-poll waits, and rings a doorbell for the webhook
-  dispatcher and the automations, push and email engines, which each read the events table after
-  their own cursor.
+  The bus feeds the SSE stream and long-poll waits, and wakes the automations, push and
+  email engines, which each read the events table after their own cursor.
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
   scheduler (eleven hooks on one tick: recurrences, due events and failed-run retries, reminders, escalation,
   digest, trash purge, lease expiry, chat-turn expiry, doc-turn expiry, session-expiry notices,
-  the sweep of unsent chat files), the webhook dispatcher, the automations engine, the push
-  engine and the email engine; a thread warms the item cache. Every one must be idempotent on restart.
+  the sweep of unsent chat files), plus the automations, push and email engines.
+  A thread warms the item cache. Every engine must be idempotent on restart.
 
 ### Modules
 
@@ -47,19 +46,19 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 
 | Path | What it is |
 |---|---|
-| `app.py` | `create_app()`: the REST routers, the MCP app at `/mcp`, the middleware (fast lane, runner protocol check, and outermost the request body cap), `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (MCP session manager, scheduler, dispatcher, automations, push, email, cache warm-up). |
+| `app.py` | `create_app()`: the REST routers, the MCP app at `/mcp`, the middleware (fast lane, runner protocol check, and outermost the request body cap), `BoardFiles` (the built board, security headers), `/healthz`, `GET /health` (cached 10 s), `/docs` (Swagger UI pinned by version and SRI, under its own CSP; no ReDoc), the lifespan (MCP session manager, scheduler, automations, push, email, cache warm-up). |
 | `settings.py` | `Settings` (pydantic-settings, `SLATE_*` env vars; every one is listed in `deploy/server/env.example`, and the root `env.example` is the short starter for a first run). |
 | `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`), `SharedConnection` (the tests' one in-memory connection, used by one thread at a time: `docs/PERFORMANCE.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
 | `ids.py` | `new_id()` 12-char base62 keys; `new_event_id()` time-ordered ids for events and messages. |
 | `dates.py` | `parse_when()` (the date rule), `local_day_bounds()`, `run_at()`, `is_date_only_input()`. |
-| `crypto.py` | AES-GCM for webhook and automation secrets under `SLATE_SECRET_KEY`. |
+| `crypto.py` | AES-GCM for automation signing secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
 | `scheduler.py` | The asyncio tick loop and `hooks`/`POLLERS` (`docs/recurrence.md`). |
-| `notify.py` | Webhook dispatcher (HTTP side, `attempt`, `Dispatcher`) and the due/reminder/digest scheduler hooks. |
-| `outbound.py` | The one outbound POST (webhooks, automation webhooks, Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
+| `notify.py` | Due, reminder and digest scheduler hooks. |
+| `outbound.py` | The one outbound POST (automation webhook actions and Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
 | `automator.py`, `pusher.py`, `emailer.py` | The automations, Web Push and email engines (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
-| `engine.py` | The one bus-woken loop those three and the webhook dispatcher run; reports each step to Health. |
+| `engine.py` | The one bus-woken loop those three engines run; reports each step to Health. |
 | `webpush.py` | Web Push protocol: VAPID, ES256 JWT, aes128gcm. |
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |
 | `batch.py` | `/batch` and `slate_batch`: many MCP actions in one request, atomic by default. |
@@ -71,7 +70,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `cli.py` | `slate serve|migrate|docs|check-targets`. |
 | `connection_models.py`, `runner_compat.py` | Agent connection rows; the runner protocol floor (426 for old runners). |
 | `service/core.py` | `apply_change()`, `Actor`, the write guard, `BOOKKEEPING`, `event_payload()`. |
-| `service/bus.py` | In-process pub/sub the stream, dispatcher and engines wake on. |
+| `service/bus.py` | In-process pub/sub the stream and engines wake on. |
 | `service/errors.py` | `NotFound`/`Conflict`/`Invalid`/`Forbidden`/`Gone`/`Unavailable` → 404/409/422/403/410/503. |
 | `service/accounts.py`, `sessions.py`, `collaboration.py`, `connections.py` | Accounts and tokens; guest-session expiry notices; invitations and cookie sign-in; agent pairing. |
 | `service/access.py`, `permissions.py`, `audit.py` | Roles, shares, token limits and the two enforcing hooks; the writes behind them; the audit log (`docs/permissions.md`). |
@@ -86,7 +85,6 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
 | `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage and the retries of failed runs; reminders and the digest. |
-| `service/webhooks.py`, `deliveries.py` | Subscriptions; the durable delivery queue and its prune. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/cursors.py` | Engine cursors and the event walk push and email share. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
@@ -94,7 +92,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/docs.py` with `doc_tree.py`, `doc_pages.py`, `doc_files.py`, `doc_listing.py`, `doc_shape.py`; `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers, split by job (`docs.py` re-exports the public names); discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
 | `service/health.py` | The health report. |
 | `api/auth.py`, `api/schemas.py`, `api/uploads.py`, `api/longpoll.py` | `require(scope)` and the `Auth` aliases; the core request/response models and the text-field limits; the app-wide request body cap (`BodyLimit`), counted raw upload bodies, and `file_response`, the safe response every stored file is served with; the long-poll helpers. |
-| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, webhooks, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, data (export, backup, empty trash), health, search, settings (the agent deny-list); plus `events` and `recurrences`. |
+| `api/*.py` (the rest) | One router per resource: accounts, connections, collaboration, permissions, sections, lists, items, comments, checklists, attachments, tags, today, views, favorites, inbox, chat, links, stats, batch, agents, checkin, work, automations, reminders, docs, doc_comments, data (export, backup, empty trash), health, search, settings (the agent deny-list); plus `events` and `recurrences`. |
 
 ## Schema notes
 
@@ -136,7 +134,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 - **`events.subject_id`**: the id of the row the event is about (account, token,
   list, section…; equals `item_id` for item events). The type prefix names the table.
 - **`items.last_due_event`**: the last due stage emitted for the item, which makes due events
-  idempotent (`docs/webhooks.md`, Due events).
+  idempotent (`docs/recurrence.md`, Due events).
 - **`lists.default_status_id` ↔ `statuses.list_id`** is a circular FK; `use_alter=True` names it,
   SQLite checks FKs on write so creation order does not matter.
 - **New migration:** `uv run alembic revision --autogenerate -m "..."`, then replace any
@@ -208,12 +206,11 @@ The exemptions are bookkeeping, not changes to anything a person or an agent own
 `core.BOOKKEEPING` lists single columns: `Token.last_used_at` (refreshed by `resolve_token()` at
 most once a minute), `AgentConnection.last_seen_at` and `verified_at`,
 `PushSubscription.last_ok_at` and `failures`, and `ChatWake.until` and `DocWake.until`.
-`core.BOOKKEEPING_MODELS` lists whole tables that are operational logs or indexes: `Delivery`
-(the webhook delivery log), `PushDelivery`, `EmailDelivery`, `AttentionAlert`, `AutomationRun`, `EngineCursor`,
+`core.BOOKKEEPING_MODELS` lists whole tables that are operational logs or indexes:
+`PushDelivery`, `EmailDelivery`, `AttentionAlert`, `AutomationRun`, `EngineCursor`,
 `WorkLease`, and `DocLink` (an index of what a page body embeds; the body's event is the record).
-A delivery attempt is a row, never an event, so attempts never flood the log or loop back into
-webhooks. SQL on a bare `engine.connect()` connection, outside any session, is not guarded. Only
-migrations and tests write through one (tests seed old rows with `conftest.raw_write`); the app
+Notification delivery attempts are bookkeeping rows. SQL on a bare `engine.connect()`
+connection is outside the session guard. Only migrations and tests write through one (tests seed old rows with `conftest.raw_write`); the app
 uses bare connections only for reads (`/healthz`, the newest event id for the stream cursor,
 seeding the event id clock).
 
@@ -456,7 +453,7 @@ the server's `.env`, not in the repo.
   (`docs/agent-kit.md`, "Agent connections and portable installation").
 - **`/healthz`** (unauthenticated) answers `ok`, `version`, `db` ("ok" after a `SELECT 1`),
   `scheduler_last_tick_age_s` (null when the scheduler is disabled or has not ticked),
-  `webhooks_enabled` (`SLATE_SECRET_KEY` set) and `min_runner_protocol` (the oldest runner
+  `min_runner_protocol` (the oldest runner
   protocol the server accepts) for deploy checks and clients; `rev`, `commit` and `board` carry
   the build (`docs/design-system.md`, Build revision). Queue
   counts are on the authenticated health report, not here; `db_path` is on the authenticated `GET
@@ -525,9 +522,8 @@ section titles or bold paragraph labels that code comments cite as `ARCHITECTURE
 | Agents: reports, presence, the work loop and agent stream, run endings (ask, answered, failed and its retries), Run now and the due gate, the runner, Asks, wake modes and Copy brief, the card conversation, chat and doc mentions that wake an agent, the agent plan, pickup evidence ("Agent reports", "Agent work loop and agent stream", "Run now, the due gate and the runner") | `docs/agents-work-loop.md` |
 | Agent kit: onboarding, Add my agent, the generated reference, Python/TypeScript clients, the Slate skill installer, chat apps, agent connections and the portable install, the optional adapters | `docs/agent-kit.md` |
 | Live event stream and polling: the write lock, the replay/subscribe seam, slow consumers ("Live event stream and polling"; "Event types" is above, in this file; the board's side is `docs/board.md`, "Live stream and catch-up") | `docs/live-stream.md` |
-| Webhooks and due events: design, signatures, retries, retention, targets | `docs/webhooks.md` |
 | MCP server: the tool table, the two bindings, auth over HTTP, stdio, how to add an action ("MCP server") | `docs/mcp-server.md` |
-| Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list | `docs/recurrence.md` |
+| Recurrence engine and scheduler: rules, DST, the cursor, `materialize`, ClickUp options, preview and adopt, the hook list and due events | `docs/recurrence.md` |
 | Fast lane, batch and performance at scale: ETags, projections, `views: "final"`, `SerialCursor`, the item cache ("Item cache"; "Querying items" is above, in this file) | `docs/fast-lane.md` |
 | The board's views and layouts: structure editors, the views engine, Board/List/Table, favorites and dependencies | `docs/views.md` |
 | Task window, drafts, palette and quick add, My Work, inbox, undo, one search, revert ("Task window") | `docs/task-window.md` |

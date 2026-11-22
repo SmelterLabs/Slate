@@ -2,7 +2,7 @@
 
 # REST reference
 
-239 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+233 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -22,7 +22,6 @@
 - [favorites](#favorites) (4)
 - [inbox](#inbox) (5)
 - [chat](#chat) (17)
-- [webhooks](#webhooks) (6)
 - [links](#links) (3)
 - [stats](#stats) (1)
 - [batch](#batch) (1)
@@ -570,7 +569,7 @@ Replace who watches the item.
 
 Scope: `write` · MCP: `slate_item watch`
 
-Add a watcher: yourself, or `account` (a person or agent; they are told you added them). A watcher hears about every change to the item (inbox `watching`, check-in `watching`, an `assignee_me` webhook).
+Add a watcher: yourself, or `account` (a person or agent; they are told you added them). A watcher hears about every change to the item (inbox and check-in `watching`, Web Push).
 
 - Body: JSON (see `/openapi.json`)
 - Returns: `200` [list of AssigneeOut](#assigneeout)
@@ -597,7 +596,7 @@ An agent says what it is doing: `working`, `blocked` or `review` put a live badg
 
 Scope: `write` · MCP: `slate_item run`
 
-Run now: ask the item's agent assignees to start on it now instead of at its run time. Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`) and webhooks. 422 when no agent is assigned or the item is done, cancelled or archived.
+Run now: ask the item's agent assignees to start on it now instead of at its run time. Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`). Returns 422 when no agent is assigned or the item is done, cancelled or archived.
 
 - Returns: `202` [slate__api__schemas__EventOut](#slate__api__schemas__eventout)
 
@@ -632,7 +631,7 @@ The item's comments, oldest first, with reactions and mentions.
 
 Scope: `write` · MCP: `slate_item comment`, `slate_comment add`
 
-`@handle` in the body mentions that account (see webhooks: `assignee_me` hears it). `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the task (from an agent: its report, later clearing its badge until the due time, ask making this comment its question; from a person, done completes it and the rest change nothing).
+`@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the task (from an agent: its report, later clearing its badge until the due time, ask making this comment its question; from a person, done completes it and the rest change nothing).
 
 - Body: `CommentIn`: `body_md`\*, `assignee`, `keep_open`
 - Returns: `201` [CommentOut](#commentout)
@@ -1158,59 +1157,6 @@ Turn a message into one task, in the channel's list or `list_id`. The task quote
 
 - Body: `TaskIn`: `list_id`, `title`, `due_at`, `priority`, `status`, `assignees`, `tags`
 - Returns: `201` [ItemOut](#itemout)
-
-## webhooks
-
-### `GET /webhooks`
-
-Scope: `write` · MCP: `slate_webhook list`
-
-Your own subscriptions (an admin sees everyone's).
-
-- Returns: `200` [list of WebhookOut](#webhookout)
-
-### `POST /webhooks`
-
-Scope: `write` · MCP: `slate_webhook create`
-
-Subscribe. Store the returned `secret` now: it is never shown again.
-
-- Body: `WebhookIn`: `url`\*, `events`\*, `filter`
-- Returns: `201` [WebhookCreatedOut](#webhookcreatedout)
-
-### `GET /webhooks/{webhook_id}`
-
-Scope: `write`
-
-Get Webhook
-
-- Returns: `200` [WebhookOut](#webhookout)
-
-### `PATCH /webhooks/{webhook_id}`
-
-Scope: `write` · MCP: `slate_webhook update`
-
-Change url, events, filter (replaced whole), or `disabled: true|false`.
-
-- Body: `WebhookPatch`: `url`, `events`, `filter`, `disabled`
-- Returns: `200` [WebhookOut](#webhookout)
-
-### `GET /webhooks/{webhook_id}/deliveries`
-
-Scope: `write` · MCP: `slate_webhook deliveries`
-
-Every attempt, newest first. Page with `offset`; `next_offset` is null on the last page.
-
-- Query: `limit`, `offset`
-- Returns: `200` [DeliveryPage](#deliverypage)
-
-### `POST /webhooks/{webhook_id}/test`
-
-Scope: `write` · MCP: `slate_webhook test`
-
-Send a `webhook.test` delivery now (one attempt, no retries) and return its outcome.
-
-- Returns: `200` [DeliveryOut](#deliveryout)
 
 ## links
 
@@ -1913,7 +1859,7 @@ Every comment on the doc, oldest first; threads are the rows sharing a `parent_i
 
 Scope: `write` · MCP: `slate_doc comment`
 
-Comment on a page or file. With `anchor` it starts a review thread (a quoted span on a page; a page number and/or a spot on a file); without, it is discussion. `parent_id` replies in a thread. `suggestion_md` proposes replacement text for the quote (pages). `assignee` makes it an Ask. `@handle` mentions and the Ask reach the inbox and webhooks.
+Comment on a page or file. With `anchor` it starts a review thread (a quoted span on a page; a page number and/or a spot on a file); without, it is discussion. `parent_id` replies in a thread. `suggestion_md` proposes replacement text for the quote (pages). `assignee` makes it an Ask. `@handle` mentions and the Ask reach the inbox, check-in and push.
 
 - Body: `DocCommentIn`: `body_md`\*, `parent_id`, `viewed_revision`, `anchor`, `suggestion_md`, `assignee`
 - Returns: `201` [DocCommentOut](#doccommentout)
@@ -2002,7 +1948,7 @@ Delete everything in the trash for good (admins). History stays.
 
 Scope: `read` · MCP: `slate_health get`
 
-Slate's health, for owners and admins: `status` (ok, warn or fail: the worst of `checks`), each background poller (reminders, digest, due nudges, recurring, trash) with its last run, last success, error and failures in a row, the engines (scheduler, webhooks, automations, push), calls per token over the last hour (errors, error rate, slow calls, average and worst time) with recent examples, request latency percentiles, failed automation runs in the last day, queue depths and engine lag, and database size and free disk. Counters start over when Slate restarts. A poller that fails `alert_after` runs in a row records `health.alert` (and `health.recovered` once it works again).
+Slate's health, for owners and admins: `status` (ok, warn or fail: the worst of `checks`), each background poller (reminders, digest, due nudges, recurring, trash) with its last run, last success, error and failures in a row, the engines (scheduler, automations, push, email), calls per token over the last hour (errors, error rate, slow calls, average and worst time) with recent examples, request latency percentiles, failed automation runs in the last day, queue depths and engine lag, and database size and free disk. Counters start over when Slate restarts. A poller that fails `alert_after` runs in a row records `health.alert` (and `health.recovered` once it works again).
 
 - Returns: `200` [HealthOut](#healthout)
 
@@ -2311,22 +2257,6 @@ The fields of each response above (see `/openapi.json` for types).
 ### ReadOut
 
 `channel`: string, `through`: string?, `changed`: boolean
-
-### WebhookOut
-
-`id`: string, `account_id`: string, `url`: string, `events`: [string], `filter`: object, `created_at`: date-time, `disabled_at`: date-time?
-
-### WebhookCreatedOut
-
-`id`: string, `account_id`: string, `url`: string, `events`: [string], `filter`: object, `created_at`: date-time, `disabled_at`: date-time?, `secret`: string
-
-### DeliveryPage
-
-`deliveries`: [DeliveryOut], `next_offset`: integer?
-
-### DeliveryOut
-
-`id`: string, `webhook_id`: string, `event_id`: string, `attempt`: integer, `state`: `pending` \| `sending` \| `ok` \| `retry` \| `failed` \| `skipped`, `status_code`: integer?, `response_ms`: integer?, `error`: string?, `at`: date-time, `next_at`: date-time?
 
 ### LinksOut
 

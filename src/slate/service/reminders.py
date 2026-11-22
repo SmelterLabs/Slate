@@ -21,7 +21,7 @@ one `account.digest` event per account per day, with what is overdue, due today 
 it. Nothing is recorded on a day with nothing in it. Idempotent: the day is in the event.
 
 Both kinds of event reach the account's inbox (reasons `reminder`, `digest`), its check-in
-(`why` the same), webhooks filtered with `assignee_me`, and phone/desktop push (slate.pusher).
+(`why` the same) and phone/desktop push (slate.pusher).
 """
 
 from __future__ import annotations

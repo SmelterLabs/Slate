@@ -8,7 +8,7 @@ The account's inbox supplies the reason. Attention supplies the level and releas
 when any hold ends. Durable device receipts can retry after restart. Every attempt
 rechecks access and preferences before rendering under the recipient's read filter.
 
-Receipts are bookkeeping (`core.BOOKKEEPING_MODELS`), like webhook deliveries: the table is
+Receipts are bookkeeping (`core.BOOKKEEPING_MODELS`): the table is
 the delivery log and the retry state, so queueing, sending, failing and expiring a receipt
 writes no event.
 """
@@ -29,7 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from slate import webpush
+from slate import outbound, webpush
 from slate.ids import new_id
 from slate.models import (
     Account,
@@ -41,7 +41,7 @@ from slate.models import (
     Source,
     utcnow,
 )
-from slate.service import access, attention, chat, comments, webhooks
+from slate.service import access, attention, chat, comments
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Forbidden, Invalid, NotFound
 from slate.settings import settings
@@ -140,8 +140,8 @@ def subscribe(
     # The allowlist names hosts; the address must still be public (unless private targets
     # are on), so a wildcard allowlist cannot aim Slate at this network. A name that does
     # not resolve now is judged again at send time, which fails closed.
-    with contextlib.suppress(webhooks.LookupFailed):
-        webhooks.check_target(endpoint)
+    with contextlib.suppress(outbound.LookupFailed):
+        outbound.check_target(endpoint)
     _check_keys(p256dh, auth)
     label = (label or "").strip()[:100] or None
     existing = session.scalar(select(PushSubscription).where(PushSubscription.endpoint == endpoint))

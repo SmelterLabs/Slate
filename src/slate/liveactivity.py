@@ -6,7 +6,7 @@ tell a long run from a stuck one. The lines are a view of a run in flight, not a
 task: nothing here writes an event row, a restart forgets them, and the card's history keeps
 only what the agent reports (`item.reported`) and says (its comment). They reach open boards
 as an id-less `item.activity` message on the live stream (`bus.publish_live`), which no
-cursor, replay, webhook or check-in ever sees.
+cursor, replay or check-in ever sees.
 
 When the run ends, its finish keeps the lines with the answer it posted (`run_lines`, then
 `clear`; `service/work.py` stores them as the comment's run log), so a person can open what the

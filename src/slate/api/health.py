@@ -47,7 +47,7 @@ def get_health(auth: ReadAuth, session: DbSession) -> dict:
     """Slate's health, for owners and admins: `status` (ok, warn or fail: the worst of
     `checks`), each background poller (reminders, digest, due nudges, recurring,
     trash) with its last run, last success, error and failures in a row, the engines
-    (scheduler, webhooks, automations, push), calls per token over the last hour
+    (scheduler, automations, push, email), calls per token over the last hour
     (errors, error rate, slow calls, average and worst time) with recent examples, request
     latency percentiles, failed automation runs in the last day, queue depths and engine lag,
     and database size and free disk. Counters start over when Slate restarts. A poller that

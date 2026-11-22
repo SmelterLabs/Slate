@@ -30,7 +30,7 @@ Every error is `{"detail": "..."}` with plain-English text you can show or log.
 | `410` | gone: `POST /bootstrap` after the first account |
 | `422` | the request is invalid; FastAPI validation errors give `detail` as a list of `{loc, msg}` |
 | `429` | rate limited: wait `Retry-After` seconds |
-| `503` | a feature that needs configuration is off (webhooks without `SLATE_SECRET_KEY`) |
+| `503` | a feature that needs configuration is off (automation signing without `SLATE_SECRET_KEY`) |
 
 A failed `POST /batch` op adds `"failed_op": <index>` to the body.
 
@@ -47,7 +47,7 @@ A failed `POST /batch` op adds `"failed_op": <index>` to the body.
 `ETag`s cover the reads that depend only on stored state: items (and their events, versions,
 activity, watchers, comments, checklists, attachments, links), lists, sections, tags, views,
 accounts, favorites, `me` and `checkin`. The generated
-reference marks each one. `/today`, `stale=true`, recurrences, webhooks, token lists and usage
+reference marks each one. `/today`, `stale=true`, recurrences, token lists and usage
 are not tagged, because their answer also depends on the clock or on bookkeeping.
 
 A `304` is answered before the token is even checked against the rate limiter, so polling
@@ -87,7 +87,7 @@ POST /api/v1/batch
 - `"atomic": false` commits each op on its own and reports every slot as
   `{ok: true, result}` or `{ok: false, error, status}`.
 - Up to 100 ops. Each op needs its own scope (a read token can batch reads). A batch cannot
-  contain a webhook test, another batch or a long-poll (an op with `wait` above 0: check-in,
+  contain another batch or a long-poll (an op with `wait` above 0: check-in,
   `work next`, `work finish` with `next.wait`). It counts as one request for rate limiting.
 
 ### Which state of a task a result shows: `views`

@@ -15,7 +15,7 @@ choose **Let my agent use Slate**, give it a handle, pick scopes, and copy the s
 | [auth.md](auth.md) | Accounts, tokens and scopes; creating, rotating and revoking them; usage |
 | [rest.md](rest.md) | REST conventions: errors, paging, `fields`, cursors, ETags, batch, rate limits |
 | [mcp.md](mcp.md) | Connecting Claude Code (or any MCP client) over HTTP or stdio |
-| [events.md](events.md) | Following changes: check-in, the SSE stream, polling, webhooks |
+| [events.md](events.md) | Following changes: check-in, the SSE stream and polling |
 | [clients.md](clients.md) | The ready-made Python and TypeScript clients and the Claude Code skill |
 | [runner.md](runner.md) | Let Slate start your agent: the runner runs a command per task when it is due or someone presses Run now |
 | [chat-apps.md](chat-apps.md) | Chat sessions (Claude Code, Claude Desktop, Hermes chats) using Slate with no runner: one account per app, connecting, proving it, what can't reach Slate |
@@ -38,7 +38,6 @@ Files outside this folder that agents use:
   [`integrations/runner-example/`](../../integrations/runner-example/): runner commands that run
   a task as a Hermes chat or on an agent service you reach over HTTP.
 - [`scripts/bench_agent.py`](../../scripts/bench_agent.py): the latency benchmark.
-- [`docs/webhooks.md`](../webhooks.md): webhook delivery, signatures, retries (for receivers).
 
 ## Five rules that keep Slate pleasant
 

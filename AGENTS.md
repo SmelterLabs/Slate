@@ -23,7 +23,7 @@ Slate is a self-hosted task board, built to be used primarily by AI agents and l
 ## Stack (decided; do not swap)
 
 - Python 3.12, FastAPI, SQLite (WAL) through SQLAlchemy 2.x, Alembic migrations, `python-dateutil` for RRULE, `uvicorn`. Dependency management with **uv** (`pyproject.toml` + `uv.lock`).
-- Scheduler (recurrence, due events, webhook delivery) runs as asyncio tasks inside the same process.
+- The scheduler and the automation, push and email engines run as asyncio tasks inside the same process.
 - MCP server (`slate-mcp`) in the same package, Python `mcp` SDK, sharing the service layer with REST.
 - Frontend: Svelte 5 + Vite under `web/`, built in CI into the Docker image and served by FastAPI at `/`. The server is not assumed to have Node; never require a Node build on the host.
 - Tests: `pytest` + `httpx` for the API, `hypothesis` for recurrence, Playwright for the board.

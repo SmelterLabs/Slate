@@ -31,8 +31,7 @@ transport: httpx.BaseTransport | None = None
 
 def send(url: str, payload: dict[str, Any], secret: str) -> tuple[bool, str]:
     """POST one automation webhook, signed with the rule's secret (`outbound.signed_headers`).
-    One attempt through `outbound.post`, the same bounded POST webhooks use; the result goes
-    in the run log."""
+    One bounded attempt through `outbound.post`. The result goes in the run log."""
     body = json.dumps(payload).encode()
     headers = {
         "Content-Type": "application/json",

@@ -27,7 +27,6 @@ from slate import (
     fastlane,
     mcp_server,
     monitor,
-    notify,
     pusher,
     runner_compat,
     scheduler,
@@ -127,23 +126,13 @@ def _warm_items() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Start order: MCP task group, scheduler (recurrence + due events are hooks on its tick),
-    # webhook dispatcher (its own ~1 s loop; refuses to start, logged, without a valid
-    # SLATE_SECRET_KEY), automations engine (bus-woken). Stopped in reverse.
-    # SLATE_SCHEDULER_ENABLED=false turns off the scheduler and dispatcher (tests);
-    # SLATE_AUTOMATIONS_ENABLED=false the automations engine, SLATE_PUSH_ENABLED=false push.
+    # Start the MCP task group, scheduler and event-log engines. Stop them in reverse.
     async with app.state.mcp_manager.run():  # MCP at /mcp needs its task group running
-        dispatcher: asyncio.Task | None = None
         engine_task: asyncio.Task | None = None
         if settings.scheduler_enabled:
             monitor.track("scheduler", scheduler.start())
-            dispatcher = notify.start_dispatcher()
-            monitor.track(
-                "webhooks", dispatcher, None if dispatcher else "no valid SLATE_SECRET_KEY"
-            )
         else:
             monitor.track("scheduler", None, "SLATE_SCHEDULER_ENABLED=false")
-            monitor.track("webhooks", None, "SLATE_SCHEDULER_ENABLED=false")
         if settings.automations_enabled:
             engine_task = automator.start()
         push_task = pusher.start() if settings.push_enabled else None
@@ -174,10 +163,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 engine_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await engine_task
-            if dispatcher is not None:
-                dispatcher.cancel()
-                with suppress(asyncio.CancelledError):
-                    await dispatcher
             await scheduler.stop()
 
 
@@ -282,7 +267,6 @@ def create_app() -> FastAPI:
             "commit": build["commit"],
             "db": "ok",
             "scheduler_last_tick_age_s": age,
-            "webhooks_enabled": bool(settings.secret_key),
             "board": board_bundle(),
             "min_runner_protocol": runner_compat.MIN_RUNNER_PROTOCOL,
         }

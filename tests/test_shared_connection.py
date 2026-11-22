@@ -54,7 +54,7 @@ def test_many_threads_read_and_write_one_shared_connection():
                         rows = conn.execute(text("SELECT id, v FROM t WHERE id < :n"), {"n": ROWS})
                         rows = rows.all()
                     assert len(rows) == ROWS and rows[-1] == (ROWS - 1, f"row{ROWS - 1}")
-                elif kind == 1:  # an aggregate, like the dispatcher's first query
+                elif kind == 1:  # an aggregate, like a Health report query
                     with engine.connect() as conn:
                         top = conn.execute(text("SELECT max(id) FROM t WHERE id < :n"), {"n": ROWS})
                         assert top.scalar() == ROWS - 1
