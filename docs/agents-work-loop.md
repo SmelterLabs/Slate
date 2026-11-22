@@ -548,9 +548,9 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
 - **Board**: `lib/conversation.ts` (pure, unit-tested): `isChat` (agent comments and comments
   addressed to an agent), `collapsedChat` (every exchange but the newest collapses; an exchange
   closes with an agent comment; an open Ask never collapses), `badgeLabel` ("Waiting on Alex",
-  "Answered"), `updatedAgo`/`shortAge`. `ActivityPanel` renders chat comments
-  (`data-chat="agent|person"`), collapsed rows (`data-chat-collapsed`) and the live bubble
-  (`data-live-bubble`, own 1 s clock while an agent works). Runs of `item.reported` working events
+  "Answered"), `updatedAgo`/`shortAge`. `ActivityPanel` renders the live bubble (`data-live-bubble`,
+  own 1 s clock while an agent works) and chat cards (`data-chat="agent|person"`), with a clipped
+  Markdown preview and Show all/Show less on folded cards (`data-chat-collapsed`). Runs of `item.reported` working events
   fold into one history line (`activity.ts foldable`). Run now stays offered while an agent works so
   the 409 is said (`store.runNow` flashes the server's message). Badge time: since the last report,
   which every heartbeat with a note refreshes; a bare keep-alive heartbeat stays bookkeeping (no
