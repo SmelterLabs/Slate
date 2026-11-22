@@ -55,7 +55,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -77,9 +77,6 @@ from slate.service.attachments import attach_pasted, split_pasted
 from slate.service.core import Actor, apply_change, snapshot
 from slate.service.errors import Conflict, Forbidden, Invalid, NotFound
 from slate.service.items import get_item, resolve_account
-
-if TYPE_CHECKING:
-    from slate.service.brief import ClosingLine
 
 MENTION_RE = re.compile(r"(?<![\w@])@([a-z][a-z0-9_-]{1,31})", re.IGNORECASE)
 MAX_EMOJI = 32
@@ -297,41 +294,11 @@ def add_comment(
     `ask` (`{questions}`, checked by service/reports.py, with `assignee`) makes it an
     agent's ask."""
     item = get_item(session, item_id)
-    body_md = _body(body_md)
-    line = None
-    if closing_line:
-        from slate.service import brief, reports
-
-        line = brief.closing_line(body_md)
-        if line is not None and line.outcome == "ask":
-            account = session.get(Account, actor.account_id)
-            if account is not None and account.kind == AccountKind.agent:
-                try:
-                    ask_data = reports.check_ask(questions=line.questions)
-                    comment_id = new_id()
-                    with apply_change(session, actor):
-                        reports.report(
-                            session, actor, item.id, state="blocked", comment=False,
-                            waiting_on=line.waiting_on, _ask=ask_data, _ask_comment_id=comment_id,
-                        )  # fmt: skip
-                        return add_comment(
-                            session, actor, item.id,
-                            body_md=line.body or reports.ask_headline(ask_data),
-                            assignee=item.waiting_on_account_id, ask=ask_data, _id=comment_id,
-                        )  # fmt: skip
-                except (Invalid, Conflict, NotFound):
-                    pass  # the original comment still stands when the ending cannot apply
-            line = None
-    body, pasted = split_pasted(body_md)
-    # A project's guests never reach a workspace agent (service/guests.py).
-    mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
-    target = resolve_account(session, assignee) if assignee else None
-    guests.refuse(session, actor.account_id, target)
+    body, pasted = split_pasted(_body(body_md))
+    comment_id = _id or new_id()
     replying = reply_target(session, item, actor.account_id)
     if replying is not None and not guests.may_reach(session, actor.account_id, replying):
         replying = None
-    if target is not None and (replying is None or replying.id != target.id):
-        replying = None  # addressed to someone other than the agent waiting on the author
     participants = set(
         session.scalars(select(Comment.author_id).where(Comment.item_id == item.id))
     ) | set(
@@ -341,21 +308,31 @@ def add_comment(
             )
         )
     )
-    addressed = replying or target
-    # The Ask has its own notification; do not also send a mention/reply to its target.
-    if addressed is not None:
-        mentions = [h for h in mentions if h != addressed.handle]
-        participants.discard(addressed.id)
-    participants.discard(actor.account_id)
-    if guests.is_guest(session, actor.account_id):
-        participants = {
-            p
-            for p in participants
-            if guests.may_reach(session, actor.account_id, session.get(Account, p))
-        }
     with apply_change(session, actor) as cx:
+        if closing_line:
+            body, ending_ask = _apply_closing_line(session, actor, item, body, comment_id)
+            if ending_ask is not None:
+                ask, assignee = ending_ask, item.waiting_on_account_id
+        # A project's guests never reach a workspace agent (service/guests.py).
+        mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
+        target = resolve_account(session, assignee) if assignee else None
+        guests.refuse(session, actor.account_id, target)
+        if target is not None and (replying is None or replying.id != target.id):
+            replying = None  # addressed to someone other than the agent waiting on the author
+        addressed = replying or target
+        # The Ask has its own notification; do not also send a mention/reply to its target.
+        if addressed is not None:
+            mentions = [h for h in mentions if h != addressed.handle]
+            participants.discard(addressed.id)
+        participants.discard(actor.account_id)
+        if guests.is_guest(session, actor.account_id):
+            participants = {
+                p
+                for p in participants
+                if guests.may_reach(session, actor.account_id, session.get(Account, p))
+            }
         comment = Comment(
-            id=_id or new_id(),
+            id=comment_id,
             item_id=item.id,
             author_id=actor.account_id,
             body_md=body,
@@ -379,8 +356,6 @@ def add_comment(
             _answered(session, cx, item, actor.account_id)
         elif target is not None:
             _assign(cx, comment, target, ask=ask is not None)
-    if line is not None:
-        _apply_closing_line(session, actor, comment, body, line)
     return comment
 
 
@@ -410,20 +385,31 @@ def answer(session: Session, actor: Actor, comment_id: str, *, option: str) -> C
 
 
 def _apply_closing_line(
-    session: Session, actor: Actor, comment: Comment, body: str, line: ClosingLine
-) -> None:
+    session: Session, actor: Actor, item: Item, body: str, comment_id: str
+) -> tuple[str, dict[str, Any] | None]:
     from slate.models import ItemAssignee
     from slate.service import reports
+    from slate.service.brief import closing_line
     from slate.service.items import update_item
 
+    line = closing_line(body)
+    if line is None:
+        return body, None
     account = session.get(Account, actor.account_id)
-    item = get_item(session, comment.item_id)
+    is_agent = account is not None and account.kind == AccountKind.agent
     # The line's text is the status; without it the comment's first line is (reports.report).
     said = {"reply": body, "status": reports.standing_line(line.status or "")}
     outcome = "done" if line.outcome == "review" and not said["status"] else line.outcome
     try:
-        is_agent = account is not None and account.kind == AccountKind.agent
-        if is_agent and outcome == "later":
+        if outcome == "ask":
+            if is_agent:
+                ask = reports.check_ask(questions=line.questions)
+                reports.report(
+                    session, actor, item.id, state="blocked", comment=False,
+                    waiting_on=line.waiting_on, _ask=ask, _ask_comment_id=comment_id,
+                )  # fmt: skip
+                return line.body or reports.ask_headline(ask), ask
+        elif is_agent and outcome == "later":
             from slate.service.work import check_later
 
             check_later(item)  # parked until its run time; refused (no change) without one
@@ -447,7 +433,8 @@ def _apply_closing_line(
             if status is not None:
                 update_item(session, actor, item.id, {"status": status.id})
     except (Invalid, Conflict, NotFound):
-        return  # the comment stands; the line could not apply
+        pass  # the original comment stands when the ending cannot apply
+    return body, None
 
 
 def _assign(

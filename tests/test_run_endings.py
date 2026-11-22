@@ -688,6 +688,35 @@ def test_an_agents_ask_line_asks_and_a_plain_comment_changes_nothing(
     assert view["waiting_on_account_id"] is None and view["agent"] is None
 
 
+def test_an_ask_comment_write_error_rolls_back_the_ending(
+    client, alex, todo, make_account, monkeypatch
+):
+    from slate.service import comments
+    from slate.service.errors import Invalid
+
+    _, agent = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    calls = 0
+
+    def fail_first(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise Invalid("could not store comment attachments")
+
+    monkeypatch.setattr(comments, "attach_pasted", fail_first)
+    response = client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "Report.\nSLATE: ask alex: Which one?"},
+        headers=agent,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "could not store comment attachments"
+    assert calls == 1 and _comments(client, alex, item["id"]) == []
+    assert _view(client, alex, item["id"])["ask"] is None
+    assert _events(client, alex, item["id"], "item.reported") == []
+
+
 def test_the_failed_badge_is_stored(db, client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _taken(client, alex, ch, todo)
