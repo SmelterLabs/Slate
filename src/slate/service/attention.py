@@ -21,7 +21,7 @@ from slate.models import (
     Item,
     Priority,
 )
-from slate.service import access, cursors, reports
+from slate.service import access, comments, cursors
 from slate.service.core import apply_change, event_payload, jsonable
 
 PANEL_ONLY = frozenset({"no_next_step", "decide"})
@@ -126,7 +126,7 @@ def open_questions(session: Session, account_id: str, now: datetime) -> list[dic
             "id": obj.id,
             "comment_id": ask.id,
             "title": obj.title,
-            "question": reports.ask_headline(ask.ask_json)
+            "question": comments.ask_headline(ask.ask_json)
             if isinstance(ask, Comment) and ask.ask_json is not None
             else ask.body_md,
             "at": jsonable(ask.created_at),

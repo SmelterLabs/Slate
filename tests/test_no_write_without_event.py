@@ -134,6 +134,8 @@ READS = {
         "priority_sort_key",
     },
     "slate.service.comments": {
+        "ask_headline",
+        "ask_view",
         "get_comment",
         "clean_emoji",
         "mentions_in",
@@ -178,8 +180,6 @@ READS = {
     },
     "slate.service.watchers": {"watchers_of", "watcher_ids", "auto_watches"},
     "slate.service.reports": {
-        "ask_headline",
-        "ask_view",
         "flag_of",
         "check_url",
         "done_status",

@@ -8,6 +8,19 @@ from conftest import API
 from conftest import item_events as _events
 
 
+def test_structured_ask_view_exposes_options_only_for_one_question():
+    from slate.service import comments
+
+    first = {"question": "Ship today?", "options": ["Yes", "No"]}
+    assert comments.ask_view({"questions": [first]}) == {**first, "questions": [first]}
+    several = {"questions": [first, {"question": "Which file?", "options": []}]}
+    assert comments.ask_view(several) == {
+        **several,
+        "question": "2 questions: Ship today?",
+        "options": [],
+    }
+
+
 def _item(client, h, list_id, title="Plan the offsite", **kw):
     r = client.post(f"{API}/items", json={"list_id": list_id, "title": title, **kw}, headers=h)
     assert r.status_code == 201, r.text

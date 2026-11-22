@@ -267,21 +267,6 @@ def check_ask(
     return {"questions": checked}
 
 
-def ask_headline(ask: dict[str, Any]) -> str:
-    questions = ask["questions"]
-    first = questions[0]["question"]
-    return first if len(questions) == 1 else f"{len(questions)} questions: {first}"
-
-
-def ask_view(ask: dict[str, Any]) -> dict[str, Any]:
-    questions = ask["questions"]
-    return {
-        "questions": questions,
-        "question": ask_headline(ask),
-        "options": questions[0]["options"] if len(questions) == 1 else [],
-    }
-
-
 def refuse_person_wait(session: Session, actor: Actor, ref: str | None) -> None:
     """An agent never sets a card waiting on a person by hand: it asks (ASK_ADVICE)."""
     me = session.get(Account, actor.account_id)
@@ -371,7 +356,7 @@ def report(
     finished = None
     if state == "done" and complete:
         finished = done_status(session, item)
-    details = ask_view(ask) if ask is not None else None
+    details = comments.ask_view(ask) if ask is not None else None
     ask_comment_id = _ask_comment_id or (new_id() if ask is not None and comment else None)
     headline = details["question"] if details else None
     badge_note = headline or note or (first_line(reply) if reply else None)

@@ -139,10 +139,23 @@ def authors_of(session: Session, account_ids: Sequence[str]) -> dict[str, tuple[
     return out
 
 
+def ask_headline(ask: dict[str, Any]) -> str:
+    questions = ask["questions"]
+    first = questions[0]["question"]
+    return first if len(questions) == 1 else f"{len(questions)} questions: {first}"
+
+
+def ask_view(ask: dict[str, Any]) -> dict[str, Any]:
+    questions = ask["questions"]
+    return {
+        "questions": questions,
+        "question": ask_headline(ask),
+        "options": questions[0]["options"] if len(questions) == 1 else [],
+    }
+
+
 def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[str, Any]]:
     """Comments as dicts with their reactions, mentions and author handle and kind."""
-    from slate.service.reports import ask_view
-
     reactions = reactions_of(session, [c.id for c in comments])
     authors = authors_of(session, [c.author_id for c in comments])
     seen = seen_of(session, [c.id for c in comments if c.assignee_id])
@@ -195,8 +208,6 @@ def asks_of(session: Session, items: Sequence[Any]) -> dict[str, dict[str, Any]]
     """Each card's newest open structured ask, with its comment id, author and time.
     addressed to the person it waits on (a card waiting on nobody, or on someone it did not
     ask, has none)."""
-    from slate.service.reports import ask_view
-
     waits = {i.id: i.waiting_on_account_id for i in items if i.waiting_on_account_id}
     if not waits:
         return {}
@@ -407,7 +418,7 @@ def _apply_closing_line(
                     session, actor, item.id, state="blocked", comment=False,
                     waiting_on=line.waiting_on, ask=ask, _ask_comment_id=comment_id,
                 )  # fmt: skip
-                return line.body or reports.ask_headline(ask), ask
+                return line.body or ask_headline(ask), ask
         elif is_agent and outcome == "later":
             from slate.service.work import check_later
 
