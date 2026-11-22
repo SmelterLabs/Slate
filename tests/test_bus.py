@@ -57,11 +57,21 @@ async def test_full_queue_drops_oldest_and_counts_it(caplog):
 
 async def test_unconsumed_subscriber_never_blocks_publish():
     bus = EventBus(max_queue=1)
-    async with bus.subscribe():
-        t = threading.Thread(target=lambda: [bus.publish({"n": n}) for n in range(10_000)])
+    loop = asyncio.get_running_loop()
+    published = asyncio.Event()
+
+    def publish():
+        for n in range(3):
+            bus.publish({"n": n})
+        loop.call_soon_threadsafe(published.set)
+
+    async with bus.subscribe() as sub:
+        t = threading.Thread(target=publish, daemon=True)
         t.start()
-        t.join(timeout=5)
-        assert not t.is_alive()
+        # Keep the subscriber unconsumed until the publisher has finished.
+        await asyncio.wait_for(published.wait(), 10)
+        assert sub.dropped == 2
+        assert await anext(sub) == {"n": 2}
 
 
 def test_publish_without_any_loop_is_safe():

@@ -1,7 +1,11 @@
 // Drafts: text typed and left (card closed, page reloaded, another view) comes back where it was
 // typed, the card says it holds a draft, and sending clears it. Cancel throws a draft away.
-import { expect, test } from '@playwright/test';
+import { expect, test, type Route } from '@playwright/test';
+import { DRAFT_PREFIX, draftKey } from '../src/lib/drafts';
 import { api, signedIn } from './support';
+
+// Keep the service worker from claiming the page while Playwright is routing the send.
+test.use({ serviceWorkers: 'block' });
 
 test('a comment typed in a card survives closing it and a reload, then sends and clears', async ({ page }) => {
   const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space', audience: 'work' });
@@ -105,31 +109,36 @@ test('a subtask, a hand-off and a title typed in a card are kept when it closes'
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
 
-test('a message still sending when the page reloads does not come back as a draft', async ({ page }) => {
-  const section = await api<{ id: string }>('POST', '/sections', { name: 'Draft space 4', audience: 'work' });
+test('a message still sending when the page reloads does not come back as a draft', async ({ page }, testInfo) => {
+  const name = `Draft reload ${testInfo.repeatEachIndex}`;
+  const section = await api<{ id: string }>('POST', '/sections', { name, audience: 'work' });
   const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Chores' });
   await signedIn(page, `/#/list/${list.id}/chat`, { ready: true });
-  // Hold the send until the page has reloaded, so the reload lands while it is in flight.
-  let release = () => {};
-  const reloaded = new Promise<void>((r) => (release = r));
-  let held = false;
+  // Keep the request pending, then deliver its failure after unload starts and before
+  // replacing the document. This exercises the old composer's failure handler on every run.
+  let intercept!: (route: Route) => void;
+  const pending = new Promise<Route>((resolve) => { intercept = resolve; });
   await page.route('**/api/v1/channels/*/messages', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
-    held = true;
-    await reloaded;
-    await route.continue().catch(() => {});
+    intercept(route);
   });
   const box = page.getByRole('textbox', { name: 'Message #Chores' });
-  await box.fill('Take the bins out');
+  const text = 'Take the bins out';
+  const key = DRAFT_PREFIX + draftKey.chat(`list:${list.id}`, null);
+  const stored = () => page.evaluate((name) => localStorage.getItem(name), key);
+  await box.fill(text);
+  expect(await stored()).toContain(text);
   await box.press('Enter');
+  const route = await pending;
   await expect(box).toHaveValue('');
-  await expect.poll(() => held, { message: 'the send is in flight' }).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
+  await route.abort();
+  // A failed send restores the old box's text. During unload it must leave storage empty.
+  await expect(box).toHaveValue(text);
+  expect(await stored()).toBeNull();
   await page.reload();
-  release();
   await expect(box).toHaveValue('');
-  expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('slate.draft.')).map((k) => localStorage.getItem(k)))).not.toContain(
-    'Take the bins out',
-  );
+  expect(await stored()).toBeNull();
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await api('PATCH', `/sections/${section.id}`, { archived: true });

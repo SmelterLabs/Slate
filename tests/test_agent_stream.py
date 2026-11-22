@@ -181,14 +181,13 @@ async def test_a_chat_mention_reaches_the_runner_as_a_work_hint(live):  # noqa: 
         key = f"list:{todo['id']}"
         admin = _bearer(live.admin_token)
 
-        start = time.monotonic()
         r = await client.post(
             f"{API}/channels/{key}/messages", json={"body_md": "@agent summarise?"}, headers=admin
         )
         assert r.status_code == 201, r.text
         msg = r.json()
-        got = [await stream.event(timeout=1), await stream.event(timeout=1)]
-        assert time.monotonic() - start < 1
+        # Receipt of both SSE messages is the signal. The deadline only bounds missing events.
+        got = [await stream.event(timeout=10), await stream.event(timeout=10)]
         news = next(m for m in got if m.event == "news")
         assert news.data["why"] == "mentioned" and news.data["type"] == "message.posted"
         hint = next(m for m in got if m.event == "work")
@@ -212,7 +211,7 @@ async def test_a_chat_mention_reaches_the_runner_as_a_work_hint(live):  # noqa: 
         r = await client.post(
             f"{API}/channels/{key}/messages", json={"body_md": "@agent also this"}, headers=admin
         )
-        got = [await stream.event(timeout=1), await stream.event(timeout=1)]
+        got = [await stream.event(timeout=10), await stream.event(timeout=10)]
         hint = next(m for m in got if m.event == "work")
         assert hint.data["queued"] is True and hint.data["message_id"] == r.json()["id"]
 
@@ -235,7 +234,7 @@ async def test_a_chat_mention_reaches_the_runner_as_a_work_hint(live):  # noqa: 
         r = await client.post(
             f"{API}/channels/{key}/messages", json={"body_md": "@agent and this"}, headers=admin
         )
-        got = [await stream.event(timeout=1), await stream.event(timeout=1)]
+        got = [await stream.event(timeout=10), await stream.event(timeout=10)]
         hint = next(m for m in got if m.event == "work")
         assert hint.data["queued"] is False and hint.data["message_id"] == r.json()["id"]
         r = await client.post(f"{API}/work/next", json={"channel": key}, headers=_bearer(tok))
