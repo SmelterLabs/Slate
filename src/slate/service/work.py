@@ -86,7 +86,6 @@ from slate.models import (
     Status,
     StatusKind,
     Tag,
-    Watcher,
     WorkLease,
     utcnow,
 )
@@ -190,6 +189,7 @@ def eligible(
         .where(
             Item.kind == ItemKind.task,
             Item.archived_at.is_(None),
+            Item.parked_until.is_(None),
             List.archived_at.is_(None),
             WORK_LIST,
             Section.archived_at.is_(None),
@@ -254,11 +254,25 @@ def eligible(
         Item.run_requested_at.is_not(None),
         or_(Item.agent_state_at.is_(None), Item.run_requested_at > Item.agent_state_at),
     )
+    # Only an explicit Run now can override the start date. A scheduled retry also sets
+    # run_requested_at, so check the reason on the request still waiting to be taken.
+    requested_now = (
+        select(Event.after_json["reason"].as_string())
+        .where(
+            Event.item_id == Item.id,
+            Event.type == "item.run_requested",
+            Event.after_json["reason"].as_string().in_(("now", "retry")),
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    ) == "now"
     q = q.where(
         lease.item_id.is_(None),  # expired is unknown, not proof of remote cancellation
         or_(is_mine, and_(unassigned, true() if pool else false())),
         Item.id.not_in(links.blocked_item_ids()),
-        or_(Item.start_at.is_(None), Item.start_at <= now),
+        or_(Item.start_at.is_(None), Item.start_at <= now, and_(pressed, requested_now)),
         or_(
             Item.waiting_on_account_id.is_(None),
             Item.waiting_on_account_id == account_id,
@@ -1130,18 +1144,23 @@ def finish(
             options=options,
             status=status,
         )
-        # A poked turn that answered again stalled; any other finish ends a stall.
         # A turn that consumed Slate's stalled poke and answered again, on an open card,
         # stalled; any finish other than answered ends a stall.
+        now = utcnow()
         newly_stalled = (
             outcome == "answered"
             and item.stalled_at is None
+            and item.parked_until is None
+            and (item.start_at is None or item.start_at <= now)
+            and (item.due_at is None or item.due_at <= now)
+            and session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST))
+            is not None
             and start is not None
             and (start.after_json or {}).get("poke") is not None
             and not _ended(session, item, SimpleNamespace(asked_only=False))
         )
         if newly_stalled:
-            item.stalled_at = utcnow()  # rides on item.reported
+            item.stalled_at = now  # rides on item.reported
         elif outcome != "answered":
             item.stalled_at = None
         changes: dict[str, Any] = {}
@@ -1186,13 +1205,15 @@ def finish(
             if newly_stalled:
                 cx.record("item.stalled", item_id=item.id, after={"agent_id": actor.account_id})
             if failed.get("failures", 0) >= GIVE_UP_AFTER:
+                from slate.service.inbox import person_recipients
+
                 cx.record(
                     "item.run_failed",
                     item_id=item.id,
                     after={
                         "agent_id": actor.account_id,
                         **failed,
-                        "notify": _people_to_tell(session, item.id),
+                        "notify": sorted(person_recipients(session, item.id)),
                     },
                 )
         if row is not None:
@@ -1227,32 +1248,6 @@ def _failures(session: Session, account_id: str, item: Item) -> int:
         else:
             break
     return count
-
-
-def _people_to_tell(session: Session, item_id: str) -> list[str]:
-    """Who hears that Slate gave up on a run, or that a card stalled: the card's person
-    assignees and watchers, else the workspace owners."""
-    people = (
-        select(Account.id)
-        .where(Account.kind == AccountKind.person, Account.disabled_at.is_(None))
-        .where(
-            or_(
-                Account.id.in_(
-                    select(ItemAssignee.account_id).where(ItemAssignee.item_id == item_id)
-                ),
-                Account.id.in_(select(Watcher.account_id).where(Watcher.item_id == item_id)),
-            )
-        )
-        .order_by(Account.id)
-    )
-    found = list(session.scalars(people))
-    return found or list(
-        session.scalars(
-            select(Account.id)
-            .where(Account.role == Role.owner, Account.disabled_at.is_(None))
-            .order_by(Account.id)
-        )
-    )
 
 
 def _keep_run_log(
@@ -1379,8 +1374,8 @@ def request_run(
     reason: str = "now",
     now: datetime | None = None,
 ) -> Any:
-    """Ask the item's agent assignees to run it now: one `item.run_requested` event
-    (`after = {for, reason}`), which reaches their agent streams as a `work` hint.
+    """Clear parking and ask the item's agent assignees to run it now. The
+    `item.run_requested` event (`after = {for, reason}`) reaches their streams as a `work` hint.
     For agents whose `wake` is pull or manual, the event also
     carries `nudge` and `notify` (nudge_fields), and those people get a `nudge` inbox entry.
     `Invalid` when no agent is assigned, or it is done, cancelled or archived. `Conflict` (409)
@@ -1401,13 +1396,15 @@ def request_run(
     _refuse_if_working(session, item, now)
     nudge = nudge_fields(session, agents)  # read before the write: a query here would flush
     with apply_change(session, actor) as cx:
-        before = item.run_requested_at
         session.refresh(item)
         if not session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST)):
             raise Invalid("reference lists are not offered as work")
         _refuse_if_working(session, item, now)
         if session.get(WorkLease, item.id) is not None:
             raise Conflict("execution state is unknown; reconcile the current run before retrying")
+        cx.set(item, "parked_until", None, "item.updated")
+        cx.set(item, "parked_note", None, "item.updated")
+        before = item.run_requested_at
         item.run_requested_at = now
         item.stalled_at = None  # whoever pressed it wants the agent to go on
         event = cx.record(

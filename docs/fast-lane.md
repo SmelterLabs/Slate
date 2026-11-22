@@ -18,7 +18,9 @@ README). The internals:
   `If-None-Match` from an authenticated caller is a `304` before the route runs. This is only
   correct because every visible change is an event (rule 3): **a new GET route whose answer depends
   on the clock or on bookkeeping rows (token `last_used_at`, notification receipts) must stay out of
-  `CACHEABLE`**; a new event-backed read can join it.
+  `CACHEABLE`**; a new event-backed read can join it. Item lists, item detail and check-in
+  derive `later` from the clock and the caller's lead days. Sections derive the next step
+  from the same rule. These reads always run the route.
 - **`GET /items` extras** (`api/items.py`, `service/items.query_items`): `fields` (projection,
   validated against `ItemOut`; `parse_fields()` is shared with MCP), `limit`/`offset`,
   `changed_since` (items with any event id > cursor: `Item.id IN (SELECT item_id FROM events WHERE

@@ -186,7 +186,7 @@
   // that means "stop and act". Unread chat keeps its own badge on Chat. While the window is not
   // in front and chat is unread, the title flips between that and "New in #Todo" every
   // FLASH_MS: a browser cannot flash a taskbar button, so the title, the toast and the push
-  // (service/push.py `chat`, `renudge`) are what chat gets.
+  // are what chat gets.
   let inFront = $state(typeof document === 'undefined' || (!document.hidden && document.hasFocus()));
   $effect(() => {
     const update = () => (inFront = !document.hidden && document.hasFocus());
@@ -200,7 +200,7 @@
     };
   });
   $effect(() => {
-    const { title, count } = windowBadge(board.token ? board.needsMe.length : 0);
+    const { title, count } = windowBadge(board.token ? board.needsTotal : 0);
     const flash = board.token && !inFront ? flashTitle(chat.channels) : null;
     document.title = title;
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };

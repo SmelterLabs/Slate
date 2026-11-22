@@ -8,7 +8,8 @@
 // (the Overdue column and Today count already say so), and anything waiting on someone else.
 
 import { isOpen } from './format';
-import type { Account, Item } from './types';
+import { atLeast, sectionLevel } from './permissions';
+import type { Account, Item, List, MyAccess, Section } from './types';
 import { AGENT_BLOCKED, READY_FOR_REVIEW, STALLED, waitingOn } from './words';
 
 export type Need = 'waiting' | 'asked' | 'blocked' | 'review' | 'stalled';
@@ -92,4 +93,15 @@ export function byList(list: Attention[]): Map<string, { n: number; top: Need }>
     else out.set(a.item.list_id, { n: 1, top: a.need }); // `list` is most urgent first
   }
   return out;
+}
+
+export interface ProjectNeed {
+  section: Section;
+}
+
+/** Project sections with no computed next step that the viewer may manage. */
+export function projectAttention(sections: Section[], access: MyAccess | undefined): ProjectNeed[] {
+  return sections
+    .filter((s) => !s.archived_at && s.project && !s.next_step && atLeast(sectionLevel(access, s.id), 'edit'))
+    .map((section) => ({ section }));
 }

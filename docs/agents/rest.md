@@ -44,11 +44,12 @@ A failed `POST /batch` op adds `"failed_op": <index>` to the body.
 | Nothing if nothing changed | send the last `ETag` back as `If-None-Match`; an unchanged answer is `304` with no body |
 | Smaller bytes | send `Accept-Encoding: gzip`; JSON over 1 KB is compressed |
 
-`ETag`s cover the reads that depend only on stored state: items (and their events, versions,
-activity, watchers, comments, checklists, attachments, links), lists, sections, tags, views,
-accounts, favorites, `me` and `checkin`. The generated
-reference marks each one. `/today`, `stale=true`, recurrences, token lists and usage
-are not tagged, because their answer also depends on the clock or on bookkeeping.
+`ETag`s cover reads that depend only on stored state, such as item events, lists, tags and
+views. The generated reference marks each one. Item lists, item detail and check-in
+recalculate `later` on every request. Sections and projects recalculate the next step.
+These reads still carry the event cursor. The `stale=true` item filter finds cards whose
+due date moved three times or which have stayed open and untouched for 30 days. The
+weekly sweep returns your eligible cards more than 14 days overdue.
 
 A `304` is answered before the token is even checked against the rate limiter, so polling
 with `If-None-Match` is close to free.
@@ -72,14 +73,14 @@ POST /api/v1/batch
 {"ops": [
   {"ref": "t", "tool": "item", "action": "create",
    "params": {"list_id": "Ab12Cd34Ef56", "title": "Renew passport", "due_at": "2026-11-01"}},
-  {"tool": "item", "action": "assign", "params": {"id": "$t.id", "assignees": ["my-agent"]}},
+  {"tool": "item", "action": "update", "params": {"id": "$t.id", "assignees": ["my-agent"]}},
   {"tool": "comment", "action": "add", "params": {"id": "$t.id", "body_md": "On it"}}
 ]}
 ```
 
 - An op is exactly an MCP call: `tool` (with or without `slate_`), `action` (omit it for
   a single-action tool such as `checkin`), `params`. [reference/mcp.md](reference/mcp.md) is
-  the catalogue. `today` is not a tool; `GET /today` is the REST route.
+  the catalogue. Use `GET /today` for the day's work.
 - `ref` names an op's result; a later string param that is exactly `$ref` or `$ref.path`
   (`$t.id`, `$t.status.name`, `$t.assignees.0.handle`) is replaced by it.
 - **Atomic by default:** one transaction. If any op fails nothing is written, and the answer

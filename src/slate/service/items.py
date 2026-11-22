@@ -67,6 +67,8 @@ UPDATABLE = frozenset(
         "start_at",
         "due_at",
         "due_date_only",
+        "parked_until",
+        "parked_note",
         "waiting_on_account_id",
         "acceptance_md",
         "position",
@@ -267,9 +269,29 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
     # A project's guest sees no trace of a workspace agent (service/guests.py): not its badge,
     # its session link, a wait on it or its name as the card's maker.
     hide = guests.workspace_agent_ids(session) if guests.viewer_is_guest(session) else set()
+    stall_actors: dict[str, str] = {}
+    stalled_ids = [item.id for item in items if item.stalled_at is not None] if hide else []
+    if stalled_ids:
+        with access.unrestricted(session):
+            rows = session.execute(
+                select(Event.item_id, Event.actor_id)
+                .where(Event.item_id.in_(stalled_ids), Event.type == "item.stalled")
+                .order_by(Event.id.desc())
+            )
+            for item_id, actor_id in rows:
+                stall_actors.setdefault(item_id, actor_id)
+    from slate.service import today as today_svc
+
+    caller = access.caller(session)
+    lead_days = today_svc.lead_days_for(
+        session.get(Account, caller.account_id) if caller is not None else None
+    )
+    now = utcnow()
+    references = set(session.scalars(select(List.id).where(List.reference.is_(True))))
     out = []
     for item in items:
         st = statuses.get(item.status_id)
+        is_open = st is None or st.kind not in (StatusKind.done, StatusKind.cancelled)
         out.append(
             {
                 "id": item.id,
@@ -287,6 +309,10 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 "start_at": item.start_at,
                 "due_at": item.due_at,
                 "due_date_only": item.due_date_only,
+                "parked_until": item.parked_until,
+                "parked_note": item.parked_note,
+                "later": item.list_id not in references
+                and today_svc.is_later(item, now=now, lead_days=lead_days, is_open=is_open),
                 "completed_at": item.completed_at,
                 "waiting_on_account_id": item.waiting_on_account_id,
                 "acceptance_md": item.acceptance_md,
@@ -342,7 +368,9 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                     if item.standing_line
                     else None
                 ),
-                "stalled": item.stalled_at is not None and (st is None or _open(st)),
+                "stalled": item.stalled_at is not None
+                and (st is None or _open(st))
+                and stall_actors.get(item.id) not in hide,
             }
         )
         if hide:
@@ -935,6 +963,15 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
             values[key] = parse_when(changes[key])
     if "due_at" in changes:
         values["due_date_only"] = _due_date_only(changes)
+    if "parked_until" in changes or "parked_note" in changes:
+        p_until = changes.get("parked_until")
+        p_note = changes.get("parked_note")
+        if p_until is None and p_note is None:
+            values["parked_until"] = None
+            values["parked_note"] = None
+        else:
+            values["parked_until"] = p_until
+            values["parked_note"] = p_note
     if "waiting_on_account_id" in changes:
         ref = changes["waiting_on_account_id"]
         values["waiting_on_account_id"] = resolve_account(session, ref).id if ref else None
@@ -964,6 +1001,11 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
             _claim_ref(session, values["external_ref"], item.id)
         for key, value in values.items():
             cx.set(item, key, value, "item.updated")
+        now = utcnow()
+        if item.parked_until is not None or any(
+            values.get(key) is not None and values[key] > now for key in ("start_at", "due_at")
+        ):
+            cx.set(item, "stalled_at", None, "item.updated")
         if "body_md" in changes:
             new_body = _take_pasted(cx, item, changes["body_md"] or "")
             if new_body != item.body_md:

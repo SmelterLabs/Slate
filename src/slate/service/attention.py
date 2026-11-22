@@ -24,6 +24,7 @@ from slate.models import (
 from slate.service import access, cursors
 from slate.service.core import apply_change, event_payload, jsonable
 
+PANEL_ONLY = frozenset({"no_next_step", "decide"})
 BASE = {
     "waiting": (3, 3),
     "mention": (3, 2),
@@ -49,6 +50,8 @@ _RELEASE_LOCK = threading.Lock()
 
 def loudness(reason: str, actor_kind: str | None, *, urgent: bool = False) -> int:
     """Level shared by all notification channels."""
+    if reason in PANEL_ONLY:
+        return 0
     return min(4, BASE.get(reason, (0, 0))[actor_kind != AccountKind.person] + urgent)
 
 
@@ -82,8 +85,10 @@ def quiet_until(account: Account, at: datetime) -> datetime | None:
 def open_questions(session: Session, account_id: str, now: datetime) -> list[dict[str, Any]]:
     """Open task and document questions visible to the recipient, oldest first."""
     from slate.models import Doc, DocComment, List, Section, Status, StatusKind
+    from slate.service import today
     from slate.service.lists import WORK_LIST
 
+    lead_days = today.lead_days_for(session.get(Account, account_id))
     tasks = session.execute(
         select(Comment, Item)
         .join(Item, Item.id == Comment.item_id)
@@ -95,6 +100,7 @@ def open_questions(session: Session, account_id: str, now: datetime) -> list[dic
             Comment.resolved_at.is_(None),
             Item.archived_at.is_(None),
             Item.completed_at.is_(None),
+            Item.parked_until.is_(None),
             List.archived_at.is_(None),
             WORK_LIST,
             Section.archived_at.is_(None),
@@ -111,7 +117,8 @@ def open_questions(session: Session, account_id: str, now: datetime) -> list[dic
         )
     )
     ordered = sorted(
-        [(ask, obj) for ask, obj in tasks] + [(ask, obj) for ask, obj in docs],
+        [(ask, obj) for ask, obj in tasks if not today.is_later(obj, now=now, lead_days=lead_days)]
+        + list(docs),
         key=lambda row: (row[0].created_at, row[0].id),
     )
     return [
@@ -386,7 +393,10 @@ def released(
                     continue
                 payload = event_payload(ev)
                 projected = gate.project(session, payload)
-                if projected is None or (account.role == "guest" and projected != payload):
+                # The digest renderer uses the same recipient-scoped snapshot as projection.
+                if projected is None or (
+                    account.role == "guest" and ev.type != "account.digest" and projected != payload
+                ):
                     continue
                 note = push.notification_for(session, ev, ref["reason"])
                 if note:

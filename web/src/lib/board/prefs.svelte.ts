@@ -34,7 +34,7 @@ export abstract class BoardPrefs extends BoardState {
 
   /** Merge into the account's prefs; a key set to null is removed. Shown at once, then saved. */
   async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
-    if (!this.me) return;
+    if (!this.me) return false;
     const next: Record<string, unknown> = { ...this.me.prefs };
     for (const [k, v] of Object.entries(changes)) {
       if (v === null) delete next[k];
@@ -44,8 +44,10 @@ export abstract class BoardPrefs extends BoardState {
     try {
       const saved = await patch<Prefs>('/me/prefs', changes);
       if (this.me) this.me.prefs = this.takePrefs(saved);
+      return true;
     } catch (e) {
       this.flash(String(e));
+      return false;
     }
   }
 

@@ -23,6 +23,7 @@
     type PushState,
   } from '../lib/push';
   import { digestText, hourLabel, whenText, type DigestCounts, type Reminder } from '../lib/reminders';
+  import { WEEKDAYS } from '../lib/sweep';
   import { board } from '../lib/store.svelte';
   import { ago } from '../lib/format';
   import Icon from './Icon.svelte';
@@ -46,14 +47,8 @@
   const digestHour = $derived(board.prefs.digest_hour ?? 7);
   const quietHours = $derived(board.prefs.quiet_hours ?? null);
   const escalateAfter = $derived(board.prefs.escalate_after_minutes ?? 120);
-  const renudge = $derived(board.prefs.chat_renudge_minutes ?? 10);
-  const RENUDGE_CHOICES: { minutes: number; label: string }[] = [
-    { minutes: 0, label: 'Never' },
-    { minutes: 5, label: 'after 5 minutes' },
-    { minutes: 10, label: 'after 10 minutes' },
-    { minutes: 30, label: 'after 30 minutes' },
-    { minutes: 60, label: 'after an hour' },
-  ];
+  const leadDays = $derived(board.prefs.lead_days ?? 14);
+  const sweepWeekday = $derived(board.prefs.sweep_weekday ?? 4);
   const AUTO_WATCH: { key: 'created' | 'assigned' | 'commented'; label: string }[] = [
     { key: 'created', label: 'Tasks I create' },
     { key: 'assigned', label: 'Tasks I am assigned' },
@@ -268,17 +263,6 @@
         <button class="secondary" disabled={busy || !mailTo} onclick={() => void mailTest()}>Send a test email</button>
       </div>
     {/if}
-    <label class="inline ns-renudge">
-      <span>Nudge me again about chat I still have not read</span>
-      <select
-        aria-label="Nudge again about unread chat"
-        disabled={!reasons.has('chat')}
-        value={renudge}
-        onchange={(e) => void board.setPrefs({ chat_renudge_minutes: Number(e.currentTarget.value) })}
-      >
-        {#each RENUDGE_CHOICES as c (c.minutes)}<option value={c.minutes}>{c.label}</option>{/each}
-      </select>
-    </label>
   </section>
 
   <section class="ns-block" aria-label="Quiet hours and phone alerts">
@@ -363,6 +347,39 @@
       </select>
     </div>
     {#if digest}<p class="muted small">Today it says: {digestText(digest.counts)}. Nothing is sent on an empty day.</p>{/if}
+  </section>
+
+  <section class="ns-block" aria-label="Planning and weekly sweep">
+    <h3><Icon name="calendar" size={15} /> Planning</h3>
+    <div class="inline ns-plan">
+      <label class="inline">
+        <span>Hide cards due more than</span>
+        <input
+          type="number"
+          aria-label="Hide cards due more than N days away"
+          min="0"
+          step="1"
+          required
+          value={leadDays}
+          onchange={(e) => {
+            const f = e.currentTarget;
+            if (f.checkValidity()) void board.setPrefs({ lead_days: f.valueAsNumber });
+            else f.value = String(leadDays);
+          }}
+        />
+        <span class="muted small">days away (0 turns off)</span>
+      </label>
+      <label class="inline">
+        <span>Weekly sweep day</span>
+        <select
+          aria-label="Weekly sweep day"
+          value={sweepWeekday}
+          onchange={(e) => void board.setPrefs({ sweep_weekday: Number(e.currentTarget.value) })}
+        >
+          {#each WEEKDAYS as day, i (day)}<option value={i}>{day}</option>{/each}
+        </select>
+      </label>
+    </div>
   </section>
 
   <section class="ns-block" aria-label="Upcoming reminders">
@@ -474,11 +491,6 @@
   }
   .ns-email input[type='email'] {
     min-width: 220px;
-  }
-  .ns-renudge {
-    margin-top: 8px;
-    gap: 8px;
-    flex-wrap: wrap;
   }
   .ns-quiet {
     gap: 8px;

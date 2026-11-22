@@ -165,5 +165,11 @@ time (06:00 workspace time for a date-only due date). The actor is Slate's syste
 
 The item records its last emitted stage so repeating a tick or restarting does not duplicate
 events. A tick after the due time skips the due-soon stage. Moving the due date later starts
-the stages over when the recorded stage lies in the future. Closed and archived items and
-items in archived lists or sections are excluded.
+the stages over when the recorded stage lies in the future. The tick skips closed, archived, parked and reference-list items, and items in archived
+lists or sections. Stale cards assigned to a person skip the automatic due-alert stages.
+This suppression leaves any scheduled agent run eligible.
+
+On the same tick, `due.unpark_due()` clears `parked_until` and `parked_note` at 06:00 workspace
+time on `parked_until` and records `item.unparked` (`after: {note, notify}`), notifying the
+card's person assignees and watchers (else the workspace owner) as inbox and push reason
+`reminder` worded `"Back today: <title> (was waiting on <note>)"`.

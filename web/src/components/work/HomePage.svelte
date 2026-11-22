@@ -5,7 +5,9 @@
   import { BUCKETS, myWork, type Bucket } from '../../lib/mywork';
   import { ago } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
+  import { isSweepDay } from '../../lib/sweep';
   import Icon from '../Icon.svelte';
+  import DecidePanel from './DecidePanel.svelte';
   import WorkRow from './WorkRow.svelte';
   import NeedsPanel from './NeedsPanel.svelte';
 
@@ -17,6 +19,7 @@
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
   const meId = $derived(board.me?.account.id ?? '');
   const work = $derived(myWork(board.plainItems, meId, board.now, board.referenceListIds()));
+  const sweepToday = $derived(isSweepDay(board.now, board.prefs.sweep_weekday ?? 4));
   const fresh = $derived(groupEntries(inbox.entries.filter((e) => !e.read)).slice(0, 6));
 
   function line(e: InboxEntry): string {
@@ -58,8 +61,9 @@
     folded = next;
   }
 
+  const needsCount = $derived(board.needsTotal);
   const tiles = $derived([
-    { label: 'Needs you', n: board.needsMe.length, hot: board.needsMe.length > 0, href: null },
+    { label: 'Needs you', n: needsCount, hot: needsCount > 0, href: null },
     { label: 'Overdue', n: work.buckets.overdue.length, hot: work.buckets.overdue.length > 0, href: null },
     { label: 'Due today', n: work.buckets.today.length, hot: false, href: null },
     { label: 'Open', n: work.openCount, hot: false, href: null },
@@ -93,7 +97,9 @@
     {/each}
   </div>
 
+  {#if sweepToday}<DecidePanel />{/if}
   <NeedsPanel layout="groups" />
+  {#if !sweepToday}<DecidePanel />{/if}
 
   <div class="work-cols">
     <div class="work-main">

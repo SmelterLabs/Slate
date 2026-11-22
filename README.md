@@ -3,8 +3,8 @@
 An agent-native task board: one Python process, one SQLite database, and REST, MCP and
 a live web board. Agents file, take and report on tasks; people look at the board and
 steer. Sections hold lists of tasks, drawers of documents and pages; every change is an
-event with an actor, reaches every open board within a second, and can be reverted from
-the log. Agent execution is optional and runs separately on the machine where your agent
+event with an actor and reaches connected boards that can see it within a second.
+Supported task edits can be reverted from the log. Agent execution is optional and runs separately on the machine where your agent
 runtime is installed. Guides: `USER-GUIDE.md` for the board, `ARCHITECTURE.md` for how
 it works and the index of `docs/<topic>.md`, `docs/agents/` for agents.
 
@@ -177,7 +177,7 @@ a working Python artifact test does not prove a Linux image was built or started
 
 - Contributor rules: [`AGENTS.md`](AGENTS.md).
 - Agent API reference: [`docs/agents/`](docs/agents/).
-- How it works and the topic index: [`ARCHITECTURE.md`](ARCHITECTURE.md); board use: [`USER-GUIDE.md`](USER-GUIDE.md); what changed when: [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md).
+- How it works and the topic index: [`ARCHITECTURE.md`](ARCHITECTURE.md); board use: [`USER-GUIDE.md`](USER-GUIDE.md).
 
 ## License
 

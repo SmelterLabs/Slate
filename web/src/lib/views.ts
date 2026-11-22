@@ -811,7 +811,12 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
   const byKey = new Map(groups.map((g) => [g.key, g]));
   if (done) byKey.set('done', done);
   const extra: Group[] = [];
+  const laterItems: Item[] = [];
   for (const item of sorted) {
+    if (config.layout !== 'table' && item.later && !isClosed(item) && !ctx.lists[item.list_id]?.reference) {
+      laterItems.push(item);
+      continue;
+    }
     for (const key of keysOf(item, config, ctx, today)) {
       let g = byKey.get(key);
       if (!g) {
@@ -836,6 +841,15 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
     out = [...groups, ...extra];
   }
   if (done) out.push(done);
+  if (laterItems.length) {
+    out.push({
+      key: 'later',
+      title: 'Later',
+      items: laterItems,
+      drop: null,
+      refuse: 'Later holds cards scheduled for later.',
+    });
+  }
 
   // Housekeeping groups only show when something is in them.
   const optional = new Set(['nostatus']);
@@ -844,7 +858,7 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
 
 /** Days late for the overdue chip: 0 when not overdue. Counted in workspace calendar days. */
 export function daysLate(item: Item, now: Date): number {
-  if (!item.due_at || isClosed(item)) return 0;
+  if (!item.due_at || isClosed(item) || item.parked_until) return 0;
   const due = new Date(item.due_at);
   if (due >= now) return 0;
   const a = new Date(`${workspaceDay(due)}T12:00:00Z`).getTime();

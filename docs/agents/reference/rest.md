@@ -2,7 +2,7 @@
 
 # REST reference
 
-235 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+237 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -10,14 +10,14 @@
 - [agent connections](#agent-connections) (5)
 - [collaboration](#collaboration) (8)
 - [permissions](#permissions) (11)
-- [sections](#sections) (3)
+- [sections](#sections) (4)
 - [lists](#lists) (5)
 - [items](#items) (24)
 - [comments](#comments) (11)
 - [checklists](#checklists) (7)
 - [attachments](#attachments) (5)
 - [tags](#tags) (5)
-- [today](#today) (1)
+- [today](#today) (2)
 - [views](#views) (6)
 - [favorites](#favorites) (4)
 - [inbox](#inbox) (5)
@@ -63,7 +63,7 @@ Scope: `write`
 
 Merge into your board prefs (a key sent as null is removed) and return them all. The change reaches your other devices live as `account.prefs_changed`.
 
-- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `quiet_hours`, `escalate_after_minutes`, `email_to`, `email_reasons`, `view_drafts`
+- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `quiet_hours`, `escalate_after_minutes`, `email_to`, `email_reasons`, `view_drafts`, `lead_days`, `sweep_weekday`
 - Returns: `200`
 
 ### `GET /accounts`
@@ -340,11 +340,19 @@ The audit log with the same filters, as CSV (newest first, up to 50,000 rows).
 
 ### `GET /sections`
 
-Scope: `read` · ETag · MCP: `slate_section list`
+Scope: `read` · MCP: `slate_section list`
 
 List Sections
 
 - Query: `include_archived`
+- Returns: `200` [list of SectionOut](#sectionout)
+
+### `GET /projects`
+
+Scope: `read`
+
+Every active project section with its computed `next_step`, the ones with none first.
+
 - Returns: `200` [list of SectionOut](#sectionout)
 
 ### `POST /sections`
@@ -360,9 +368,9 @@ Create Section
 
 Scope: `write` · MCP: `slate_section update`
 
-Rename, reorder, change audience, archive (`archived: true`) / restore a section, or make it private (owner/admin; `private: true`).
+Rename, reorder, change audience, toggle `project`, archive (`archived: true`) / restore a section, or make it private (owner/admin; `private: true`).
 
-- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`
+- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`
 - Returns: `200` [SectionOut](#sectionout)
 
 ## lists
@@ -415,7 +423,7 @@ Replace the list's statuses, in order, in one change.
 
 ### `GET /items`
 
-Scope: `read` · ETag · MCP: `slate_item list`
+Scope: `read` · MCP: `slate_item list`
 
 Filters combine with AND. `status` is an id or name; `assignee` a handle; `tag` a name; due bounds are exclusive and accept ISO 8601 or YYYY-MM-DD; `q` matches title or body; `stale` = due date moved 3+ times, or open and untouched for 30+ days; `blocked` = waits on an open item (true) or on none (false).
 
@@ -442,7 +450,7 @@ AI add: file exactly one item from plain words (title = the first sentence, desc
 
 ### `GET /items/{item_id}`
 
-Scope: `read` · ETag · MCP: `slate_item get`
+Scope: `read` · MCP: `slate_item get`
 
 The item with its subtasks, tags, assignees, comments and last 20 events.
 
@@ -454,7 +462,7 @@ Scope: `write` · MCP: `slate_item update`
 
 Send only what changes; `null` clears a field. `status` by id or name; `assignees` (handles) and `tags` (names) replace the whole set. An agent may not set `waiting_on_account_id` to a person (422): it asks instead (finish `ask`).
 
-- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`
+- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `parked_until`, `parked_note`
 - Returns: `200` [ItemOut](#itemout)
 
 ### `POST /items/bulk`
@@ -596,7 +604,7 @@ An agent says what it is doing: `working`, `blocked` or `review` put a live badg
 
 Scope: `write` · MCP: `slate_item run`
 
-Run now: ask the item's agent assignees to start on it now instead of at its run time. Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`). Returns 422 when no agent is assigned or the item is done, cancelled or archived.
+Run now: ask the item's agent assignees to start on it now instead of at its run time. Clears parking and overrides a future start without changing the saved start date. Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`). Returns 422 when no agent is assigned or the item is done, cancelled or archived.
 
 - Returns: `202` [slate__api__schemas__EventOut](#slate__api__schemas__eventout)
 
@@ -874,6 +882,14 @@ Open items across all sections: overdue, due by midnight workspace time, waiting
 
 - Query: `fields`
 - Returns: `200` [TodayOut](#todayout)
+
+### `GET /today/sweep`
+
+Scope: `read`
+
+The caller's stale cards (open, assigned, not later, not parked, more than 14 days overdue), oldest due date first.
+
+- Returns: `200` [list of ItemOut](#itemout)
 
 ## views
 
@@ -1230,7 +1246,7 @@ Who is around and what each is on: `online` (a request in the last 2 minutes or 
 
 ### `GET /checkin`
 
-Scope: `read` · ETag · MCP: `slate_checkin get`
+Scope: `read` · MCP: `slate_checkin get`
 
 What to work on and what changed for you, in one call. `lists` gives visible active lists with filing notes, kind and reference flag. `queue`: your open items (assigned or waiting on you). `news`: other accounts' events that concern you, each with `why` (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after`. Keep `next_since` and pass it as `since` next time; without `since` you get the latest news. The queue is the most urgent `queue_limit` (50) of `queue_total`; `fields=id,title,due_at` keeps it small. With `since` and `wait`, an empty answer waits (long-poll) until news arrives or `wait` seconds pass; `/checkin/stream` is the same news pushed live.
 
@@ -1252,7 +1268,7 @@ Your check-in, pushed live: react instead of polling. Three SSE event names, all
 
 Scope: `write` · MCP: `slate_work next`
 
-Take your next task in one call: the best open task assigned to you or waiting on you (with `pool`, also unassigned ones) that is not blocked by an open task, not started later, not held by another agent and not waiting on a person. Order: priority, due date, board position. An agent's assigned task with a due date waits for its run time (06:00 workspace time on the day for a date-only due date, else the due time) unless someone pressed Run now. `item_id` takes that task or nothing. It is yours (live 'working' badge, assigned) for `lease_seconds`; heartbeat to keep it, finish to report back. With `wait`, holds the request up to that many seconds until a task frees up. `item` is null when none is free.
+Take your next task in one call: the best open task assigned to you or waiting on you (with `pool`, also unassigned ones). Dependencies and existing runs still hold the card. Order: priority, due date, board position. Run now overrides a future start and the assigned agent's due-time gate (06:00 workspace time on a date-only due day, else the due time). `item_id` takes that task or nothing. It is yours (live 'working' badge, assigned) for `lease_seconds`; heartbeat to keep it, finish to report back. With `wait`, holds the request up to that many seconds until a task frees up. `item` is null when none is free.
 
 - Body: `NextIn`: `kinds`, `run_id`, `lease_seconds`, `pool`, `list_id`, `section_id`, `tag`, `item_id`, `channel`, `thread_id`, `doc_id`, `resume`, `note`, `context`, `wait`
 - Returns: `200` [NextOut](#nextout)
@@ -1350,7 +1366,7 @@ End a doc turn, the same contract as `/work/chat/finish`. `done` with `reply` po
 
 Scope: `write` · MCP: `slate_work heartbeat`
 
-Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progress` also update the card's badge live. 409 means you lost it (the lease ran out and another agent took the task): stop working on it.
+Keep holding the task: the lease runs `lease_seconds` from now. `note` or `progress` also update the card's badge live. On 409, stop working: the server no longer accepts this run's authority. An expired lease is quarantined until it is reconciled.
 
 - Body: `slate__api__work__HeartbeatIn`: `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`
 - Returns: `200` [HeartbeatOut](#heartbeatout)
@@ -1376,7 +1392,7 @@ What the agent working on this task is doing now: the lines its run posted, olde
 
 Scope: `write` · MCP: `slate_work finish`
 
-Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a note posted as your comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. Take the next task with `POST /work/next`. Agent finishes consume only Ask assignments present at take, so the same open Ask cannot repeatedly dispatch done, review, blocked or released work. Asks remain visible and explicitly resolvable; only asked-only agent done resolves its taken Asks (without completing the task). New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
+Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a reply posted as a comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. Take the next task with `POST /work/next`. An agent finish settles Asks included at take and later Asks acknowledged in order with `seen`. Stop settles Asks sent before it. The first unread Ask and later Asks stay pending unless covered by Stop. Outcomes failed and release leave Asks unresolved, as do human finishes. An agent that was only asked can answer with done without completing the card.
 
 - Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`
 - Returns: `200` [FinishOut](#finishout)
@@ -2169,7 +2185,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### SectionOut
 
-`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean
+`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `project`: boolean, `next_step`: NextStepOut?
 
 ### ListOut
 
@@ -2177,11 +2193,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ItemOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `parked_until`: string?, `parked_note`: string?, `later`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean
 
 ### ItemDetailOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `parked_until`: string?, `parked_note`: string?, `later`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
 
 ### slate__api__schemas__EventOut
 
@@ -2357,7 +2373,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DigestOut
 
-`questions`: [DigestQuestion], `date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
+`questions`: [DigestQuestion], `date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `decide`: [DigestItem], `projects_without_next_step`: [DigestProject], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
 
 ### PushKeyOut
 

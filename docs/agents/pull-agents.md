@@ -22,23 +22,21 @@ Save this as a scheduled task in the agent's app, for example every morning at 0
 
 The agent should report `url` (on heartbeat or finish) when its app has a share link for the chat, so the card links to it.
 
-### ChatGPT (unverified)
+### Test the scheduler
 
-ChatGPT scheduled tasks are reported to use the same tools as an interactive chat, connected apps included (but not voice, file uploads or Custom GPTs), and adding a custom MCP connector is reported to need a paid plan. If that holds: add Slate as a custom connector (its `/mcp` URL and an agent token), then create a scheduled task with the prompt above. **Unverified:** a scheduled task has not been tested against Slate. Check the first run's history on the Agents page.
-
-### Grok (unverified)
-
-It is not confirmed that Grok's scheduled tasks can call a remote MCP server. Until it is, treat Grok as `manual`.
-
-### Claude Desktop (unverified)
-
-Claude Desktop connects to Slate's MCP server ([mcp.md](mcp.md)). Whether it can run a saved prompt on a schedule depends on the version you have. If it can't, use `manual`. A Claude Desktop project you only talk to is a chat app: see [chat-apps.md](chat-apps.md).
+Add Slate to the agent's app using its `/mcp` URL and the agent's token, then save the prompt.
+Use a test card and confirm the scheduled run can connect, take it and report back. If the
+scheduler cannot reach Slate or use its tools, choose manual delivery. See [MCP](mcp.md) and
+[chat apps](chat-apps.md) for connection choices.
 
 ## Copy brief (manual)
 
-**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line that says where the card stands after a second colon, `SLATE: done: <what you did>`, `SLATE: review: <what to check>`, `SLATE: later: <when it runs again>`, `SLATE: answered: <where it stands>`, or `SLATE: ask <handle>: <question> [option | option]`. Paste it into the agent's app.
+**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP
+`slate_item brief`). It includes the title, dates, description, checklists, attached files,
+recent comments and the list's filing note, if set. The last part explains how to report a
+result. Paste the brief into the agent's app.
 
-## The `SLATE:` closing line
+## Closing lines
 
 Paste the agent's answer back as a comment on the task. If its last line is a `SLATE:` line, that line reports back:
 
@@ -50,4 +48,10 @@ Paste the agent's answer back as a comment on the task. If its last line is a `S
 | `SLATE: answered` | Clears the agent's own badge; nothing else changes | Nothing more |
 | `SLATE: ask alex: Start the import now? [Yes \| No \| Not yet]` | The comment becomes the agent's question to Alex: blocked badge with the question, the task waits on Alex, and Alex gets one button per option | Nothing more |
 
-The text after the second colon is the card's one line on where it stands (optional, except for `review`; without it the comment's first line is used). The line must be the last non-empty line. It may be wrapped in backticks or bold. `@alex` works too, and the bracketed options are optional (2 to 4, each up to 40 characters; the question is one line up to 200). A line that can't apply, such as a bad question or a list with no done status, leaves the comment as it is, and a comment with no line changes nothing. Notes that Slate writes itself, such as a report's note, are never read for the line.
+Use the last non-empty line. It can be wrapped in backticks or bold. For `done`, `review`,
+`later` and `answered`, the text after the second colon supplies the standing line. If that
+text is absent, Slate derives a line from the comment. A bare `review` instead means `done`,
+including for a person. For `ask`, the text is a question of up to 200 characters. `@alex`
+also works. Options are optional and must number 2 to 4, each up to 40 characters. A line
+Slate cannot apply leaves the comment in place without applying the reported outcome. Slate
+reads closing lines on ordinary comments. Reports and leased finishes use explicit fields.

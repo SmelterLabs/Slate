@@ -226,6 +226,10 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       const whom = (r.account_id && ctx.name(r.account_id)) || 'someone';
       return `reminded ${whom}${r.note ? `: ${r.note}` : ''}`;
     }
+    case 'item.unparked': {
+      const note = obj(ev.after).note;
+      return note ? `brought this back (was waiting on ${note})` : 'brought this back from parked';
+    }
     case 'health.alert': {
       const h = (ev.after ?? {}) as { label?: string; failures?: number; error?: string | null };
       return `${h.label ?? 'A background job'} failed ${h.failures ?? 'several'} runs in a row${h.error ? `: ${h.error}` : ''}`;
