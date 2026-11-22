@@ -193,6 +193,7 @@ READS = {
         "lease_seconds",
         "check_later",
         "last_failure",
+        "asked_turn",
         "turn_asks",
         "turn_messages",
         "turn_control",
