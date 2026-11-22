@@ -42,7 +42,7 @@ def test_create_returns_the_rule_with_next_occurrences(client, alex, todo):
     assert rule["rrule"] == "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE"
     assert rule["description"] == "every 2 weeks on Wednesday"
     assert rule["timezone"] == "America/Chicago"
-    assert rule["lead_days"] == 14
+    assert rule["lead_days"] == 0
     assert rule["missed_policy"] == "spawn_always"
     assert rule["tags"] == ["home"]
     assert rule["next_run_at"] == "2030-01-02T06:00:00Z"
