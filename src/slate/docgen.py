@@ -79,7 +79,7 @@ EVENT_DOCS: dict[str, str] = {
     "section.created": "A section was created.",
     "section.participants_changed": "Refetch section participants; payload has no member details.",
     "section.updated": "A section changed (`field` = the column: name, position, audience, "
-    "private, whiteboard_url).",
+    "private, project, whiteboard_url).",
     "section.archived": "A section was archived.",
     "section.unarchived": "A section was restored.",
     "list.created": "A list was created (with its statuses).",
@@ -154,6 +154,9 @@ EVENT_DOCS: dict[str, str] = {
     "item.due_soon": "Scheduler: the item is due within the lead time (`after.lead_hours`).",
     "item.due": "Scheduler: the item's due time has arrived. A `work` hint for its agents.",
     "item.overdue": "Scheduler: the item is an hour past due and not done.",
+    "item.unparked": "Scheduler: at 06:00 workspace time on `parked_until`, both parked fields "
+    "were cleared (`after` = `{note, notify}`); reaches the card's person assignees and watchers "
+    "(else the workspace owner) as inbox and push reason `reminder`.",
     "comment.edited": "A comment's text changed.",
     "comment.deleted": "A comment was deleted for good, by its author or an admin (`before` = "
     "the comment, with `reactions`). Inboxes and check-in news drop every entry about it.",

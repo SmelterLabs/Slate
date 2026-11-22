@@ -39,7 +39,7 @@ def setup_digest(client, alex, todo, db, monkeypatch, partial=False):
         todo["id"],
         title="CONFIDENTIAL AFTER REVOCATION",
         assignees=["guest"],
-        due_at="2026-01-01",
+        due_at=(utcnow() - timedelta(days=1)).isoformat(),
     )
     if partial:
         other = client.post(
@@ -66,7 +66,7 @@ def setup_digest(client, alex, todo, db, monkeypatch, partial=False):
             other["id"],
             title="STILL AUTHORIZED",
             assignees=["guest"],
-            due_at="2026-01-01",
+            due_at=(utcnow() - timedelta(days=1)).isoformat(),
         )
     now = utcnow()
     monkeypatch.setattr(push, "utcnow", lambda: now)
@@ -150,7 +150,7 @@ def test_digest_retry_after_revoke_is_dropped_or_safely_partial(
         todo["id"],
         title="CONFIDENTIAL AFTER REVOCATION",
         assignees=["guest"],
-        due_at="2026-01-01",
+        due_at=(utcnow() - timedelta(days=1)).isoformat(),
     )
     if partial:
         other = client.post(
@@ -172,7 +172,7 @@ def test_digest_retry_after_revoke_is_dropped_or_safely_partial(
             other["id"],
             title="STILL AUTHORIZED",
             assignees=["guest"],
-            due_at="2026-01-01",
+            due_at=(utcnow() - timedelta(days=1)).isoformat(),
         )
     now = utcnow()
     monkeypatch.setattr(push, "utcnow", lambda: now)

@@ -238,10 +238,18 @@ def _build(session, ids, found, missing, views, adapter, token) -> list[bytes]: 
 
 
 def _restricted(session: Session) -> bool:
-    from slate.service import access  # access imports models only; keep the import local
+    from slate.models import Account
+    from slate.service import access, today  # access imports models only; keep the import local
 
     found = access.current(session)
-    return found is not None and found.lists is not None
+    if found is not None and found.lists is not None:
+        return True
+    caller = access.caller(session)
+    if caller is not None:
+        acct = session.get(Account, caller.account_id)
+        if today.lead_days_for(acct) != today.DEFAULT_LEAD_DAYS:
+            return True
+    return False
 
 
 def trim(parts: Sequence[bytes], wanted: set[str] | None) -> list[bytes]:

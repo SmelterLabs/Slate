@@ -65,6 +65,8 @@ UPDATABLE = frozenset(
         "start_at",
         "due_at",
         "due_date_only",
+        "parked_until",
+        "parked_note",
         "waiting_on_account_id",
         "acceptance_md",
         "position",
@@ -265,9 +267,17 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
     # A project's guest sees no trace of a workspace agent (service/guests.py): not its badge,
     # its session link, a wait on it or its name as the card's maker.
     hide = guests.workspace_agent_ids(session) if guests.viewer_is_guest(session) else set()
+    from slate.service import today as today_svc
+
+    caller = access.caller(session)
+    lead_days = today_svc.lead_days_for(
+        session.get(Account, caller.account_id) if caller is not None else None
+    )
+    now = utcnow()
     out = []
     for item in items:
         st = statuses.get(item.status_id)
+        is_open = st is None or st.kind not in (StatusKind.done, StatusKind.cancelled)
         out.append(
             {
                 "id": item.id,
@@ -285,6 +295,9 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                 "start_at": item.start_at,
                 "due_at": item.due_at,
                 "due_date_only": item.due_date_only,
+                "parked_until": item.parked_until,
+                "parked_note": item.parked_note,
+                "later": today_svc.is_later(item, now=now, lead_days=lead_days, is_open=is_open),
                 "completed_at": item.completed_at,
                 "waiting_on_account_id": item.waiting_on_account_id,
                 "acceptance_md": item.acceptance_md,
@@ -879,6 +892,15 @@ def update_item(session: Session, actor: Actor, item_id: str, changes: Mapping[s
             values[key] = parse_when(changes[key])
     if "due_at" in changes:
         values["due_date_only"] = _due_date_only(changes)
+    if "parked_until" in changes or "parked_note" in changes:
+        p_until = changes.get("parked_until")
+        p_note = changes.get("parked_note")
+        if p_until is None and p_note is None:
+            values["parked_until"] = None
+            values["parked_note"] = None
+        else:
+            values["parked_until"] = p_until
+            values["parked_note"] = p_note
     if "waiting_on_account_id" in changes:
         ref = changes["waiting_on_account_id"]
         values["waiting_on_account_id"] = resolve_account(session, ref).id if ref else None

@@ -171,6 +171,8 @@ def eligible(
     # An open Ask for this account (a question on the card): it is answered now, even on a
     # card that is ready for review, waiting on someone or already done (card chat).
     asked = Item.id.in_(_asked_items(account_id))
+    from slate.service import today as today_svc
+
     q = (
         select(Item)
         .join(List, List.id == Item.list_id)
@@ -180,8 +182,10 @@ def eligible(
         .where(
             Item.kind == ItemKind.task,
             Item.archived_at.is_(None),
+            Item.parked_until.is_(None),
             List.archived_at.is_(None),
             Section.archived_at.is_(None),
+            *today_svc.non_reference_list_filter(),
         )
     )
     open_status = or_(

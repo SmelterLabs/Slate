@@ -6,11 +6,12 @@ date-only `YYYY-MM-DD` meaning 17:00 workspace time. Responses carry UTC ISO 860
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
+from slate import dates
 from slate.service import reports
 
 # Generous limits on the long text fields (characters), so one write cannot carry tens of
@@ -51,6 +52,16 @@ class SectionPatch(BaseModel):
     private: bool | None = Field(
         default=None, description="Owner/admin: hide it from members unless shared with them"
     )
+    project: bool | None = Field(
+        default=None, description="Mark this section as a project with a computed next_step"
+    )
+
+
+class NextStepOut(BaseModel):
+    item_id: str
+    title: str
+    assignee_ids: list[str]
+    due_at: datetime
 
 
 class SectionOut(_Out):
@@ -62,6 +73,8 @@ class SectionOut(_Out):
     created_at: datetime
     archived_at: datetime | None
     private: bool = False
+    project: bool = False
+    next_step: NextStepOut | None = None
 
 
 # --- Lists and statuses --------------------------------------------------------------------
@@ -198,6 +211,37 @@ class ItemPatch(_ItemFields):
     """Send only the fields to change. `assignees` and `tags` replace the whole set."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
+    parked_until: str | None = Field(
+        default=None, description="Workspace date YYYY-MM-DD in the future; set with parked_note"
+    )
+    parked_note: str | None = Field(
+        default=None, max_length=140, description="Who or what the card waits for (up to 140 chars)"
+    )
+
+    @model_validator(mode="after")
+    def _validate_parked(self) -> ItemPatch:
+        has_until = "parked_until" in self.model_fields_set
+        has_note = "parked_note" in self.model_fields_set
+        if not (has_until or has_note):
+            return self
+        if self.parked_until is None and self.parked_note is None:
+            return self
+        if self.parked_until is None or self.parked_note is None:
+            raise ValueError("setting parked_until requires parked_note, and vice versa")
+        note = self.parked_note.strip()
+        if not note:
+            raise ValueError("parked_note is required when parking a card")
+        self.parked_note = note
+        if not dates.is_date_only_input(self.parked_until):
+            raise ValueError("parked_until must be a date in YYYY-MM-DD format")
+        try:
+            until = date.fromisoformat(self.parked_until.strip())
+        except ValueError:
+            raise ValueError("parked_until is not a valid calendar date") from None
+        if until <= dates.local_today():
+            raise ValueError("parked_until must be in the future")
+        self.parked_until = until.isoformat()
+        return self
 
 
 class BulkChanges(ItemPatch):
@@ -365,6 +409,16 @@ class ItemOut(BaseModel):
         default=False,
         description="The due date was given without a time (stored as 17:00 workspace time "
         "that day)",
+    )
+    parked_until: str | None = Field(
+        default=None, description="Waiting on someone outside until this workspace date"
+    )
+    parked_note: str | None = Field(
+        default=None, description="Who or what the parked card waits for"
+    )
+    later: bool = Field(
+        default=False,
+        description="Computed for the caller: open and starts in the future or due past lead_days",
     )
     completed_at: datetime | None
     waiting_on_account_id: str | None

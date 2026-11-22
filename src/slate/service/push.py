@@ -399,7 +399,11 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
             "event_id": ev.id,
             "reason": reason,
         }
-    if reason == "reminder":
+    if ev.type == "item.unparked":
+        note = after.get("note") or ""
+        text = f"Back today: {title} (was waiting on {note})" if note else f"Back today: {title}"
+        head, body = text, text
+    elif reason == "reminder":
         head, body = f"⏰ {title}", after.get("note") or "Reminder"
     elif reason == "digest":
         after = access.digest_snapshot(session, after, access.current(session))

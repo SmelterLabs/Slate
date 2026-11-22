@@ -551,6 +551,18 @@ def _validate_prefs(prefs: dict[str, Any]) -> None:
         isinstance(view_drafts, dict) and all(isinstance(v, dict) for v in view_drafts.values())
     ):
         raise Invalid("view_drafts must map a view key to the changed view settings")
+    lead_days = prefs.get("lead_days")
+    if lead_days is not None and (
+        isinstance(lead_days, bool) or not isinstance(lead_days, int) or not 0 <= lead_days <= 365
+    ):
+        raise Invalid("lead_days must be a whole number of days, 0 (off) to 365")
+    sweep_weekday = prefs.get("sweep_weekday")
+    if sweep_weekday is not None and (
+        isinstance(sweep_weekday, bool)
+        or not isinstance(sweep_weekday, int)
+        or not 0 <= sweep_weekday <= 6
+    ):
+        raise Invalid("sweep_weekday must be 0 (Monday) to 6 (Sunday)")
     if len(json.dumps(prefs)) > PREFS_MAX_BYTES:
         raise Invalid(f"prefs are limited to {PREFS_MAX_BYTES} bytes")
 

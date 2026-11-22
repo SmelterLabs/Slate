@@ -152,6 +152,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
     if ev.type == "item.reminder":
         # Reminders you set for yourself are news too: that is their point.
         return "reminder" if (ev.after_json or {}).get("account_id") == account.id else None
+    if ev.type == "item.unparked":
+        return "reminder" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "account.digest":
         return "digest" if ev.subject_id == account.id else None
     if ev.type in HEALTH_TYPES:
@@ -371,6 +373,7 @@ def _candidates(account: Account, f: Follows, state: InboxState | None, *, unrea
 
     conds = [
         (Event.type == "item.reminder") & (after("$.account_id") == me),
+        (Event.type == "item.unparked") & _in_after("$.notify", me),
         (Event.type == "account.digest") & (Event.subject_id == me),
         (Event.type == "session.expiring") & (Event.subject_id == me),
         Event.type.in_(MENTION_TYPES) & _in_after("$.mentions", account.handle),
