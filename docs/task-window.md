@@ -284,7 +284,10 @@ selection").
   caches it per `rev`. Shown by `NeedsBadge.svelte` (desktop: a pill docked bottom-right on every
   page except My Work and Inbox, opening the list; phone: a pill in the top bar linking to My Work)
   and `work/NeedsPanel.svelte` (grouped by reason at the top of My Work and the Inbox, with Mark
-  reviewed). Each sidebar list shows a `.needs-mark` (count, colored by its most urgent reason) from
+  reviewed). A row waiting on the viewer through an ask has the ask's headline as its title (the question, or
+  "3 questions: <first>"), with one button per option when the ask has one question and
+  **Answer →** (opens the card) when it has several; a review row's second line is the standing
+  line. Each sidebar list shows a `.needs-mark` (count, colored by its most urgent reason) from
   `board.needsIn(listId)` (`attention.byList`, cached with `needsMe`). Cards on their lists keep
   their own agent badge. E2E `e2e/needs-you.spec.ts`.
 - **Needs you on the card itself** (`Card.svelte`): each card runs `needOf` (the same
@@ -294,27 +297,49 @@ selection").
   saying it shows a red "Waiting on Alex" chip under the title (`data-waits-on-me`) whatever the
   card's field settings, replacing the gray Waiting-on pill in the footer. Why: once an agent's
   flag is cleared, a small gray footer pill would be the card's only sign while the pill and the
-  sidebar are red.
+  sidebar are red. The question badge counts the questions in the viewer's structured Ask
+  alongside any other open Asks addressed to them. When the standing line is that Ask's
+  headline, the card shows the first question there and keeps the count in the question badge.
 - **Standing**: the item view's `standing` (`{line, by_id, at, move_id}`, service/reports.py
   and `items._move_id`) is the agent's one line on where the card stands and whose move it is;
   the row, the card and the top of the window show it, with "Your move" when `move_id` is the
   viewer and that account's name otherwise. The agent's long reply stays in the conversation.
-  `stalled` shows a neutral "Stalled" mark with Run now.
-- **Waiting on you, in the window**: a card that waits on the viewer opens with a red
-  banner at the top of the main column (`data-banner="waiting"`): who set the wait, the question in
-  a sentence or two, **Answer** and **Not waiting on me**. `conversation.waitingQuestion(item,
-  comments, events, me)` finds it: the latest `waiting_on_account_id` event naming me, its actor's
-  newest comment up to a minute after it (a blocked report writes both together), else the newest
-  comment by anyone else; `questionIn(md)` keeps its last one or two sentences ending in "?" (table
-  rows skipped), else the first line. Answer calls `task.reveal(commentId)`: ActivityPanel opens that
-  comment if collapsed, scrolls it into view, outlines it (`.comment.lit`) and focuses the reply
-  box. Why: the question is often only the last sentence of a long agent comment, and once the
-  agent flag is cleared ("stopped working") the badge is gone too, so without the banner
-  "Answer →" in the pill would open a card that shows nothing to answer. While the agent that
-  asked is still flagged blocked (`waitFlag`: the flag is `blocked` and by the account that set the
-  wait), the banner is the only box: it adds the flag's age, its **Open ↗** link and **✕ Clear
-  badge** (`data-clear-blocked`, clears the flag and leaves the wait), and the `AgentBadge` under it
-  is not rendered, because its note is the same sentence. Any other flag keeps its badge.
+  `stalled` shows a neutral "Stalled" mark with Run now. On a `review` flag the standing line is
+  what the person is to check. It stands in for the flag's note in the full task-window badge
+  and on a Needs you review row. Compact badge tooltips show the agent's note. The task window
+  shows the reviewer’s name beside the full badge and shows the standing text once.
+- **Questions on a comment** (`task/AskQuestions.svelte`): a comment that carries an agent's ask
+  (`comment.ask`) opens with one tinted block, above its author line and body: "Question for
+  you" / "Questions for Alex", the Open or Answered state, and the questions, numbered when
+  there are several, each with its options under it. It is the only place a comment shows its
+  ask (an ask comment has no "Asked … · Open" pill), and it stays in full when the exchange is
+  folded. An option is a live answer (`POST /comments/{id}/answer`) only on an open ask with one
+  question addressed to the viewer; otherwise options are plain chips. Both the item and
+  comment carry `ask.questions`. When a report posts a new Ask, `item.reported` supplies the
+  comment ID, recipient, and questions so the open task window can show them live. The reducer
+  refetches for the full item view. When the thread opens or
+  grows while pinned to the bottom and the viewer's newest open Ask would sit above the fold (a
+  long report under it), the feed brings that Ask to the top once.
+- **Your move, in the window** (`task/TurnBanner.svelte`, one component for the waiting and
+  review banners; `TaskModal` decides which and passes the flag whose parts it carries). A card
+  that waits on the viewer through an ask with one question opens with the question as the red
+  banner's heading, "My Agent asks", one button per option, **Answer** and **Not waiting on me**.
+  With several questions the heading is "My Agent needs 3 answers from you"; each question is
+  numbered with its options as single-select chips and a line to type an answer (typing wins
+  over a chip); **Send answers**, enabled once every question has an answer, posts one ordinary
+  comment, a numbered list with each answer in bold after its question, which is the answer the
+  server takes (`POST /comments/{id}/answer` refuses an ask with several questions). A review
+  whose `standing.move_id` is the viewer opens with an amber banner (`data-banner="review"`): the
+  standing line (what to check) as its heading, "My Agent finished and asks you to check", the
+  flag's age and **Open ↗**, and **✓ Mark reviewed** (clears the flag); the badge is left out and
+  the reply's first line is not shown. Any other viewer keeps the review badge.
+- **Waiting on you with no ask**: a manual wait shows who is waiting, **Reply** and
+  **Not waiting on me**. `conversation.waitingContext` uses the wait event and its author's
+  comment to locate the thread context. The comment stays in Activity. **Reply** and the
+  structured Ask's **Answer** both call `task.reveal(commentId)`. Activity opens that comment
+  when folded, scrolls it into view, outlines it (`.comment.lit`) and focuses the reply box.
+  If the waiting agent still has a blocked flag, the banner includes its age, **Open ↗**, and
+  **✕ Clear badge** (`data-clear-blocked`, clears the flag and leaves the wait).
 - **A reply after the flag is cleared** (`comments.reply_target`): a comment by the person the card
   waits on is the agent's next turn while the agent's blocked flag names them, and also when there
   is no agent flag at all and the last `waiting_on_account_id` change to that person was made by an

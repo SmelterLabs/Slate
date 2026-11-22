@@ -586,6 +586,46 @@ def test_only_the_person_asked_can_answer_the_project_agents_option(client, worl
     assert _leaks(reply["body_md"], world["agent"]) == []
 
 
+def test_guests_do_not_see_multiple_questions_from_a_workspace_agent(client, alex, world):
+    card, _ = world["ids"]["item_id"]
+    guest = world["guests"]["guest"]
+    questions = [{"question": "Check the totals?"}, {"question": "Use the Friday date?"}]
+    path = f"{API}/items/{card}"
+    _ok(
+        client.post(
+            f"{path}/report",
+            json={"state": "blocked", "questions": questions},
+            headers=world["agent_headers"],
+        )
+    )
+    assert len(_ok(client.get(path, headers=alex))["ask"]["questions"]) == 2
+    assert _ok(client.get(path, headers=guest))["ask"] is None
+    comments = _ok(client.get(f"{path}/comments", headers=guest))
+    assert all(
+        comment["ask"] is None and "Check the totals?" not in comment["body_md"]
+        for comment in comments
+    )
+
+
+def test_guest_agent_cannot_bypass_explicit_assignee_reach_with_a_closing_ask(client, alex, world):
+    card, _ = world["ids"]["item_id"]
+    path = f"{API}/items/{card}"
+    before = _ok(client.get(f"{path}/comments", headers=alex))
+    headers = world["guests"]["other-agent"]
+    plain = client.post(
+        f"{path}/comments", json={"assignee": "my-agent", "body_md": "Report."}, headers=headers
+    )
+    assert plain.status_code == 422, plain.text
+    response = client.post(
+        f"{path}/comments",
+        json={"assignee": "my-agent", "body_md": "Report.\nSLATE: ask guest: Which file?"},
+        headers=headers,
+    )
+    assert response.status_code == plain.status_code, response.text
+    assert response.json() == plain.json()
+    assert _ok(client.get(f"{path}/comments", headers=alex)) == before
+
+
 def test_a_guest_still_sees_the_card_change_without_the_agent(client, alex, world):
     gh = world["guests"]["guest"]
     card = world["ids"]["item_id"][0]

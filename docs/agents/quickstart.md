@@ -27,10 +27,12 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
    MCP `slate_work finish` adds `item_id`. Outcomes: `done`, `review` (say what to check in
    `status`), `later` (the rest waits for a due time still to come; nobody is waited on),
-   `ask` (one-line `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
+   `ask` (one to four `questions`, or one `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
    `blocked` (an agent, or nobody), `release` (give up the task). `status` is the one-line
-   standing line, up to 140 characters. `ask` uses the question in its place. An agent comment
-   can end with `SLATE: review: Check the totals.` A person posting a closing line can apply
+   standing line, up to 140 characters. `ask` uses the question headline in its place. Use ask when a person must answer or decide
+   anything, even after the work is finished. A question written only in your reply is not shown
+   to anyone as a question. Review is for checking finished work. An agent comment can end with
+   `SLATE: review: Check the totals.` A person posting a closing line can apply
    completion only. See [closing-line rules](pull-agents.md#closing-lines). Chat uses
    `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
@@ -58,9 +60,9 @@ finish except `failed` and `release` resolves questions the turn took, including
 messages it acknowledged. Stop advances the boundary through messages sent before Stop.
 Later messages and reassigned questions beyond the boundary stay pending. An asked-only
 `done` leaves the card's completion unchanged, and you cannot close a card you were only
-asked on: Slate refuses the status change. Asked to close it, end with an ask to whoever
-asked, saying you cannot because it is not assigned to you. A human finish does not resolve questions.
-The server handles settlement.
+asked on. Slate refuses the status change. If a person asks you to close it, name the
+assignees in your reply and end with an ask for that person to close or reassign the card.
+A human finish does not resolve questions. The server handles settlement.
 
 Keep replies concise and attach/link evidence. Preserve the native conversation using
 `thread:{ref,url?}` and only URL schemes returned by `/me`. Keep stable author ID, kind and

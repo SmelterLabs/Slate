@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, seed, signIn } from './support';
+import { api, screenshots, seed, signIn } from './support';
 
 test('an older agent report stays a comment card in All activity', async ({ page }) => {
   const { agent } = seed();
@@ -55,5 +55,61 @@ test('an older agent report stays a comment card in All activity', async ({ page
   await expect(showAll).toBeFocused();
   await expect(showAll).toHaveAttribute('aria-expanded', 'false');
 
+  await api('PATCH', `/sections/${section.id}`, { archived: true });
+});
+
+test('an answered Ask keeps its questions visible when its report folds', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const { agent } = seed();
+  const { account } = await api<{ account: { handle: string } }>('GET', '/me', undefined, agent);
+  const section = await api<{ id: string }>('POST', '/sections', { name: 'Stock review', audience: 'ai' });
+  const list = await api<{ id: string }>('POST', '/lists', { section_id: section.id, name: 'Supply orders' });
+  const item = await api<{ id: string }>('POST', '/items', {
+    list_id: list.id, title: 'Review the stock order', assignees: [account.handle],
+  });
+  const questions = ['Keep the extra boxes?', 'Who should approve the order?', 'Ship this Friday?'];
+  const end = 'The full count is in the attached inventory.';
+  const run = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
+  await api('POST', `/work/${item.id}/finish`, {
+    run_id: run.lease.run_id, outcome: 'ask', waiting_on: 'alex',
+    questions: questions.map((question) => ({ question })),
+    reply: ['**Stock count complete**', 'Twelve boxes on the top shelf.', 'Four by the loading door.',
+      'Space is reserved for the next shipment.', end].join('\n\n'),
+  }, agent);
+  const comments = `/items/${item.id}/comments`;
+  const [ask] = await api<{ id: string }[]>('GET', comments);
+  const exchanges = [
+    ['Keep them, I will approve, and ship on Friday.', 'I recorded all three decisions.'],
+    ['Did you book the pickup?', 'The pickup is booked.'],
+    ['Where is the receipt?', 'The receipt is with the order.'],
+  ];
+  for (const [index, [message, reply]] of exchanges.entries()) {
+    await api('POST', comments, { body_md: message, assignee: index === 0 ? undefined : account.handle });
+    const next = await api<{ lease: { run_id: string }; reply: { body_md: string } }>(
+      'POST', '/work/next', { item_id: item.id }, agent,
+    );
+    expect(next.reply.body_md).toBe(message);
+    await api('POST', `/work/${item.id}/finish`, {
+      run_id: next.lease.run_id, outcome: 'answered', reply,
+    }, agent);
+  }
+
+  await signIn(page);
+  await page.goto(`/#/list/${list.id}?task=${item.id}`);
+  const article = page.locator(`.tw article[data-comment="${ask.id}"]`);
+  await expect(article).toHaveAttribute('data-chat-collapsed', '');
+  const block = article.locator(':scope > [data-ask-box]:first-child');
+  await expect(block).toHaveAttribute('data-ask-state', 'answered');
+  await expect(block.locator('[data-ask-question]')).toHaveText(questions);
+  await expect(article.locator('.comment-content[inert]')).toBeAttached();
+  expect(await block.evaluate((el) => el.closest('[inert]') === null)).toBe(true);
+  await article.scrollIntoViewIfNeeded();
+  await expect(block).toBeInViewport();
+  await screenshots('SLATE_QUESTIONS_SHOTS')(page, 'desktop-folded-ask');
+
+  await article.getByRole('button', { name: 'Show all' }).click();
+  await expect(article.getByRole('button', { name: 'Show less' })).toBeVisible();
+  await expect(article.locator('.comment-content[inert]')).toHaveCount(0);
+  await expect(article.getByText(end)).toBeVisible();
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });

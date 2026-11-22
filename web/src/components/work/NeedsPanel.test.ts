@@ -32,7 +32,8 @@ const { answer, askItem, boardState } = vi.hoisted(() => {
     subtask_count: 0,
     comment_count: 0,
     agent: { state: 'blocked' as const, by: 'sc', at: '2026-10-29T10:00:00Z', note: 'Long explanation' },
-    ask: { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'], by_id: 'sc', at: '2026-10-29T10:00:00Z' },
+    ask: { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'],
+      questions: [{ question: 'Start the import now?', options: ['Yes', 'No'] }], by_id: 'sc', at: '2026-10-29T10:00:00Z' },
   };
   return {
     answer: vi.fn(async () => true),
@@ -75,11 +76,13 @@ describe('NeedsPanel ask row', () => {
 
   it('renders duplicate option labels without throwing and puts options on their own wrapping row', async () => {
     const longOpt = 'Option with forty characters in the text';
+    const options = [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'];
+    const ask = askItem.ask!;
     boardState.needsMe = [
       {
         item: {
           ...askItem,
-          ask: { ...askItem.ask!, options: [longOpt, longOpt, 'Third long option with forty characters!', 'Fourth long option with forty characters'] },
+          ask: { ...ask, options, questions: [{ question: ask.question, options }] },
         },
         need: 'waiting',
       },
@@ -93,6 +96,30 @@ describe('NeedsPanel ask row', () => {
     expect(buttons[0].textContent.trim()).toBe(longOpt);
     expect(buttons[1].textContent.trim()).toBe(longOpt);
     await unmount(app);
+  });
+
+  it('keeps someone else’s structured ask out of the viewer’s separate Ask row', async () => {
+    boardState.needsMe = [{
+      item: {
+        ...askItem,
+        waiting_on_account_id: 'other',
+        open_asks: ['other', 'me'],
+        agent: { ...askItem.agent!, note: askItem.ask!.question },
+      },
+      need: 'asked',
+    }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    try {
+      const row = target.querySelector('[data-item="I1"]')!;
+      expect(row.querySelector('[data-ask-question]')).toBeNull();
+      expect(row.querySelector('[data-answer-option]')).toBeNull();
+      expect(row.querySelector('.nd-title')?.textContent).toBe(askItem.title);
+      expect(row.textContent).not.toContain(askItem.ask!.question);
+      expect(row.querySelector('.nd-act')?.textContent?.trim()).toBe('Reply →');
+    } finally {
+      await unmount(app);
+    }
   });
 
   it('shows a stalled row with a Run now action', async () => {
@@ -110,6 +137,49 @@ describe('NeedsPanel ask row', () => {
     expect(runBtn?.textContent?.trim()).toBe('Run now');
     runBtn?.click();
     expect(boardState.runAction).toHaveBeenCalled();
+    await unmount(app);
+  });
+});
+
+describe('NeedsPanel questions and reviews', () => {
+  it('shows an ask with several questions by its headline, with Answer → instead of options', async () => {
+    const several = {
+      ...askItem.ask!,
+      question: '2 questions: Start the import now?',
+      options: [],
+      questions: [
+        { question: 'Start the import now?', options: ['Yes', 'No'] },
+        { question: 'Which file first?', options: [] },
+      ],
+    };
+    boardState.needsMe = [{ item: { ...askItem, ask: several }, need: 'waiting' }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const row = target.querySelector('[data-item="I1"]')!;
+    expect(row.querySelector('[data-ask-question]')?.textContent).toBe('2 questions: Start the import now?');
+    expect(row.querySelectorAll('[data-answer-option]')).toHaveLength(0);
+    expect(row.classList.contains('has-opts')).toBe(false);
+    expect(row.querySelector('.nd-act')?.textContent?.trim()).toBe('Answer →');
+    row.querySelector<HTMLButtonElement>('.nd-main')!.click();
+    expect(boardState.open).toHaveBeenCalledWith('I1');
+    await unmount(app);
+  });
+
+  it('gives a review row what to check, not the first line of the reply', async () => {
+    const review: Item = {
+      ...askItem,
+      id: 'I3',
+      ask: null,
+      waiting_on_account_id: null,
+      agent: { state: 'review', by: 'sc', at: '2026-10-29T10:00:00Z', note: 'Here is the weekly report.' },
+      standing: { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: 'me' },
+    };
+    boardState.needsMe = [{ item: review, need: 'review' }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const meta = target.querySelector('[data-item="I3"] .nd-meta')!;
+    expect(meta.textContent).toContain('Check the totals in the March column');
+    expect(meta.textContent).not.toContain('weekly report');
     await unmount(app);
   });
 });

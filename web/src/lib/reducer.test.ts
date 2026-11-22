@@ -239,6 +239,22 @@ describe('applyEvent', () => {
     expect(d.items.I1.agent).toBeNull();
   });
 
+  it('keeps all reported questions through the waiting transition and clears them when answered', () => {
+    const d = data(item());
+    const questions = [{ question: 'Ready?', options: ['Yes', 'No'] }, { question: 'Which date?', options: [] }];
+    const report = ev({
+      type: 'item.reported', actor_id: 'AGENT',
+      after: { state: 'blocked', waiting_on: 'me', comment_id: 'C1', question: '2 questions: Ready?', options: [], questions },
+    });
+    applyEvent(d, report);
+    expect(d.items.I1.ask).toEqual({ comment_id: 'C1', by_id: 'AGENT', at: report.at, question: '2 questions: Ready?', options: [], questions });
+    expect(d.items.I1.waiting_on_account_id).toBe('me');
+    applyEvent(d, ev({ field: 'waiting_on_account_id', before: null, after: 'me' }));
+    expect(d.items.I1.ask?.questions).toEqual(questions);
+    applyEvent(d, ev({ field: 'waiting_on_account_id', before: 'me', after: null }));
+    expect(d.items.I1.ask).toBeNull();
+  });
+
   it('a failed report sets a failed badge, and an ask report refetches for the full ask', () => {
     const d = data(item());
     applyEvent(d, ev({ type: 'item.reported', actor_id: 'AGENT', after: { state: 'failed', note: 'Boom\nmore', by: 'AGENT' } }));
@@ -316,7 +332,8 @@ describe('applyEvent', () => {
     expect(fxReopen.refetch).toEqual(['I1']);
   });
   it('clears a stale ask whenever waiting_on_account_id changes, not only when cleared', () => {
-    const ask = { comment_id: 'C1', question: 'Start now?', options: ['Yes', 'No'], by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
+    const q = { question: 'Start now?', options: ['Yes', 'No'] };
+    const ask = { ...q, questions: [q], comment_id: 'C1', by_id: 'AGENT', at: '2026-10-29T10:00:00Z' };
     const d1 = data(item({ waiting_on_account_id: 'me', ask }));
     applyEvent(d1, ev({ field: 'waiting_on_account_id', before: 'me', after: null }));
     expect(d1.items.I1.ask).toBeNull();

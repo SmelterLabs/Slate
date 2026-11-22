@@ -225,18 +225,13 @@ export function unpickedAsk(pending: { picked: boolean; since?: string } | null,
   return Number.isFinite(sent) && now.getTime() - sent > PICKUP_WAIT_MS;
 }
 
-/** What a card that waits on `me` is waiting for: who set the wait, the comment that carries
- * their question, and the question itself in a sentence or two. The wait is the latest
- * `waiting_on_account_id` change naming `me`; the comment is its author's newest comment up to
- * a minute after it (an agent's blocked report writes the comment and the wait together). With
- * no such event in view (an old wait), the newest comment by anyone else stands in. The
- * question is the comment's last sentences that end in "?", else its first line. */
-export function waitingQuestion(
+/** The setter of a manual wait and the comment to open for context, when available. */
+export function waitingContext(
   item: Pick<Item, 'waiting_on_account_id'>,
-  comments: Pick<Comment, 'id' | 'author_id' | 'body_md' | 'created_at'>[],
+  comments: Pick<Comment, 'id' | 'author_id' | 'created_at'>[],
   events: Pick<SlateEvent, 'id' | 'type' | 'field' | 'after' | 'actor_id' | 'at'>[],
   me: string,
-): { by: string | null; commentId: string | null; question: string | null } | null {
+): { by: string | null; commentId: string | null } | null {
   if (!me || item.waiting_on_account_id !== me) return null;
   const wait = events
     .filter((e) => e.type === 'item.updated' && e.field === 'waiting_on_account_id' && e.after === me)
@@ -249,21 +244,5 @@ export function waitingQuestion(
     .filter((c) => (by ? c.author_id === by : c.author_id !== me))
     .filter((c) => !limit || !by || c.created_at <= limit)
     .at(-1);
-  if (!said) return { by, commentId: null, question: null };
-  return { by: by ?? said.author_id, commentId: said.id, question: questionIn(said.body_md) };
-}
-
-/** The asking part of a comment as plain text: its last one or two sentences ending in "?",
- * else its first line. */
-export function questionIn(md: string, max = 280): string {
-  const plain = md
-    .split('\n')
-    .filter((l) => !/^\s*\|/.test(l)) // table rows
-    .map((l) => l.replace(/^[\s#>*-]+/, '').replace(/[*_`]/g, '').trim())
-    .filter(Boolean)
-    .join(' ');
-  const sentences = plain.match(/[^.!?]*[^.!?\s][^.!?]*[.!?]+/g)?.map((s) => s.trim()) ?? [];
-  const asks = sentences.filter((s) => s.endsWith('?'));
-  const text = asks.length ? asks.slice(-2).join(' ') : firstLine(md, max);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return { by: by ?? said?.author_id ?? null, commentId: said?.id ?? null };
 }

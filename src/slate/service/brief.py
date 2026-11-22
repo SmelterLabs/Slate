@@ -10,7 +10,7 @@ due date, description, checklist, attached files and recent comments, then the r
 that is not its own, which it cannot close and must say so (ASKED_RULE). The run rule
 tells the agent to look in its own memory for related work first and to save what it learns
 (a card runs in a fresh session, so memory is how one card's work reaches the next), and
-asks it to end its answer with one line Slate understands:
+asks it to end its answer with a line Slate understands, or one ask line per question:
 
     SLATE: done
     SLATE: review
@@ -18,7 +18,7 @@ asks it to end its answer with one line Slate understands:
     SLATE: answered
     SLATE: ask alex: Start the import now? [Yes | No | Not yet]
 
-The bracketed options are optional. `closing_line(text)` reads that line back;
+The bracketed options are optional. `closing_line(text)` reads the ending back;
 service/comments.py applies it to the task when a comment (REST or MCP) ends with it.
 Reads only: nothing here writes.
 """
@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,6 +45,7 @@ from slate.models import (
     List,
     Role,
 )
+from slate.service.comments import ask_headline
 from slate.service.items import get_item
 
 RECENT_COMMENTS = 10
@@ -56,13 +58,17 @@ RUN_RULE = (
     "Wait for any background work you start to report back before you answer. If a resident "
     "runner started this turn, it owns heartbeat and finish: do not start a second work loop "
     "or close its run with a report. Comments do not resolve Asks: do not bulk-resolve open "
-    "questions or resolve another account's Asks. End your answer with one line that says "
+    "questions or resolve another account's Asks. End your answer with a line that says "
     "where the card stands, in few words, after the ending: `SLATE: done: <what you did>`, "
-    "`SLATE: review: <what the person must check>` (only for work a person must check), "
+    "`SLATE: review: <what the person must look at>` (only for finished work a person must look "
+    "over; never for a question), "
     "`SLATE: later: <when it runs again>` (the rest waits for the task's due time, still to "
-    "come), `SLATE: answered: <where it stands>` (you replied and nothing else changes), or, "
-    "only when you cannot go on without a person, `SLATE: ask {ask}: <one-line question> "
-    "[option | option]` (the options are optional). Put that line last, on its own."
+    "come), or `SLATE: answered: <where it stands>` (you replied and nothing else changes). "
+    "If a person must answer or decide anything, also when the rest of your work is finished, "
+    "end instead with `SLATE: ask {ask}: <one-line question> [option | option]` (the options "
+    "are optional): one such line per question, at most four, each understandable without "
+    "reading your answer. A question written only in the text of your answer is not shown to "
+    "anyone as a question. Put the closing line or lines last."
 )
 STALLED_RULE = (
     "This card is still open: your last answer on it did not finish it. End this turn `done`, "
@@ -79,9 +85,9 @@ ASKED_RULE = (
     "open, and Slate refuses a move to done or cancelled from you. If whoever asked wants the "
     "card closed or finished, do not try, do not assign it to yourself, and never write that "
     "it is closed or that you are closing it. Make the first line of your answer say that you "
-    "cannot close it because it is not assigned to you, and end with this line so they see "
-    "it:\n"
-    "`SLATE: ask {asker}: I can't close this card: it is assigned to {owners}, not me.`"
+    "cannot close it because it is assigned to {owners}. If a person asked, use one ask line "
+    "per question, up to four. Start with this question:\n"
+    "`SLATE: ask {asker}: Can you close this card or assign it to me?`"
 )
 
 _LINE = re.compile(
@@ -96,14 +102,14 @@ _OPTIONS = re.compile(r"^(.*?)\s*\[([^\[\]]*)\]$")
 class ClosingLine:
     outcome: str  # done | review | later | answered | ask
     waiting_on: str | None = None  # a handle, for ask
-    question: str | None = None  # for ask
-    options: tuple[str, ...] = ()  # for ask, when given
+    questions: list[dict[str, Any]] | None = None  # for ask
     status: str | None = None  # the text after `done:` / `review:` / `later:` / `answered:`
+    body: str = ""  # text before the closing line or lines
 
 
 def closing_line(text: str | None) -> ClosingLine | None:
-    """The `SLATE:` line when it is the last non-empty line of `text`, else None."""
-    lines = [ln for ln in (text or "").strip().splitlines() if ln.strip()]
+    """Read the trailing `SLATE:` ending and, for an ask, its same-recipient question run."""
+    lines = (text or "").strip().splitlines()
     if not lines:
         return None
     # Tolerate the line wrapped in backticks or bold, as chat products like to render it.
@@ -111,13 +117,26 @@ def closing_line(text: str | None) -> ClosingLine | None:
     if m is None:
         return None
     if m.group(1):
-        return ClosingLine(m.group(1).lower(), status=m.group(2))
-    question, options = m.group(4), ()
-    bracket = _OPTIONS.match(question)
-    if bracket is not None:
-        question = bracket.group(1)
-        options = tuple(o.strip() for o in bracket.group(2).split("|"))
-    return ClosingLine("ask", m.group(3).lower(), question.strip(), options)
+        return ClosingLine(
+            m.group(1).lower(), status=m.group(2), body="\n".join(lines[:-1]).rstrip()
+        )
+    who = m.group(3).lower()
+    questions = []
+    start = len(lines) - 1
+    for i in range(start, -1, -1):
+        if not lines[i].strip():
+            continue
+        m = _LINE.match(lines[i].strip().strip("`*_ "))
+        if not m or not m.group(3) or m.group(3).lower() != who:
+            break
+        question, options = m.group(4), []
+        bracket = _OPTIONS.match(question)
+        if bracket is not None:
+            question = bracket.group(1)
+            options = [o.strip() for o in bracket.group(2).split("|")]
+        questions.append({"question": question.strip(), "options": options})
+        start = i
+    return ClosingLine("ask", who, questions[::-1], body="\n".join(lines[:start]).rstrip())
 
 
 def default_ask(session: Session, account_id: str | None) -> str:
@@ -215,7 +234,15 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
                     ensure_ascii=False,
                 )
             )
-            out.append("\n".join("> " + line for line in body.splitlines()))
+            lines = body.splitlines()
+            if c.ask_json is not None:
+                if c.body_md == ask_headline(c.ask_json):
+                    lines = []
+                lines.extend(
+                    f"{i}. {question['question']}"
+                    for i, question in enumerate(c.ask_json["questions"], 1)
+                )
+            out.append("\n".join("> " + line for line in lines))
     lst = session.get(List, item.list_id)
     if lst and lst.note_md and lst.note_md.strip():
         out += ["", "This list:", lst.note_md.strip()]
@@ -223,7 +250,7 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
     # The caller's own run is the one Slate started because the card stalled (the take bound
     # the poke to it: service/work.py `take`).
     if account_id is not None:
-        from slate.service.work import _turn_start, asked_turn, last_failure
+        from slate.service.work import _turn_start, asked_turn, last_failure, turn_asks
 
         start = _turn_start(session, account_id, item.id)
         if start is not None and (start.after_json or {}).get("poke"):
@@ -242,20 +269,17 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
                 .where(ItemAssignee.item_id == item.id)
                 .order_by(Account.handle)
             ).all()
-            asker = session.scalar(
-                select(Account.handle)
-                .join(Comment, Comment.author_id == Account.id)
-                .where(
-                    Comment.item_id == item.id,
-                    Comment.assignee_id == account_id,
-                    Comment.resolved_at.is_(None),
-                    Account.kind == AccountKind.person,
-                )
-                .order_by(Comment.created_at.desc(), Comment.id.desc())
-                .limit(1)
+            asker = next(
+                (
+                    author.handle
+                    for comment in reversed(turn_asks(session, account_id, item.id))
+                    if (author := session.get(Account, comment.author_id)) is not None
+                    and author.kind == AccountKind.person
+                ),
+                ask,
             )
             out += [
                 "",
-                ASKED_RULE.format(owners=", ".join(owners) or "nobody", asker=asker or ask),
+                ASKED_RULE.format(owners=", ".join(owners) or "nobody", asker=asker),
             ]
     return "\n".join(out)

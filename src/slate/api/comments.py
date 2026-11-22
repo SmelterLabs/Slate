@@ -34,10 +34,13 @@ def add_comment(item_id: str, body: CommentIn, auth: WriteAuth, session: DbSessi
     `assignee` makes it an Ask: addressed to that account, open until explicitly resolved.
     Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for
     compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE:
-    answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the
-    task (from an agent: its report, later clearing its badge until the due time, ask making
-    this comment its question; from a person, done completes it and the rest change
-    nothing)."""
+    answered` or up to four trailing `SLATE: ask <handle>: <question> [option | option]`
+    lines for the same person also reports back on the task. An agent's ask stores the
+    questions on its comment and uses the preceding text as its reply. An explicit
+    `assignee` must be valid and reachable. When the closing Ask applies, its recipient
+    is the comment's assignee. A malformed agent ask returns 422 with the validation
+    reason and posts nothing. A person's `done`
+    completes the task."""
     comment = comments.add_comment(
         session,
         auth.actor,
@@ -87,7 +90,8 @@ def answer(comment_id: str, body: AnswerIn, auth: WriteAuth, session: DbSession)
     person asked or an admin: posts your comment whose text is the option, the card stops
     waiting on the person, the question is resolved (`reason: answered`) and the agent is
     woken with your reply, as a typed reply does. Returns your new comment. 422 for an option
-    it does not offer, 409 when it was already answered."""
+    it does not offer or when the ask has several questions (answer them in one comment),
+    409 when it was already answered."""
     return _out(session, comments.answer(session, auth.actor, comment_id, option=body.option))
 
 

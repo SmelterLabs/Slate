@@ -16,14 +16,16 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `waiting_on_account_id`; `assign_me` adds the reporter. **Asking a person**
   (`reports.report` owns the rule for finish, direct reports and closing lines). A leased run
   finishes with `ask`. Its stored badge is `blocked`. An interactive agent's direct report
-  uses that badge and supplies `question` (one line, 1 to 200 characters). Optional `options`
-  contain 2 to 4 answers of 1 to 40 characters each. With a question and no `waiting_on`, it
-  waits on the person whose question started the
-  turn, else the workspace owner (`brief.default_ask`). The ask posts one comment by the agent
-  (the `reply`, else the question) addressed to the person as an Ask with `comments.ask_json =
-  {question, options}`; the badge note is the question; `item.reported.after` carries
-  `question` and `options`. The item view's `ask` (`comments.asks_of`) is `{comment_id,
-  question, options, by_id, at}` while the card waits on that person through an open ask.
+  uses that badge and supplies one to four `questions` or one `question` with optional
+  `options`. Each question has one line of 1 to 200 characters. Options contain 2 to 4
+  answers of 1 to 40 characters each. With no `waiting_on`, the ask waits on whoever asked
+  this turn, else the workspace owner (`brief.default_ask`). It posts one comment (the
+  `reply`, else the headline) with `comments.ask_json = {questions: [{question, options}]}`.
+  The headline is the single question or “<n> questions: <first question>”. The badge uses
+  that headline, and the standing line caps it at 140 characters. `item.reported.after`
+  and both ask views carry `questions`, `question` (the headline) and `options` (the choices
+  for a single question, empty for several). The item view adds `comment_id`, `by_id` and `at`
+  while the card waits on that person through an open ask.
   `blocked` waiting on an agent, or on nobody, needs no question. An agent's `PATCH` (or bulk
   update) of `waiting_on_account_id` to a person is refused the same way
   (`reports.refuse_person_wait`, at the route); a person's is not. `failed` is the badge of a
@@ -233,18 +235,27 @@ Slate stays the doorbell: it never launches an agent.
   back); `waiting_on` and `hand_to` are refused with it. The resident runner sends `later` on a
   card with no due time still to come as `answered`, so the answer is kept and nobody is asked
   anything. This is the honest ending for "scheduled, nothing needed from you".
-- **`ask` finish** (`outcome: "ask"`, `question`, optional `options` and `waiting_on`,
-  closing line `SLATE: ask alex: <question> [a | b]`): the only way an agent stops a card on a
-  person. `work.finish` maps it to a `blocked` report with the question (above, "Asking a
-  person"). An agent only asked something on a card may ask whoever asked it, nobody else (the
-  third-person rule below).
+- **`ask` finish** (`outcome: "ask"`, `questions` or one `question` with optional `options`,
+  and optional `waiting_on`): use it for every question a person must answer or decide, even
+  after the rest of the work is finished. Review is for inspecting finished work and carries
+  no questions. `work.finish` maps ask to a `blocked` report (above, "Asking a person").
+  In a reply ending, put one trailing `SLATE: ask alex: <question> [a | b]` line per question,
+  up to four. Slate reads back from the end, allowing blank lines, and stops at a different
+  handle or other text. The ask lines live in the question block, and everything before the
+  run stays in the reply body. Other endings keep their closing line in the comment. A malformed
+  agent ask returns 422 with the validation reason and posts no comment. A valid ending that
+  cannot apply leaves the comment body as written. Slate validates any explicit `assignee`
+  and checks that the caller can reach it before applying the ending. An applied closing Ask
+  assigns the comment once, to the person asked in the ending. An agent only
+  asked something on a card may ask whoever asked it (the third-person rule below).
 - **Answering an ask** (`comments.answer`, `POST /comments/{id}/answer {option}`, MCP
   `slate_comment answer`): the person asked (or an admin) picks one of the options. It posts a
   comment by them whose text is the option, addressed to the agent (the reply path below for the
   person waited on; an explicit Ask to the agent for an admin), and `comments._answered` makes
   the card stop waiting on the person and resolves their open asks on it (`comment.resolved`,
   `reason: "answered"`), so the item's `ask` is null. A typed reply by the person does the same
-  through `add_comment`'s reply branch. 422 for an option it does not offer; 409 once answered;
+  through `add_comment`'s reply branch. For several questions, answer them in one comment.
+  The option route returns 422 for several questions or an unavailable option, 409 once answered,
   403 for anyone else.
 - **`answered` finish** (`outcome: "answered"`, `reply` required, closing line `SLATE:
   answered`): the agent replied and nothing else changes. Its reply is posted, its own badge is
@@ -292,9 +303,11 @@ Slate stays the doorbell: it never launches an agent.
   open, and `lists.move_item_to_status` refuses (403) a move to a done or cancelled status
   by an account in such a turn (`work.asked_turn`: a live `asked_only` lease it holds on a
   card not assigned to it). The rule tells an agent asked to close the card to say it
-  cannot and to end with an ask to whoever asked, naming the assignees, so the card waits
-  on that person. Outside such a turn an agent closes cards as its access allows. If a stalled turn ends `answered` too, on a card still open, unparked,
-  on a work list and without a future start or due date, the finish sets
+  cannot, name the assignees in its reply, and ask the person who requested the close to
+  close or reassign the card. Each question gets an ask line, up to four, and the card waits
+  on that person. Outside such a turn an agent closes cards as its access allows.
+  If a stalled turn ends `answered` too, on a card still open, unparked, on a work list and
+  without a future start or due date, the finish sets
   `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
   {agent_id}`), the inbox and push reason `stalled` ("<Agent> stopped without finishing:
   <title>"), told to the card's enabled person assignees and watchers who can see it now, else

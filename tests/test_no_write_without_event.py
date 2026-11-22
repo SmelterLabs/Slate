@@ -134,6 +134,8 @@ READS = {
         "priority_sort_key",
     },
     "slate.service.comments": {
+        "ask_headline",
+        "ask_view",
         "get_comment",
         "clean_emoji",
         "mentions_in",
@@ -947,7 +949,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
                 _item(db, a).id,
                 body_md="Go?",
                 assignee="alex",
-                ask={"question": "Go?", "options": ["Yes", "No"]},
+                ask=reports.check_ask("Go?", ["Yes", "No"]),
             ).id,
             option="Yes",
         ),  # fmt: skip

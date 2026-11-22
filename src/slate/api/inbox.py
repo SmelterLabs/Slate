@@ -105,6 +105,7 @@ class ReleasedAlert(BaseModel):
     item_id: str | None
     reason: Reason
     entry: InboxEntry | None
+    question: str | None = None
 
 
 @router.get("/inbox/alerts", response_model=list[ReleasedAlert])
@@ -115,7 +116,8 @@ def list_alerts(
     after: str | None = Query(default=None, pattern=r"^(?:0|[0-9A-Za-z]{12})$"),
     limit: int = Query(default=100, ge=1, le=inbox.MAX_ENTRIES),
 ) -> list[dict]:
-    """Released notifications in cursor order. Start without after to get X-Slate-Cursor."""
+    """Released notifications in cursor order. An open ask includes its question headline.
+    Start without after to get X-Slate-Cursor."""
     if after is None:
         response.headers["X-Slate-Cursor"] = attention.latest_cursor(session, auth.account.id)
         return []

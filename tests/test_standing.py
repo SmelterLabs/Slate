@@ -213,7 +213,8 @@ def test_closing_lines_carry_the_status():
     assert closing_line("SLATE: later").status is None
     assert closing_line("SLATE: answered.").outcome == "answered"
     ask = closing_line("SLATE: ask alex: Start? [Yes | No]")
-    assert (ask.outcome, ask.question, ask.status) == ("ask", "Start?", None)
+    assert (ask.outcome, ask.status) == ("ask", None)
+    assert ask.questions == [{"question": "Start?", "options": ["Yes", "No"]}]
 
 
 def test_a_bare_review_line_is_done_and_a_review_line_with_text_is_review(

@@ -3,7 +3,11 @@
   import { board } from '../lib/store.svelte';
   import type { ItemStanding } from '../lib/types';
 
-  let { standing, full = false }: { standing: ItemStanding; full?: boolean } = $props();
+  let { standing, full = false, moveOnly = false }: {
+    standing: ItemStanding;
+    full?: boolean;
+    moveOnly?: boolean;
+  } = $props();
 
   const mine = $derived(!!standing.move_id && standing.move_id === board.me?.account.id);
   const moveLabel = $derived(
@@ -11,12 +15,14 @@
   );
 </script>
 
-<span class="standing" class:full data-standing>
-  <span class="standing-line" data-standing-line title={standing.line}>{standing.line}</span>
-  {#if moveLabel}
-    <span class="standing-move" class:mine data-standing-move>{moveLabel}</span>
-  {/if}
-</span>
+{#if !moveOnly || moveLabel}
+  <span class="standing" class:full={full && !moveOnly} data-standing>
+    {#if !moveOnly}<span class="standing-line" data-standing-line title={standing.line}>{standing.line}</span>{/if}
+    {#if moveLabel}
+      <span class="standing-move" class:mine data-standing-move>{moveLabel}</span>
+    {/if}
+  </span>
+{/if}
 
 <style>
   .standing {

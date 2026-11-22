@@ -143,8 +143,12 @@ test('Mark reviewed clears an answered card', async ({ page }) => {
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
-  await expect(tw.locator('.agent-badge')).toHaveAttribute('data-agent-label', 'Ready for review');
-  await tw.locator('[data-mark-reviewed]').click();
+  // The review is Alex's to do: a banner says what to check, in place of the badge.
+  const review = tw.locator('[data-banner="review"]');
+  await expect(review.locator('[data-review-check]')).toHaveText('Check the Friday closing time');
+  await expect(tw.locator('.agent-badge')).toHaveCount(0);
+  await review.locator('[data-mark-reviewed]').click();
+  await expect(review).toHaveCount(0);
   await expect(tw.locator('.agent-badge')).toHaveCount(0);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('At six on Friday.');
   await page.keyboard.press('Escape');

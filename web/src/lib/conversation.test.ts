@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Row } from './activity';
-import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, runNow, safeAgentUrl, unpickedAsk, unreadMidRun, shortAge, shownProgress, updatedAgo, waitingQuestion } from './conversation';
+import { badgeLabel, collapsedChat, askFor, defaultAsk, firstLine, isChat, mentionedAgent, pendingAgent, runNow, safeAgentUrl, unpickedAsk, unreadMidRun, shortAge, shownProgress, updatedAgo, waitingContext } from './conversation';
 import type { Account, AgentFlag, Comment } from './types';
 
 const AGENTS = new Set(['agent', 'agent2']);
@@ -247,23 +247,23 @@ describe('shownProgress', () => {
   });
 });
 
-describe('waitingQuestion', () => {
+describe('waitingContext', () => {
   const ev = (at: string, actor: string, after: string | null) => ({
     id: `e${at}`, type: 'item.updated', field: 'waiting_on_account_id', after, actor_id: actor, at,
   });
   const body = 'Status table below.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nTo finish: detail-opening was declined; should I leave those details unopened? Final sign-out is unconfirmed.';
 
-  it('finds the asker, their comment and the question sentence', () => {
+  it('finds who set the wait and their comment', () => {
     const comments = [
       c('old', 'agent', { created_at: '2026-11-01T10:00:00Z' }),
       c('ask', 'agent', { body_md: body, created_at: '2026-11-06T15:08:42Z' }),
     ];
-    const q = waitingQuestion({ waiting_on_account_id: 'alex' }, comments, [ev('2026-11-06T15:08:43Z', 'agent', 'alex')], 'alex');
-    expect(q).toEqual({ by: 'agent', commentId: 'ask', question: 'To finish: detail-opening was declined; should I leave those details unopened?' });
+    const q = waitingContext({ waiting_on_account_id: 'alex' }, comments, [ev('2026-11-06T15:08:43Z', 'agent', 'alex')], 'alex');
+    expect(q).toEqual({ by: 'agent', commentId: 'ask' });
   });
 
   it('is null when the card waits on someone else', () => {
-    expect(waitingQuestion({ waiting_on_account_id: 'member' }, [], [], 'alex')).toBeNull();
+    expect(waitingContext({ waiting_on_account_id: 'member' }, [], [], 'alex')).toBeNull();
   });
 
   it('ignores comments the asker wrote after the wait', () => {
@@ -271,21 +271,20 @@ describe('waitingQuestion', () => {
       c('ask', 'agent', { body_md: 'Which one?', created_at: '2026-11-06T15:00:00Z' }),
       c('later', 'agent', { body_md: 'Still here.', created_at: '2026-11-07T15:00:00Z' }),
     ];
-    const q = waitingQuestion({ waiting_on_account_id: 'alex' }, comments, [ev('2026-11-06T15:00:01Z', 'agent', 'alex')], 'alex');
+    const q = waitingContext({ waiting_on_account_id: 'alex' }, comments, [ev('2026-11-06T15:00:01Z', 'agent', 'alex')], 'alex');
     expect(q?.commentId).toBe('ask');
-    expect(q?.question).toBe('Which one?');
   });
 
-  it('falls back to the newest comment by someone else, then its first line', () => {
+  it('links the newest comment by someone else if the wait event is absent', () => {
     const comments = [
       c('n', 'other', { body_md: '## Need the invoice\nAttach it here.' }),
       c('mine', 'alex', { created_at: '2026-10-27T20:00:00Z' }),
     ];
-    const q = waitingQuestion({ waiting_on_account_id: 'alex' }, comments, [], 'alex');
-    expect(q).toEqual({ by: 'other', commentId: 'n', question: 'Need the invoice' });
+    const q = waitingContext({ waiting_on_account_id: 'alex' }, comments, [], 'alex');
+    expect(q).toEqual({ by: 'other', commentId: 'n' });
   });
 
-  it('has no question when nobody has written', () => {
-    expect(waitingQuestion({ waiting_on_account_id: 'alex' }, [], [], 'alex')).toEqual({ by: null, commentId: null, question: null });
+  it('has no comment to open when nobody has written', () => {
+    expect(waitingContext({ waiting_on_account_id: 'alex' }, [], [], 'alex')).toEqual({ by: null, commentId: null });
   });
 });

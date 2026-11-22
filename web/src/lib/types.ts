@@ -217,10 +217,19 @@ export interface Item {
 
 export type AgentState = 'working' | 'blocked' | 'review' | 'failed';
 
-/** The structured question on the comment that carries an agent's ask. */
+/** One question in an ask: a line of text and its tap answers (none, or 2 to 4). */
+export interface AskQuestion {
+  question: string;
+  options: string[];
+}
+
+/** The structured ask on the comment that carries an agent's ask: one to four questions.
+ * `question` is the headline (the question, or "<n> questions: <first>"); `options` are the one
+ * question's options, [] when there are several. */
 export interface CommentAsk {
   question: string;
   options: string[];
+  questions: AskQuestion[];
 }
 
 /** An item's open structured ask: the comment, its question, who asked and when. */

@@ -25,6 +25,23 @@ def _view(client, h, item_id):
 CHAT = "https://chat.example.com/c/123"
 
 
+def test_report_service_takes_a_checked_ask(client, db, alex, todo, make_account, monkeypatch):
+    from slate.models import Source
+    from slate.service import reports
+    from slate.service.core import Actor
+
+    agent, _ = make_account("my-agent")
+    item = _item(client, alex, todo["id"])
+    ask = reports.check_ask(questions=[{"question": "Which file?"}, {"question": "Send it?"}])
+
+    def do_not_check_again(*_args, **_kwargs):
+        pytest.fail("the report service should receive checked questions")
+
+    monkeypatch.setattr(reports, "check_ask", do_not_check_again)
+    reports.report(db, Actor(agent["id"], Source.api), item["id"], state="blocked", ask=ask)
+    assert _view(client, alex, item["id"])["ask"]["questions"] == ask["questions"]
+
+
 def test_report_with_url_puts_it_on_the_badge_and_done_clears_it(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])

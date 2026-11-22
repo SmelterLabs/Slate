@@ -21,7 +21,7 @@ from slate.models import (
     Item,
     Priority,
 )
-from slate.service import access, cursors
+from slate.service import access, comments, cursors
 from slate.service.core import apply_change, event_payload, jsonable
 
 PANEL_ONLY = frozenset({"no_next_step", "decide"})
@@ -126,8 +126,8 @@ def open_questions(session: Session, account_id: str, now: datetime) -> list[dic
             "id": obj.id,
             "comment_id": ask.id,
             "title": obj.title,
-            "question": ((ask.ask_json or {}).get("question") or ask.body_md)
-            if isinstance(ask, Comment)
+            "question": comments.ask_headline(ask.ask_json)
+            if isinstance(ask, Comment) and ask.ask_json is not None
             else ask.body_md,
             "at": jsonable(ask.created_at),
             "age_minutes": max(0, int((now - ask.created_at).total_seconds() // 60)),
@@ -406,6 +406,7 @@ def released(
             ev, note, projected = notes[0]
             entry = None
             if row.quiet_events:
+                note.pop("question", None)
                 note = {
                     **note,
                     "title": f"{len(notes)} things while you were away",

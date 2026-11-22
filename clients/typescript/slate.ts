@@ -35,7 +35,9 @@ export type SlateEvent = {
 export type News = SlateEvent & { why: string; item_title: string | null };
 export type Checkin = { queue: Item[]; news: News[]; next_since: string | null };
 export type ReportState = 'working' | 'blocked' | 'review' | 'done' | 'idle';
-export type ReportOptions = {
+export type AskQuestion = { question: string; options?: string[] };
+type AskOptions = { questions?: AskQuestion[]; question?: string; options?: string[] };
+export type ReportOptions = AskOptions & {
   run_id?: string;
   progress?: number;
   comment?: boolean;
@@ -73,14 +75,12 @@ export type Task = {
   remaining: number;
 };
 export type Outcome = 'done' | 'review' | 'later' | 'ask' | 'answered' | 'failed' | 'blocked' | 'release';
-export type FinishOptions = {
+export type FinishOptions = AskOptions & {
   run_id?: string;
   /** One line of where the card stands, 1 to 140 characters. Review needs it; ask does not. */
   status?: string;
   hand_to?: string;
   waiting_on?: string;
-  question?: string;
-  options?: string[];
   progress?: number;
   comment?: boolean;
 };

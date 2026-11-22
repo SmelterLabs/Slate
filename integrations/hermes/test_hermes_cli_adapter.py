@@ -90,6 +90,20 @@ def test_review_ask_and_old_blocked_lines(tmp_path):
         "options": ["First", "Second"],
         "reply": "Which disk?",
     }
+    out, _, _ = go(
+        tmp_path,
+        FAKE_OUT="Both are ready.\nSLATE: ask alex: Which disk? [First | Second]\n"
+        "SLATE: ask alex: Which date?",
+    )
+    assert out == {
+        "outcome": "ask",
+        "waiting_on": "alex",
+        "questions": [
+            {"question": "Which disk?", "options": ["First", "Second"]},
+            {"question": "Which date?", "options": []},
+        ],
+        "reply": "Both are ready.",
+    }
     out, _, _ = go(tmp_path, FAKE_OUT="Which disk?\nSLATE: blocked waiting_on alex")
     assert out["outcome"] == "answered" and "waiting_on" not in out
     assert out["reply"] == "Which disk?\nSLATE: blocked waiting_on alex"

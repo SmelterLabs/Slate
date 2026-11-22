@@ -19,7 +19,7 @@ was already working on the card (`comment.seen`, service/work.py).
 stream's `work` hint and `/work/next` (why `asked`) read them.
 
 An agent's ask (service/reports.py) is an Ask addressed to a person that carries `ask_json =
-{question, options}` (`ask` on the comment view; its `comment.assigned` has `after.ask = true`,
+{questions}` (`ask` on the comment view; its `comment.assigned` has `after.ask = true`,
 and the person hears it as `waiting`, not also as a mention). `asks_of()` gives each card's
 open ask while it waits on that person (the item view's `ask`).
 
@@ -45,9 +45,8 @@ pasting its answer) can finish it. From an agent account it is that agent's repo
 (service/reports.py: done completes the task when the agent is assigned; review sets its
 badge; later clears its badge and leaves the task for its due time, which must still be to
 come; answered clears its own badge; ask makes this comment the ask). From anyone else,
-`done` completes the task and the rest change nothing. A comment with no closing line changes
-nothing, and a line that cannot apply (no done status, a bad question) leaves the comment as
-it is.
+`done` completes the task and the rest change nothing. A malformed agent ask is refused before
+posting. An ending that cannot apply leaves the body as is.
 """
 
 from __future__ import annotations
@@ -140,6 +139,21 @@ def authors_of(session: Session, account_ids: Sequence[str]) -> dict[str, tuple[
     return out
 
 
+def ask_headline(ask: dict[str, Any]) -> str:
+    questions = ask["questions"]
+    first = questions[0]["question"]
+    return first if len(questions) == 1 else f"{len(questions)} questions: {first}"
+
+
+def ask_view(ask: dict[str, Any]) -> dict[str, Any]:
+    questions = ask["questions"]
+    return {
+        "questions": questions,
+        "question": ask_headline(ask),
+        "options": questions[0]["options"] if len(questions) == 1 else [],
+    }
+
+
 def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[str, Any]]:
     """Comments as dicts with their reactions, mentions and author handle and kind."""
     reactions = reactions_of(session, [c.id for c in comments])
@@ -154,7 +168,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
             "seen_at": seen.get(c.id, (None, None))[0],
             "seen_by_id": seen.get(c.id, (None, None))[1],
             "run_steps": steps.get(c.id),
-            "ask": c.ask_json,
+            "ask": ask_view(c.ask_json) if c.ask_json is not None else None,
             "reactions": reactions.get(c.id, []),
             "mentions": mentions_in(session, c.body_md),
             "author_handle": authors.get(c.author_id, (None, None))[0],
@@ -191,7 +205,7 @@ def run_steps_of(session: Session, comment_ids: Sequence[str]) -> dict[str, int]
 
 
 def asks_of(session: Session, items: Sequence[Any]) -> dict[str, dict[str, Any]]:
-    """`{item id: {comment_id, question, options, by_id, at}}`: each card's newest open ask
+    """Each card's newest open structured ask, with its comment id, author and time.
     addressed to the person it waits on (a card waiting on nobody, or on someone it did not
     ask, has none)."""
     waits = {i.id: i.waiting_on_account_id for i in items if i.waiting_on_account_id}
@@ -207,11 +221,10 @@ def asks_of(session: Session, items: Sequence[Any]) -> dict[str, dict[str, Any]]
         )
         .order_by(Comment.created_at, Comment.id)
     ):
-        if c.assignee_id == waits[c.item_id]:
+        if c.assignee_id == waits[c.item_id] and c.ask_json is not None:
             out[c.item_id] = {
                 "comment_id": c.id,
-                "question": c.ask_json["question"],
-                "options": c.ask_json["options"],
+                **ask_view(c.ask_json),
                 "by_id": c.author_id,
                 "at": c.created_at,
             }
@@ -283,23 +296,19 @@ def add_comment(
     keep_open: bool = False,
     closing_line: bool = False,
     ask: dict[str, Any] | None = None,
+    _id: str | None = None,
 ) -> Comment:
     """Post a comment. With `assignee` (a handle or id) it is an Ask for that account.
     Regardless of `keep_open`, leave every Ask open; callers explicitly resolve completed Asks.
     With `closing_line`, a last line `SLATE: …` also reports back on the task (module doc).
-    `ask` (`{question, options}`, checked by service/reports.py, with `assignee`) makes it an
+    `ask` (`{questions}`, checked by service/reports.py, with `assignee`) makes it an
     agent's ask."""
     item = get_item(session, item_id)
     body, pasted = split_pasted(_body(body_md))
-    # A project's guests never reach a workspace agent (service/guests.py).
-    mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
-    target = resolve_account(session, assignee) if assignee else None
-    guests.refuse(session, actor.account_id, target)
+    comment_id = _id or new_id()
     replying = reply_target(session, item, actor.account_id)
     if replying is not None and not guests.may_reach(session, actor.account_id, replying):
         replying = None
-    if target is not None and (replying is None or replying.id != target.id):
-        replying = None  # addressed to someone other than the agent waiting on the author
     participants = set(
         session.scalars(select(Comment.author_id).where(Comment.item_id == item.id))
     ) | set(
@@ -309,21 +318,32 @@ def add_comment(
             )
         )
     )
-    addressed = replying or target
-    # The Ask has its own notification; do not also send a mention/reply to its target.
-    if addressed is not None:
-        mentions = [h for h in mentions if h != addressed.handle]
-        participants.discard(addressed.id)
-    participants.discard(actor.account_id)
-    if guests.is_guest(session, actor.account_id):
-        participants = {
-            p
-            for p in participants
-            if guests.may_reach(session, actor.account_id, session.get(Account, p))
-        }
     with apply_change(session, actor) as cx:
+        # A project's guests never reach a workspace agent (service/guests.py).
+        target = resolve_account(session, assignee) if assignee else None
+        guests.refuse(session, actor.account_id, target)
+        if closing_line:
+            body, ending_ask = _apply_closing_line(session, actor, item, body, comment_id)
+            if ending_ask is not None:
+                ask = ending_ask
+                target = session.get(Account, item.waiting_on_account_id)
+        mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
+        if target is not None and (replying is None or replying.id != target.id):
+            replying = None  # addressed to someone other than the agent waiting on the author
+        addressed = replying or target
+        # The Ask has its own notification; do not also send a mention/reply to its target.
+        if addressed is not None:
+            mentions = [h for h in mentions if h != addressed.handle]
+            participants.discard(addressed.id)
+        participants.discard(actor.account_id)
+        if guests.is_guest(session, actor.account_id):
+            participants = {
+                p
+                for p in participants
+                if guests.may_reach(session, actor.account_id, session.get(Account, p))
+            }
         comment = Comment(
-            id=new_id(),
+            id=comment_id,
             item_id=item.id,
             author_id=actor.account_id,
             body_md=body,
@@ -347,8 +367,6 @@ def add_comment(
             _answered(session, cx, item, actor.account_id)
         elif target is not None:
             _assign(cx, comment, target, ask=ask is not None)
-    if closing_line:
-        _apply_closing_line(session, actor, comment, body)
     return comment
 
 
@@ -361,10 +379,14 @@ def answer(session: Session, actor: Actor, comment_id: str, *, option: str) -> C
         raise Invalid("this comment is not an agent's question")
     if ask.resolved_at is not None:
         raise Conflict("this question was already answered")
-    if option not in ask.ask_json["options"]:
-        raise Invalid("option must be one of: " + ", ".join(ask.ask_json["options"]))
     if actor.account_id != ask.assignee_id and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the person asked or an admin can answer it")
+    questions = ask.ask_json["questions"]
+    if len(questions) != 1:
+        raise Invalid("this ask has several questions: answer them in one comment")
+    options = questions[0]["options"]
+    if option not in options:
+        raise Invalid("option must be one of: " + ", ".join(options))
     item = get_item(session, ask.item_id)
     with apply_change(session, actor) as cx:
         reply = add_comment(session, actor, item.id, body_md=option, assignee=ask.author_id)
@@ -373,7 +395,9 @@ def answer(session: Session, actor: Actor, comment_id: str, *, option: str) -> C
     return reply
 
 
-def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: str) -> None:
+def _apply_closing_line(
+    session: Session, actor: Actor, item: Item, body: str, comment_id: str
+) -> tuple[str, dict[str, Any] | None]:
     from slate.models import ItemAssignee
     from slate.service import reports
     from slate.service.brief import closing_line
@@ -381,49 +405,46 @@ def _apply_closing_line(session: Session, actor: Actor, comment: Comment, body: 
 
     line = closing_line(body)
     if line is None:
-        return
+        return body, None
     account = session.get(Account, actor.account_id)
-    item = get_item(session, comment.item_id)
+    is_agent = account is not None and account.kind == AccountKind.agent
     # The line's text is the status; without it the comment's first line is (reports.report).
     said = {"reply": body, "status": reports.standing_line(line.status or "")}
     outcome = "done" if line.outcome == "review" and not said["status"] else line.outcome
-    try:
-        is_agent = account is not None and account.kind == AccountKind.agent
-        if is_agent and outcome == "later":
-            from slate.service.work import check_later
-
-            check_later(item)  # parked until its run time; refused (no change) without one
-            reports.report(session, actor, item.id, state="idle", comment=False, **said)
-        elif is_agent and outcome == "answered":
-            if item.agent_state_by in (None, actor.account_id):
-                reports.report(session, actor, item.id, state="idle", comment=False, **said)
-        elif is_agent and line.outcome == "ask":
-            with apply_change(session, actor) as cx:
-                reports.report(
-                    session, actor, item.id, state="blocked", comment=False,
-                    waiting_on=line.waiting_on, question=line.question,
-                    options=list(line.options),
-                )  # fmt: skip
-                person = session.get(Account, item.waiting_on_account_id)
-                comment.ask_json = reports.check_ask(line.question, list(line.options))
-                _assign(cx, comment, person, ask=True)
-        elif is_agent:
-            assigned = session.get(ItemAssignee, (item.id, account.id)) is not None
-            reports.report(
-                session,
-                actor,
-                item.id,
-                state=outcome,
-                comment=False,
-                complete=assigned,
-                **said,
-            )
-        elif outcome == "done":
-            status = reports.done_status(session, item)
+    ask = reports.check_ask(questions=line.questions) if is_agent and outcome == "ask" else None
+    if not is_agent:
+        if outcome == "done":
+            try:
+                status = reports.done_status(session, item)
+            except Invalid:
+                return body, None
             if status is not None:
                 update_item(session, actor, item.id, {"status": status.id})
-    except (Invalid, Conflict, NotFound):
-        return  # the comment stands; the line could not apply
+        return body, None
+
+    if outcome == "later":
+        from slate.service.work import check_later
+
+        try:
+            check_later(item)
+        except Invalid:
+            return body, None
+    if outcome == "answered" and item.agent_state_by not in (None, actor.account_id):
+        return body, None
+
+    complete = outcome == "done" and session.get(ItemAssignee, (item.id, account.id)) is not None
+    try:
+        reports.report(
+            session, actor, item.id,
+            state={"ask": "blocked", "later": "idle", "answered": "idle"}.get(outcome, outcome),
+            comment=False, complete=complete, _closing_line=True,
+            waiting_on=line.waiting_on if ask is not None else None, ask=ask,
+            _ask_comment_id=comment_id if ask is not None else None,
+            **(said if ask is None else {}),
+        )  # fmt: skip
+    except reports.ClosingReportRefused:
+        return body, None
+    return (line.body or ask_headline(ask), ask) if ask is not None else (body, None)
 
 
 def _assign(

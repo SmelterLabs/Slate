@@ -219,15 +219,15 @@ async def test_inbox_setting_and_list_note(client, alex, todo, make_account):
     assert card["list_id"] == todo["id"]
     configure(client, alex, todo, note_md="Proofread the draft.")
     brief = client.get(f"{API}/items/{card['id']}/brief", headers=agent).json()["text"]
-    assert "This list:\nProofread the draft." in brief
-    assert brief.index("This list:") < brief.index("SLATE: review: <what the person must check>")
+    note = "This list:\nProofread the draft."
+    assert brief.index(note) < brief.index("How to work this task:")
     taken = client.post(f"{API}/work/next", headers=agent, json={"item_id": card["id"]})
     assert taken.status_code == 200, taken.text
     assert taken.json()["brief"] == brief
     second = file(client, agent, assignees=["my-agent"])
     async with http_mcp(agent) as mcp:
         result = ok(await call(mcp, "slate_work", "next", item_id=second["id"]))
-    assert "This list:\nProofread the draft." in result["brief"]
+    assert note in result["brief"]
     checkin = client.get(f"{API}/checkin", headers=agent).json()
     assert (
         next(row for row in checkin["lists"] if row["id"] == todo["id"])["note_md"]

@@ -39,21 +39,21 @@ Finish with `slate_work` `finish`: `item_id`, `run_id`, `outcome`, and `reply` (
 | outcome | when |
 |---|---|
 | `done` | The work is complete. |
-| `review` | Complete, and a person should check it. Say what to check in `status`. |
+| `review` | Finished work for a person to inspect. Say what to check in `status`. Use ask for questions. |
 | `later` | You did what you can. The rest waits for a due time still to come. You stay assigned. Nobody is waited on. |
-| `ask` | You need a person. `question` is one line. `options` is 2 to 4 short answers when the choice is simple. `waiting_on` is their handle. |
+| `ask` | A person must answer or decide something, even after the work is finished. Send one to four `questions` with one-line `question` and optional `options`. For one question, the fields can go directly on the finish. `waiting_on` is their handle. |
 | `answered` | You only replied. Send `reply`. The badge clears, and the server settles the questions the turn took. |
 | `failed` | The machine broke. Send `note` in the machine's words. Slate retries twice and alerts the card's people if the third run fails. |
 | `blocked` | You wait on an agent (`waiting_on`) or on nobody. |
 | `release` | You give the card up. |
 
-`status` on finish is the card's standing line, up to 140 characters. Say what happened and whose move it is. Review requires a status. For `ask`, the question becomes the standing line. On `slate_item update`, `status` is the list column instead.
+`status` on finish is the card's standing line, up to 140 characters. Say what happened and whose move it is. Review requires a status. For `ask`, the question headline becomes the standing line. On `slate_item update`, `status` is the list column instead.
 
-When someone pastes your answer back as a comment, put the ending and standing on the last line: `SLATE: done: Sent the draft.`, `SLATE: review: Check the totals.`, `SLATE: later: Waiting for the due date.`, `SLATE: answered: Sent the details.`, or `SLATE: ask alex: Send the draft? [Yes | No]`.
+When someone pastes your answer back as a comment, put the closing line or lines last. Examples include `SLATE: done: Sent the draft.`, `SLATE: review: Check the totals.`, `SLATE: later: Waiting for the due date.`, `SLATE: answered: Sent the details.`, or `SLATE: ask alex: Send the draft? [Yes | No]`.
 
 ## Ask
 
-Asking a person is `finish` with outcome `ask`, not a status you invent. The question is one line. They answer on the card. A reply from the person asked becomes a turn you can take.
+Use `finish` with outcome `ask` for every decision or answer you need from a person. For a pasted reply, give each question its own trailing ask line, up to four for the same person. Keep each question understandable on its own. Questions only in the reply prose are not shown as questions. They answer on the card. A reply from the person asked becomes a turn you can take.
 
 ## File a card
 

@@ -383,6 +383,10 @@ def test_runner_maps_each_ending_and_never_invents_who_is_waited_on(client, make
     assert ask["outcome"] == "ask" and ask["question"] == "Start now?"
     assert ask["waiting_on"] == "alex" and "options" not in ask
 
+    questions = [{"question": "Start now?", "options": ["Yes", "No"]}, {"question": "Which file?"}]
+    ask = runner._result(task, 0, {"outcome": "ask", "questions": questions}, "", "")
+    assert ask == {"outcome": "ask", "questions": questions}
+
     ask_opts = runner._result(
         task,
         0,

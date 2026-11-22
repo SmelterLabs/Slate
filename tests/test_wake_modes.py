@@ -137,7 +137,8 @@ def test_brief_is_the_task_as_one_prompt_ending_with_the_rule(client, alex, todo
     assert "- [ ] Call them" in text and "Steps:" in text
     assert "> Budget $2k" in text
     assert '"author_handle": "agent"' in text and '"author_kind": "agent"' in text
-    assert text.rstrip().endswith("Put that line last, on its own.")
+    assert text.rstrip().endswith("Put the closing line or lines last.")
+    assert "one such line per question, at most four" in text
     # The agent is told to use its own memory: look for related past work, save what it learns.
     assert "check your memory and past sessions" in text
     assert "save anything worth remembering" in text
@@ -191,10 +192,16 @@ async def test_mcp_item_brief(alex):
 
 
 def test_closing_line_parse():
-    assert closing_line("All booked.\n\nSLATE: done") == closing_line("SLATE: DONE.")
-    assert closing_line("x\n`SLATE: review`").outcome == "review"
+    done = closing_line("All booked.\n\nSLATE: done")
+    bare = closing_line("SLATE: DONE.")
+    assert (done.outcome, done.status) == (bare.outcome, bare.status) == ("done", None)
+    assert (done.body, bare.body) == ("All booked.", "")
+    review = closing_line("x\n`SLATE: review: Check the draft.`")
+    assert (review.outcome, review.status, review.body) == ("review", "Check the draft.", "x")
     line = closing_line("Two questions...\nSLATE: ask @Alex: Which date? [Fri | Sat]")
-    assert (line.outcome, line.waiting_on, line.options) == ("ask", "alex", ("Fri", "Sat"))
+    assert (line.outcome, line.waiting_on) == ("ask", "alex")
+    assert (line.status, line.body) == (None, "Two questions...")
+    assert line.questions == [{"question": "Which date?", "options": ["Fri", "Sat"]}]
     assert closing_line("SLATE: blocked waiting on alex") is None  # no question
     assert closing_line("SLATE: done\nthanks") is None  # not the last line
     assert closing_line("SLATE: finished") is None

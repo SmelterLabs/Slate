@@ -340,11 +340,17 @@ THREAD_FIELD = Field(
 )
 QUESTION_FIELD = Field(
     default=None,
-    min_length=1,
-    max_length=reports.QUESTION_MAX,
+    json_schema_extra={"minLength": 1, "maxLength": reports.QUESTION_MAX},
     description="ask: your question to the person, one line (1 to 200 characters); it is the "
     "card's headline for them",
     examples=["Start the import now?"],
+)
+QUESTIONS_FIELD = Field(
+    default=None,
+    json_schema_extra={"minItems": 1, "maxItems": reports.QUESTIONS_MAX},
+    description=f"Ask: 1 to {reports.QUESTIONS_MAX} {{question, options?}} objects. Each question "
+    "is one line of 1 to 200 characters. Options are omitted or empty, or 2 to 4 answers of "
+    "1 to 40 characters. Send this or question and options",
 )
 # Trimmed first, so blank text is empty (refused) and padding never reaches the card.
 Status = Annotated[
@@ -366,13 +372,19 @@ STATUS_FIELD = Field(
 )
 OPTIONS_FIELD = Field(
     default=None,
-    min_length=reports.OPTIONS_MIN,
-    max_length=reports.OPTIONS_MAX,
+    # Empty is an omitted set. Advertise the bounds without taking validation away from
+    # check_ask, which is shared with the closing-line path.
+    json_schema_extra={
+        "maxItems": reports.OPTIONS_MAX,
+        "not": {"type": "array", "minItems": 1, "maxItems": reports.OPTIONS_MIN - 1},
+    },
     description="ask: 2 to 4 short answers (1 to 40 characters each) the person can pick with "
     "one button; a typed reply is always possible",
     examples=[["Yes", "No", "Not yet"]],
 )
-Option = Annotated[str, Field(min_length=1, max_length=reports.OPTION_MAX)]
+AskOption = Annotated[
+    str, Field(json_schema_extra={"minLength": 1, "maxLength": reports.OPTION_MAX})
+]
 
 
 REPLY_FIELD = Field(
@@ -416,7 +428,8 @@ class ReportIn(BaseModel):
         "without waiting_on an ask waits on whoever asked you this turn, else the owner",
     )
     question: str | None = QUESTION_FIELD
-    options: list[Option] | None = OPTIONS_FIELD
+    options: list[AskOption] | None = OPTIONS_FIELD
+    questions: list[dict[str, Any]] | None = QUESTIONS_FIELD
     status: Status | None = STATUS_FIELD
     assign_me: bool = Field(default=False, description="With working: add yourself as assignee")
     url: str | None = Field(
@@ -434,9 +447,15 @@ class ReportIn(BaseModel):
     thread: dict[str, Any] | None = THREAD_FIELD
 
 
-class AskOut(BaseModel):
+class AskQuestionOut(BaseModel):
     question: str
-    options: list[str] = Field(description="Answers to pick from; empty: reply in words")
+    options: list[str]
+
+
+class AskOut(BaseModel):
+    questions: list[AskQuestionOut]
+    question: str = Field(description="The question, or the question count and first question")
+    options: list[str] = Field(description="Options when there is exactly one question")
 
 
 class StandingOut(BaseModel):

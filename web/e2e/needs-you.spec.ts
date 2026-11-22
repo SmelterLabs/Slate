@@ -55,7 +55,8 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
   await expect(pop.locator(`[data-item="${stuck.id}"]`)).toHaveAttribute('data-need', 'waiting');
   const row = pop.locator(`[data-item="${review.id}"]`);
   await expect(row).toHaveAttribute('data-need', 'review');
-  await expect(row).toContainText('Draft is ready');
+  await expect(row).toContainText('Check the draft');
+  await expect(row).not.toContainText('Draft is ready');
   await page.keyboard.press('Escape');
   await expect(pop).toHaveCount(0);
 
@@ -116,7 +117,7 @@ test('waiting on you: the card shows the question at the top, and Answer goes to
   await expect(banner).toHaveCount(0);
 });
 
-test('a wait a person set, with no structured ask, still shows the banner from the thread', async ({ page }) => {
+test('a wait a person set shows who is waiting without promoting prose to an Ask', async ({ page }) => {
   const { listId } = seed();
   const handle = `pat${Date.now().toString(36)}`;
   const pat = await api<{ id: string }>('POST', '/accounts', { handle, display_name: 'Pat', kind: 'person' });
@@ -130,7 +131,8 @@ test('a wait a person set, with no structured ask, still shows the banner from t
   await page.goto(`/#/list/${listId}?task=${card.id}`);
   const banner = page.locator('.tw [data-banner="waiting"]');
   await expect(banner).toContainText('Pat is waiting on you');
-  await expect(banner.locator('[data-waiting-question]')).toHaveText('Can you sign it off?');
+  await expect(banner.locator('[data-waiting-question]')).toHaveCount(0);
+  await expect(page.locator('.tw .feed')).toContainText('Can you sign it off?');
   await expect(banner.locator('[data-answer-option]')).toHaveCount(0);
 
   // Not waiting on me ends the wait, and the box goes (nothing left on Alex for later specs).
