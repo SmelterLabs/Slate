@@ -95,6 +95,30 @@ describe('NeedsPanel ask row', () => {
     await unmount(app);
   });
 
+  it('keeps someone else’s structured ask out of the viewer’s separate Ask row', async () => {
+    boardState.needsMe = [{
+      item: {
+        ...askItem,
+        waiting_on_account_id: 'other',
+        open_asks: ['other', 'me'],
+        agent: { ...askItem.agent!, note: askItem.ask!.question },
+      },
+      need: 'asked',
+    }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    try {
+      const row = target.querySelector('[data-item="I1"]')!;
+      expect(row.querySelector('[data-ask-question]')).toBeNull();
+      expect(row.querySelector('[data-answer-option]')).toBeNull();
+      expect(row.querySelector('.nd-title')?.textContent).toBe(askItem.title);
+      expect(row.textContent).not.toContain(askItem.ask!.question);
+      expect(row.querySelector('.nd-act')?.textContent?.trim()).toBe('Reply →');
+    } finally {
+      await unmount(app);
+    }
+  });
+
   it('shows a stalled row with a Run now action', async () => {
     boardState.needsMe = [
       {
@@ -133,6 +157,8 @@ describe('NeedsPanel questions and reviews', () => {
     expect(row.querySelectorAll('[data-answer-option]')).toHaveLength(0);
     expect(row.classList.contains('has-opts')).toBe(false);
     expect(row.querySelector('.nd-act')?.textContent?.trim()).toBe('Answer →');
+    row.querySelector<HTMLButtonElement>('.nd-main')!.click();
+    expect(boardState.open).toHaveBeenCalledWith('I1');
     await unmount(app);
   });
 
