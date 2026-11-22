@@ -86,6 +86,15 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
 
 ## Agent work loop and agent stream
 
+A task returned by `POST /work/next` or `slate_work next` includes the text
+`brief` also available from `GET /items/{id}/brief`. The task's list note appears
+at the start of the rules under “This list:” when set. Check-in lists carry
+`note_md`, `kind` and `reference` alongside their identifiers and names, so an
+agent can identify a work list and read its note before filing. Filing without
+a list or parent uses the configured inbox list when the caller can edit it
+and it is an active work list. Reference cards stay available through search and
+direct reads. Work offers, queue counts and the daily digest omit them.
+
 - **Work loop** (`service/work.py`, `api/work.py`, MCP `slate_work`): `POST /work/next` takes the
   best free task for the caller, `POST /work/{id}/heartbeat` keeps it, `POST /work/{id}/finish`
   reports back, `GET /work` lists what the caller holds, each with its `state` (`working` or

@@ -225,7 +225,6 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
 ):
     """Four scheduled tasks use all slots and drain after finish or block without another
     Run now click. Nothing starts early; wakes and startup both cover a due backlog."""
-    import json
     import sys
     import threading
     from pathlib import Path
@@ -234,13 +233,16 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
     from slate_runner import Runner
 
     gate = tmp_path / "release"
-    runs = tmp_path / "runs.jsonl"
+    # Each subprocess owns a marker. Concurrent append can lose a line on Windows.
+    runs = tmp_path / "runs"
+    runs.mkdir()
     script = tmp_path / "queued.py"
     script.write_text(
-        "import json, pathlib, sys, time\n"
+        "import json, os, pathlib, sys, time\n"
         "task = json.load(sys.stdin)\n"
         "item = task['item']\n"
-        "with open(sys.argv[2], 'a') as f: f.write(json.dumps(item['id']) + '\\n')\n"
+        "marker = pathlib.Path(sys.argv[2]) / (item['id'] + '.' + str(os.getpid()))\n"
+        "marker.touch(exist_ok=False)\n"
         "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.05)\n"
         "out = {'outcome': 'done', 'reply': 'Verified by isolated queue test'}\n"
         "if item['title'] == 'Queue 0':\n"
@@ -280,16 +282,16 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
         try:
             if not already_due:
                 await asyncio.sleep(0.3)
-                assert not runs.exists(), "future tasks must not start early"
+                assert not any(runs.iterdir()), "future tasks must not start early"
                 await asyncio.sleep(max(0, (when - datetime.now(UTC)).total_seconds()) + 0.05)
                 with live.Session() as s:
                     due.emit_due_events(s, now=datetime.now(UTC))
             for _ in range(100):
-                if runs.exists() and len(runs.read_text().splitlines()) >= parallel:
+                if len(list(runs.iterdir())) >= parallel:
                     break
                 await asyncio.sleep(0.1)
             assert len(runner.running) == parallel
-            assert len(runs.read_text().splitlines()) == parallel
+            assert len(list(runs.iterdir())) == parallel
             gate.touch()
             for _ in range(150):
                 views = [
@@ -311,7 +313,7 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
             assert settled == 4, views
             assert views[0]["agent"]["state"] == "blocked"
             assert all(v["completed_at"] for v in views[1:])
-            seen = [json.loads(line) for line in runs.read_text().splitlines()]
+            seen = [marker.stem for marker in runs.iterdir()]
             assert len(seen) == 4 and set(seen) == {item["id"] for item in items}
         finally:
             gate.touch()

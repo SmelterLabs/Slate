@@ -177,7 +177,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `list.created` | A list was created (with its statuses). |
 | `list.statuses_changed` | A list's statuses (its columns) were replaced. |
 | `list.unarchived` | A list was restored. |
-| `list.updated` | A list changed (`field` = name, slug, position, section_id, default_status_id...). |
+| `list.updated` | A list changed (`field` = name, slug, position, section_id, default_status_id, note_md, default_assignee_id, default_tags, reference, etc.). |
 
 ## message
 
@@ -239,7 +239,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
-| `settings.changed` | A workspace setting changed; `field` is its key (`agents.denied`: what agents may never do), `before`/`after` its values. |
+| `settings.changed` | A workspace setting changed. `field` is its key (`agents.denied` or `inbox_list_id`), and `before`/`after` are its values. |
 
 ## share
 

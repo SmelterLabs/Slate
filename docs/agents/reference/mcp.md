@@ -168,8 +168,8 @@ Lists live in a section and own their statuses, which are the board's columns. U
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
 | `list` | `read` | `section_id`, `include_archived` | `GET /lists` | lists with their statuses |
-| `create` | `write` | `section_id`\*, `name`\*, `position`, `statuses`, `kind` | `POST /lists` | a list in a section (default statuses open, active, done) |
-| `update` | `write` | `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`, `id`\* | `PATCH /lists/{list_id}` | rename, reorder, set default_status, or archived true/false |
+| `create` | `write` | `note_md`, `default_assignee_id`, `default_tags`, `reference`, `section_id`\*, `name`\*, `position`, `statuses`, `kind` | `POST /lists` | a list in a section (default statuses open, active, done) |
+| `update` | `write` | `note_md`, `default_assignee_id`, `default_tags`, `reference`, `name`, `kind`, `section_id`, `position`, `default_status`, `archived`, `private`, `id`\* | `PATCH /lists/{list_id}` | rename, reorder, set default_status, or archived true/false |
 | `set_statuses` | `write` | `statuses`\*, `fallback`, `id`\* | `PUT /lists/{list_id}/statuses` | replace the statuses (columns) in order; fallback for stranded items |
 
 ## `slate_section`

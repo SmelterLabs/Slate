@@ -26,6 +26,7 @@ from slate.api.schemas import (
     ItemOut,
     Option,
 )
+from slate.service import brief as brief_svc
 from slate.service import chatwake, comments, docwake, items, reports, work
 from slate.service.core import Actor
 from slate.service.errors import Invalid
@@ -215,6 +216,7 @@ class NextOut(BaseModel):
         description="The task you now hold; null when none is free (or when `chat` is set)"
     )
     lease: LeaseOut | None
+    brief: str | None = Field(default=None, description="The text brief for the task you took")
     chat: ChatTurnOut | None = Field(
         default=None,
         description="A chat mention to answer instead of a task (`why` = mentioned): see "
@@ -404,6 +406,8 @@ def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | 
             "remaining": left(),
         }
     got["item"] = items.views(session, [got["item"]])[0]
+    ask = brief_svc.default_ask(session, actor.account_id)
+    got["brief"] = brief_svc.brief(session, got["item"]["id"], ask=ask)
     got["context"] = work.context(session, got["item"]["id"]) if body.context else []
     got["asks"] = comments.comment_views(
         session, work.turn_asks(session, actor.account_id, got["item"]["id"])

@@ -1,8 +1,4 @@
-"""Workspace settings: what agent accounts may never do (service/agent_rules.py).
-
-GET /settings/agents   the deny-list, whether it is still the default, and the vocabulary (admin)
-PUT /settings/agents   replace the deny-list (owner or admin person; never an agent)
-"""
+"""Workspace settings for agent restrictions and default filing."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from slate.api.auth import AdminAuth, DbSession
-from slate.service import agent_rules
+from slate.service import agent_rules, lists
 
 router = APIRouter(tags=["settings"])
 
@@ -36,6 +32,27 @@ class AgentRulesIn(BaseModel):
     denied: list[ActionKey] = Field(
         description="The full list to keep (replaces it); [] lets agents do everything"
     )
+
+
+class InboxListSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inbox_list_id: str | None = Field(
+        description="Inbox list id, or null to require a list when filing"
+    )
+
+
+@router.get("/settings/inbox", response_model=InboxListSetting)
+def get_inbox_list(_: AdminAuth, session: DbSession) -> InboxListSetting:
+    """Read the workspace's default filing list."""
+    return InboxListSetting(inbox_list_id=lists.inbox_list_id(session))
+
+
+@router.put("/settings/inbox", response_model=InboxListSetting)
+def set_inbox_list(body: InboxListSetting, auth: AdminAuth, session: DbSession) -> InboxListSetting:
+    """Set or clear the workspace's default filing list (admin). Choose an active work list
+    you can file in."""
+    lists.set_inbox_list(session, auth.actor, body.inbox_list_id)
+    return body
 
 
 @router.get("/settings/agents", response_model=AgentRulesOut)

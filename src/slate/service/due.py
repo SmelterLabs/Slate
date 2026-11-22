@@ -55,6 +55,7 @@ from slate.models import (
     StatusKind,
 )
 from slate.service.core import Actor, apply_change, in_change, jsonable
+from slate.service.lists import WORK_LIST, on_work_list
 
 DUE_SOON_HOURS = 24
 OVERDUE_AFTER = timedelta(hours=1)
@@ -172,6 +173,7 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
                 Item.due_at <= now + max(timedelta(hours=DUE_SOON_HOURS), RUN_LEAD),
                 Item.archived_at.is_(None),
                 List.archived_at.is_(None),
+                WORK_LIST,
                 Section.archived_at.is_(None),
                 or_(
                     Status.id.is_(None),
@@ -212,6 +214,8 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
         actor = actor or system_actor(session)
         nudge = nudge_fields(session, run.after["for"]) if run else {}
         with apply_change(session, actor) as cx:
+            if not on_work_list(session, item.id):
+                continue
             session.execute(
                 update(Item)
                 .where(Item.id == item.id)
@@ -245,6 +249,7 @@ def retry_failed_runs(session: Session, *, now: datetime) -> int:
             or_(Item.run_requested_at.is_(None), Item.run_requested_at < Item.agent_state_at),
             Item.archived_at.is_(None),
             List.archived_at.is_(None),
+            WORK_LIST,
             Section.archived_at.is_(None),
             or_(Status.id.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
         )
@@ -271,6 +276,8 @@ def retry_failed_runs(session: Session, *, now: datetime) -> int:
         actor = actor or system_actor(session)
         nudge = nudge_fields(session, [agent])
         with apply_change(session, actor) as cx:
+            if not on_work_list(session, item.id):
+                continue
             before = item.run_requested_at
             item.run_requested_at = now
             cx.record(
