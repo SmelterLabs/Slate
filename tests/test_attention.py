@@ -42,6 +42,13 @@ def test_base_levels(reason, levels):
         assert loudness(reason, kind, urgent=True) == min(4, expected + 1)
 
 
+@pytest.mark.parametrize("reason", ["no_next_step", "decide"])
+def test_planning_attention_never_pushes(reason):
+    from slate.service.attention import loudness
+
+    assert loudness(reason, "person") == loudness(reason, "agent", urgent=True) == 0
+
+
 def test_inbox_has_a_level_and_chat_climbs_once(client, alex, db, make_account):
     from slate.service.attention import escalate
 

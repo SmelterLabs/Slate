@@ -186,6 +186,7 @@ def eligible(
         .where(
             Item.kind == ItemKind.task,
             Item.archived_at.is_(None),
+            Item.parked_until.is_(None),
             List.archived_at.is_(None),
             WORK_LIST,
             Section.archived_at.is_(None),
@@ -1126,12 +1127,17 @@ def finish(
             options=options,
             status=status,
         )
-        # A poked turn that answered again stalled; any other finish ends a stall.
+        from slate.service import today as today_svc
+
         # A turn that consumed Slate's stalled poke and answered again, on an open card,
         # stalled; any finish other than answered ends a stall.
         newly_stalled = (
             outcome == "answered"
             and item.stalled_at is None
+            and item.parked_until is None
+            and not today_svc.is_later(item, now=utcnow())
+            and session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST))
+            is not None
             and start is not None
             and (start.after_json or {}).get("poke") is not None
             and not _ended(session, item, SimpleNamespace(asked_only=False))

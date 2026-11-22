@@ -42,7 +42,9 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from './Icon.svelte';
-  import { ago, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { ago, dateInput, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { workspaceDay } from '../../lib/quickadd';
+  import { addDays } from '../../lib/when';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
   import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
   import PriorityPicker from './PriorityPicker.svelte';
@@ -165,6 +167,10 @@
   let picker = $state<HTMLInputElement>();
   let dropping = $state(false);
   let showDone = $state(false);
+  let parkNote = $state('');
+  let parkDate = $state('');
+  const minParkDate = $derived(addDays(workspaceDay(board.now), 1));
+  const canPark = $derived(!!parkNote.trim() && !!parkDate && parkDate >= minParkDate);
   // Doc pages that embed or link this task, so a task filed from a meeting note leads back to it.
   let inDocs = $state<DocSummary[]>([]);
   const detailId = $derived(d?.id);
@@ -192,6 +198,8 @@
       refsOpen = !(agentOn && refSummary.length);
     }
     if (document.activeElement !== titleArea) title = d.title;
+    parkNote = d.parked_note ?? '';
+    parkDate = dateInput(d.parked_until ?? null);
   });
 
   // The URL names the open task, so reload and copy-link land on it.
@@ -632,6 +640,37 @@
               <DatePicker label="Start" value={d.start_at} onchange={(when) => save({ start_at: when })} />
               <span class="muted arrow">→</span>
               <DatePicker label="Due" value={d.due_at} dateOnly={d.due_date_only} onchange={(when) => save({ due_at: when })} />
+            </div>
+          </div>
+          <div class="field wide">
+            <span class="label"><Icon name="clock" /> Waiting on someone until a date</span>
+            <div class="value park-row">
+              <input
+                type="text"
+                aria-label="Waiting on note"
+                maxlength="140"
+                placeholder="Who or what it waits for"
+                bind:value={parkNote}
+              />
+              <input
+                type="date"
+                aria-label="Waiting until date"
+                min={minParkDate}
+                bind:value={parkDate}
+              />
+              <button
+                class="secondary"
+                data-park-save
+                disabled={!canPark}
+                onclick={() => void save({ parked_note: parkNote.trim(), parked_until: parkDate })}>Park</button
+              >
+              {#if d.parked_until || d.parked_note}
+                <button
+                  class="link"
+                  data-park-clear
+                  onclick={() => void save({ parked_note: null, parked_until: null })}>Clear</button
+                >
+              {/if}
             </div>
           </div>
           <div class="field">
@@ -1201,6 +1240,16 @@
     align-items: center;
     gap: 4px;
     flex-wrap: wrap;
+  }
+  .park-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .park-row input[type='text'] {
+    flex: 1;
+    min-width: 140px;
   }
   .arrow {
     padding: 0 2px;

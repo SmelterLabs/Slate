@@ -15,7 +15,7 @@ Read and change tasks: file one, update it, report progress, split or archive it
 | `get` | `read` | `id`\* | `GET /items/{item_id}` | the item with subtasks, comments and last 20 events |
 | `list` | `read` | `list_id`, `section_id`, `status`, `assignee`, `tag`, `external_ref`, `due_before`, `due_after`, `q`, `stale`, `include_archived`, `archived`, `trashed`, `closed`, `order`, `kind`, `blocked`, `changed_since`, `fields`, `limit`, `offset`, `ids`, `open_comment_for` | `GET /items` | items matching every filter given (AND); `fields` trims each item, `changed_since` returns only items changed after an event id, `limit`/`offset` page |
 | `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
-| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; status, assignees and tags replace the set |
+| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `parked_until`, `parked_note`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; status, assignees and tags replace the set |
 | `report` | `write` | `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `status`, `assign_me`, `url`, `claim`, `reply`, `thread`, `id`\* | `POST /items/{item_id}/report` | say what you are doing on it: working, blocked, review or failed sets a badge; done and idle clear it. Take a task with slate_work next |
 | `run` | `write` | `id`\* | `POST /items/{item_id}/run` | Run now: ask the item's agent assignees to start on it now (records item.run_requested; their runners take it at once). Refused when no agent is assigned or it is done, cancelled or archived |
 | `stop` | `write` | `id`\* | `POST /items/{item_id}/stop` | Stop: ask the agent working on the item to stop (records item.stop_requested; its runner ends the run, which finishes answered, saying where it stopped). Refused when no agent is working on it |
@@ -176,7 +176,7 @@ The top-level groups. Find one, or create one.
 |---|---|---|---|---|
 | `list` | `read` | `include_archived` | `GET /sections` | all sections |
 | `create` | `write` | `name`\*, `audience`\*, `position` | `POST /sections` | a section (one per audience or rhythm, never per topic) |
-| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience, or archived true/false |
+| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience, or archived true/false |
 
 ## `slate_tag`
 

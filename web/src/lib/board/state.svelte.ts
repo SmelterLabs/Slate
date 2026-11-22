@@ -9,8 +9,8 @@
 
 import { workspaceTimezone } from '../timezone';
 import { SvelteSet } from 'svelte/reactivity';
-import { hiddenAsFinished, isOpen } from '../format';
-import { attention, byList, type Attention, type Need } from '../attention';
+import { hiddenAsFinished, isOpen, isParked } from '../format';
+import { attention, byList, projectAttention, type Attention, type Need, type ProjectNeed } from '../attention';
 import { workspaceDay } from '../quickadd';
 import { workingItems } from '../pickup';
 import { listLevel } from '../permissions';
@@ -156,12 +156,14 @@ export class BoardState {
     let due = 0;
     for (const i of this.#plain.values()) {
       if (i.archived_at || !isOpen(i)) continue;
-      if (this.lists[i.list_id]?.reference) continue; // reference lists are not counted as work
+      const list = this.lists[i.list_id];
+      if (list?.reference || i.later) continue;
       if (!i.parent_id) open.set(i.list_id, (open.get(i.list_id) ?? 0) + 1);
+      if (isParked(i)) continue;
       if (i.due_at && i.due_at < nowIso) overdue++; // isOverdue() without a Date per item
       // Everything's badge: open, in a live list, due by the end of today (workspace time). What waits
       // on me is Needs you's count (My Work's tile, the pill, the title and the app icon), not this.
-      const live = this.lists[i.list_id] && !this.lists[i.list_id].archived_at;
+      const live = list && !list.archived_at;
       if (live && i.due_at && dayOf(i.due_at) <= today) due++;
     }
     this.#open = open;
@@ -207,10 +209,20 @@ export class BoardState {
     return this.#attn;
   }
 
+  /** Every surface's one Needs-you total: item needs plus project needs. */
+  get needsTotal(): number {
+    return this.needsMe.length + this.projectNeeds.length;
+  }
+
   /** The sidebar's per-list "needs you" marker, or undefined. */
   needsIn(listId: string): { n: number; top: Need } | undefined {
     void this.needsMe;
     return this.#attnByList.get(listId);
+  }
+
+  /** Project sections with no computed next step that this viewer may manage. */
+  get projectNeeds(): ProjectNeed[] {
+    return projectAttention(this.sections, this.me?.access);
   }
 
   /** Accounts a person can pick to assign, mention or hand work to: not disabled, and not

@@ -133,14 +133,15 @@ class Follows:
     assigned: frozenset[str]
     followed: frozenset[str]
     watched: frozenset[str] = frozenset()
-    reference: frozenset[str] = frozenset()
+    due_suppressed: frozenset[str] = frozenset()
     # Cards whose stall (`item.stalled`, in the window) this account is told about.
     stalls: frozenset[str] = frozenset()
 
 
 def follows(session: Session, account_id: str) -> Follows:
+    can_alert_due = WORK_LIST & Item.parked_until.is_(None)
     assignments = session.execute(
-        select(ItemAssignee.item_id, WORK_LIST)
+        select(ItemAssignee.item_id, can_alert_due)
         .join(Item, Item.id == ItemAssignee.item_id)
         .join(List, List.id == Item.list_id)
         .where(ItemAssignee.account_id == account_id)
@@ -155,14 +156,14 @@ def follows(session: Session, account_id: str) -> Follows:
         .distinct()
     ).all()
     stalls = frozenset(i for i in stalled if account_id in stall_recipients(session, i))
-    fallback_reference = session.scalars(
+    suppressed_fallback = session.scalars(
         select(Event.item_id)
         .join(Item, Item.id == Event.item_id)
         .join(List, List.id == Item.list_id)
         .where(
             Event.type.in_(DUE_TYPES),
             Event.at >= utcnow() - WINDOW,
-            ~WORK_LIST,
+            ~can_alert_due,
             _in_after("$.notify", account_id),
         )
         .distinct()
@@ -172,8 +173,8 @@ def follows(session: Session, account_id: str) -> Follows:
         followed=assigned | watching,
         watched=watching,
         stalls=stalls,
-        reference=frozenset(item_id for item_id, is_work in assignments if not is_work)
-        | frozenset(fallback_reference),
+        due_suppressed=frozenset(item_id for item_id, can_alert in assignments if not can_alert)
+        | frozenset(suppressed_fallback),
     )
 
 
@@ -227,6 +228,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
     if ev.type == "item.reminder":
         # Reminders you set for yourself are news too: that is their point.
         return "reminder" if (ev.after_json or {}).get("account_id") == account.id else None
+    if ev.type == "item.unparked":
+        return "reminder" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "account.digest":
         return "digest" if ev.subject_id == account.id else None
     if ev.type in HEALTH_TYPES:
@@ -272,7 +275,7 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
-        if ev.item_id not in f.reference and (
+        if ev.item_id not in f.due_suppressed and (
             ev.item_id in f.assigned or account.id in ((ev.after_json or {}).get("notify") or [])
         ):
             return "due"
@@ -571,6 +574,7 @@ def _candidates(
 
     conds = [
         (Event.type == "item.reminder") & (after("$.account_id") == me),
+        (Event.type == "item.unparked") & _in_after("$.notify", me),
         (Event.type == "account.digest") & (Event.subject_id == me),
         (Event.type == "session.expiring") & (Event.subject_id == me),
         Event.type.in_(MENTION_TYPES) & _in_after("$.mentions", account.handle),
@@ -632,6 +636,13 @@ def _attach_items(session: Session, out: list[dict[str, Any]]) -> None:
         e["list_id"] = item.list_id if item else None
         e["channel"] = None
         e["doc_id"] = None
+        if e["event"]["type"] == "item.unparked":
+            after = e["event"]["after"] or {}
+            note = after.get("note") or ""
+            title = item.title if item else "Slate"
+            e["item_title"] = (
+                f"Back today: {title} (was waiting on {note})" if note else f"Back today: {title}"
+            )
         if e["event"]["type"] == "session.expiring":
             after = e["event"]["after"] or {}
             e["item_title"] = f"Access to {after.get('section') or 'the project'}"

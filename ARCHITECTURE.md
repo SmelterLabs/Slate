@@ -78,14 +78,14 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/agent_rules.py` | The agent deny-list: a fixed vocabulary of actions agent accounts may never do, whatever their token or role (`check`, `check_read`); people are never affected. Served at `GET`/`PUT /settings/agents`. |
 | `service/guests.py` | What a project's guests may do with the workspace's agents: guests reach only their project's agent, never a workspace agent, and do not see members-only chat. |
 | `service/aiadd.py` | AI add: `POST /items/ai` files one item from plain words, then the configured Ollama model (`SLATE_AI_URL`) fills it in as `slate` after the response. |
-| `service/sections.py`, `lists.py`, `tags.py`, `views.py`, `favorites.py`, `colors.py` | Structure, statuses (`move_item_to_status` decides `completed_at`), tags, saved views, favorites; the colour check for statuses and tags. |
+| `service/sections.py`, `lists.py`, `tags.py`, `views.py`, `favorites.py`, `colors.py` | Structure, project sections and their computed `next_step` (`GET /projects`), statuses (`move_item_to_status` decides `completed_at`), tags, saved views, favorites; the colour check for statuses and tags. |
 | `service/items.py`, `item_cache.py`, `links.py`, `trash.py`, `export.py`, `search.py`, `revert.py` | Items and their views; the cached view JSON; dependencies and the derived blocked state; trash and purge; JSON/CSV export and the admin's whole-database backup copy; one search; revert from the log. |
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/attention.py` | Notification loudness, quiet periods and question escalation (`docs/notifications.md`). |
-| `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
+| `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today, the plate predicates (`later`, `parked`, `stale`), and the weekly sweep (`GET /today/sweep`); the inbox derived from events; the agent check-in; the paste-ready brief. |
 | `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
-| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards; reminders and the digest. |
+| `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards, and unparking at 06:00 workspace time; reminders and the digest. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
 | `service/cursors.py` | Engine cursors and the event walk push and email share. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |

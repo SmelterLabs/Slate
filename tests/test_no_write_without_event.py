@@ -93,7 +93,13 @@ READS = {
         "touch_token",
         "needs_touch",
     },
-    "slate.service.sections": {"get_section", "list_sections"},
+    "slate.service.sections": {
+        "get_section",
+        "list_sections",
+        "next_step_for",
+        "section_views",
+        "list_projects",
+    },
     "slate.service.lists": {
         "can_file_inbox",
         "get_list",
@@ -235,7 +241,16 @@ READS = {
         "waits",
         "waiting_covers",
     },
-    "slate.service.today": {"today"},
+    "slate.service.today": {
+        "today",
+        "sweep",
+        "lead_days_for",
+        "sweep_weekday_for",
+        "non_reference_list_filter",
+        "is_parked",
+        "is_later",
+        "is_stale",
+    },
     "slate.service.trash": {"purge_due_at"},
     "slate.service.export": {
         "scope_of",
@@ -727,13 +742,14 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         "reorder_favorites": lambda db, a, p: _reorder(db, a),
     },
     "slate.service.attention": {"escalate": None, "release": None},
-    # Both act as the `slate` system account, not the caller: covered in tests/test_due_events.py.
+    # Act as the `slate` system account: covered in test_due_events.py & test_s6_planning.py.
     "slate.service.due": {
         "system_actor": None,
         "emit_due_events": None,
         "retry_failed_runs": None,
         "clear_stale_badges": None,
         "poke_stalled": None,
+        "unpark_due": None,
     },
     "slate.service.automations": {
         "create_automation": lambda db, a, p: _automation(db, a),

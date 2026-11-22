@@ -65,4 +65,6 @@ Then `slate_item get` and confirm the list, the due date, the tags, and the assi
 
 ## Everything else
 
+Use REST `GET /projects` for project next steps and `GET /today/sweep` for your old overdue cards. Both paths are under `/api/v1`. Use `slate_item update` with `parked_until` (a future workspace date) and `parked_note` to schedule a return reminder.
+
 Search is `slate_search`. Comments, docs, chat, reminders, recurrence, accounts, and batch calls are in `docs/agents/` (`reference/mcp.md`, `quickstart.md`).

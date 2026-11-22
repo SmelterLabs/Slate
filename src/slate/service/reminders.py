@@ -296,25 +296,39 @@ def digest_for(
     now = now or utcnow()
     from slate.service import agents as agents_svc  # agents reads work, which reads items
     from slate.service import attention
+    from slate.service import sections as sections_svc
 
+    lead_days = today_svc.lead_days_for(account)
+    is_sweep_day = now.astimezone(LOCAL).weekday() == today_svc.sweep_weekday_for(account)
     caller = access.current(session)
     # Scheduler sessions are unrestricted. An assignment is not an access grant.
     with access.unrestricted(session):
         recipient = access.compute(session, account)
+    effective = caller or recipient
     with access.unrestricted(session):
-        access.attach(session, caller or recipient)
+        access.attach(session, effective)
         try:
             assigned = set(items_svc.query_items(session, assignee=account.id))
             day = today_svc.today(session, account.id, now=now)
             questions = attention.open_questions(session, account.id, now)
+            stale = today_svc.sweep(session, account.id, now=now) if is_sweep_day else []
+            projects = sections_svc.list_projects(session, now=now, lead_days=lead_days)
             # Agents today: what each agent runs by the end of the day (the plan's rule).
             _, day_end = local_day_bounds(now)
             crews = agents_svc.plan(session, now=now, until=day_end)
         finally:
             session.info.pop(access.ACCESS_KEY, None)
-    # Today's view is everyone's; a digest is about what is yours.
-    mine = {k: [i for i in day[k] if i in assigned] for k in ("overdue", "today")}
-    body = {
+    # Today's view is everyone's; a digest is about what is yours. Stale cards stay out of
+    # overdue and appear only in `decide` on the person's sweep day.
+    mine = {
+        "overdue": [
+            i
+            for i in day["overdue"]
+            if i in assigned and not today_svc.is_stale(i, now=now, lead_days=lead_days)
+        ],
+        "today": [i for i in day["today"] if i in assigned],
+    }
+    body: dict[str, Any] = {
         "date": now.astimezone(LOCAL).date().isoformat(),
         "counts": {
             "overdue": len(mine["overdue"]),
@@ -325,6 +339,15 @@ def digest_for(
         "today": _brief(mine["today"]),
         "waiting": _brief(day["waiting"]),
     }
+    if stale:
+        body["decide"] = _brief(stale)
+    missing_next = [
+        {"id": p["id"], "name": p["name"]}
+        for p in projects
+        if p["next_step"] is None and effective.section_level(p["id"]) >= access.EDIT
+    ]
+    if missing_next:
+        body["projects_without_next_step"] = missing_next
     agents_today = [
         {
             "id": a["id"],
@@ -382,7 +405,13 @@ def send_digests(session: Session, *, now: datetime | None = None) -> int:
         if _sent_on(session, account.id, date):
             continue
         body = digest_for(session, account, now=now)
-        if not any(body["counts"].values()) and not (body.get("agents") or body.get("questions")):
+        if (
+            not any(body["counts"].values())
+            and not body.get("agents")
+            and not body.get("questions")
+            and not body.get("decide")
+            and not body.get("projects_without_next_step")
+        ):
             _quiet[account.id] = (date, now)
             continue
         _quiet.pop(account.id, None)
