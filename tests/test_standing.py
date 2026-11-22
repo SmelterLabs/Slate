@@ -12,9 +12,11 @@ from sqlalchemy import select
 from conftest import API
 from conftest import item_events as _events
 from run_proofs import remember, run_fields
-from slate.models import Event, utcnow
-from slate.service import due, push
+from slate.models import Event, Source, utcnow
+from slate.service import due, push, work
+from slate.service import items as items_svc
 from slate.service.brief import closing_line
+from slate.service.core import Actor
 from test_migrations import _alembic, _row
 
 
@@ -381,9 +383,9 @@ def test_an_answered_card_is_poked_once_after_4_hours(client, alex, todo, make_a
     assert _tick(db) == 0  # once
     (poke,) = _pokes(client, alex, item["id"])
     assert poke["after"]["for"] == [agent["id"]] and poke["source"] == "system"
+    assert _next(client, ch)["item"]["id"] == item["id"]  # takeable once
     brief = client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"]
     assert "still open" in brief and "`done`, `ask`, `later` or `review`" in brief
-    assert _next(client, ch)["item"]["id"] == item["id"]  # takeable once
     _done(client, ch, item["id"], outcome="done", reply="Finished it.")
     assert _view(client, alex, item["id"])["stalled"] is False
 
@@ -464,3 +466,253 @@ def test_a_finish_other_than_answered_clears_stalled(client, alex, todo, make_ac
     )
     assert r.status_code == 200, r.text
     assert _view(client, alex, item["id"])["stalled"] is False
+
+
+# --- review round: guests, races, binding, migration, dedup, blanks, recipients -------------
+
+
+def test_a_persons_finish_carries_no_status_it_did_not_write(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    _done(client, ch, item["id"], outcome="answered", reply="Half done.")
+    me = _me(client, alex)["id"]
+    r = client.post(f"{API}/work/{item['id']}/finish", json={"outcome": "release"}, headers=alex)
+    assert r.status_code == 200, r.text
+    finished = _events(client, alex, item["id"], "item.work_finished")
+    assert [e["after"]["status"] for e in finished if e["actor_id"] != me] == ["Half done."]
+    assert all("status" not in e["after"] for e in finished if e["actor_id"] == me)
+
+
+def _between(monkeypatch, during):
+    """Run `during()` once, after the scheduler step has read its candidates and before it
+    takes the write lock: another request winning that gap."""
+    real = due.apply_change
+    fired = []
+
+    def wrapped(*a, **kw):
+        if not fired:
+            fired.append(True)
+            during()
+        return real(*a, **kw)
+
+    monkeypatch.setattr(due, "apply_change", wrapped)
+
+
+def test_the_stale_sweep_rechecks_under_the_lock(client, alex, todo, make_account, db, monkeypatch):
+    agent, ch = make_account("agent")
+    item = _item(client, alex, todo["id"], assignees=["agent"])
+    client.post(f"{API}/items/{item['id']}/report", json={"state": "working"}, headers=ch)
+    db.expire_all()
+    # Between the read and the write the agent takes the card: a live run, a fresh badge.
+    actor = Actor(account_id=agent["id"], source=Source.api)
+    _between(monkeypatch, lambda: work.take(db, actor, item["id"], lease=7200))
+    assert due.clear_stale_badges(db, now=utcnow() + timedelta(minutes=31)) == 0
+    assert _view(client, alex, item["id"])["agent"]["state"] == "working"
+    reported = _events(client, alex, item["id"], "item.reported")
+    assert all(e["after"].get("reason") != "stale" for e in reported)
+
+
+def test_the_stalled_poke_rechecks_under_the_lock(
+    client, alex, todo, make_account, db, monkeypatch
+):
+    _, ch = make_account("agent")
+    item = _answered(client, alex, ch, todo)
+    db.expire_all()
+    actor = Actor(account_id=_me(client, alex)["id"], source=Source.api)
+    later = {"due_at": "2099-01-01"}
+    _between(monkeypatch, lambda: items_svc.update_item(db, actor, item["id"], later))
+    assert due.poke_stalled(db, now=utcnow() + timedelta(hours=4.1)) == 0
+    assert _pokes(client, alex, item["id"]) == []
+
+
+def test_a_poke_is_for_its_agent_only(client, alex, todo, make_account, db):
+    agent, ch = make_account("agent")
+    _, oh = make_account("other-agent")
+    item = _answered(client, alex, ch, todo)  # assigned to agent only, so the poke is its
+    both = {"assignees": ["agent", "other-agent"]}
+    client.patch(f"{API}/items/{item['id']}", json=both, headers=alex)
+    assert _tick(db) == 1
+    # The other assignee takes the card: its run is not the poked one.
+    assert _next(client, oh)["item"]["id"] == item["id"]
+    brief = client.get(f"{API}/items/{item['id']}/brief", headers=oh).json()["text"]
+    assert "still open" not in brief
+    _done(client, oh, item["id"], outcome="answered", reply="I looked too.")
+    assert _view(client, alex, item["id"])["stalled"] is False
+    # The poke still waits for its agent, whose run is the poked one.
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    brief = client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"]
+    assert "still open" in brief
+    _done(client, ch, item["id"], outcome="answered", reply="Still not done.")
+    assert _view(client, alex, item["id"])["stalled"] is True
+    stalled = [e["after"] for e in _events(client, alex, item["id"], "item.stalled")]
+    assert stalled == [{"agent_id": agent["id"]}]
+
+
+def test_an_unleased_answer_after_a_poke_does_not_stall(client, alex, todo, make_account, db):
+    _, ch = make_account("agent")
+    item = _answered(client, alex, ch, todo)
+    assert _tick(db) == 1
+    body = {"outcome": "answered", "reply": "Hm."}
+    r = client.post(f"{API}/work/{item['id']}/finish", json=body, headers=ch)
+    assert r.status_code == 200, r.text
+    assert _view(client, alex, item["id"])["stalled"] is False
+    assert _events(client, alex, item["id"], "item.stalled") == []
+
+
+def test_a_closed_card_answered_for_an_ask_does_not_stall(client, alex, todo, make_account, db):
+    _, ch = make_account("agent")
+    item = _answered(client, alex, ch, todo)
+    assert _tick(db) == 1
+    client.patch(f"{API}/items/{item['id']}", json={"status": "Done"}, headers=alex)
+    client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "One more question", "assignee": "agent"},
+        headers=alex,
+    )
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    _done(client, ch, item["id"], outcome="answered", reply="Answered it.")
+    assert _events(client, alex, item["id"], "item.stalled") == []
+
+
+def test_a_disabled_agent_is_not_poked(client, alex, todo, make_account, db):
+    agent, ch = make_account("agent")
+    item = _answered(client, alex, ch, todo)
+    r = client.patch(f"{API}/accounts/{agent['id']}", json={"disabled": True}, headers=alex)
+    assert r.status_code == 200, r.text
+    assert _tick(db) == 0
+    assert _pokes(client, alex, item["id"]) == []
+
+
+def test_the_migration_counts_an_ask_from_when_it_reached_the_agent(tmp_path):
+    db = tmp_path / "slate.db"
+    assert _alembic(db, "upgrade", "d8f6b2e4c913").returncode == 0
+    with sqlite3.connect(db) as conn:
+        _row(conn, "accounts", id="acc000000001", handle="alex", kind="person", role="owner")
+        _row(conn, "accounts", id="acc000000002", handle="my-agent", kind="agent", role="member")
+        _row(conn, "sections", id="sec000000001", slug="home", audience="work")
+        _row(conn, "lists", id="lst000000001", section_id="sec000000001", slug="l")
+        _row(conn, "items", id="itm000000001", list_id="lst000000001", kind="task",
+             created_by="acc000000001")  # fmt: skip
+        # Written at 09:00, addressed to the agent at 11:00; the agent's 10:00 comment came
+        # before it was asked anything, so the Ask stays open.
+        _row(conn, "comments", id="com000000001", item_id="itm000000001",
+             author_id="acc000000001", assignee_id="acc000000002",
+             created_at="2026-11-01T09:00:00.000000Z")  # fmt: skip
+        _row(conn, "comments", id="com000000002", item_id="itm000000001",
+             author_id="acc000000002", created_at="2026-11-01T10:00:00.000000Z")  # fmt: skip
+        _row(conn, "events", id="0000000000001", type="comment.assigned", item_id="itm000000001",
+             subject_id="com000000001", actor_id="acc000000001", source="api",
+             after_json='{"assignee_id": "acc000000002", "comment_id": "com000000001"}',
+             at="2026-11-01T11:00:00.000000Z")  # fmt: skip
+    assert _alembic(db, "upgrade", "head").returncode == 0
+    with sqlite3.connect(db) as conn:
+        row = conn.execute("SELECT resolved_at FROM comments WHERE id='com000000001'").fetchone()
+    assert row == (None,)
+
+
+def test_a_finish_that_repeats_a_report_keeps_the_meaningful_line(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    reply = "Sent the invoice to the client.\nDetails follow."
+    r = client.post(
+        f"{API}/items/{item['id']}/report",
+        json=run_fields(client, ch, item["id"], state="done", reply=reply),
+        headers=ch,
+    )
+    assert r.status_code == 200, r.text
+    view = _done(client, ch, item["id"], outcome="done", reply=reply)
+    assert view["standing"]["line"] == "Sent the invoice to the client."
+    said = client.get(f"{API}/items/{item['id']}/comments", headers=alex).json()
+    assert [c["body_md"] for c in said].count(reply) == 1
+
+
+@pytest.mark.parametrize("status", ["   ", "\t", " a\nb "])
+def test_a_blank_or_multiline_status_is_refused_at_the_door(
+    client, alex, todo, make_account, status
+):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    assert _finish(client, ch, item["id"], outcome="review", status=status).status_code == 422
+    body = {"state": "review", "status": status}
+    r = client.post(f"{API}/items/{item['id']}/report", json=body, headers=ch)
+    assert r.status_code == 422
+
+
+def test_a_status_is_trimmed(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    view = _done(client, ch, item["id"], outcome="review", status="  Check the draft  ")
+    assert view["standing"]["line"] == "Check the draft"
+
+
+def test_a_person_switching_the_reviewer_moves_the_move(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    bob, _ = make_account("bob", kind="person")
+    item = _taken(client, alex, ch, todo)
+    _done(client, ch, item["id"], outcome="review", status="Check the draft")
+    body = {"state": "review", "status": "Bob checks it", "waiting_on": "bob"}
+    r = client.post(f"{API}/items/{item['id']}/report", json=body, headers=alex)
+    assert r.status_code == 200, r.text
+    view = _view(client, alex, item["id"])
+    assert view["standing"]["line"] == "Check the draft"  # a person's report keeps the line
+    assert view["standing"]["move_id"] == bob["id"]
+
+
+def _poked_and_answered(client, ch, item, db):
+    assert _tick(db) == 1
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    _done(client, ch, item["id"], outcome="answered", reply="Still partway.")
+
+
+def _told(client, h, item_id):
+    return [
+        e for e in _inbox(client, h) if e["event"]["type"] == "item.stalled"
+        and e["event"]["item_id"] == item_id
+    ]  # fmt: skip
+
+
+def test_a_stall_is_told_to_the_cards_people_not_the_owner(client, alex, todo, make_account, db):
+    _, ch = make_account("agent")
+    _, bh = make_account("bob", kind="person")
+    wendy, wh = make_account("wendy", kind="person")
+    # An assignee (who filed it) and a watcher are told; the owner, who does not follow it,
+    # is not.
+    body = {"list_id": todo["id"], "title": "People", "assignees": ["agent", "bob"]}
+    filed = client.post(f"{API}/items", json=body, headers=bh).json()
+    r = client.put(f"{API}/items/{filed['id']}/watchers", json={"watchers": ["wendy"]}, headers=bh)
+    assert r.status_code == 200, r.text
+    assert _next(client, ch)["item"]["id"] == filed["id"]
+    _done(client, ch, filed["id"], outcome="answered", reply="Part.")
+    _poked_and_answered(client, ch, filed, db)
+    ev = _events(client, alex, filed["id"], "item.stalled")[0]
+    assert set(ev["after"]) == {"agent_id"}
+    assert _told(client, bh, filed["id"]) and _told(client, wh, filed["id"])
+    assert _told(client, alex, filed["id"]) == []
+    assert wendy["id"]
+
+
+def test_a_stall_nobody_can_see_goes_to_the_owner(client, alex, make_account, db):
+    agent, ch = make_account("agent")
+    gone, _ = make_account("gone", kind="person")
+    sec = client.post(f"{API}/sections", json={"name": "P", "audience": "work"}, headers=alex)
+    sec = sec.json()
+    client.patch(f"{API}/sections/{sec['id']}", json={"private": True}, headers=alex)
+    lst = client.post(f"{API}/lists", json={"section_id": sec["id"], "name": "L"}, headers=alex)
+    lst = lst.json()
+    for acct in (agent, gone):
+        share = {"account_id": acct["id"], "scope_kind": "section", "scope_id": sec["id"],
+                 "level": "edit"}  # fmt: skip
+        r = client.put(f"{API}/shares", json=share, headers=alex)
+        assert r.status_code in (200, 201), r.text
+    body = {"list_id": lst["id"], "title": "Private", "assignees": ["agent", "gone"]}
+    item = client.post(f"{API}/items", json=body, headers=alex).json()
+    client.put(f"{API}/items/{item['id']}/watchers", json={"watchers": []}, headers=alex)
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    _done(client, ch, item["id"], outcome="answered", reply="Part.")
+    # The one person on it loses access before the stall: the owner is told instead.
+    gone_share = {"account_id": gone["id"], "scope_kind": "section", "scope_id": sec["id"],
+                  "level": None}  # fmt: skip
+    r = client.put(f"{API}/shares", json=gone_share, headers=alex)
+    assert r.status_code in (200, 201, 204), r.text
+    _poked_and_answered(client, ch, item, db)
+    assert _told(client, alex, item["id"])

@@ -289,21 +289,26 @@ def retry_failed_runs(session: Session, *, now: datetime) -> int:
 def clear_stale_badges(session: Session, *, now: datetime) -> int:
     """Clear each `working` badge with no lease that no report refreshed for `STALE_AFTER`:
     nothing is running there. An `idle` report by `slate` (`after.reason` `stale`) that
-    reaches nobody's inbox. Returns how many were cleared."""
+    reaches nobody's inbox. Each candidate is read again under the write lock, so a take or a
+    report that won the gap is left alone. Returns how many were cleared."""
     from slate.service.reports import flag_of
     from slate.service.work import STALE_AFTER
 
-    stale = session.scalars(
-        select(Item).where(
+    def stale() -> Any:
+        return select(Item.id).where(
             Item.agent_state == AgentState.working,
             Item.agent_state_at < now - STALE_AFTER,
             Item.id.not_in(select(WorkLease.item_id)),
         )
-    ).all()
+
     actor: Actor | None = None
-    for item in stale:
+    cleared = 0
+    for item_id in session.scalars(stale()).all():
         actor = actor or system_actor(session)
         with apply_change(session, actor) as cx:
+            if session.scalar(stale().where(Item.id == item_id)) is None:
+                continue
+            item = session.get(Item, item_id, populate_existing=True)
             before = flag_of(item)
             item.agent_state = item.agent_state_by = item.agent_state_at = None
             item.agent_note = item.agent_progress = item.agent_url = None
@@ -322,76 +327,102 @@ def clear_stale_badges(session: Session, *, now: datetime) -> int:
                 },
                 covers=[item],
             )
-    return len(stale)
+            cleared += 1
+    return cleared
 
 
 def poke_stalled(session: Session, *, now: datetime) -> int:
     """Ask the agent of each stalled card to run it again, once (docs/agents-work-loop.md,
     "Stalled cards"): open, waiting on nobody, no review, blocked or failed badge, not blocked
-    by another card, no start or due time still to come, no lease, and its agent's newest
-    finish there `answered` at least `STALL_AFTER` ago with nothing since. Records
-    `item.run_requested` (`after.reason` `stalled`) and sets `run_requested_at`, so the work
-    loop hands the card out once. Returns how many were poked."""
+    by another card, no start or due time still to come, no lease, and an enabled agent
+    assignee that may edit it whose newest finish there was `answered` at least `STALL_AFTER`
+    ago with no Run now since. Records `item.run_requested` (`after.reason` `stalled`, `for`
+    that one agent); the work loop hands the card to that agent once (`work._stall_poke`).
+    Each candidate is read again under the write lock. Returns how many were poked."""
     from slate.service.work import STALL_AFTER, agent_assignees, nudge_fields
 
-    cards = session.scalars(
-        select(Item)
-        .join(List, List.id == Item.list_id)
-        .join(Section, Section.id == List.section_id)
-        .outerjoin(Status, Status.id == Item.status_id)
-        .where(
-            Item.archived_at.is_(None),
-            List.archived_at.is_(None),
-            Section.archived_at.is_(None),
-            or_(Status.id.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
-            Item.stalled_at.is_(None),
-            Item.waiting_on_account_id.is_(None),
-            or_(
-                Item.agent_state.is_(None),
-                Item.agent_state.not_in([AgentState.review, AgentState.blocked, AgentState.failed]),
-            ),
-            Item.blocked_since.is_(None),
-            or_(Item.start_at.is_(None), Item.start_at <= now),
-            or_(Item.due_at.is_(None), Item.due_at <= now),
-            Item.id.not_in(select(WorkLease.item_id)),
+    def stalled() -> Any:
+        return (
+            select(Item.id)
+            .join(List, List.id == Item.list_id)
+            .join(Section, Section.id == List.section_id)
+            .outerjoin(Status, Status.id == Item.status_id)
+            .where(
+                Item.archived_at.is_(None),
+                List.archived_at.is_(None),
+                Section.archived_at.is_(None),
+                or_(
+                    Status.id.is_(None),
+                    Status.kind.not_in([StatusKind.done, StatusKind.cancelled]),
+                ),
+                Item.stalled_at.is_(None),
+                Item.waiting_on_account_id.is_(None),
+                or_(
+                    Item.agent_state.is_(None),
+                    Item.agent_state.not_in(
+                        [AgentState.review, AgentState.blocked, AgentState.failed]
+                    ),
+                ),
+                Item.blocked_since.is_(None),
+                or_(Item.start_at.is_(None), Item.start_at <= now),
+                or_(Item.due_at.is_(None), Item.due_at <= now),
+                Item.id.not_in(select(WorkLease.item_id)),
+            )
         )
-    ).all()
+
+    def answered_long_ago(item: Item, agent_id: str) -> bool:
+        newest = session.scalar(
+            select(Event)
+            .where(
+                Event.item_id == item.id,
+                or_(
+                    Event.type == "item.run_requested",
+                    (Event.type == "item.work_finished") & (Event.actor_id == agent_id),
+                ),
+            )
+            .order_by(Event.id.desc())
+            .limit(1)
+        )
+        return (
+            newest is not None
+            and newest.type == "item.work_finished"
+            and (newest.after_json or {}).get("outcome") == "answered"
+            and newest.at <= now - STALL_AFTER
+        )
+
+    def can_take(item: Item, agent_id: str) -> bool:
+        from slate.service import access
+
+        agent = session.get(Account, agent_id)
+        if agent is None or agent.disabled_at is not None:
+            return False
+        reach = access.compute(session, agent)
+        level = access.EDIT if reach.lists is None else reach.lists.get(item.list_id, 0)
+        return min(reach.cap, level) >= access.EDIT
+
     actor: Actor | None = None
     poked = 0
-    for item in cards:
-        for agent in agent_assignees(session, item.id):
-            newest = session.scalar(
-                select(Event)
-                .where(
-                    Event.item_id == item.id,
-                    or_(
-                        Event.type == "item.run_requested",
-                        (Event.type == "item.work_finished") & (Event.actor_id == agent),
-                    ),
-                )
-                .order_by(Event.id.desc())
-                .limit(1)
-            )
-            if (
-                newest is None
-                or newest.type != "item.work_finished"
-                or (newest.after_json or {}).get("outcome") != "answered"
-                or newest.at > now - STALL_AFTER
-            ):
+    for item_id in session.scalars(stalled()).all():
+        actor = actor or system_actor(session)
+        with apply_change(session, actor) as cx:
+            if session.scalar(stalled().where(Item.id == item_id)) is None:
                 continue
-            actor = actor or system_actor(session)
-            nudge = nudge_fields(session, [agent])
-            with apply_change(session, actor) as cx:
-                before = item.run_requested_at
-                item.run_requested_at = now
-                cx.record(
-                    "item.run_requested",
-                    item_id=item.id,
-                    field="run_requested_at",
-                    before=before,
-                    after={"for": [agent], "reason": "stalled", **nudge},
-                    covers=[item],
-                )
+            item = session.get(Item, item_id, populate_existing=True)
+            agent = next(
+                (
+                    a
+                    for a in agent_assignees(session, item.id)
+                    if can_take(item, a) and answered_long_ago(item, a)
+                ),
+                None,
+            )
+            if agent is None:
+                continue
+            cx.record(
+                "item.run_requested",
+                item_id=item.id,
+                field="run_requested_at",
+                after={"for": [agent], "reason": "stalled", **nudge_fields(session, [agent])},
+            )
             poked += 1
-            break
     return poked

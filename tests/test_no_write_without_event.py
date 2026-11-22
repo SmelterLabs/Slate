@@ -212,6 +212,7 @@ READS = {
     "slate.service.favorites": {"list_favorites", "get_favorite", "favorite_out"},
     "slate.service.inbox": {
         "follows",
+        "stall_recipients",
         "reason_for",
         "entries",
         "unread_count",

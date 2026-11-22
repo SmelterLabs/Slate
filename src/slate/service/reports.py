@@ -425,13 +425,14 @@ def report(
             after["again"] = waiting_again
         if ask is not None:
             after.update(ask)
+        # Who a review is for goes with the review flag, whoever reports it.
+        item.review_for = reviewer.id if reviewer is not None else None
         if standing is not None:
             item.standing_line, item.standing_by, item.standing_at = (
                 standing,
                 actor.account_id,
                 utcnow(),
             )
-            item.review_for = reviewer.id if reviewer is not None else None
             after["status"] = standing
         cx.record(
             "item.reported",

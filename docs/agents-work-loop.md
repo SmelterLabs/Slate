@@ -34,12 +34,16 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   (`reports.standing_line`), else the state's label. An ask's question is its status (a
   `status` with an ask is refused). Only an agent's report other than `working` sets it
   (`items.standing_line`, `standing_by`, `standing_at`); it is part of the `item.reported` and
-  `item.work_finished` events that caused it (`after.status`) and writes no event of its own.
+  `item.work_finished` events that caused it (`after.status`; a finish carries it only when
+  it wrote it, so a person's finish never repeats an agent's line) and writes no event of its
+  own. `status` is trimmed at the API and refused when empty or more than one line.
   The item view's `standing` is `{line, by_id, at, move_id}` (null before any agent report) and
   stays after the card closes. `move_id`, whose move it is, is computed in `items._move_id`:
   who the card waits on; else, for a `review` flag, the person the review is for
   (`items.review_for`); else nobody on a done or cancelled card; else its first agent
-  assignee; else its first person assignee (assignees by handle); else null.
+  assignee; else its first person assignee (assignees by handle); else null. Only accounts
+  the viewer may see count: a guest gets no `standing` written by a workspace agent, and a
+  move that would name one goes to the next case.
 - **Review needs something to check**: `review` without `status` is refused (`REVIEW_ADVICE`:
   finish `done`, or say what to check). Its optional `waiting_on` is the person who checks it
   (default: whoever asked this turn, else the owner); it does not set who the card waits on.
@@ -253,20 +257,27 @@ Slate stays the doorbell: it never launches an agent.
   `failed` ("<Agent> could not run: <title>"). Run now starts the count over.
 - **Stale badges** (`due.clear_stale_badges`, on the due tick): a `working` badge with no lease
   and no report for `work.STALE_AFTER` (30 minutes) is cleared, an `idle` report by `slate`
-  with `after.reason: "stale"`. It reaches nobody (`inbox.reason_for`).
+  with `after.reason: "stale"`, after the same test passes again under the write lock (a take
+  or report that won the gap is left alone). It reaches nobody (`inbox.reason_for`).
 - **Stalled cards** (`due.poke_stalled`, on the due tick): a card is stalled when it is open,
   has an agent assignee, waits on nobody, has no `review`, `blocked` or `failed` badge, is not
-  blocked by another card, has no start or due time still to come, has no lease, and that
-  agent's newest finish on it was `answered` at least `work.STALL_AFTER` (4 hours) ago with no
-  Run now since. The first time, Slate pokes the agent: `item.run_requested` by `slate` with
-  `after.reason: "stalled"`, setting `run_requested_at`, so the work loop hands the card out
-  once; the brief for that run ends with `brief.STALLED_RULE` (the card is still open; end
-  `done`, `ask`, `later` or `review`). If that run ends `answered` too (`work._poked`: the
-  item's newest Run now is the poke and came after the agent's previous finish), the finish sets
+  blocked by another card, has no start or due time still to come, has no lease, and an enabled
+  agent assignee that may edit it last finished it `answered` at least `work.STALL_AFTER`
+  (4 hours) ago with no Run now since. Every condition is read again under the write lock
+  before anything is written. The first time, Slate pokes that agent: `item.run_requested` by
+  `slate` with `after.reason: "stalled"` and `for` = that agent. The poke is that agent's
+  alone: `eligible()` opens the card for it once (`work._stall_poke`: a stalled poke naming it,
+  newer than its newest finish there), and its next take on the open card binds the poke to the
+  turn (`item.work_started` `after.poke`). Another assignee's take is an ordinary turn and leaves
+  the poke waiting. The brief for the bound turn ends with `brief.STALLED_RULE` (the card is
+  still open; end `done`, `ask`, `later` or `review`; `GET /items/{id}/brief` reads the
+  caller's own turn). If that turn ends `answered` too, on a card still open, the finish sets
   `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
-  {agent_id, notify}`, `notify` as for `item.run_failed`), the inbox and push reason `stalled`
-  ("<Agent> stopped without finishing: <title>"). No further poke. Run now (`request_run`), a
-  new Ask for an agent (`comments._assign`) or any finish other than `answered` clears it.
+  {agent_id}`), the inbox and push reason `stalled` ("<Agent> stopped without finishing:
+  <title>"), told to the card's enabled person assignees and watchers who can see it now, else
+  the owners (`inbox.stall_recipients`). No further poke. Run now (`request_run`), a new Ask
+  for an agent (`comments._assign`) or any finish other than `answered` clears it; an
+  `answered` turn the poke did not start leaves it as it is.
 - **Run stage** (`service/due.py`): for an item with agent assignees, `pending_stages` adds a stage
   `run` at `run_at - 1 µs` (so it sorts before `due` when they coincide) that records
   `item.run_requested` by `slate` with `reason: "due"` (and `due_at`). It rides on

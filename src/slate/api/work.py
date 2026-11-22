@@ -26,6 +26,7 @@ from slate.api.schemas import (
     CommentOut,
     ItemOut,
     Option,
+    Status,
 )
 from slate.service import chatwake, comments, docwake, items, reports, work
 from slate.service.core import Actor
@@ -310,7 +311,7 @@ class FinishIn(BaseModel):
     )
     comment: bool = Field(default=True, description="Post the note as a comment")
     progress: int | None = Field(default=None, ge=0, le=100)
-    status: str | None = STATUS_FIELD
+    status: Status | None = STATUS_FIELD
     hand_to: str | None = Field(
         default=None,
         description="Handle to assign the task to in your place (an agent picks it up next)",

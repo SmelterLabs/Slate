@@ -38,7 +38,6 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
-    Event,
     Role,
 )
 from slate.service.items import get_item
@@ -131,7 +130,7 @@ def files_note(session: Session, item_id: str) -> list[str]:
     ]
 
 
-def brief(session: Session, item_id: str, *, ask: str) -> str:
+def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = None) -> str:
     """The task as one prompt, ending with RUN_RULE (an ask names `ask`, a handle)."""
     item = get_item(session, item_id)
     out = [f"Slate task {item.id}: {item.title}"]
@@ -199,16 +198,12 @@ def brief(session: Session, item_id: str, *, ask: str) -> str:
             )
             out.append("\n".join("> " + line for line in body.splitlines()))
     out += ["", RUN_RULE.format(ask=ask)]
-    # A run Slate started because the card stalled (service/due.py `poke_stalled`).
-    newest = session.scalar(
-        select(Event)
-        .where(
-            Event.item_id == item.id,
-            Event.type.in_(["item.run_requested", "item.work_finished"]),
-        )
-        .order_by(Event.id.desc())
-        .limit(1)
-    )
-    if newest is not None and (newest.after_json or {}).get("reason") == "stalled":
-        out += ["", STALLED_RULE]
+    # The caller's own run is the one Slate started because the card stalled (the take bound
+    # the poke to it: service/work.py `take`).
+    if account_id is not None:
+        from slate.service.work import _turn_start
+
+        start = _turn_start(session, account_id, item.id)
+        if start is not None and (start.after_json or {}).get("poke"):
+            out += ["", STALLED_RULE]
     return "\n".join(out)

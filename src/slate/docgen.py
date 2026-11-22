@@ -126,7 +126,8 @@ EVENT_DOCS: dict[str, str] = {
     "`due` when the scheduler reached the run time of an agent's task: 06:00 workspace time "
     "on the day for a date-only due date, else the due time; `retry` when it offers a failed "
     "run to its agent again, 5 and then 30 minutes after it failed; `stalled` when its agent "
-    "last finished the open card `answered` four hours ago and Slate runs it once more). A "
+    "last finished the open card `answered` four hours ago and Slate runs it once more, for "
+    "that agent only). A "
     "`work` hint on each "
     "agent's "
     "stream; "
@@ -136,10 +137,10 @@ EVENT_DOCS: dict[str, str] = {
     "told: the card's person assignees and watchers, else the owners, as inbox and push "
     "reason `failed`). No retry follows; Run now starts the count over.",
     "item.stalled": "The item's agent stopped without finishing: Slate ran the open card again "
-    "after it ended `answered`, and that run ended `answered` too (`after.agent_id`, `notify` "
-    "= who is told: the card's person assignees and watchers, else the owners, as inbox and "
-    "push reason `stalled`). The item's `stalled` is true until Run now, a new Ask for the "
-    "agent, or a finish other than answered.",
+    "after it ended `answered`, and that run ended `answered` too (`after.agent_id`). Inbox "
+    "and push reason `stalled` for the card's people who can see it, else the owners. The "
+    "item's `stalled` is true until Run now, a new Ask for the agent, or a finish other than "
+    "answered.",
     "item.stop_requested": "Stop: someone asked the agent working on the item to stop "
     "(`after.for` = the account holding the lease). A `control` message on that agent's "
     "stream and `stop` on its next heartbeat; the run ends with the agent's own finish.",

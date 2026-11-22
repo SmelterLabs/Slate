@@ -261,7 +261,7 @@ def eligible(
         ),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.review, pressed, asked),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.failed, pressed, asked),
-        or_(_last_outcome(account_id) != "answered", pressed, asked),
+        or_(_last_outcome(account_id) != "answered", pressed, asked, _stall_poke(account_id)),
         pressed
         | not_(
             and_(
@@ -307,6 +307,34 @@ def _last_outcome(account_id: str) -> Any:
         .correlate(Item)
         .scalar_subquery(),
         "",
+    )
+
+
+def _stall_poke(account_id: str) -> Any:
+    """SQL: Slate's stalled poke for this account on the item (`due.poke_stalled`), newer than
+    the account's newest finish there: the card is offered to it, and only it, once."""
+    targets = func.json_each(Event.after_json, "$.for").table_valued("value")
+    finished = (
+        select(func.max(Event.id))
+        .where(
+            Event.type == "item.work_finished",
+            Event.item_id == Item.id,
+            Event.actor_id == account_id,
+        )
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    return (
+        select(Event.id)
+        .where(
+            Event.type == "item.run_requested",
+            Event.item_id == Item.id,
+            Event.after_json["reason"].as_string() == "stalled",
+            select(targets.c.value).where(targets.c.value == account_id).exists(),
+            or_(finished.is_(None), Event.id > finished),
+        )
+        .correlate(Item)
+        .exists()
     )
 
 
@@ -648,10 +676,38 @@ def take(
         if new_turn:
             row.run_id = secrets.token_urlsafe(32)
             row.asked_only = asked or item.completed_at is not None
+            poke = None
+            if item.completed_at is None:  # a closed card taken for an Ask is not the poked run
+                last = session.scalar(
+                    select(func.max(Event.id)).where(
+                        Event.type == "item.work_finished",
+                        Event.item_id == item.id,
+                        Event.actor_id == actor.account_id,
+                    )
+                )
+                for ev in session.scalars(
+                    select(Event)
+                    .where(
+                        Event.type == "item.run_requested",
+                        Event.item_id == item.id,
+                        Event.id > (last or ""),
+                    )
+                    .order_by(Event.id.desc())
+                ):
+                    after = ev.after_json if isinstance(ev.after_json, dict) else {}
+                    if after.get("reason") == "stalled" and actor.account_id in (
+                        after.get("for") or []
+                    ):
+                        poke = ev.id
+                        break
             cx.record(
                 "item.work_started",
                 item_id=item.id,
-                after={"run_digest": _digest(row.run_id), "asked_only": asked},
+                after={
+                    "run_digest": _digest(row.run_id),
+                    "asked_only": asked,
+                    **({"poke": poke} if poke else {}),
+                },
             )
     return row
 
@@ -1029,7 +1085,7 @@ def finish(
             row.asked_only if row is not None else _asked_only(session, item.id, actor.account_id)
         )
         if comment and _already_answered(session, item.id, actor.account_id, state):
-            comment, reply = False, None
+            comment = False  # posted already; the reply still says where the card stands
         start = _turn_start(session, actor.account_id, item.id)
         asks = turn_asks(session, actor.account_id, item.id) if start is not None else []
         through = _turn_through(session, actor.account_id, item.id, start) if start else None
@@ -1069,10 +1125,19 @@ def finish(
             status=status,
         )
         # A poked turn that answered again stalled; any other finish ends a stall.
-        stalled = outcome == "answered" and _poked(session, actor.account_id, item.id)
-        newly_stalled = stalled and item.stalled_at is None
-        if stalled != (item.stalled_at is not None):
-            item.stalled_at = utcnow() if stalled else None  # rides on item.reported
+        # A turn that consumed Slate's stalled poke and answered again, on an open card,
+        # stalled; any finish other than answered ends a stall.
+        newly_stalled = (
+            outcome == "answered"
+            and item.stalled_at is None
+            and start is not None
+            and (start.after_json or {}).get("poke") is not None
+            and not _ended(session, item, SimpleNamespace(asked_only=False))
+        )
+        if newly_stalled:
+            item.stalled_at = utcnow()  # rides on item.reported
+        elif outcome != "answered":
+            item.stalled_at = None
         changes: dict[str, Any] = {}
         current = _assignee_ids(session, item.id)
         if target is not None:
@@ -1102,20 +1167,18 @@ def finish(
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),
                     **failed,
-                    **({"status": item.standing_line} if item.standing_line else {}),
+                    # Only a finish that wrote the standing carries it (an agent's).
+                    **(
+                        {"status": item.standing_line}
+                        if item.standing_line and item.standing_by == actor.account_id
+                        else {}
+                    ),
                     **({"steps": log.steps, "comment_id": log.comment_id} if log else {}),
                 },
                 covers=[log] if log else [],
             )
             if newly_stalled:
-                cx.record(
-                    "item.stalled",
-                    item_id=item.id,
-                    after={
-                        "agent_id": actor.account_id,
-                        "notify": _people_to_tell(session, item.id),
-                    },
-                )
+                cx.record("item.stalled", item_id=item.id, after={"agent_id": actor.account_id})
             if failed.get("failures", 0) >= GIVE_UP_AFTER:
                 cx.record(
                     "item.run_failed",
@@ -1131,29 +1194,6 @@ def finish(
     liveactivity.live.clear(item.id)  # the run is over: its box is empty for the next one
     session.refresh(item)
     return item
-
-
-def _poked(session: Session, account_id: str, item_id: str) -> bool:
-    """Did this turn start from Slate's stalled poke? The item's newest Run now is the poke
-    (`after.reason` `stalled`) and came after the account's previous finish on it."""
-    newest = session.scalar(
-        select(Event)
-        .where(
-            Event.item_id == item_id,
-            or_(
-                Event.type == "item.run_requested",
-                and_(Event.type == "item.work_finished", Event.actor_id == account_id),
-            ),
-        )
-        .order_by(Event.id.desc())
-        .limit(1)
-    )
-    after = newest.after_json if newest is not None and isinstance(newest.after_json, dict) else {}
-    return (
-        newest is not None
-        and newest.type == "item.run_requested"
-        and (after.get("reason") == "stalled")
-    )
 
 
 def _failures(session: Session, account_id: str, item: Item) -> int:

@@ -9,7 +9,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StringConstraints,
+    model_validator,
+)
 
 from slate.service import reports
 
@@ -270,11 +277,18 @@ QUESTION_FIELD = Field(
     "card's headline for them",
     examples=["Start the import now?"],
 )
+# Trimmed first, so blank text is empty (refused) and padding never reaches the card.
+Status = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=reports.STATUS_MAX,
+        pattern=r"^[^\r\n]+$",
+    ),
+]
 STATUS_FIELD = Field(
     default=None,
-    min_length=1,
-    max_length=reports.STATUS_MAX,
-    pattern=r"^[^\r\n]+$",
     description="Where the card stands now, in one line of plain text (1 to 140 characters): "
     "what happened and whose move it is, in few words. Without it the first line of reply, "
     "else note, is used. Required with review (what the person should check); not with ask "
@@ -334,7 +348,7 @@ class ReportIn(BaseModel):
     )
     question: str | None = QUESTION_FIELD
     options: list[Option] | None = OPTIONS_FIELD
-    status: str | None = STATUS_FIELD
+    status: Status | None = STATUS_FIELD
     assign_me: bool = Field(default=False, description="With working: add yourself as assignee")
     url: str | None = Field(
         default=None,

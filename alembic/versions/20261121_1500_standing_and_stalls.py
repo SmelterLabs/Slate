@@ -3,8 +3,9 @@
 - `items.standing_line`, `standing_by`, `standing_at`: the agent's one line on where the card
   stands; `items.review_for`: the person a `review` is for; `items.stalled_at`: its agent
   stopped without finishing, twice.
-- Every open Ask addressed to an agent account where that agent has a later comment on the
-  same item is resolved, at that comment's time and by that agent: the agent answered it.
+- Every open Ask addressed to an agent account where that agent has a comment on the same
+  item after the Ask reached it (its last assignment to that agent, else its writing) is
+  resolved, at that comment's time and by that agent: the agent answered it.
 
 Downgrade drops the columns; the Asks stay resolved.
 
@@ -31,11 +32,23 @@ COLUMNS = (
     ("stalled_at", sa.String(length=27)),
 )
 
-ANSWER = """
+# An open Ask began when it was last addressed to its current assignee (its newest
+# `comment.assigned` naming that account), or, for a row with no such event, when it was
+# written. The agent's first comment on the item strictly after that answered it.
+ASKED = """
+    COALESCE(
+        (SELECT MAX(events.at) FROM events
+         WHERE events.type = 'comment.assigned'
+           AND events.subject_id = comments.id
+           AND json_extract(events.after_json, '$.assignee_id') = comments.assignee_id),
+        comments.created_at
+    )
+"""
+ANSWER = f"""
     SELECT MIN(later.created_at) FROM comments AS later
     WHERE later.item_id = comments.item_id
       AND later.author_id = comments.assignee_id
-      AND later.created_at > comments.created_at
+      AND later.created_at > {ASKED}
 """
 
 
