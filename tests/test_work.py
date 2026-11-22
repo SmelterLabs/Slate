@@ -3,6 +3,7 @@ reports back (and can take the next one) in one call; expired leases give the ta
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import timedelta
 
 import pytest
@@ -69,6 +70,39 @@ def test_next_returns_null_when_nothing_is_free(client, alex, todo, make_account
     _, ch = make_account("agent")
     got = _next(client, ch)
     assert got["item"] is None and got["lease"] is None and got["remaining"] == 0
+
+
+def test_next_takes_an_assigned_card_with_many_visible_lists(client, alex, todo, make_account, db):
+    _, agent = make_account("my-agent")
+    private = (
+        client.post(
+            f"{API}/lists",
+            headers=alex,
+            json={"section_id": todo["section_id"], "name": "Private"},
+        )
+        .raise_for_status()
+        .json()
+    )
+    client.patch(
+        f"{API}/lists/{private['id']}", headers=alex, json={"private": True}
+    ).raise_for_status()
+    for index in range(80):
+        client.post(
+            f"{API}/lists",
+            headers=alex,
+            json={"section_id": todo["section_id"], "name": f"List {index}"},
+        ).raise_for_status()
+    card = _item(client, alex, todo["id"], "Draft", assignees=["my-agent"])
+    visible = client.get(f"{API}/me", headers=agent).raise_for_status().json()["access"]
+    assert not visible["all"] and len(visible["lists"]) == 81
+    connection = db.connection().connection.driver_connection
+    # Exercise the query budget without needing a full browser suite's worth of workspace data.
+    previous = connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 8192)
+    try:
+        taken = _next(client, agent, item_id=card["id"], kinds=["task"])
+    finally:
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous)
+    assert taken["item"]["id"] == card["id"]
 
 
 def test_next_skips_blocked_review_waiting_and_future_tasks(client, alex, todo, make_account):

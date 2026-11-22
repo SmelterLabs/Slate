@@ -14,11 +14,14 @@ function files(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+// Collect the source snapshot before the test timer starts. The assertion depends on what
+// the source says, and the time spent waiting for the filesystem varies with machine load.
+const sources = files(join(__dirname, '..')).map((file) => ({ file, src: readFileSync(file, 'utf8') }));
+
 describe('the token', () => {
   it('is never written into a URL, a link or a log line the board builds', () => {
     const offenders: string[] = [];
-    for (const file of files(join(__dirname, '..'))) {
-      const src = readFileSync(file, 'utf8');
+    for (const { file, src } of sources) {
       for (const m of src.matchAll(/(?:console\.\w+|location\.(?:href|assign|replace)|window\.open)\([^)]*token/g)) {
         offenders.push(`${file}: ${m[0].slice(0, 80)}`);
       }
