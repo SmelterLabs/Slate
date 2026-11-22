@@ -527,9 +527,13 @@
               <span class="nav-label"
                 ><Icon name={list.private ? 'lock' : list.kind === 'drawer' ? 'folder' : 'list'} size={14} /><span>{list.name}</span></span
               >
-              {#if list.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
+              {#if list.kind !== 'drawer' && list.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
               {@render needsMark(list.id)}
-              {#if !list.reference}<span class="count">{list.kind === 'drawer' ? drawerCount(list.id) : board.openCount(list.id)}</span>{/if}
+              {#if list.kind === 'drawer'}
+                <span class="count">{drawerCount(list.id)}</span>
+              {:else if !list.reference}
+                <span class="count">{board.openCount(list.id)}</span>
+              {/if}
             </a>
             {@render chatBadge('list', list.id, list.name)}
             <span class="nav-actions">

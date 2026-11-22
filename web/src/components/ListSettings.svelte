@@ -42,10 +42,16 @@
   let fallback = $state('');
   let saving = $state(false);
   // The list's own settings: what belongs here, who owns a new card, its tags, whether it counts.
-  let note = $state(untrack(() => list.note_md ?? ''));
-  let defaultOwnerId = $state<string | null>(untrack(() => list.default_assignee_id ?? null));
-  let defaultTags = $state<string[]>(untrack(() => [...(list.default_tags ?? [])]));
-  let reference = $state(untrack(() => list.reference ?? false));
+  let savedSettings = $state(untrack(() => ({
+    note_md: list.note_md?.trim() ? list.note_md : null,
+    default_assignee_id: list.default_assignee_id ?? null,
+    default_tags: [...(list.default_tags ?? [])],
+    reference: list.reference ?? false,
+  })));
+  let note = $state(untrack(() => savedSettings.note_md ?? ''));
+  let defaultOwnerId = $state(untrack(() => savedSettings.default_assignee_id));
+  let defaultTags = $state(untrack(() => [...savedSettings.default_tags]));
+  let reference = $state(untrack(() => savedSettings.reference));
   const owner = $derived<Assignee[]>(
     defaultOwnerId && board.accounts[defaultOwnerId] ? [board.accounts[defaultOwnerId]] : [],
   );
@@ -55,12 +61,18 @@
       ? (board.pickable.find((a) => a.handle === handles[handles.length - 1])?.id ?? defaultOwnerId)
       : null;
   }
-  const settingsChanged = $derived(
-    note !== (list.note_md ?? '') ||
-      defaultOwnerId !== (list.default_assignee_id ?? null) ||
-      JSON.stringify(defaultTags) !== JSON.stringify(list.default_tags ?? []) ||
-      reference !== (list.reference ?? false),
-  );
+  const settingsChanges = $derived.by(() => {
+    const changes: Partial<typeof savedSettings> = {};
+    const noteMd = note.trim() ? note : null;
+    if (noteMd !== savedSettings.note_md) changes.note_md = noteMd;
+    if (defaultOwnerId !== savedSettings.default_assignee_id) changes.default_assignee_id = defaultOwnerId;
+    if (JSON.stringify(defaultTags) !== JSON.stringify(savedSettings.default_tags)) {
+      changes.default_tags = [...defaultTags];
+    }
+    if (list.kind !== 'drawer' && reference !== savedSettings.reference) changes.reference = reference;
+    return changes;
+  });
+  const settingsChanged = $derived(Object.keys(settingsChanges).length > 0);
 
   const problem = $derived(draftProblem(rows));
   const warning = $derived(draftWarning(rows));
@@ -100,15 +112,15 @@
   async function save() {
     if (problem || (stranded && !fallback)) return;
     saving = true;
-    let ok = true;
     if (settingsChanged) {
-      ok = await board.updateListSettings(list.id, {
-        note_md: note.trim() ? note : null,
-        default_assignee_id: defaultOwnerId,
-        default_tags: defaultTags,
-        reference,
-      });
+      const changes = settingsChanges;
+      if (!(await board.updateListSettings(list.id, changes))) {
+        saving = false;
+        return;
+      }
+      savedSettings = { ...savedSettings, ...changes };
     }
+    let ok = true;
     if (name.trim() && name.trim() !== list.name) await board.renameList(list.id, name.trim());
     if (
       JSON.stringify(rows) !== JSON.stringify(original) ||
@@ -164,10 +176,12 @@
     <TagEditor tags={defaultTags} onchange={(t) => (defaultTags = t.slice(0, 5))} />
   </div>
 
-  <label class="field ref-check">
-    <input type="checkbox" aria-label="Reference list: not counted as work" bind:checked={reference} />
-    <span>Reference list: not counted as work</span>
-  </label>
+  {#if list.kind !== 'drawer'}
+    <label class="field ref-check">
+      <input type="checkbox" aria-label="Reference list: not counted as work" bind:checked={reference} />
+      <span>Reference list: not counted as work</span>
+    </label>
+  {/if}
 
   <div class="field" role="radiogroup" aria-label="Kind">
     <span class="muted small">Kind</span>
