@@ -78,8 +78,8 @@ POST /api/v1/batch
 ```
 
 - An op is exactly an MCP call: `tool` (with or without `slate_`), `action` (omit it for
-  single-action tools such as `today`), `params`. [reference/mcp.md](reference/mcp.md) is the
-  catalogue.
+  a single-action tool such as `checkin`), `params`. [reference/mcp.md](reference/mcp.md) is
+  the catalogue. `today` is not a tool; `GET /today` is the REST route.
 - `ref` names an op's result; a later string param that is exactly `$ref` or `$ref.path`
   (`$t.id`, `$t.status.name`, `$t.assignees.0.handle`) is replaced by it.
 - **Atomic by default:** one transaction. If any op fails nothing is written, and the answer
@@ -88,11 +88,11 @@ POST /api/v1/batch
   `{ok: true, result}` or `{ok: false, error, status}`.
 - Up to 100 ops. Each op needs its own scope (a read token can batch reads). A batch cannot
   contain another batch or a long-poll (an op with `wait` above 0: check-in,
-  `work next`, `work finish` with `next.wait`). It counts as one request for rate limiting.
+  `work next`). It counts as one request for rate limiting.
 
 ### Which state of a task a result shows: `views`
 
-A write op that answers with a task (`create`, `update`, `set_status`, `assign`, `report`,
+A write op that answers with a task (`create`, `update`, `report`,
 `bulk_update`, ...) answers with **the task as the whole batch left it**. Slate builds those
 tasks once, after the commit, for all ops together, which makes a batch about twice as fast
 under load. So when two ops in one batch touch the same task, both slots show the same, final

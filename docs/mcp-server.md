@@ -13,27 +13,34 @@ handlers are `on_*` constructor arguments) rather than `MCPServer`, because we h
 schemas, set annotations per tool and build `isError` results ourselves. SDK docs:
 <https://py.sdk.modelcontextprotocol.io/>.
 
-**Tools.** Twenty-eight, mostly one per resource (`mcp_tools.TOOLS`, in this order): `slate_item`,
-`slate_comment`, `slate_chat`, `slate_checklist`, `slate_view`, `slate_favorite`,
-`slate_automation`, `slate_reminder`, `slate_inbox`, `slate_list`,
-`slate_section`, `slate_tag`, `slate_recurrence`, `slate_account`, `slate_today`,
-`slate_checkin`, `slate_work`, `slate_doc`, `slate_agents`, `slate_health`, `slate_batch`,
-`slate_events`, `slate_share`, `slate_audit`, `slate_export`, `slate_search`. Arguments are
-`{action, params, session_ref?}` (single-action tools such as `slate_today`, `slate_checkin`,
-`slate_agents`, `slate_batch` and `slate_events` take no `action`). `tests/test_mcp.py` `TOOLS` is
-the list of record. `params` is validated against the action's Pydantic model (`extra="forbid"`),
-mostly the REST request models from `api/schemas.py` plus an `id`. The advertised schema merges
-every action's fields (each property notes which actions use it) with shared `$defs` at the root and
-Pydantic `title` noise stripped. Unknown top-level arguments are refused with a hint to use
-`params`.
+**Tools.** One per resource, in `mcp_tools.TOOLS` order (`tests/test_mcp.py` `TOOLS` is the list
+of record). There is no `slate_today` tool: overdue and due today are `slate_work next` and
+`slate_item list`. `slate://today` still renders, from `TODAY_SPEC`, which is not in `TOOLS`.
+A connection lists the core unless told otherwise: `slate_work`, `slate_item`, `slate_comment`,
+`slate_search`, `slate_list` (`mcp_tools.CORE`). `slate-mcp --tools all` or `SLATE_MCP_TOOLS=all`
+lists every tool. `--tools core,slate_doc,slate_chat` adds the named tools. The flag wins over
+the environment variable. HTTP (`install`) reads `SLATE_MCP_TOOLS` only. An unknown name fails
+at startup. A call to a tool that exists but is not listed is one line naming `--tools all` /
+`SLATE_MCP_TOOLS=all`, not `unknown tool`.
 
-**Merged schema defaults.** Multi-action tools omit `default` only on direct `params` properties. A
-default copied from one action is not valid for every other action: clients that apply it can inject
-`body_md`, `due_at`, `assignees`, `statuses`, etc. into a `list` call (strict validation refuses
-them), or reset omitted fields in an update. Defaults remain in the backend Pydantic models,
-single-action tool schemas, and nested objects/shared `$defs`; explicit irrelevant params still
-fail. `tests/test_mcp.py` covers default-applying clients over HTTP, partial updates, and schema
-preservation across the tool catalogue.
+Arguments are `{action, params, session_ref?}`. A single-action tool (`slate_checkin`,
+`slate_agents`, `slate_batch`, `slate_events`) takes no `action`. `params` is validated against
+that action's Pydantic model (`extra="forbid"`), mostly the REST request models from
+`api/schemas.py` plus an `id`.
+
+**Input schema.** MCP requires `type: object` at the root, so the schema is not a bare `oneOf`.
+The root is an object whose properties are `action`, `params`, and `session_ref` when any action
+writes. `oneOf` sits beside that: each branch is one action (`action` has `const`), and its
+`params` carries only that action's fields. `$defs` stay on the root, because a `#/$defs` ref
+resolves against the document. Pydantic `title` noise is stripped. A client that ignores `oneOf`
+sees an open `params` object rather than every action's fields folded together. Unknown top-level
+arguments are refused with a hint to use `params`.
+
+**Defaults.** Multi-action branches omit `default` on direct `params` properties. A client that
+fills defaults in would otherwise reset an update or send another action's fields. Defaults stay
+on the Pydantic models, on single-action schemas, and inside nested objects and `$defs`.
+Explicit irrelevant params still fail. `tests/test_mcp.py` checks each branch, the examples, and
+that an update of one field leaves the others.
 
 **One action, two bindings.** Each `Action` has `scope` (read/write/admin), `params`, `local` and
 `rest`:
@@ -70,7 +77,7 @@ the params that are body fields; `send=` picks which: `given` (not null, the def
 the caller sent, the default for PATCH, so null clears) or `all`. The `local` binding is
 `via(handler)`: it fills `Auth` from the caller's principal and actor, the `Session`, the body model
 from the params (the REST base of a `with_id` model, or the overlapping fields of a narrow model
-such as `set_status`), and every other parameter as above; it renders the answer with the route's
+such as `slate_comment edit`), and every other parameter as above; it renders the answer with the route's
 `response_model`, turns an `HTTPException` into a tool error, answers `empty(params)` for a 204,
 and under a batch with `views: "final"` re-marks `ItemOut` answers as `Later`. Which route each
 action calls is in the generated `docs/agents/reference/mcp.md`.
@@ -78,11 +85,12 @@ action calls is in the generated `docs/agents/reference/mcp.md`.
 **`tests/test_mcp_parity.py` is the guard:** it runs every action's `rest` binding on traceable
 sample params and fails when a REST query parameter or body field is never sent, when the action
 sends a key the route rejects, or when an MCP param reaches nothing; deliberate differences (the
-narrow actions, `finish`'s `next`) sit in its small allowlist with a reason each. It also fails
+narrow actions, and `report`'s `claim`, which stays on REST) sit in its small allowlist with a
+reason each. It also fails
 when an action's scope is not its route's: the MCP door checks `Action.scope` itself, since REST's
 `require` never runs there. A few actions pass their own `local=` to `bind`, because their local
 path is not one REST handler call: `slate_batch`, `slate_checkin` (long-poll), `slate_work next`
-and `finish` (long-poll, `next`) and `slate_account me` (the REST route also renews a cookie). The
+and `finish` and `slate_account me` (the REST route also renews a cookie). The
 two-route choices (`slate_share who`/`private`, `slate_automation runs`) are written out as
 `Action(doc, scope, params, rest=..., local=...)`. The REST `Query(description=...)` and
 request-model descriptions are what agents see in the tool schemas, so describe a parameter
@@ -109,11 +117,13 @@ instance). The `client` test fixture does not run lifespans, so plain REST tests
 tests enter `app.state.mcp_manager.run()` themselves.
 
 **stdio.** `slate-mcp` (`mcp_server.main`) reads `SLATE_URL` and `SLATE_TOKEN`, exits with a message
-if either is missing, and serves over stdio with an `httpx.AsyncClient`. It never touches the
+if either is missing, and serves over stdio with an `httpx.AsyncClient`. `--tools` selects the
+list (default `SLATE_MCP_TOOLS`, else the core). It never touches the
 database, so it runs on any machine that can reach Slate.
 
 **Resources.** `slate://today` and the template `slate://item/{id}`, `text/markdown`, rendered from
-the same JSON the tools return (times shown in the workspace timezone).
+the same JSON the today and item reads return (times shown in the workspace timezone). Today is
+not a listed tool.
 
 **Testing.** `tests/test_mcp.py`: the SDK `Client` over `streamable_http_client` with an
 `httpx2.AsyncClient(transport=httpx2.ASGITransport(app))` (the SDK's client uses **httpx2**, not
@@ -131,7 +141,7 @@ checks the params and scope against the route. A new resource gets a
 the stdio bridge test.
 
 **Annotations are per tool, not per action.** `readOnlyHint` (`read_only=True` in `TOOLS`):
-`slate_today`, `slate_checkin`, `slate_agents`, `slate_health`, `slate_events`, `slate_audit`,
+`slate_checkin`, `slate_agents`, `slate_health`, `slate_events`, `slate_audit`,
 `slate_search`. `destructiveHint: true`: `slate_item` (archive, trash, purge), `slate_comment`,
 `slate_chat`, `slate_checklist`, `slate_view`, `slate_automation`, `slate_list` (archive, removes
 statuses), `slate_section` (archive), `slate_tag` (merge, delete), `slate_doc`, `slate_batch`,

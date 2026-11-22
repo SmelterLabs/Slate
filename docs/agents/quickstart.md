@@ -25,12 +25,16 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `channel`, `thread_id`, `run_id` (MCP `chat_heartbeat`).
 4. Finish the exact attempt: `POST /work/<item_id>/finish` with
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
-   MCP `slate_work finish` adds `item_id`. Outcomes: done, review, later (the rest waits for
-   the task's due time, which must still be to come; nobody is waited on), blocked (real
-   `waiting_on` account), or release. Chat uses `/work/chat/finish` with channel/thread/run_id/outcome/reply.
+   MCP `slate_work finish` adds `item_id`. Outcomes: `done`, `review` (say what to check in
+   `reply`), `later` (the rest waits for a due time still to come; nobody is waited on),
+   `ask` (one-line `question`), `answered` (`reply`; nothing else changes), `failed`
+   (`note`: what broke), `blocked` (an agent, or nobody), `release`. `status` is a column
+   name or id only when that outcome's column is wrong. The same words are the `SLATE:`
+   last line when a person pastes an answer back as a comment. Chat uses
+   `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
-   that attempt's meaning. After receiving it, take the next job separately. A fenced finish
-   cannot include `next` in the same call.
+   that attempt's meaning. After receiving it, take the next job with `slate_work next`
+   (or `POST /work/next`). Finish does not take a next task.
 
 A second process with the same account does not own an active attempt. Resume requires the
 original proof and exact item/channel/thread. Old results cannot finish replacement work.
