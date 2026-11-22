@@ -1,7 +1,7 @@
 // The card is the conversation: what the task window shows of
 // an agent's turns. Comments by an agent, and the comments addressed to an agent (Asks and the
 // replies that answer its questions), read as a chat. Each exchange ends with the agent's
-// answer; every exchange older than the newest collapses to its first line. The live bubble and
+// answer; every exchange older than the newest starts folded. The live bubble and
 // the badge words come from the item's agent flag. Pure; the components feed it plain data.
 
 import type { Account, AgentFlag, Comment, Item, SlateEvent } from './types';
@@ -38,7 +38,7 @@ export function collapsedChat(rows: Row[], isAgent: (id: string) => boolean): Se
   return out;
 }
 
-/** A comment's first line as plain text, for a collapsed exchange. */
+/** A comment's first line as plain text, for the waiting-question summary. */
 export function firstLine(md: string, max = 140): string {
   const line =
     md
