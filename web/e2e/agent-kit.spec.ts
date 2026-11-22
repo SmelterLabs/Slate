@@ -65,10 +65,16 @@ test('the TypeScript client runs the loop against a real server', async () => {
   const { alex, agent: agentToken, listId } = seed();
   const agent = new Slate(BASE_URL, agentToken, { sessionRef: 'e2e-loop' });
   const me = await agent.me();
-  await agent.checkin(); // start the cursor from now
-  await agent.checkin();
-  await agent.checkin(); // same cursor, nothing changed
+  const lists = await agent.get<{ id: string }[]>('/lists');
+  expect(agent.lastStatus).toBe(200);
+  expect(lists.some((list) => list.id === listId)).toBe(true);
+  expect(await agent.get('/lists')).toEqual(lists);
   expect(agent.lastStatus).toBe(304);
+
+  await agent.checkin(); // start the cursor from now
+  const unchanged = await agent.checkin(); // same cursor, recompute the queue's Later flags
+  expect(agent.lastStatus).toBe(200);
+  expect(unchanged.news).toEqual([]);
 
   // Follow the stream while Alex hands the agent a task.
   const cursor = (await agent.events(undefined, { tail: true, limit: 1 })).next_since ?? undefined;
