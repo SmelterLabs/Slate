@@ -57,7 +57,8 @@ A take records whether you own the card or are answering a question on it. Every
 finish except `failed` and `release` resolves questions the turn took, including mid-run
 messages it acknowledged. Stop advances the boundary through messages sent before Stop.
 Later messages and reassigned questions beyond the boundary stay pending. An asked-only
-`done` leaves the card's completion unchanged. A human finish does not resolve questions.
+`done` leaves the card's completion unchanged; to close a card you were only asked on, set
+its status to done yourself first. A human finish does not resolve questions.
 The server handles settlement.
 
 Keep replies concise and attach/link evidence. Preserve the native conversation using

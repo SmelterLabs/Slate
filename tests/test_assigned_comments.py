@@ -152,6 +152,46 @@ def test_an_agent_asked_on_a_task_takes_it_without_being_assigned_and_done_answe
     assert view["assignees"] == []
 
 
+def test_the_brief_tells_an_asked_agent_its_done_leaves_the_card_open(
+    client, alex, todo, make_account
+):
+    from slate.service.brief import ASKED_RULE
+
+    make_account("other")
+    _, ch = make_account("agent")
+    mine = _item(client, alex, todo["id"], "Mine", assignees=["agent"])
+    got = client.post(f"{API}/work/next", json={}, headers=ch).json()
+    assert got["item"]["id"] == mine["id"] and ASKED_RULE not in got["brief"]
+    client.post(
+        f"{API}/work/{mine['id']}/finish",
+        json={"outcome": "later", "run_id": got["lease"]["run_id"]},
+        headers=ch,
+    )
+
+    item = _item(client, alex, todo["id"], "Budget", assignees=["other"])
+    _comment(client, alex, item["id"], "Close it.", assignee="agent")
+    got = client.post(f"{API}/work/next", json={}, headers=ch).json()
+    assert got["item"]["id"] == item["id"] and got["why"] == "asked"
+    assert got["brief"].endswith(ASKED_RULE)
+    read = client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"]
+    assert read.endswith(ASKED_RULE)
+    # Anyone else reading the brief is not in that turn.
+    assert (
+        ASKED_RULE not in client.get(f"{API}/items/{item['id']}/brief", headers=alex).json()["text"]
+    )
+
+    # The agent closes the card itself, then answers: the card stays closed.
+    done = client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=ch)
+    assert done.status_code == 200, done.text
+    r = client.post(
+        f"{API}/work/{item['id']}/finish",
+        json={"outcome": "done", "note": "Closed.", "run_id": got["lease"]["run_id"]},
+        headers=ch,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["completed_at"] is not None
+
+
 def test_ask_opens_the_due_gate(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], "Later", assignees=["agent"], due_at="2099-01-01")
