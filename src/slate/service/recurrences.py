@@ -637,8 +637,9 @@ def create_recurrence(
 
     `dtstart` is ISO 8601 or YYYY-MM-DD (midnight in `timezone`; default today). `tags` are
     names, `assignees` handles or ids (stored as ids). Optional: `body_template_md`,
-    `priority`, `lead_days` (default 14), `missed_policy` (default spawn_always), `trigger`
-    (schedule | on_done), `skip_weekends`, `reopen` (on_done only), `copy_checklists`.
+    `priority`, `lead_days` (default 0: the card appears on the day it is due),
+    `missed_policy` (default spawn_always), `trigger` (schedule | on_done), `skip_weekends`,
+    `reopen` (on_done only), `copy_checklists`.
 
     `adopt_item_id` makes an existing item the rule's current occurrence in the same change
     (see `adopt_instance`); `dtstart` then defaults to that item's due day.
@@ -664,7 +665,7 @@ def create_recurrence(
         now,
     )
     rule = Recurrence(
-        lead_days=14,
+        lead_days=0,
         missed_policy=MissedPolicy.spawn_always,
         trigger=RecurTrigger.schedule,
         skip_weekends=False,

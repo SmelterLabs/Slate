@@ -17,7 +17,7 @@ MONTHLY or YEARLY (sub-daily is refused: a task board does not need 300 hourly i
 `dtstart` is its own field. `dtstart` takes `YYYY-MM-DD` (midnight in the rule's zone; default
 today), naive ISO (rule's zone) or aware ISO. `UNTIL` may be `...Z` (UTC) or a bare date (through
 the end of that local day). `tags_json` holds tag names (created on first spawn);
-`assignee_ids_json` holds account ids (the API accepts handles). `lead_days` defaults to 14 and
+`assignee_ids_json` holds account ids (the API accepts handles). `lead_days` defaults to 0 (the card appears on the day it is due; set it to make cards appear earlier) and
 must be between 0 and `MAX_LEAD_DAYS` (366).
 
 **Occurrences and DST.** `occurrences(rule, start)` runs dateutil on *naive local wall time* from
@@ -50,7 +50,7 @@ now + lead_days`:
    before/after); else stop here.
 
 Then the cursor moves to the first occurrence not dealt with (or `None` when COUNT/UNTIL is
-exhausted). Waiting rather than skipping is deliberate: with a 14-day lead a weekly rule always has
+exhausted). Waiting rather than skipping is deliberate: with a lead longer than the interval (say 14 days on a weekly rule) the rule always has
 the next occurrence in the window while this week's is open; deciding at window entry would skip or
 roll every week even when the person is on time. Completing an instance never touches the rule; the next
 tick simply finds nothing open.

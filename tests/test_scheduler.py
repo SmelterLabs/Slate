@@ -28,6 +28,7 @@ def _rule(db):
         title_template="Daily",
         rrule="FREQ=DAILY",
         dtstart="2030-01-07",
+        lead_days=14,
     )
 
 

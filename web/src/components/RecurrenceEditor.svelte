@@ -69,7 +69,7 @@
   let customNote = $state('');
   let title = $state('');
   let policy = $state<MissedPolicy>('spawn_always');
-  let lead = $state(14);
+  let lead = $state(0);
   let trigger = $state<RecurTrigger>('schedule');
   let skipWeekends = $state(false);
   let reopen = $state(false);
@@ -121,7 +121,7 @@
     customNote = '';
     title = rule?.title_template ?? item.title;
     policy = rule?.missed_policy ?? 'spawn_always';
-    lead = rule?.lead_days ?? 14;
+    lead = rule?.lead_days ?? 0;
     trigger = rule?.trigger ?? 'schedule';
     skipWeekends = rule?.skip_weekends ?? false;
     reopen = rule?.reopen ?? false;
