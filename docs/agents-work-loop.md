@@ -146,9 +146,9 @@ direct reads. Work offers, queue counts and the daily digest omit them.
   lease; with no lease, a badge younger than `reports.CLAIM_FRESH`, except that a parked
   `blocked`/`review` badge never holds a card against an open Ask for the caller and a `failed`
   badge holds nothing; `reports._check_claim` applies the same rule at the take).
-  An open Ask for the caller overrides the `review` and `failed` badges and `waiting_on` someone
-  else, as Run now does, and is the only way a done or cancelled card is eligible, so a follow-up question on
-  an answered card is taken at once.
+  An open Ask for the caller overrides the `review` badge and `waiting_on` someone else, as Run
+  now does, and is the only way a done or cancelled card is eligible. A new Ask after a failed
+  finish can wake that agent before its scheduled retry.
   Order: own before pool, priority, due (nulls last), position, created. **Every NOT branch tests
   for NULL first**: `NOT (lease.account_id = me)` is NULL for an item without a lease and would drop
   the row.
@@ -382,9 +382,10 @@ item's assignees and `waiting_on`.
   unconsumed Ask assignments (why `asked`), even on done cards. Taking an asked-only item does not
   assign the agent (`reports.report(no_assign=True)`, lease `asked_only`); `finish done`
   answers instead of completing (`complete=False`). Every agent finish but `failed` and
-  `release` resolves its taken Asks (`reason: "answered"`). Every
-  agent finish consumes its take's dispatch boundary, not visibility. `/work/next` returns only the
-  pending `asks` within that take; new/reassigned Asks wait for the next turn. An asked-only finish
+  `release` resolves its taken Asks (`reason: "answered"`). An agent finish other than
+  `failed` consumes its take's dispatch boundary without changing visibility on its own.
+  `/work/next` returns only the pending `asks` within that take; new/reassigned Asks wait for the
+  next turn. An asked-only finish
   `ask` or `blocked` may wait only on the author of an Ask the take answered
   (`work._waits_on_asker`); naming anyone else turns it into an `idle` report with no
   `waiting_on`, so the answer (an ask's question included) is a comment and the card gets no
@@ -404,10 +405,12 @@ item's assignees and `waiting_on`.
 
 ### Ask dispatch and settlement (protocol 3)
 
-`item.work_started` records the take's ordered event boundary. At finish, the server records
-the settlement cursor in `item.work_finished.after.through`, advancing it as described below.
+`item.work_started` records the take's ordered event boundary. On a non-failed finish, the
+server records the settlement cursor in `item.work_finished.after.through`, advancing it as
+described below.
 Every agent finish except `failed` and `release` resolves questions in that boundary with
-`reason: "answered"`. Those two outcomes leave the questions open. Human finishes also leave
+`reason: "answered"`. Those two outcomes leave the questions open. A failed finish leaves the
+original Asks and any messages seen mid-run pending for the next take. Human finishes also leave
 questions open. An agent taking an asked-only turn can finish `done` without completing the
 card. Questions outside the settlement boundary remain pending. The board uses the finish
 receipt to stop typing indicators and comment events to update question state.
@@ -419,7 +422,8 @@ heartbeat answers with it (`messages`, the comments addressed to the agent since
 has not marked seen: `work.turn_messages`), the runner hands it to the running agent and sends
 its id back (`heartbeat {seen: [...]}`), and that records `comment.seen` (once per comment;
 ids that are not this run's messages are ignored). The comment view then carries `seen_at` /
-`seen_by_id`, which the board shows as "<agent> got this mid-run". The finish settles what was read:
+`seen_by_id`, which the board shows as "<agent> got this mid-run". A non-failed finish settles
+what was read:
 `item.work_finished.after.through` is `work._turn_through`, the take's boundary moved past each
 seen message in order and stopped at the first one never read. Unread messages beyond that
 boundary can start a later turn.

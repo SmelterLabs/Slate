@@ -28,8 +28,8 @@ Which task: `eligible()` in SQL, best first.
   something or presses Run now). A Run now
   pressed after the last report (the scheduler's retry is one) overrides waiting on someone,
   `review`, `failed` and the blocked pause: whoever pressed it wants the agent to go on. A
-  pending Ask for the account (not consumed by a work finish) overrides the same and a done
-  status too: a question is answered now, whatever the card says.
+  pending Ask for the account overrides the same and a done status too, but Asks already
+  pending at its failed finish wait for a retry, Run now or a new Ask.
 
 Reply turns: when a task is `blocked` by an agent and waiting on a person, that person's next
 comment on it is a reply to the agent (comments.add_comment): it is addressed to the agent as
@@ -165,7 +165,11 @@ def eligible(
     lease = aliased(WorkLease)
     # Reuse one access-filtered Ask query across the eligibility checks. Inlining it in
     # every branch repeats the visibility binds and can exceed SQLite's parameter limit.
-    asks = _asked_items(account_id).cte()
+    asks = (
+        _pending_asks(account_id)
+        .with_only_columns(Comment.item_id, _assignment_id().label("assigned"))
+        .cte()
+    )
     asked_ids = select(asks.c.item_id)
     mine = (
         select(ItemAssignee.item_id.label("id"))
@@ -254,6 +258,24 @@ def eligible(
         Item.run_requested_at.is_not(None),
         or_(Item.agent_state_at.is_(None), Item.run_requested_at > Item.agent_state_at),
     )
+    # Asks kept by a failed finish still belong to the next turn, but only a newer Ask
+    # can wake this agent ahead of its scheduled retry.
+    failed_finish = (
+        select(case((Event.after_json["outcome"].as_string() == "failed", Event.id)))
+        .where(
+            Event.type == "item.work_finished",
+            Event.item_id == Item.id,
+            Event.actor_id == account_id,
+            Event.actor_id == Item.agent_state_by,
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    asked_after_failure = Item.id.in_(
+        asked_ids.where(asks.c.assigned > func.coalesce(failed_finish, ""))
+    )
     # Only an explicit Run now can override the start date. A scheduled retry also sets
     # run_requested_at, so check the reason on the request still waiting to be taken.
     requested_now = (
@@ -280,7 +302,12 @@ def eligible(
             asked,
         ),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.review, pressed, asked),
-        or_(Item.agent_state.is_(None), Item.agent_state != AgentState.failed, pressed, asked),
+        or_(
+            Item.agent_state.is_(None),
+            Item.agent_state != AgentState.failed,
+            pressed,
+            asked_after_failure,
+        ),
         or_(_last_outcome(account_id) != "answered", pressed, asked, _stall_poke(account_id)),
         pressed
         | not_(
@@ -1047,9 +1074,9 @@ def finish(
     `thread` is your own session for this task (service/reports.py). If you already reported
     this outcome with a comment of your own since you took the task, nothing is posted again
     (one answer per turn).
-    Agent finishes consume only Ask assignments present at take, for every outcome, and every
-    agent finish but `failed` and `release` resolves them (`reason: "answered"`): the turn
-    answered them. An asked-only `done` answers instead of completing the task. Human finishes
+    A failed finish leaves every Ask pending. Other finishes consume the turn's Ask boundary,
+    and agent finishes other than `release` resolve the Asks it covers (`reason: "answered"`).
+    An asked-only `done` answers instead of completing the task. Human finishes
     never resolve Asks. A turn Slate started because the card stalled (`due.poke_stalled`)
     that ends `answered` again sets `stalled` (`item.stalled`); any other finish clears it.
     A plain comment or report is not a work finish. Legacy takes without a boundary settle
@@ -1112,7 +1139,11 @@ def finish(
             comment = False  # posted already; the reply still says where the card stands
         start = _turn_start(session, actor.account_id, item.id)
         asks = turn_asks(session, actor.account_id, item.id) if start is not None else []
-        through = _turn_through(session, actor.account_id, item.id, start) if start else None
+        through = (
+            _turn_through(session, actor.account_id, item.id, start)
+            if start is not None and outcome != "failed"
+            else None
+        )
         if (
             answering
             and state == "blocked"
