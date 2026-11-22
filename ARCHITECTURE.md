@@ -33,7 +33,7 @@ Server-Sent Events. Primary users are agents; the board is for the people who ow
 - Routers and the MCP server are thin: validate input, call a service function, shape output.
 - Background asyncio tasks start in `lifespan` and are registered with `monitor.track`: the
   scheduler (eleven hooks on one tick: recurrences, due events with failed-run retries,
-  stale badges and stalled cards, reminders, escalation, digest, trash purge, lease expiry,
+  stale badges, stalled cards and returning Parked cards, reminders, escalation, digest, trash purge, lease expiry,
   chat-turn expiry, doc-turn expiry, session-expiry notices, the sweep of unsent chat files),
   plus the automations, push and email engines. A thread warms the item cache. Every engine
   must be idempotent on restart.
@@ -83,7 +83,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/comments.py`, `checklists.py`, `attachments.py`, `watchers.py`, `activity.py` | The task window's parts (`docs/task-window.md`). |
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/attention.py` | Notification loudness, quiet periods and question escalation (`docs/notifications.md`). |
-| `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today, the plate predicates (`later`, `parked`, `stale`), and the weekly sweep (`GET /today/sweep`); the inbox derived from events; the agent check-in; the paste-ready brief. |
+| `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today, Later and Parked cards, and the weekly sweep (`GET /today/sweep`); the inbox derived from events; the agent check-in; the paste-ready brief. |
 | `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards, and unparking at 06:00 workspace time; reminders and the digest. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |

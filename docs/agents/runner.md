@@ -69,7 +69,7 @@ env_file = "secrets.env"                        # optional KEY=VALUE file read f
 name = "my-agent"                               # log label; cursor in my-agent-state.json
 token_env = "SLATE_TOKEN_MY_AGENT"              # or token_file = "my-agent.token"
 exec = "python hermes/run_task.py"              # Hermes Agent over its gateway
-parallel = 4                                   # separate card sessions; bounded per-agent capacity
+parallel = 4                                   # separate card sessions; parallel runs for this agent
 env = { HERMES_API_URL = "http://127.0.0.1:8642", HERMES_API_KEY = "${API_SERVER_KEY}" }
 
 [[agent]]
@@ -114,7 +114,7 @@ The Hermes agent above uses `parallel = 4` because the adapter keeps a separate 
 card. An agent sharing one conversation (such as `other-agent`, whose service keeps one
 conversation per agent) stays at one. Do not raise the
 limit for a shared conversation or a shared mutable workspace without accounting for conflicts;
-use task dependencies for work that must happen in order. Capacity limits delay pickup, not
+use task dependencies for work that must happen in order. The parallel-run limit delays pickup, not
 lose the request. Every executing card has its own working report and thread.
 
 An agent that must keep working when its chat product's server is down (a repair agent) can
@@ -152,7 +152,7 @@ branch.
 - **Run now** on the card (or `POST /items/{id}/run`, MCP `slate_item run`): at once, even
   before its run time. The runner takes exactly the task that was pressed
   (`POST /work/next {"item_id": ...}`).
-- **An answer on the card**: when the agent finished `ask` (or `blocked` waiting on a person),
+- **An answer on the card**: when the agent finished `ask`,
   that person's next comment on the card is the agent's next turn. It arrives as a `work` hint
   (`type: comment.assigned`, `comment_id`, `reply: true`) and `/work/next` hands it back as
   `reply`.
@@ -186,13 +186,13 @@ branch.
 
 ## The card is the conversation
 
-Task Ask settlement is server-owned; protocol 3 binds it to the attempt proof and receipt. `/work/next`
-returns only this take's pending `asks` and `reply`; every agent finish consumes that take's
-Ask dispatch boundary, including review, blocked and release. Unresolved Asks remain visible
-in Today and on the card, but cannot override the same wait/review/done state indefinitely.
-An assigned-task done does not resolve Asks. Asked-only agent done retains its explicit
-answer-and-resolve contract, limited to Asks present at take. New/reassigned Asks during the
-run remain pending. Do not bulk-resolve Asks in an adapter or infer resolution from a reply.
+The server settles questions against the attempt proof. `/work/next` returns the questions
+for the take and any reply. Every agent finish except `failed` and `release` resolves questions
+in its settlement boundary. The boundary includes the take and the mid-run messages read in
+order. Stop settles messages sent before it. A human finish leaves questions open. An asked-only
+`done` leaves the card open if it was open. Questions beyond the boundary stay pending. Leave
+settlement to the server.
+
 The generic runner, Python/TypeScript clients, gateway/CLI and runner-example adapters all use the
 same finish endpoint with the runner's proof.
 
@@ -342,11 +342,13 @@ released.
 - `ask`: the only ending that waits on a person. `question` is one line; `options` is an
   optional list of 2 to 4 short choices; `waiting_on` is that person's handle. `reply`, when
   you set it, is the comment; otherwise the question is.
-- `answered`: you replied and nothing else changes. `reply` is the comment. Nobody is waited on.
+- `answered`: send your reply as `reply`. The badge clears and the server settles the questions
+  the turn took. The column, assignees and existing wait stay as they were.
 - `failed`: the machine broke. `note` is the machine's words (stored on the finish, not posted).
   Nobody is waited on.
-- `blocked` or `release`: passed through when the command says so. The runner never adds
-  `waiting_on` on its own. To stop a card on a person, use `ask`.
+- `blocked`: waits on another agent if named, or on nobody. Use `ask` for a person.
+- `release`: gives up the lease and removes the caller as an assignee, or hands the card to
+  another account with `hand_to`. Questions the turn took remain open.
 
 `status` is that one line, at most 140 characters. The runner does not send it with `ask`
 (the question is the standing). `hand_to` works as in `POST /work/{id}/finish`. `question`
