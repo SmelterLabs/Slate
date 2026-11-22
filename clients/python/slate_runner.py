@@ -917,15 +917,19 @@ class Runner:
         self, key: str, path: str, body: dict[str, Any], refused: dict[str, Any] | None = None
     ) -> str:
         """Retry identical results only; never translate refusal into an unfenced report.
-        `refused` is the one fenced alternative for a 422 (a `later` with no due time)."""
+        A 422 says the body itself is wrong, so no resend will ever be accepted: `refused` is
+        the fenced alternative to send then (a `later` with no due time), and without one a
+        task's result is sent once more as `failed` (`_refused_as_failed`)."""
         self._record(key, state="delivery_failed", remote_state="terminal", path=path, result=body)
         for attempt in range(3):
             try:
                 self.call("POST", path, body)
             except (SlateHTTPError, httpx.HTTPError) as exc:
                 self.log(f"finish failed: {exc}")
-                if isinstance(exc, SlateHTTPError) and exc.status == 422 and refused is not None:
-                    return self._deliver(key, path, refused)
+                if isinstance(exc, SlateHTTPError) and exc.status == 422:
+                    refused = refused or self._refused_as_failed(key, body, exc.detail)
+                    if refused is not None:
+                        return self._deliver(key, path, refused)
                 if isinstance(exc, SlateHTTPError) and exc.status < 500 and exc.status != 429:
                     break
                 if attempt < 2:
@@ -936,6 +940,34 @@ class Runner:
                 self.log(f"{key} {outcome} (delivered)")
                 return outcome
         return "delivery_failed"
+
+    def _refused_as_failed(
+        self, key: str, body: dict[str, Any], detail: Any
+    ) -> dict[str, Any] | None:
+        """The `failed` finish for a task result Slate refused as malformed: the same run proof,
+        Slate's reason first (the badge shows it), then what the agent said, so its words are
+        kept on the card's history and the card is retried instead of waiting for the lease to
+        run out. None for a chat or doc turn, a reconcile, or a result that is `failed` already
+        (nothing simpler is left to send)."""
+        if turn_ref(key) is not None or "outcome" not in body or body["outcome"] == "failed":
+            return None
+        why = detail if isinstance(detail, str) else json.dumps(detail, default=str)
+        said = [
+            f"{label}: {text}"
+            for label, text in (
+                ("It asked", str(body.get("question") or "").strip()),
+                ("It said", str(body.get("reply") or body.get("note") or "").strip()),
+            )
+            if text
+        ]
+        note = "\n\n".join(
+            [f"Slate refused this run's ending ({body['outcome']}): {_tail(why, 300)}", *said]
+        )
+        out: dict[str, Any] = {"outcome": "failed", "note": note[:NOTE_MAX]}
+        for keep in ("run_id", "thread", "url"):
+            if body.get(keep) is not None:
+                out[keep] = body[keep]
+        return out
 
     def retry_delivery(self, key: str) -> str:
         """Retry a saved result without executing again, including after restart."""
