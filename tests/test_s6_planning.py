@@ -282,8 +282,9 @@ def test_parked_validation_and_clear(client, alex):
 def test_bulk_parking_sets_and_clears_both_fields(client, alex):
     _, lst = _make_section_and_list(client, alex)
     ids = [
-        client.post(f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": title})
-        .json()["id"]
+        client.post(
+            f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": title}
+        ).json()["id"]
         for title in ("First card", "Second card")
     ]
     until = (dates.local_today() + timedelta(days=1)).isoformat()
