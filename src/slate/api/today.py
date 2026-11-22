@@ -59,3 +59,10 @@ def get_today(
         *groups,
     )
     return Response(body, media_type=JSON)
+
+
+@router.get("/today/sweep", response_model=list[ItemOut])
+def get_sweep(auth: ReadAuth, session: DbSession) -> list[dict]:
+    """The caller's stale cards (open, assigned, not later, not parked, more than 14 days
+    overdue), oldest due date first."""
+    return items.views(session, today.sweep(session, auth.account.id))

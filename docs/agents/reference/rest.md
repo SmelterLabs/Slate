@@ -2,7 +2,7 @@
 
 # REST reference
 
-232 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+234 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -10,14 +10,14 @@
 - [agent connections](#agent-connections) (5)
 - [collaboration](#collaboration) (8)
 - [permissions](#permissions) (11)
-- [sections](#sections) (3)
+- [sections](#sections) (4)
 - [lists](#lists) (5)
 - [items](#items) (24)
 - [comments](#comments) (11)
 - [checklists](#checklists) (7)
 - [attachments](#attachments) (5)
 - [tags](#tags) (5)
-- [today](#today) (1)
+- [today](#today) (2)
 - [views](#views) (6)
 - [favorites](#favorites) (4)
 - [inbox](#inbox) (4)
@@ -63,7 +63,7 @@ Scope: `write`
 
 Merge into your board prefs (a key sent as null is removed) and return them all. The change reaches your other devices live as `account.prefs_changed`.
 
-- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `email_to`, `email_reasons`, `view_drafts`
+- Body: `Prefs`: `theme`, `collapsed`, `last_view`, `email_to`, `email_reasons`, `view_drafts`, `lead_days`, `sweep_weekday`
 - Returns: `200`
 
 ### `GET /accounts`
@@ -347,6 +347,14 @@ List Sections
 - Query: `include_archived`
 - Returns: `200` [list of SectionOut](#sectionout)
 
+### `GET /projects`
+
+Scope: `read`
+
+Every active project section with its computed `next_step`, the ones with none first.
+
+- Returns: `200` [list of SectionOut](#sectionout)
+
 ### `POST /sections`
 
 Scope: `write` · MCP: `slate_section create`
@@ -360,9 +368,9 @@ Create Section
 
 Scope: `write` · MCP: `slate_section update`
 
-Rename, reorder, change audience, archive (`archived: true`) / restore a section, or make it private (owner/admin; `private: true`).
+Rename, reorder, change audience, toggle `project`, archive (`archived: true`) / restore a section, or make it private (owner/admin; `private: true`).
 
-- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`
+- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`
 - Returns: `200` [SectionOut](#sectionout)
 
 ## lists
@@ -454,7 +462,7 @@ Scope: `write` · MCP: `slate_item update`, `slate_item set_status`, `slate_item
 
 Send only what changes; `null` clears a field. `status` by id or name; `assignees` (handles) and `tags` (names) replace the whole set. An agent may not set `waiting_on_account_id` to a person (422): it asks instead (finish `ask`).
 
-- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`
+- Body: `ItemPatch`: `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `parked_until`, `parked_note`
 - Returns: `200` [ItemOut](#itemout)
 
 ### `POST /items/bulk`
@@ -874,6 +882,14 @@ Open items across all sections: overdue, due by midnight workspace time, waiting
 
 - Query: `fields`
 - Returns: `200` [TodayOut](#todayout)
+
+### `GET /today/sweep`
+
+Scope: `read`
+
+The caller's stale cards (open, assigned, not later, not parked, more than 14 days overdue), oldest due date first.
+
+- Returns: `200` [list of ItemOut](#itemout)
 
 ## views
 
@@ -2143,7 +2159,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### SectionOut
 
-`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean
+`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `project`: boolean, `next_step`: NextStepOut?
 
 ### ListOut
 
@@ -2151,11 +2167,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ItemOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `parked_until`: string?, `parked_note`: string?, `later`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?
 
 ### ItemDetailOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `parked_until`: string?, `parked_note`: string?, `later`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
 
 ### slate__api__schemas__EventOut
 
@@ -2327,7 +2343,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### DigestOut
 
-`date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
+`date`: string, `counts`: object, `overdue`: [DigestItem], `today`: [DigestItem], `waiting`: [DigestItem], `decide`: [DigestItem], `projects_without_next_step`: [DigestProject], `agents`: [DigestAgent], `enabled`: boolean, `hour`: integer
 
 ### PushKeyOut
 

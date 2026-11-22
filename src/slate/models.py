@@ -257,6 +257,8 @@ class Section(Base):
     whiteboard_url: Mapped[str | None] = mapped_column(String(2048))
     # Private: members no longer see it by default; only owners, admins and `shares`.
     private: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # A project section exposes a computed `next_step` and surfaces in GET /projects.
+    project: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
 
 class List(Base):
@@ -320,6 +322,10 @@ class Item(Base):
     # workspace time that day, but the flag says so: the board hides the time, and an agent's
     # task runs at 06:00 that morning (dates.run_at). service/items.py sets it with due_at.
     due_date_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # Parked: waiting on someone outside until a workspace calendar date (`YYYY-MM-DD`); cleared
+    # at 06:00 workspace time on that date (`service/due.py`).
+    parked_until: Mapped[str | None] = mapped_column(String(10))
+    parked_note: Mapped[str | None] = mapped_column(String(140))
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     waiting_on_account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), index=True)
     acceptance_md: Mapped[str | None] = mapped_column(Text)

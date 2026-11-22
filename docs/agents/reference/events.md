@@ -163,6 +163,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `item.unarchived` | An item was restored. |
 | `item.unblocked` | The last open task an item waited on was done, cancelled, archived or unlinked: the item is free to start. `after.cleared_by` = the blockers this change closed or unlinked. Agents: treat it as new work becoming available. |
 | `item.unlinked` | A link between two items was removed. |
+| `item.unparked` | Scheduler: at 06:00 workspace time on `parked_until`, both parked fields were cleared (`after` = `{note, notify}`); reaches the card's person assignees and watchers (else the workspace owner) as inbox and push reason `reminder`. |
 | `item.unwatched` | Someone stopped watching an item. |
 | `item.updated` | One item field changed (`field` = title, priority, due_at, tags, waiting_on, body...; `before`/`after`). |
 | `item.watched` | Someone started watching an item. |
@@ -225,7 +226,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `section.created` | A section was created. |
 | `section.participants_changed` | Refetch section participants; payload has no member details. |
 | `section.unarchived` | A section was restored. |
-| `section.updated` | A section changed (`field` = the column: name, position, audience, private, whiteboard_url). |
+| `section.updated` | A section changed (`field` = the column: name, position, audience, private, project, whiteboard_url). |
 
 ## session
 

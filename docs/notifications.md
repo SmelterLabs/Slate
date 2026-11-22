@@ -24,10 +24,14 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   item, so its alerts re-arm because the due date moved.
 - **Daily digest**: hook `notify.digest_tick` → `send_digests()`. Once per day, at the account's
   prefs `digest_hour` in the workspace timezone (default 7; prefs `digest` defaults on for people,
-  off for agents) it records `account.digest` with what is overdue and due today (assigned to you)
-  and waiting on you. Nothing on an empty day; an account found empty is checked again at most
-  once an hour that day (`QUIET_RECHECK`), not every tick. Idempotent by the `date` in the last digest event. `GET /me/digest`
-  previews it.
+  off for agents) it records `account.digest` with what is overdue and due today (assigned to you;
+  later, parked, reference-list, and stale >14d-overdue cards excluded) and waiting on you. On the
+  account's sweep day (prefs `sweep_weekday`, 0 = Monday .. 6 = Sunday, default 4 Friday), stale
+  cards appear under `decide` oldest first. Project sections the account manages that currently
+  have no `next_step` appear under `projects_without_next_step` (never pushed on their own).
+  Nothing on an empty day; an account found empty is checked again at most once an hour that day
+  (`QUIET_RECHECK`), not every tick. Idempotent by the `date` in the last digest event.
+  `GET /me/digest` previews it.
 - **Where they land**: inbox reasons `reminder` and `digest` (`inbox.reason_for`, checked before the
   "own events are not news" rule), check-in `why` `reminder`/`digest` (also in the check-in SQL
   prefilter) and push.

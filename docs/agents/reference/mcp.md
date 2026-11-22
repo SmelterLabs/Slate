@@ -15,7 +15,7 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 | `get` | `read` | `id`\* | `GET /items/{item_id}` | the item with subtasks, comments and last 20 events |
 | `list` | `read` | `list_id`, `section_id`, `status`, `assignee`, `tag`, `external_ref`, `due_before`, `due_after`, `q`, `stale`, `include_archived`, `archived`, `trashed`, `closed`, `order`, `kind`, `blocked`, `changed_since`, `fields`, `limit`, `offset`, `ids`, `open_comment_for` | `GET /items` | items matching every filter given (AND); `fields` trims each item, `changed_since` returns only items changed after an event id, `limit`/`offset` page |
 | `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
-| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
+| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `parked_until`, `parked_note`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
 | `set_status` | `write` | `id`\*, `status`\* | `PATCH /items/{item_id}` | move to a status of its list (done stamps completed_at) |
 | `assign` | `write` | `id`\*, `assignees`\* | `PATCH /items/{item_id}` | set who it is assigned to (replaces the set; to take an item yourself, `report` with assign_me) |
 | `tag` | `write` | `id`\*, `tags`\* | `PATCH /items/{item_id}` | set its tags |
@@ -180,7 +180,7 @@ Sections are the top-level separations (for example Personal and Work). Use it t
 |---|---|---|---|---|
 | `list` | `read` | `include_archived` | `GET /sections` | all sections |
 | `create` | `write` | `name`\*, `audience`\*, `position` | `POST /sections` | a section (one per audience or rhythm, never per topic) |
-| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience, or archived true/false |
+| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience, or archived true/false |
 
 ## `slate_tag`
 

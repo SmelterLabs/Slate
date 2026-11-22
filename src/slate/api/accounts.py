@@ -6,7 +6,15 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+)
 
 from slate import mailer
 from slate.api import collaboration
@@ -93,6 +101,19 @@ class Prefs(BaseModel):
         default=None,
         description="Per view key: unsaved toolbar changes (layout, sort, filters...) as the "
         "settings that differ from the saved view; they stay until Save or Revert",
+    )
+    lead_days: StrictInt | None = Field(
+        default=None,
+        ge=0,
+        le=365,
+        description="Hide open cards with no start_at due more than N days away (default 14; "
+        "0 turns the rule off)",
+    )
+    sweep_weekday: StrictInt | None = Field(
+        default=None,
+        ge=0,
+        le=6,
+        description="Weekly sweep day: 0 = Monday .. 6 = Sunday (default 4, Friday)",
     )
 
 

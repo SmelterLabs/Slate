@@ -1245,11 +1245,12 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
     if caller is None or caller.unrestricted:
         return body if isinstance(body, dict) else {}
     body = body if isinstance(body, dict) else {}
+    all_groups = (*DIGEST_GROUPS, "decide")
     groups = {
         key: [r for r in body.get(key, []) if isinstance(r, dict) and isinstance(r.get("id"), str)]
         if isinstance(body.get(key), list)
         else []
-        for key in DIGEST_GROUPS
+        for key in all_groups
     }
     ids = {r["id"] for rows in groups.values() for r in rows}
     # Explicit SQL, not Session.get(): a previously loaded item may still be in the identity
@@ -1275,7 +1276,28 @@ def digest_snapshot(session: Session, body: Any, caller: Access | None) -> dict[
                 safe[key].append(
                     {k: row[k] for k in ("id", "title", "due_at", "priority") if k in row}
                 )
-    return {"date": body.get("date"), "counts": {k: len(v) for k, v in safe.items()}, **safe}
+    out: dict[str, Any] = {
+        "date": body.get("date"),
+        "counts": {k: len(safe[k]) for k in DIGEST_GROUPS},
+        **{k: safe[k] for k in DIGEST_GROUPS},
+    }
+    if safe["decide"]:
+        out["decide"] = safe["decide"]
+    raw_projects = body.get("projects_without_next_step")
+    if isinstance(raw_projects, list):
+        visible_secs = {
+            p["id"]: p["name"]
+            for p in raw_projects
+            if isinstance(p, dict)
+            and isinstance(p.get("id"), str)
+            and isinstance(p.get("name"), str)
+            and caller.section_level(p["id"]) >= VIEW
+        }
+        if visible_secs:
+            out["projects_without_next_step"] = [
+                {"id": sid, "name": name} for sid, name in visible_secs.items()
+            ]
+    return out
 
 
 # --- Webhook addresses in automation rules --------------------------------------------------

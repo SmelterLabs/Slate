@@ -32,7 +32,7 @@ otherwise. The column write uses a Core UPDATE so `items.updated_at` is not touc
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import or_, select, update
@@ -48,11 +48,14 @@ from slate.models import (
     AgentState,
     Event,
     Item,
+    ItemAssignee,
     List,
+    Role,
     Section,
     Source,
     Status,
     StatusKind,
+    Watcher,
 )
 from slate.service.core import Actor, apply_change, in_change, jsonable
 
@@ -159,8 +162,29 @@ def _ran_since(item: Item, run: Stage) -> bool:
     )
 
 
+_DUE_ALERT_TYPES = frozenset({"item.due_soon", "item.due", "item.overdue"})
+
+
+def _has_person_assignee(session: Session, item_id: str) -> bool:
+    return (
+        session.scalar(
+            select(ItemAssignee.account_id)
+            .join(Account, Account.id == ItemAssignee.account_id)
+            .where(
+                ItemAssignee.item_id == item_id,
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def emit_due_events(session: Session, *, now: datetime) -> int:
     """One scheduler tick. Returns the number of events emitted."""
+    from slate.service import today as today_svc
+
     candidates = list(
         session.scalars(
             select(Item)
@@ -170,9 +194,11 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
             .where(
                 Item.due_at.is_not(None),
                 Item.due_at <= now + max(timedelta(hours=DUE_SOON_HOURS), RUN_LEAD),
+                Item.parked_until.is_(None),
                 Item.archived_at.is_(None),
                 List.archived_at.is_(None),
                 Section.archived_at.is_(None),
+                *today_svc.non_reference_list_filter(),
                 or_(
                     Status.id.is_(None),
                     Status.kind.not_in([StatusKind.done, StatusKind.cancelled]),
@@ -200,6 +226,10 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
         )
         if not todo:
             continue
+        if today_svc.is_stale(item, now=now) and _has_person_assignee(session, item.id):
+            todo = [s for s in todo if s.type not in _DUE_ALERT_TYPES]
+            if not todo:
+                continue
         run = next((s for s in todo if s.key == "run"), None)
         if run and _ran_since(item, run):
             # One of its agents already took it after the run time (assigning it woke one):
@@ -283,3 +313,91 @@ def retry_failed_runs(session: Session, *, now: datetime) -> int:
             )
         asked += 1
     return asked
+
+
+def _unpark_recipients(session: Session, item_id: str) -> list[str]:
+    """Person assignees and watchers of `item_id`, else active workspace owners."""
+    people = set(
+        session.scalars(
+            select(Account.id)
+            .join(ItemAssignee, ItemAssignee.account_id == Account.id)
+            .where(
+                ItemAssignee.item_id == item_id,
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+            )
+        )
+    )
+    people.update(
+        session.scalars(
+            select(Account.id)
+            .join(Watcher, Watcher.account_id == Account.id)
+            .where(
+                Watcher.item_id == item_id,
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+            )
+        )
+    )
+    if people:
+        return sorted(people)
+    return sorted(
+        session.scalars(
+            select(Account.id).where(Account.role == Role.owner, Account.disabled_at.is_(None))
+        )
+    )
+
+
+def unpark_due(session: Session, *, now: datetime) -> int:
+    """Clear `parked_until` / `parked_note` at 06:00 workspace time on `parked_until` and
+    record `item.unparked` (`after: {"note", "notify"}`). Returns how many cards unparked."""
+    from slate.service import today as today_svc
+
+    parked = session.scalars(
+        select(Item)
+        .join(List, List.id == Item.list_id)
+        .join(Section, Section.id == List.section_id)
+        .outerjoin(Status, Status.id == Item.status_id)
+        .where(
+            Item.parked_until.is_not(None),
+            Item.archived_at.is_(None),
+            List.archived_at.is_(None),
+            Section.archived_at.is_(None),
+            *today_svc.non_reference_list_filter(),
+            or_(Status.id.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
+        )
+        .order_by(Item.parked_until, Item.id)
+    ).all()
+    actor: Actor | None = None
+    unparked = 0
+    for item in parked:
+        wake_at = datetime.combine(
+            date.fromisoformat(item.parked_until), dates.AGENT_RUN_AT, tzinfo=dates.LOCAL
+        ).astimezone(UTC)
+        if wake_at > now:
+            continue
+        actor = actor or system_actor(session)
+        with apply_change(session, actor) as cx:
+            session.refresh(item)
+            if item.parked_until is None or item.archived_at is not None:
+                continue
+            refreshed_wake = datetime.combine(
+                date.fromisoformat(item.parked_until), dates.AGENT_RUN_AT, tzinfo=dates.LOCAL
+            ).astimezone(UTC)
+            if refreshed_wake > now:
+                continue
+            st = session.get(Status, item.status_id) if item.status_id else None
+            if st is not None and st.kind in (StatusKind.done, StatusKind.cancelled):
+                continue
+            note = item.parked_note
+            recipients = _unpark_recipients(session, item.id)
+            item.parked_until = None
+            item.parked_note = None
+            cx.record(
+                "item.unparked",
+                item_id=item.id,
+                after={"note": note, "notify": recipients},
+                covers=[item],
+            )
+        unparked += 1
+    return unparked
