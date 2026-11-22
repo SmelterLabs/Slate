@@ -32,38 +32,35 @@ COLUMNS = (
     ("stalled_at", sa.String(length=27)),
 )
 
-# An open Ask began when it was last addressed to its current assignee (its newest
-# `comment.assigned` naming that account), or, for a row with no such event, when it was
-# written. The agent's first comment on the item strictly after that answered it.
-ASKED = """
-    COALESCE(
-        (SELECT MAX(events.at) FROM events
-         WHERE events.type = 'comment.assigned'
-           AND events.subject_id = comments.id
-           AND json_extract(events.after_json, '$.assignee_id') = comments.assignee_id),
-        comments.created_at
-    )
-"""
-ANSWER = f"""
-    SELECT MIN(later.created_at) FROM comments AS later
-    WHERE later.item_id = comments.item_id
-      AND later.author_id = comments.assignee_id
-      AND later.created_at > {ASKED}
-"""
-
 
 def upgrade() -> None:
     # Plain ADD COLUMN: rebuilding `items` would drop its triggers.
     for name, type_ in COLUMNS:
         op.add_column("items", sa.Column(name, type_, nullable=True))
+    # The latest assignment to this agent starts the Ask. Legacy rows fall back to creation.
     op.execute(
-        f"""
+        sa.text("""
+        WITH answered AS (
+            SELECT ask.id, MIN(later.created_at) AS answered_at
+            FROM comments AS ask
+            JOIN accounts ON accounts.id = ask.assignee_id AND accounts.kind = 'agent'
+            JOIN comments AS later
+              ON later.item_id = ask.item_id AND later.author_id = ask.assignee_id
+            WHERE ask.resolved_at IS NULL
+              AND later.created_at > COALESCE(
+                  (SELECT MAX(events.at) FROM events
+                   WHERE events.type = 'comment.assigned'
+                     AND events.subject_id = ask.id
+                     AND json_extract(events.after_json, '$.assignee_id') = ask.assignee_id),
+                  ask.created_at
+              )
+            GROUP BY ask.id
+        )
         UPDATE comments
-        SET resolved_at = ({ANSWER}), resolved_by_id = assignee_id
-        WHERE resolved_at IS NULL
-          AND assignee_id IN (SELECT id FROM accounts WHERE kind = 'agent')
-          AND ({ANSWER}) IS NOT NULL
-        """
+        SET resolved_at = answered.answered_at, resolved_by_id = comments.assignee_id
+        FROM answered
+        WHERE comments.id = answered.id
+        """)
     )
 
 

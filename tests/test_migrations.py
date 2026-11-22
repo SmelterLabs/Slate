@@ -168,6 +168,76 @@ DEAD_COLUMNS = {
 }
 
 
+def test_standing_upgrade_resolves_asks_at_the_first_answer_after_assignment(tmp_path):
+    db = tmp_path / "slate.db"
+    up = _alembic(db, "upgrade", "63af8de1487b")
+    assert up.returncode == 0, up.stderr
+
+    person, agent = "acc000000001", "acc000000002"
+    item = "itm000000001"
+    times = [f"2026-10-01T00:00:0{second}.000000Z" for second in range(6)]
+    with sqlite3.connect(db) as conn:
+        _row(conn, "accounts", id=person, handle="alex", kind="person", role="owner")
+        _row(conn, "accounts", id=agent, handle="my-agent", kind="agent", role="member")
+        _row(conn, "sections", id="sec000000001", slug="home", audience="work")
+        _row(conn, "lists", id="lst000000001", section_id="sec000000001", slug="tasks")
+        _row(conn, "statuses", id="sta000000001", list_id="lst000000001", kind="open")
+        _row(
+            conn,
+            "items",
+            id=item,
+            list_id="lst000000001",
+            status_id="sta000000001",
+            kind="task",
+            priority="normal",
+            created_by=person,
+        )
+        for name, author, assignee, second in (
+            ("original", person, agent, 0),
+            ("reassigned", person, agent, 0),
+            ("person-ask", person, person, 0),
+            ("first-answer", agent, None, 1),
+            ("same-time", agent, None, 2),
+            ("later-answer", agent, None, 3),
+            ("last-answer", agent, None, 4),
+            ("unanswered", person, agent, 5),
+        ):
+            _row(
+                conn,
+                "comments",
+                id=name,
+                item_id=item,
+                author_id=author,
+                assignee_id=assignee,
+                created_at=times[second],
+            )
+        for second in (0, 2):
+            _row(
+                conn,
+                "events",
+                id=f"evt00000000{second}",
+                type="comment.assigned",
+                subject_id="reassigned",
+                after_json=json.dumps({"assignee_id": agent}),
+                at=times[second],
+                actor_id=person,
+                source="api",
+            )
+
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode == 0, up.stderr
+    with sqlite3.connect(db) as conn:
+        assert conn.execute(
+            "SELECT id, resolved_at, resolved_by_id FROM comments "
+            "WHERE assignee_id IS NOT NULL ORDER BY id"
+        ).fetchall() == [
+            ("original", times[1], agent),
+            ("person-ask", None, None),
+            ("reassigned", times[3], agent),
+            ("unanswered", None, None),
+        ]
+
+
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
