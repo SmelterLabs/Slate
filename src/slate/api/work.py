@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -28,6 +28,7 @@ from slate.api.schemas import (
     Option,
     Status,
 )
+from slate.service import brief as brief_svc
 from slate.service import chatwake, comments, docwake, items, reports, work
 from slate.service.core import Actor
 from slate.service.errors import Invalid
@@ -217,6 +218,7 @@ class NextOut(BaseModel):
         description="The task you now hold; null when none is free (or when `chat` is set)"
     )
     lease: LeaseOut | None
+    brief: str | None = Field(default=None, description="The text brief for the task you took")
     chat: ChatTurnOut | None = Field(
         default=None,
         description="A chat mention to answer instead of a task (`why` = mentioned): see "
@@ -283,14 +285,6 @@ class FinishIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str | None = Field(default=None, max_length=64)
 
-    @model_validator(mode="after")
-    def separate_take(self):
-        if self.run_id and self.next is not None:
-            raise ValueError(
-                "fenced finish must be separate from next; retry delivery before taking more work"
-            )
-        return self
-
     outcome: Literal[
         "done", "review", "later", "ask", "answered", "failed", "blocked", "release"
     ] = Field(
@@ -331,14 +325,10 @@ class FinishIn(BaseModel):
     )
     reply: str | None = REPLY_FIELD
     thread: dict[str, Any] | None = THREAD_FIELD
-    next: NextIn | None = Field(
-        default=None, description="Also take your next task in the same call"
-    )
 
 
 class FinishOut(BaseModel):
     item: ItemOut = Field(description="The task you reported on, as it is now")
-    next: NextOut | None = Field(description="Your next task, when you asked for one")
 
 
 def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | None:
@@ -406,6 +396,8 @@ def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | 
             "remaining": left(),
         }
     got["item"] = items.views(session, [got["item"]])[0]
+    ask = brief_svc.default_ask(session, actor.account_id)
+    got["brief"] = brief_svc.brief(session, got["item"]["id"], ask=ask)
     got["context"] = work.context(session, got["item"]["id"]) if body.context else []
     got["asks"] = comments.comment_views(
         session, work.turn_asks(session, actor.account_id, got["item"]["id"])
@@ -752,26 +744,16 @@ def get_activity(item_id: str, _: ReadAuth, session: DbSession) -> dict:
 async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSession) -> dict:
     """Report back in one round trip, all in one transaction: the outcome (done, review,
     later, ask, answered, failed, blocked, release), a note posted as your comment, a
-    one-line `status` saying where the card stands (required with review), and `hand_to` to
-    pass the task to another account. Your lease ends. With `next`, the same call also takes
-    your next task (and may `wait` for one). Agent finishes consume only Ask assignments
-    present at take, so the same open Ask cannot dispatch work twice, and every agent finish
-    but failed and release resolves them. New or reassigned Asks during the run remain
-    pending. Human finishes never resolve Asks."""
+    one-line `status` saying where the card stands (required with review), and
+    `hand_to` to pass the task to another account. Your lease ends. Take the next task
+    with `POST /work/next`. Agent finishes consume only Ask
+    assignments present at take, so the same open Ask cannot repeatedly dispatch done,
+    review, blocked or released work. Asks remain visible and explicitly resolvable; only
+    asked-only agent done resolves its taken Asks (without completing the task). New or
+    reassigned Asks during the run remain pending. Human finishes never resolve Asks."""
 
     def report() -> dict:
-        item = work.finish(
-            session,
-            auth.actor,
-            item_id,
-            **body.model_dump(exclude={"next"}),
-        )
+        item = work.finish(session, auth.actor, item_id, **body.model_dump())
         return items.views(session, [item])[0]
 
-    view = await run_in_threadpool(report)
-    nxt = None
-    if body.next is not None and not session.info.get("work_finish_replayed"):
-        n = body.next
-        nxt = await longpoll.wait_async(lambda: take_next(session, auth.actor, n), n.wait, session)
-        nxt = nxt or nothing()
-    return {"item": view, "next": nxt}
+    return {"item": await run_in_threadpool(report)}

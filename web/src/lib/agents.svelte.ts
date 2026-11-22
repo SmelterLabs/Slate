@@ -3,6 +3,7 @@
 // through `onEvent`). Presence loads with the board; the feed loads when Agents opens.
 
 import { get } from './api';
+import { changesReference } from './board/events';
 import { connections } from './connection-data.svelte';
 import type { AgentEntry, AgentState, SlateEvent } from './types';
 
@@ -113,7 +114,7 @@ class Agents {
       }
     }
     // Reports move "working on"; new accounts join the roster. Re-read, coalesced.
-    if (ev.type === 'item.reported' || ev.type === 'item.run_requested' || ev.type.startsWith('account.') || !who) {
+    if (changesReference(ev) || ev.type === 'item.reported' || ev.type === 'item.run_requested' || ev.type.startsWith('account.') || !who) {
       clearTimeout(this.#reload);
       this.#reload = setTimeout(() => void this.refreshRoster(), 300);
     }

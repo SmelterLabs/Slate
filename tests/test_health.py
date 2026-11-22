@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import timedelta
 
 import pytest
@@ -247,7 +248,16 @@ async def test_slate_health_over_mcp_counts_the_call(alex):
 
     @asynccontextmanager
     async def mcp(headers):
-        app = create_app()
+        # The product default lists five tools. This call needs slate_health.
+        previous = os.environ.get("SLATE_MCP_TOOLS")
+        os.environ["SLATE_MCP_TOOLS"] = "all"
+        try:
+            app = create_app()
+        finally:
+            if previous is None:
+                os.environ.pop("SLATE_MCP_TOOLS", None)
+            else:
+                os.environ["SLATE_MCP_TOOLS"] = previous
         async with app.state.mcp_manager.run():
             transport = httpx2.ASGITransport(app=app)
             async with (

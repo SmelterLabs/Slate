@@ -1,8 +1,25 @@
 # MCP: Slate as tools
 
 Slate is an MCP server with one tool per resource (`slate_item`, `slate_comment`,
-`slate_checkin`, ...). Every tool and action, with the REST call it matches, is in
-[reference/mcp.md](reference/mcp.md) (generated).
+`slate_work`, ...). A fresh connection lists five tools: `slate_work`, `slate_item`,
+`slate_comment`, `slate_search`, `slate_list`. That is enough to take work, file a card,
+comment, and search. Every other tool is listed when the server is started with
+`--tools all` (or `SLATE_MCP_TOOLS=all`), or named: `--tools core,slate_doc,slate_chat`.
+The HTTP server reads `SLATE_MCP_TOOLS` only (`slate serve` has no `--tools` flag). A call
+to a tool that exists but is not listed is a one-line error naming that flag. A name that
+is not a tool at all is `unknown tool`. Every tool called inside `slate_batch` must also be
+listed for that connection.
+
+`slate_today` is not a tool. Overdue and due today are `slate_work next` and
+`slate_item list`. The `slate://today` resource is still there. `slate_item` has no
+`assign`, `tag`, `set_status`, or `comment` action: update the item, or add a comment with
+`slate_comment`. `slate_work finish` does not take a next task; call `next` again.
+`plan`, `chat_clear`, and `doc_clear` are not agent tools (the board still has
+`GET /agents/plan` and the clear routes).
+
+Every tool and action, with the REST call it matches, is in
+[reference/mcp.md](reference/mcp.md) (generated). The short loop is
+[the skill](../../integrations/claude-code/skills/slate/SKILL.md).
 
 ## Connect Claude Code (HTTP, recommended)
 
@@ -70,8 +87,10 @@ over REST); over HTTP they are `mcp`.
                "session_ref": "run-42"}}
 ```
 
-- `action` picks the operation; single-action tools (`slate_today`, `slate_checkin`,
-  `slate_agents`, `slate_batch`) take only `params`.
+- `action` picks the operation. A tool's schema is a `oneOf` of those actions under a
+  root `type: object` (clients require an object at the root). Each branch lists only
+  that action's fields. A tool with one action (`slate_checkin`, `slate_agents`,
+  `slate_batch`) takes only `params`.
 - `params` holds that action's fields; unknown fields are an error that names them.
 - `session_ref` (optional, write tools) is recorded on every event the call writes.
 - Results are JSON text with null fields dropped. Errors are tool results with

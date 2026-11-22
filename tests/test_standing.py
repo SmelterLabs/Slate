@@ -419,6 +419,16 @@ def _stalled(client, alex, ch, todo, db):
     return item, seen
 
 
+def test_reference_list_does_not_poke_an_answered_card(client, alex, todo, make_account, db):
+    _, agent = make_account("my-agent")
+    item = _answered(client, alex, agent, todo, assignees=["my-agent"])
+    client.patch(
+        f"{API}/lists/{todo['id']}", headers=alex, json={"reference": True}
+    ).raise_for_status()
+    assert _tick(db) == 0
+    assert not _events(client, alex, item["id"], "item.run_requested")
+
+
 def test_a_poked_run_that_answers_again_marks_the_card_stalled(
     client, alex, todo, make_account, db
 ):

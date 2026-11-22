@@ -85,7 +85,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `next_since` jumps to it, so a cursor never rereads and other people's busy boards cost an agent
   nothing. `item.created` is never news (its `item.assigned` follows). In `CACHEABLE`: both halves
   are event-backed.
-- **Claim** (`report(..., claim=True)`, REST/MCP `claim: true`, with `working` only): an atomic
+- **Interactive claim** (`report(..., claim=True)`, REST or MCP `slate_item report` with
+  `state: working` and `claim: true`): an atomic
   take. Inside `apply_change()` (so under the write lock) it refreshes the item and raises
   `Conflict` (409) when another account's flag is younger than `reports.CLAIM_FRESH` (6 h, the age
   the board dims a badge); it implies `assign_me`. Two agents racing for one item cannot both win.
@@ -94,8 +95,8 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   and loads only the returned items, and the route serialises with `api.checkin.dump()` (trims the
   queue items) straight to a `Response`. Without the cap an agent holding 400 items would get
   about 333 KB per check-in.
-- **Hand to an agent** (`task/HandOff.svelte`): one atomic `POST /batch` of `item assign` (adds the
-  agent) and `item comment` (`@agent <instructions>`). No endpoint of its own: the agent sees it
+- **Hand to an agent**: in one atomic `POST /batch`, call `item update` with the new assignee set
+  and `comment add` with `@agent <instructions>`. The agent sees it
   through its inbox or stream.
 - **Board:** `AgentBadge.svelte` (card and task window), `AgentsPage.svelte` at `#/agents` (a page,
   not a scope: `parseRoute` returns `page: 'agents'` and the selected scope is left alone), store
@@ -106,6 +107,15 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   it is; a blocked badge that waits on nobody also shows Run now.
 
 ## Agent work loop and agent stream
+
+A task returned by `POST /work/next` or `slate_work next` includes the text
+`brief` also available from `GET /items/{id}/brief`. The task's list note appears
+at the start of the rules under “This list:” when set. Check-in lists carry
+`note_md`, `kind` and `reference` alongside their identifiers and names, so an
+agent can identify a work list and read its note before filing. Filing without
+a list or parent uses the configured inbox list when the caller can edit it
+and it is an active work list. Reference cards stay available through search and
+direct reads. Work offers, queue counts and the daily digest omit them.
 
 - **Work loop** (`service/work.py`, `api/work.py`, MCP `slate_work`): `POST /work/next` takes the
   best free task for the caller, `POST /work/{id}/heartbeat` keeps it, `POST /work/{id}/finish`
@@ -189,10 +199,9 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   skipped except reminders, digests, its own `item.run_requested` (Run now from another session
   of the same agent) and its own reconcile of an expired run (`item.work_finished` with
   `reconciled` and `expired`), which wake its runner. Counts as a live stream on the Agents page.
-- **MCP gotchas:** nested pydantic models in tool params put `$ref`s in the merged input schema, so
-  `slate_work finish`'s `next` is a plain object validated into `WorkNext`; and a `ValidationError`
-  escaping a local action surfaces as a bare JSON-RPC "Invalid request parameters", so build
-  response models from raw values, never from an already-dumped dict.
+- **MCP work models:** `slate_work next` uses the server's default resume behavior.
+  `slate_work finish` uses `reply` for a comment and `note` for a machine failure or hand-off.
+  Take more work in a separate `next` call. The resident runner uses the REST models.
 
 ## Run now, the due gate and the runner
 
@@ -260,7 +269,7 @@ Slate stays the doorbell: it never launches an agent.
   with `after.reason: "stale"`, after the same test passes again under the write lock (a take
   or report that won the gap is left alone). It reaches nobody (`inbox.reason_for`).
 - **Stalled cards** (`due.poke_stalled`, on the due tick): a card is stalled when it is open,
-  has an agent assignee, waits on nobody, has no `review`, `blocked` or `failed` badge, is not
+  is on a work list, has an agent assignee, waits on nobody, has no `review`, `blocked` or `failed` badge, is not
   blocked by another card, has no start or due time still to come, has no lease, and an enabled
   agent assignee that may edit it last finished it `answered` at least `work.STALL_AFTER`
   (4 hours) ago with no Run now since. Every condition is read again under the write lock
@@ -444,7 +453,7 @@ The agent-facing version is `docs/agents/pull-agents.md`.
   memory is the only bridge to its other chats), and the `SLATE:` closing line. `ask` defaults to
   the caller if it's a person, else the first owner (`default_ask`).
 - **The `SLATE:` line** (`brief.closing_line`, applied in `comments._apply_closing_line`): only when
-  `add_comment(closing_line=True)`, which REST and MCP (`slate_item comment`, `slate_comment add`)
+  `add_comment(closing_line=True)`, which REST and MCP (`slate_comment add`)
   pass. Slate's own comments (report notes) never do, so a note can't re-trigger. An agent author is
   reported through `reports.report(state, comment=False, complete=<assigned>)` with the
   comment as its reply (so the standing is derived from it) and the text after a second colon
@@ -619,9 +628,8 @@ card does; the reply lands in the chat.
 - **A turn never strands later mentions.** An expired turn stays claimed (quarantined: the run
   may still be writing) and shows as `expired` in `agent_turns`. It is settled by the agent's
   `reconcile` with its run proof, by a person's Clear (`POST /work/chat/clear` or
-  `/work/doc/clear` `{channel|doc_id, thread_id, agent_id}`, MCP `slate_work
-  chat_clear|doc_clear`: only a person who may comment there, only an expired turn), or by a
-  person's new mention there (`turns.fold`): each records `agent_turn` `state: released`,
+  `/work/doc/clear` `{channel|doc_id, thread_id, agent_id}` for a person who may comment there),
+  or by a person's new mention there (`turns.fold`): each records `agent_turn` `state: released`,
   `reconciled`, the person as actor, and a mention that waited is pending again (the next take
   answers it, and the new mention's `for` names the agent so its runner hears the hint). The old
   `run_id` stays fenced out of the new turn. A live turn is never cleared or folded over.
@@ -684,7 +692,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
   `/work/doc/heartbeat` and `/work/doc/reconcile` likewise. As in chat, the agent's own comment does
   not end a fenced turn (chat's unfenced `_answered` path is unreachable under protocol 3, so docs
   have no counterpart). `/work/doc/clear`, expiry, folding and dropping are chat's (above). MCP
-  `slate_work doc_heartbeat|doc_finish|doc_reconcile|doc_clear`.
+  `slate_work doc_heartbeat|doc_finish|doc_reconcile`.
 - **Stream**: `doc.mentioned_agent` with the caller in `for`/`queued` is a `work` hint `{doc_id,
   thread_id, comment_id, queued}` (`work.DOC_WAKE_TYPE`). Scheduler hook `docwake.expire` (Health
   key `doc_turns`).
@@ -702,7 +710,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
 
 ## Agent plan: "about to"
 
-`GET /agents/plan` (read; `api/agents.py`, `service/agents.plan`; MCP `slate_work plan`) answers
+`GET /agents/plan` (read; `api/agents.py`, `service/agents.plan`) answers
 `{horizon_hours: 24, agents: [{id, handle, display_name, next: [...], leases: [...]}]}`, agents with
 the soonest work first. It is the "about to" view: what each agent
 will run in the next day, from the work loop's own rule rather than a looser copy of it.

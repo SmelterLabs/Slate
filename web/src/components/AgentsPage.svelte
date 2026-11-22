@@ -8,6 +8,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { agents, isOnline, STATE_LABEL } from '../lib/agents.svelte';
   import { get } from '../lib/api';
+  import { changesReference } from '../lib/board/events';
   import { shownProgress } from '../lib/conversation';
   import { ago, fullStamp } from '../lib/format';
   import { verb } from '../lib/history';
@@ -62,7 +63,7 @@
   }
   let planTimer: ReturnType<typeof setTimeout> | undefined;
   const offPlan = board.onEvent((ev) => {
-    if (!movesPlan(ev.type)) return;
+    if (!movesPlan(ev.type) && !changesReference(ev)) return;
     clearTimeout(planTimer);
     planTimer = setTimeout(() => void loadPlan(), 400);
   });

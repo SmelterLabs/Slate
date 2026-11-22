@@ -19,7 +19,7 @@
   const lists = $derived(board.listsOf(id).filter(list => list.kind !== 'drawer'));
   const work = $derived(myWork(
     board.plainItems.filter(item => lists.some(list => list.id === item.list_id)),
-    board.me?.account.id ?? '', board.now,
+    board.me?.account.id ?? '', board.now, board.referenceListIds(),
   ));
   const attention = $derived([...new Map([
     ...work.askedOfMe, ...work.waitingOnMe, ...Object.values(work.buckets).flat(),
@@ -82,7 +82,16 @@
   </section>
   <div class="project-grid">
     <section aria-label="Project work and ideas"><h3>Work & ideas</h3>
-      {#each lists as list (list.id)}<a class="project-link" href="#/list/{list.id}">{list.name} <span class="muted">{board.openCount(list.id)} open</span></a>{/each}
+      {#each lists as list (list.id)}
+        <a class="project-link" href="#/list/{list.id}">
+          {list.name}
+          {#if list.reference}
+            <span class="ref-mark" data-reference>Reference</span>
+          {:else}
+            <span class="muted">{board.openCount(list.id)} open</span>
+          {/if}
+        </a>
+      {/each}
       {#if !lists.length}<p class="muted small">Start with a Work or Ideas list. Nothing is created automatically.</p>{/if}
       {#if canEdit}<form onsubmit={(e) => { e.preventDefault(); void createList(); }}><label>New project list<input aria-label="New project list" bind:value={listName} placeholder="Work or Ideas" maxlength="100" /></label><button class="chip-btn" disabled={busy || !listName.trim()}>Create list</button></form>{/if}
     </section>

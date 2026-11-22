@@ -16,7 +16,7 @@
   // and Asked of you are groups of Needs you, so they have no card of their own here.
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
   const meId = $derived(board.me?.account.id ?? '');
-  const work = $derived(myWork(board.plainItems, meId, board.now));
+  const work = $derived(myWork(board.plainItems, meId, board.now, board.referenceListIds()));
   const fresh = $derived(groupEntries(inbox.entries.filter((e) => !e.read)).slice(0, 6));
 
   function line(e: InboxEntry): string {

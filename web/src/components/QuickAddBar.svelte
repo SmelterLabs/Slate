@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { matchList, parseQuickAdd } from '../lib/quickadd';
+  import { matchList, noteHelp, parseQuickAdd } from '../lib/quickadd';
   import { priorityLabel } from '../lib/priority';
   import { draftKey } from '../lib/drafts';
   import { persisted } from '../lib/drafts.svelte';
@@ -22,6 +22,8 @@
   // "~bills" sends the item to that list, whatever the picker says.
   const named = $derived(parsed.list ? matchList(parsed.list, Object.values(board.lists)) : null);
   const listId = $derived(named?.id ?? picked ?? board.quickAddList(viewKey, scope));
+  // A list with a note says what belongs in it, right where a card is filed.
+  const help = $derived(listId ? noteHelp(board.lists[listId]?.note_md) : null);
   const choices = $derived(
     scope.kind === 'list'
       ? []
@@ -101,9 +103,9 @@
     <input
       id="quick-add"
       aria-label="Quick add"
-      placeholder={ai
+      placeholder={help ?? (ai
         ? 'Describe the task: what, who owns it, when… AI fills in the rest   (c)'
-        : 'Add an item…  tomorrow 4pm  #tag  !high  @my-agent  ~list  every monday   (c)'}
+        : 'Add an item…  tomorrow 4pm  #tag  !high  @my-agent  ~list  every monday   (c)')}
       bind:value={draft.value}
       bind:this={input}
       disabled={busy}

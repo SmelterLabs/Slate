@@ -33,7 +33,7 @@ def test_ops_chain_through_refs_and_commit_together(client, alex, todo):
                 "action": "add",
                 "params": {"id": "$t.id", "body_md": "Filed by batch"},
             },
-            {"tool": "item", "action": "set_status", "params": {"id": "$t.id", "status": "Done"}},
+            {"tool": "item", "action": "update", "params": {"id": "$t.id", "status": "Done"}},
             {"tool": "item", "action": "get", "params": {"id": "$t.id"}},
         ],
     )
@@ -97,8 +97,9 @@ def test_each_op_needs_its_own_scope(client, alex, todo, make_account):
 
 
 def test_single_action_tools_need_no_action(client, alex):
-    r = _batch(client, alex, [{"tool": "today"}])
-    assert r.status_code == 200 and "overdue" in r.json()["results"][0]["result"]
+    r = _batch(client, alex, [{"tool": "health"}])
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["result"]["status"] in ("ok", "warn", "fail")
 
 
 def test_bad_refs_tools_and_params_are_plain_errors(client, alex, todo):
@@ -131,7 +132,7 @@ def test_dollar_text_that_is_not_a_ref_shape_stays_literal(client, alex, todo):
 
 
 def test_batch_size_is_capped(client, alex):
-    ops = [{"tool": "today"}] * 101
+    ops = [{"tool": "health"}] * 101
     assert _batch(client, alex, ops).status_code == 422
 
 
@@ -176,14 +177,14 @@ def test_refs_and_reads_see_the_state_at_their_point(client, alex, todo):
              "params": {"id": "$t.id", "body_md": "Was $t.status.name"}},
             {"tool": "item", "action": "update", "params": {"id": "$t.id", "title": "$t.title"}},
             {"tool": "item", "action": "get", "params": {"id": "$t.id"}},
-            {"tool": "item", "action": "set_status", "params": {"id": "$t.id", "status": "Done"}},
+            {"tool": "item", "action": "update", "params": {"id": "$t.id", "status": "Done"}},
         ],
     )  # fmt: skip
     assert r.status_code == 200, r.text
     res = [x["result"] for x in r.json()["results"]]
     status = res[0]["status"]["name"]
     assert status == "Done"  # the create answers with the end state
-    # `$t.title` was resolved inside the batch; the read saw the task before set_status.
+    # `$t.title` was resolved inside the batch; the read saw the task before the status change.
     assert res[2]["title"] == "Pay rent"
     assert res[3]["status"]["name"] != "Done"
 
@@ -245,7 +246,7 @@ def test_a_wait_inside_a_batch_is_refused_before_anything_runs(client, alex, tod
             assert r.status_code == 422 if atomic else r.status_code == 200, r.text
             detail = r.json()["detail"] if atomic else r.json()["results"][0]["error"]
             assert "wait" in detail and "batch" in detail
-    # `work finish` with a waiting `next` is the same long-poll.
+    # finish no longer takes a next. A next field is an unknown field, refused before the op runs.
     item = client.post(f"{API}/items", json={"list_id": todo["id"], "title": "t"}, headers=alex)
     op = {
         "tool": "work",
@@ -253,7 +254,7 @@ def test_a_wait_inside_a_batch_is_refused_before_anything_runs(client, alex, tod
         "params": {"item_id": item.json()["id"], "outcome": "done", "next": {"wait": 2}},
     }
     r = _batch(client, alex, [op])
-    assert r.status_code == 422 and "wait" in r.json()["detail"]
+    assert r.status_code == 422 and "next" in r.json()["detail"]
     # Without a wait both answer at once, as before.
     ok = _batch(client, reader, [{"tool": "checkin", "params": {"since": since, "wait": 0}}])
     assert ok.status_code == 200, ok.text

@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { workspaceDay, matchList, parseQuickAdd } from './quickadd';
+import { workspaceDay, matchList, noteHelp, parseQuickAdd } from './quickadd';
 
 // Thursday 2026-10-22, 15:00 in Chicago (CDT, UTC-5).
 const THU = new Date('2026-10-22T20:00:00Z');
+
+describe('noteHelp', () => {
+  it('is the first non-empty line of the list note, without markdown marks', () => {
+    expect(noteHelp('# Reading links worth keeping\n\nFile the whole article.')).toBe('Reading links worth keeping');
+    expect(noteHelp('\n\n  File under the author.\nMore')).toBe('File under the author.');
+    expect(noteHelp('')).toBeNull();
+    expect(noteHelp(null)).toBeNull();
+  });
+});
 
 describe('parseQuickAdd', () => {
   it('returns a plain title untouched', () => {
