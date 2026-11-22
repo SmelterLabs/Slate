@@ -20,8 +20,8 @@
     try {
       const got = await get<Item[]>('/today/sweep');
       if (gen === loadGen) fetched = got; // an older answer never overwrites a newer one
-    } catch {
-      // keep previous list if offline
+    } catch (e) {
+      if (gen === loadGen) board.loadFailed('load the weekly sweep', e);
     } finally {
       if (gen === loadGen) loading = false;
     }

@@ -152,6 +152,16 @@ describe('applying events', () => {
     expect(items()).toBe(i0);
   });
 
+  it.each([503, 403])('applies the failed-read rule to a structure reload returning %i', async (status) => {
+    const before = board.sections;
+    routes.set('/sections', () => ({ status, body: { detail: 'Unavailable' } }));
+    await emit(ev({ type: 'list.updated', item_id: null, subject_id: 'L1' }));
+    await vi.advanceTimersByTimeAsync(100);
+    await settle();
+    expect(board.toast).toBe(status === 503 ? 'Could not refresh board structure: Unavailable' : null);
+    expect(board.sections).toBe(before);
+  });
+
   it("an event about the open task refreshes the task window's detail", async () => {
     routes.set('/items/I1', () => ({ ...item(), subtasks: [], comments: [], events: [], checklists: [], attachments: [], watchers: [] }));
     await board.open('I1');

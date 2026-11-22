@@ -17,13 +17,14 @@ class AutomationNames {
   #names = $state<Record<string, string>>({});
   #requested = false;
 
-  /** Load the rule names once; a token that cannot read them shows no names. */
-  ensure() {
+  /** Load the rule names once a page; a token that cannot read them shows no names, and a
+   * failure is reported once (`report` is the board's `loadFailed`), not on every render. */
+  ensure(report: (what: string, e: unknown) => void) {
     if (this.#requested) return;
     this.#requested = true;
     void get<{ id: string; name: string }[]>('/automations')
       .then((rules) => (this.#names = Object.fromEntries(rules.map((r) => [r.id, r.name]))))
-      .catch(() => {});
+      .catch((e) => report('load automation names', e));
   }
 
   name(id: string): string | undefined {

@@ -19,7 +19,7 @@ export async function copyText(text: string): Promise<boolean> {
   try {
     ok = document.execCommand('copy');
   } catch {
-    ok = false;
+    ok = false; // let the caller offer manual copy
   }
   ta.remove();
   return ok;

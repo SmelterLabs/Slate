@@ -1,6 +1,6 @@
 <script lang="ts">
   import { download, exportPath } from '../lib/archive';
-  import { notifySettings } from '../lib/notify.svelte';
+  import { withStorage } from '../lib/storage';
   import { board } from '../lib/store.svelte';
   import { docGlyph, topOf } from '../lib/docs';
   import { docs } from '../lib/docs.svelte';
@@ -43,10 +43,8 @@
     // The key gains the account id a moment after the page opens. With nothing stored under
     // it, keep what is showing: a click on More in that moment must not be undone.
     const key = moreKey;
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored !== null) moreOpen = stored === 'true';
-    } catch { /* optional preference */ }
+    const stored = withStorage((storage) => storage.getItem(key), null);
+    if (stored !== null) moreOpen = stored === 'true';
   });
   const secondary = $derived(moreDestination(page));
   $effect(() => { if (secondary) moreOpen = true; });
@@ -394,7 +392,7 @@
         title="Overdue and due today">{todayCount}</span
       >{/if}
   </a>
-  <button class="nav-item" aria-expanded={moreOpen} aria-controls="nav-more" onclick={() => { moreOpen = !moreOpen; try { localStorage.setItem(moreKey, String(moreOpen)); } catch { /* optional preference */ } }}>
+  <button class="nav-item" aria-expanded={moreOpen} aria-controls="nav-more" onclick={() => { moreOpen = !moreOpen; withStorage((storage) => storage.setItem(moreKey, String(moreOpen)), undefined); }}>
     <span class="nav-label"><Icon name="chevron" size={15} />{secondary ? `More · ${page}` : 'More'}</span>
   </button>
   <div id="nav-more" hidden={!moreOpen}>
@@ -675,7 +673,7 @@
         class="foot-btn"
         aria-label="Notifications"
         title="Notifications"
-        onclick={() => (notifySettings.open = true)}><Icon name="bell" size={15} /></button
+        onclick={() => (inbox.settingsOpen = true)}><Icon name="bell" size={15} /></button
       >
       <button class="foot-btn" aria-label="Tags" title="Tags" onclick={() => board.openTagManager()}
         ><Icon name="tag" size={15} /></button

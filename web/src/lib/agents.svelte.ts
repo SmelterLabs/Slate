@@ -100,7 +100,7 @@ class Agents {
   }
 
   /** Every stream event passes through here (from the board store). */
-  onEvent(ev: SlateEvent) {
+  onEvent(ev: SlateEvent, report: (what: string, e: unknown) => void) {
     connections.onEvent(ev);
     if (!this.#watchRoster) return;
     const prev = this.#last;
@@ -116,7 +116,7 @@ class Agents {
     // Reports move "working on"; new accounts join the roster. Re-read, coalesced.
     if (changesReference(ev) || ev.type === 'item.reported' || ev.type === 'item.run_requested' || ev.type.startsWith('account.') || !who) {
       clearTimeout(this.#reload);
-      this.#reload = setTimeout(() => void this.refreshRoster(), 300);
+      this.#reload = setTimeout(() => void this.refreshRoster(report), 300);
     }
   }
 
@@ -133,7 +133,8 @@ class Agents {
     this.#last = undefined;
   }
 
-  async refreshRoster() {
+  /** `report` is the board's `loadFailed`, which knows which failures to show. */
+  async refreshRoster(report: (what: string, e: unknown) => void) {
     this.#watchRoster = true;
     const generation = ++this.#rosterGeneration;
     try {
@@ -141,9 +142,10 @@ class Agents {
       if (generation !== this.#rosterGeneration) return;
       this.roster = roster;
       this.rosterAt = Date.now();
-    } catch {
-      if (generation === this.#rosterGeneration) this.rosterAt = null;
-      // the next event or a page visit tries again
+    } catch (e) {
+      if (generation !== this.#rosterGeneration) return;
+      this.rosterAt = null;
+      report('refresh agent roster', e);
     }
   }
 }

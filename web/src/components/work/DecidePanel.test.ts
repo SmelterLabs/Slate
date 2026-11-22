@@ -113,4 +113,13 @@ describe('DecidePanel', () => {
     svelte.flushSync();
     expect(target.querySelector('[data-decide-item="I_OLD"]')).toBeNull();
   });
+
+  it('names a failed sweep refresh and keeps the last loaded cards', async () => {
+    routes.set('/today/sweep', () => ({ status: 503, body: { detail: 'Temporarily unavailable' } }));
+    board.rev++;
+    svelte.flushSync();
+    await settle();
+    expect(board.toast).toBe('Could not load the weekly sweep: Temporarily unavailable');
+    expect(target.querySelector('[data-decide-item="I_OLD"]')).not.toBeNull();
+  });
 });

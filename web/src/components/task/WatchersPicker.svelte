@@ -8,7 +8,7 @@
   import { task } from '../../lib/task.svelte';
   import type { Assignee } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { itemId, watchers }: { itemId: string; watchers: Assignee[] } = $props();
 

@@ -22,7 +22,7 @@ const app = mount(App, { target: document.getElementById('app')! });
 // Vite serves unhashed modules that a cache would only get in the way of.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* the board still loads without the installable shell cache */ });
   });
 }
 

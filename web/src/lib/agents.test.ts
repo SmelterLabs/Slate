@@ -17,7 +17,7 @@ it('a concurrent presence refresh does not leave the Agents page loading forever
     return [];
   });
   const load = agents.load();
-  await agents.refreshRoster();
+  await agents.refreshRoster(vi.fn());
   resolveTail({ events: [] });
   await load;
   expect(agents.loaded).toBe(true);
@@ -26,12 +26,29 @@ it('a concurrent presence refresh does not leave the Agents page loading forever
 it('a roster response from a signed-out scope cannot restore presence', async () => {
   let resolve!: (value: never[]) => void;
   vi.mocked(get).mockImplementation(() => new Promise((done) => { resolve = done; }));
-  const refresh = agents.refreshRoster();
+  const refresh = agents.refreshRoster(vi.fn());
   agents.resetRoster();
   resolve([]);
   await refresh;
   expect(agents.rosterAt).toBeNull();
 });
+it('a failed roster refresh is reported once with what failed; a stale one is not', async () => {
+  const report = vi.fn();
+  const boom = new Error('database is locked');
+  vi.mocked(get).mockRejectedValueOnce(boom);
+  await agents.refreshRoster(report);
+  expect(report).toHaveBeenCalledWith('refresh agent roster', boom);
+  expect(agents.rosterAt).toBeNull();
+
+  let reject!: (e: Error) => void;
+  vi.mocked(get).mockImplementationOnce(() => new Promise((_, no) => { reject = no; }));
+  const stale = agents.refreshRoster(report);
+  agents.resetRoster();
+  reject(boom);
+  await stale;
+  expect(report).toHaveBeenCalledTimes(1);
+});
+
 const AT = '2026-10-23T22:00:00.000000Z';
 
 describe('toFeed', () => {

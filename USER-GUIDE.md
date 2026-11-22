@@ -24,6 +24,8 @@ Open Slate's address (for example `https://slate.example.com`) in any browser, o
 
 **Live.** Changes from agents and other screens appear within a second; you never reload. If the connection drops, a yellow "Reconnecting…" bar appears; when it clears, everything that changed meanwhile has been applied. After a new version of Slate is deployed, an open board reloads itself into it, on a computer and a phone alike; if you are typing, it waits until you leave the box.
 
+If the server reports a problem refreshing the weekly sweep or board structure, a message names what could not load and the board keeps the last data it received.
+
 **Nothing you type is lost.** Text you start and leave stays where you typed it until you send it: a comment or question on a card, a chat message, a new task in a column or the quick add bar, a subtask, a checklist item, a hand-off, an edit to a comment or message. Close the card, switch views or reload and it is still there. A card holding unsent text shows a **Draft** tag, and so does a column's **+ Add Task**. Sending clears the draft; **Cancel** (or Esc) throws it away. Drafts live in that browser only and are dropped after 30 days untouched. A title typed and left when the card closes is saved; descriptions and pages save themselves as you type.
 
 **How much text fits.** A task's description and its *Done means* hold up to 200,000 characters each, a comment 50,000, a chat message 20,000 and a page 1,000,000. A file is up to 25 MB. Slate refuses anything longer and says why.

@@ -16,6 +16,7 @@ import { liveActivity } from '../liveactivity.svelte';
 import type { Me, Prefs, SlateEvent } from '../types';
 import { COOKIE_SESSION, inviteSecretFrom } from '../collaboration';
 import { workspaceDay } from '../quickadd';
+import { withStorage } from '../storage';
 import { TOKEN_KEY } from './state.svelte';
 import { BoardLoad } from './load.svelte';
 import { EVENT_TYPES } from './events';
@@ -61,14 +62,14 @@ export class BoardStream extends BoardLoad {
       // An invitation link (or its secret) pasted into the token box: the installed app has no
       // address bar, so this is how a guest signs it in. Cookie session, like the invite screen.
       const result = await api<{ section_id: string }>('POST', '/invitations/accept', { secret }, null);
-      localStorage.setItem(TOKEN_KEY, COOKIE_SESSION); // marker only; the credential is HttpOnly
+      withStorage((storage) => storage.setItem(TOKEN_KEY, COOKIE_SESSION)); // marker only; the credential is HttpOnly
       location.hash = `#/section/${result.section_id}`;
       location.reload();
       return;
     }
     const me = await api<Me>('GET', '/me', undefined, token);
     setWorkspaceTimezone(me.timezone);
-    localStorage.setItem(TOKEN_KEY, token);
+    withStorage((storage) => storage.setItem(TOKEN_KEY, token));
     this.token = token;
     this.me = me; // App starts the board once it sees the token
   }
@@ -92,7 +93,7 @@ export class BoardStream extends BoardLoad {
   signOut() {
     setWorkspaceTimezone();
     for (const fn of this.#signOutListeners) fn();
-    localStorage.removeItem(TOKEN_KEY);
+    withStorage((storage) => storage.removeItem(TOKEN_KEY));
     this.token = null;
     this.me = null;
     this.ready = false;
@@ -147,7 +148,7 @@ export class BoardStream extends BoardLoad {
     } catch (e) {
       if (gen !== this.#startGen) return;
       if (e instanceof ApiError && e.status === 401) return; // signed out by the api layer
-      this.flash(String(e));
+      this.loadFailed('load the board', e);
       this.#retryStart();
     }
   }
@@ -203,9 +204,10 @@ export class BoardStream extends BoardLoad {
     clearTimeout(this.#reloadTimer);
     this.#reloadTimer = setTimeout(() => {
       this.#reloadTimer = undefined;
-      const load = this.#reloadAll ? this.loadAll() : this.loadStructure();
+      const all = this.#reloadAll;
       this.#reloadAll = false;
-      load.catch((e) => this.flash(String(e)));
+      const load = all ? this.loadAll() : this.loadStructure();
+      load.catch((e) => this.loadFailed(all ? 'refresh the board' : 'refresh board structure', e));
     }, 100);
   }
 
@@ -229,7 +231,7 @@ export class BoardStream extends BoardLoad {
         // the load must not be hit every second).
         if (this.ready) {
           this.#backoff = 1000;
-          void agents.refreshRoster();
+          void agents.refreshRoster((what, e) => this.loadFailed(what, e));
         }
         resolve(true);
       };
@@ -272,6 +274,7 @@ export class BoardStream extends BoardLoad {
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
+      this.loadFailed('check the board connection', e);
       clearTimeout(this.#retryTimer);
       this.#retryTimer = setTimeout(() => void this.#reconnect(), this.#backoff);
       this.#backoff = Math.min(this.#backoff * 2, 30_000);
@@ -291,6 +294,7 @@ export class BoardStream extends BoardLoad {
     try {
       ev = JSON.parse(m.data);
     } catch {
+      this.flash('Could not read a live board update.');
       return;
     }
     // Not an event: what an agent is doing now. No id, so no cursor, no reducer, no refetch.
@@ -363,7 +367,7 @@ export class BoardStream extends BoardLoad {
       clearTimeout(this.#accessTimer);
       this.#accessTimer = setTimeout(() => void this.#reloadAccess(), 100);
     }
-    agents.onEvent(ev); // the Agents page's roster and live feed
+    agents.onEvent(ev, (what, e) => this.loadFailed(what, e)); // the Agents page's roster and live feed
     if (dotsChangedBy(ev, this.me?.account.id)) {
       clearTimeout(this.#dotsTimer);
       this.#dotsTimer = setTimeout(() => void this.loadCommentDots(), 150);
@@ -448,8 +452,8 @@ export class BoardStream extends BoardLoad {
       this.me = me;
       setWorkspaceTimezone(me.timezone);
       await this.loadAll();
-    } catch {
-      /* the next event or reconnect retries */
+    } catch (e) {
+      this.loadFailed('refresh board access', e);
     }
   }
 
