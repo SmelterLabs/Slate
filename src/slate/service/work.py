@@ -1223,6 +1223,24 @@ def finish(
     return item
 
 
+def last_failure(session: Session, account_id: str, item_id: str) -> str | None:
+    """The note of the account's newest finish on the item when that finish was `failed`
+    (what broke, in the machine's words), else None. The brief quotes it to the retried run."""
+    after = session.scalar(
+        select(Event.after_json)
+        .where(
+            Event.item_id == item_id,
+            Event.type == "item.work_finished",
+            Event.actor_id == account_id,
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    if not isinstance(after, dict) or after.get("outcome") != "failed":
+        return None
+    return str(after.get("note") or "").strip() or None
+
+
 def _failures(session: Session, account_id: str, item: Item) -> int:
     """The account's consecutive `failed` finishes on the item: back to its last other finish,
     or to the last Run now a person pressed (which starts the count over)."""
