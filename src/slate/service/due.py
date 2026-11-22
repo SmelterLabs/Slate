@@ -2,8 +2,7 @@
 
 Per item the stages, in time order, are:
 
-    item.due_soon  at due_at - L, for each distinct lead L among active subscriptions that want
-                   due_soon (filter `due_lead_hours`, default 24; just 24 when there are none)
+    item.due_soon  at due_at - 24 h
     item.run_requested  at dates.run_at(...) (06:00 workspace time for a date-only due date,
                    else due_at), only when an agent is assigned: the agent's runner wakes and
                    the due gate in service/work.py opens. Actor `slate`, `after.reason` = `due`.
@@ -26,13 +25,12 @@ also sets `run_requested_at` (Run now's mark) so the work loop hands the card ou
 failure: a card already asked again since its badge is not asked twice.
 
 Actor: the `slate` system agent (source `system`), created on first need. The event's `field`
-is `due_at`; `after` is `{"due_at": ..., "lead_hours": L}` for due_soon, `{"due_at": ...}`
+is `due_at`; `after` is `{"due_at": ..., "lead_hours": 24}` for due_soon, `{"due_at": ...}`
 otherwise. The column write uses a Core UPDATE so `items.updated_at` is not touched.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -55,12 +53,11 @@ from slate.models import (
     Source,
     Status,
     StatusKind,
-    Webhook,
     WorkLease,
 )
-from slate.service import webhooks
 from slate.service.core import Actor, apply_change, in_change, jsonable
 
+DUE_SOON_HOURS = 24
 OVERDUE_AFTER = timedelta(hours=1)
 
 
@@ -98,12 +95,6 @@ def system_actor(session: Session) -> Actor:
     return Actor(account_id=account.id, source=Source.system)
 
 
-def active_leads(session: Session) -> set[int]:
-    hooks = session.scalars(select(Webhook).where(Webhook.disabled_at.is_(None)))
-    leads = {webhooks.lead_hours(h) for h in hooks if webhooks.wants_type(h, "item.due_soon")}
-    return leads or {webhooks.DEFAULT_LEAD_HOURS}
-
-
 RUN_LEAD = timedelta(hours=11)  # the earliest a run stage comes before due_at (06:00 vs 17:00)
 
 
@@ -122,7 +113,6 @@ def _threshold(key: str, due_at: datetime, date_only: bool = False) -> datetime 
 def pending_stages(
     due_at: datetime,
     last: str | None,
-    leads: Iterable[int],
     now: datetime,
     agents: list[str] | None = None,
     date_only: bool = False,
@@ -132,12 +122,11 @@ def pending_stages(
     due_iso = jsonable(due_at)
     stages = [
         Stage(
-            due_at - timedelta(hours=h),
-            f"soon:{h}",
+            due_at - timedelta(hours=DUE_SOON_HOURS),
+            f"soon:{DUE_SOON_HOURS}",
             "item.due_soon",
-            {"due_at": due_iso, "lead_hours": h},
+            {"due_at": due_iso, "lead_hours": DUE_SOON_HOURS},
         )
-        for h in set(leads)
     ]
     if agents:
         # Sorted before `due` when both fall at due_at (a due date with a time).
@@ -173,7 +162,6 @@ def _ran_since(item: Item, run: Stage) -> bool:
 
 def emit_due_events(session: Session, *, now: datetime) -> int:
     """One scheduler tick. Returns the number of events emitted."""
-    leads = active_leads(session)
     candidates = list(
         session.scalars(
             select(Item)
@@ -182,7 +170,7 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
             .outerjoin(Status, Status.id == Item.status_id)
             .where(
                 Item.due_at.is_not(None),
-                Item.due_at <= now + max(timedelta(hours=max(leads)), RUN_LEAD),
+                Item.due_at <= now + max(timedelta(hours=DUE_SOON_HOURS), RUN_LEAD),
                 Item.archived_at.is_(None),
                 List.archived_at.is_(None),
                 Section.archived_at.is_(None),
@@ -207,7 +195,6 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
         todo = pending_stages(
             item.due_at,
             item.last_due_event,
-            leads,
             now,
             agent_assignees(session, item.id),
             item.due_date_only,

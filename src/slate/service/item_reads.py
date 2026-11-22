@@ -13,7 +13,7 @@ never count, and a guest is never told about a workspace agent's comment (servic
 
 Opening the task window calls `mark_read` (`POST /items/{id}/read`), recorded as one
 `item.read` event whose subject is the account (no `item_id`, so it stays out of the item's
-history and webhooks about the item). It writes nothing when there is nothing to clear, so
+history). It writes nothing when there is nothing to clear, so
 opening a card many times a day costs no rows. Reading the comment in the Inbox does not clear
 the dot: only opening the card does.
 

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from slate.service import reports
 
 # Generous limits on the long text fields (characters), so one write cannot carry tens of
-# megabytes into the item, its body versions, its event and every board and webhook. The
+# megabytes into the item, its body versions, its event and every board. The
 # whole request is capped as well (api/uploads.BodyLimit).
 ITEM_BODY_MAX = 200_000  # a task's body_md and acceptance_md, a recurrence's template
 COMMENT_MAX = 50_000  # a task comment (agents post long reports)

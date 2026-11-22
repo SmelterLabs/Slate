@@ -1,4 +1,4 @@
-"""Outbound POSTs (webhooks, automation webhooks, Web Push): the address that was checked is
+"""Outbound POSTs (automation webhooks and Web Push): the address that was checked is
 the address connected to, a failed lookup is refused, one deadline covers the whole exchange,
 and deliveries carry a timestamped signature.
 
@@ -18,16 +18,29 @@ import time
 import httpx
 import pytest
 
-from slate import automator, notify, webpush
-from slate.service import accounts, items, lists, push, sections, webhooks
+from slate import automator, outbound, webpush
+from slate.service import accounts, push
 from slate.service.core import Actor
 from slate.service.errors import Invalid
 from slate.settings import settings
 
-REAL_LOOKUP = getattr(webhooks, "_lookup", None)
+REAL_LOOKUP = outbound._lookup
 REAL_GETADDRINFO = socket.getaddrinfo
 REAL_CREATE_CONNECTION = socket.create_connection
 PUBLIC = "93.184.215.14"
+
+
+def test_guard_refuses_private_resolution_at_its_new_home(monkeypatch):
+    monkeypatch.setattr(outbound, "_lookup", REAL_LOOKUP)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 0))
+        ],
+    )
+    with pytest.raises(Invalid, match="resolves to a private address"):
+        outbound.check_target("https://example.com/")
 
 
 class Listener:
@@ -132,60 +145,36 @@ class Net:
 @pytest.fixture
 def net(monkeypatch) -> Net:
     fake = Net()
-    if REAL_LOOKUP is not None:
-        monkeypatch.setattr(webhooks, "_lookup", REAL_LOOKUP)
+    monkeypatch.setattr(outbound, "_lookup", REAL_LOOKUP)
     monkeypatch.setattr(socket, "getaddrinfo", fake.getaddrinfo)
     monkeypatch.setattr(socket, "create_connection", fake.create_connection)
     return fake
 
 
-def _webhook_attempt(db, url):
-    alex, _, _ = accounts.bootstrap(db, handle="alex", display_name="Alex")
-    actor = Actor(account_id=alex.id, source="api")
-    section = sections.create_section(db, actor, name="P", audience="personal")
-    todo = lists.create_list(db, actor, section_id=section.id, name="Todo")
-    _, secret = webhooks.create_webhook(db, actor, url=url, events=["*"])
-    d = notify.Dispatcher()
-    d.start()
-    items.create_item(db, actor, list_id=todo.id, title="x")
-    assert d.fan_out_once() >= 1
-    [delivery_id] = d.claim(1)
-    row = notify.attempt(delivery_id)
-    row.secret = secret
-    return row
-
-
 # --- the address that was checked is the one connected to -----------------------------------
 
 
-def test_a_name_that_rebinds_to_loopback_after_the_check_is_never_reached(db, net, listener):
+def test_a_name_that_rebinds_to_loopback_after_the_check_is_never_reached(net, listener):
     rx = listener()
     url = f"https://rebind.example.com:{rx.port}/hook"
     net.answers["rebind.example.com"] = [PUBLIC, "127.0.0.1"]
-    row = _webhook_attempt(db, url)
-    assert rx.connections == 0
-    assert net.lookups.count("rebind.example.com") == 1
-    assert net.dialled == [(PUBLIC, rx.port)]
-    assert row.state == "retry"  # the checked public address refused: a network error
-    net.answers["rebind.example.com"] = [PUBLIC, "127.0.0.1"]
     ok, _ = automator.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and rx.connections == 0
+    assert net.lookups.count("rebind.example.com") == 1
+    assert net.dialled == [(PUBLIC, rx.port)]
 
 
-def test_a_failed_lookup_is_refused_not_passed(db, net, listener):
+def test_a_failed_lookup_is_refused_not_passed(net, listener):
     rx = listener()
     url = f"https://flaky.example.com:{rx.port}/hook"
     net.answers["flaky.example.com"] = [socket.gaierror("SERVFAIL"), "127.0.0.1"]
-    row = _webhook_attempt(db, url)
-    assert rx.connections == 0 and net.dialled == []
-    assert row.state == "retry" and "resolve" in row.error
-    net.answers["flaky.example.com"] = [socket.gaierror("SERVFAIL"), "127.0.0.1"]
     ok, detail = automator.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and "resolve" in detail and rx.connections == 0
+    assert net.dialled == []
 
 
-def test_the_checked_address_keeps_the_url_name_as_host(db, net, listener, monkeypatch):
-    monkeypatch.setattr(settings, "webhook_private_targets", True)
+def test_the_checked_address_keeps_the_url_name_as_host(net, listener, monkeypatch):
+    monkeypatch.setattr(settings, "outbound_private_targets", True)
     rx = listener()
     net.answers["rx.example.com"] = ["127.0.0.1", "10.9.9.9"]
     ok, detail = automator.send(
@@ -199,11 +188,8 @@ def test_the_checked_address_keeps_the_url_name_as_host(db, net, listener, monke
 # --- one deadline for the whole exchange -----------------------------------------------------
 
 
-def test_a_receiver_that_drips_its_headers_is_cut_off_at_the_deadline(
-    db, net, listener, monkeypatch
-):
-    monkeypatch.setattr(settings, "webhook_private_targets", True)
-    monkeypatch.setattr(settings, "webhook_timeout_seconds", 1.0)
+def test_a_receiver_that_drips_its_headers_is_cut_off_at_the_deadline(net, listener, monkeypatch):
+    monkeypatch.setattr(settings, "outbound_private_targets", True)
     monkeypatch.setattr(automator, "TIMEOUT_SECONDS", 1.0)
     rx = listener(drip=0.2)
     url = f"http://127.0.0.1:{rx.port}/hook"
@@ -211,10 +197,6 @@ def test_a_receiver_that_drips_its_headers_is_cut_off_at_the_deadline(
     ok, detail = automator.send(url, {"automation": {"id": "a"}}, "s")
     assert ok is False and "Timeout" in detail
     assert time.monotonic() - started < 3
-    started = time.monotonic()
-    row = _webhook_attempt(db, url)
-    assert time.monotonic() - started < 3
-    assert row.state == "retry" and "Timeout" in row.error
 
 
 # --- signatures carry a timestamp ------------------------------------------------------------
@@ -230,22 +212,18 @@ def _check_signatures(request: httpx.Request, secret: str) -> None:
     assert request.headers["X-Slate-Signature"] == f"sha256={v1}"  # still sent
 
 
-def test_webhook_and_automation_deliveries_sign_a_timestamp(db, monkeypatch):
+def test_automation_deliveries_sign_a_timestamp(monkeypatch):
     seen: list[httpx.Request] = []
 
     def rx(request):
         seen.append(request)
         return httpx.Response(204)
 
-    monkeypatch.setattr(notify, "transport", httpx.MockTransport(rx))
     monkeypatch.setattr(automator, "transport", httpx.MockTransport(rx))
-    row = _webhook_attempt(db, "https://rx.example.com/hook")
-    assert row.state == "ok"
-    _check_signatures(seen[0], row.secret)
     ok, _ = automator.send("https://rx.example.com/a", {"automation": {"id": "a"}}, "whsec_x")
     assert ok
-    _check_signatures(seen[1], "whsec_x")
-    assert json.loads(seen[1].read()) == {"automation": {"id": "a"}}
+    _check_signatures(seen[0], "whsec_x")
+    assert json.loads(seen[0].read()) == {"automation": {"id": "a"}}
 
 
 # --- Web Push: private endpoints and bounded answers -----------------------------------------
@@ -280,8 +258,6 @@ def test_a_wildcard_push_allowlist_still_refuses_private_endpoints(monkeypatch, 
 
 
 def test_a_push_answer_is_read_up_to_a_cap(monkeypatch):
-    from slate import outbound
-
     keys = _browser_keys()
     pulled = {"chunks": 0}
 

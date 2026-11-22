@@ -24,7 +24,7 @@ Enforcement (AGENTS.md rule 3), hooked onto every SQLAlchemy `Session` by `slate
 
 The exemptions are bookkeeping that is not a change to anything a person or an agent owns:
 `Token.last_used_at`, updated when a token authenticates (`BOOKKEEPING`), and delivery
-attempts (`BOOKKEEPING_MODELS`): the `deliveries` (webhooks) and `push_deliveries` (Web Push)
+attempts (`BOOKKEEPING_MODELS`): the `push_deliveries` (Web Push) and `email_deliveries`
 tables are themselves the delivery logs, so a retry is a row, never an event.
 """
 
@@ -49,7 +49,6 @@ from slate.models import (
     ISO_FORMAT,
     AutomationRun,
     ChatWake,
-    Delivery,
     DocLink,
     DocWake,
     EmailDelivery,
@@ -87,7 +86,7 @@ BOOKKEEPING: frozenset[tuple[type, str]] = frozenset(
 # Tables whose rows are operational logs, not changes to anything a person or an agent owns.
 # `doc_links` is an index of what a page's body embeds; the body's event is the record.
 BOOKKEEPING_MODELS: frozenset[type] = frozenset(
-    {Delivery, PushDelivery, EmailDelivery, AutomationRun, EngineCursor, WorkLease, DocLink}
+    {PushDelivery, EmailDelivery, AutomationRun, EngineCursor, WorkLease, DocLink}
 )
 
 # Columns never copied into an event payload.
@@ -141,7 +140,7 @@ def snapshot(obj: Any) -> dict[str, Any]:
 
 
 def event_payload(ev: Event) -> dict[str, Any]:
-    """The shape published on the bus (and on SSE and webhooks)."""
+    """The shape published on the bus (and on SSE)."""
     session = object_session(ev)
     before, after = access.event_snapshots(session, ev)
     # For a guest reader, a workspace agent's own events never load (access._guest_criteria);

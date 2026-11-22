@@ -33,7 +33,7 @@ a published image or package-index release. See `LICENSE` for the terms.
 2. Generate a secret with `python -c "import secrets; print(secrets.token_hex(32))"`
    (or another cryptographically secure generator of 32 random bytes). Put the result in
    `.env` as `SLATE_SECRET_KEY`. Never commit or share this file. Keep the key stable;
-   changing it makes stored webhook secrets unreadable. Back it up with your data.
+   changing it invalidates automation signing secrets and Web Push keys. Back it up with your data.
 3. Choose `SLATE_TIMEZONE` (an IANA name such as `America/New_York`, default `UTC`) and
    optionally `SLATE_PORT` in `.env`. Slate's board and newly created recurrence rules use
    that workspace timezone. Existing recurrence rules keep their own saved zone.
@@ -66,7 +66,7 @@ a published image or package-index release. See `LICENSE` for the terms.
    separate agent accounts and limited tokens through the board's Agents controls or API.
    Repeated bootstrap is refused; this is not a password-reset endpoint.
 
-Compose binds **127.0.0.1 only**, does not enable private webhook targets, and uses its own
+Compose binds **127.0.0.1 only**, does not enable private outbound targets, and uses its own
 `slate-portable` project with a durable `slate-data` named volume mounted at `/data`.
 Database, attachments and other server files under `/data` survive container replacement
 and `docker compose down`. **`docker compose down --volumes` deletes the data.** Before

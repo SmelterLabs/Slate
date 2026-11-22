@@ -1,11 +1,11 @@
-"""The one loop every event-log engine runs: automations, Web Push, email and webhooks.
+"""The one loop every event-log engine runs: automations, Web Push and email.
 
     await run(name, step, poll_seconds=..., start=None)
 
 Subscribe to the event bus (a doorbell: any change wakes the loop early), call `start` once,
 then call `step` again and again: right after a bell, else every `poll_seconds`. A plain `step`
 runs in a worker thread (the service layer is synchronous); a coroutine function is awaited
-on the loop (the webhook dispatcher starts its attempts from there).
+on the loop.
 
 A step that raises is logged and the loop goes on. Each step is reported to
 `slate.monitor.engines` under `name` (the Health page's engine line), and when an engine fails

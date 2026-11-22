@@ -106,7 +106,7 @@ each on
 the Health page.
 **Adding one:** write `fn(session, now)` (idempotent, writes through `apply_change()`) and add it to
 the `hooks` list in `scheduler.py`. Do not edit `_loop` or `tick`. Work that needs a faster cadence
-than the tick (like webhook delivery) is its own task in `lifespan` instead.
+than the tick runs as its own task in `lifespan`.
 
 **Preview and adopt.** `GET /recurrences/preview?rrule=&dtstart=&timezone=&count=` (read
 scope; `count` 1-50, default 5) runs `recurrences.preview()`: the same
@@ -155,3 +155,15 @@ the path is not read as an id.
 **Testing recurrence:** service functions take `now=` so tests never sleep or freeze the clock.
 `tests/test_recurrence_properties.py` gives each hypothesis example its own in-memory engine
 (`fresh_db()`), because hypothesis cannot reuse function-scoped fixtures.
+
+## Due events
+
+The scheduler runs `notify.due_events_tick` after recurrence materialization. `service/due.py`
+emits `item.due_soon` 24 hours before the due time, `item.due` at that time and `item.overdue`
+one hour later. For cards assigned to agents, `item.run_requested` comes at the scheduled run
+time (06:00 workspace time for a date-only due date). The actor is Slate's system account.
+
+The item records its last emitted stage so repeating a tick or restarting does not duplicate
+events. A tick after the due time skips the due-soon stage. Moving the due date later starts
+the stages over when the recorded stage lies in the future. Closed and archived items and
+items in archived lists or sections are excluded.

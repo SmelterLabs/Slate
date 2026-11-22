@@ -1,8 +1,8 @@
 """Watchers: accounts following an item, like ClickUp's. A watcher hears about every change to
 the item: the Inbox (service/inbox.py, reason `watching` for activity beyond comments, status and
-the main fields), Web Push (push reason `watching`), an agent's check-in (`watching`), and a
-webhook with `assignee_me` (`deliveries.matches`), so an agent can follow work it is not assigned
-to. Anyone who can edit an item can add or remove any watcher; below edit (a view or
+the main fields), Web Push (push reason `watching`), and an agent's check-in (`watching`).
+An agent can follow work assigned to others.
+Anyone who can edit an item can add or remove any watcher; below edit (a view or
 comment share) a caller watches and unwatches only itself. Being removed by someone else is
 inbox news (reason `watching`, service/inbox.py), so a watch never vanishes silently.
 

@@ -107,7 +107,6 @@ def test_bad_refs_tools_and_params_are_plain_errors(client, alex, todo):
         ({"tool": "nosuch", "action": "x"}, "unknown tool"),
         ({"tool": "item", "action": "fly"}, "unknown action"),
         ({"tool": "item"}, "needs an action"),
-        ({"tool": "webhook", "action": "test", "params": {"id": "x"}}, "cannot run inside"),
         ({"tool": "item", "action": "create", "params": {"title": "no list"}}, "list_id"),
     ]
     for op, text in cases:

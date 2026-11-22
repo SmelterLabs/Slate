@@ -1,8 +1,8 @@
 """Comments on items. Authors may edit their own; authors delete their own, admins anyone's.
 
 A comment's `@handle` mentions are resolved to accounts when it is written and carried in the
-`item.commented` / `comment.edited` event as `mentions` (handles), so webhooks can route a
-mention to the account named (see `deliveries.matches`). Reactions are one emoji per account per
+`item.commented` / `comment.edited` event as `mentions` (handles), so the inbox and
+check-in can surface the mention to the account named. Reactions are one emoji per account per
 comment, toggled with `react` / `unreact`.
 
 Assigned comments ("Ask"): a comment can be addressed to one account (`assignee_id`), a

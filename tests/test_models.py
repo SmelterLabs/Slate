@@ -26,8 +26,6 @@ PLAN_TABLES = {
     "body_versions",
     "events",
     "recurrences",
-    "webhooks",
-    "deliveries",
     "attachments",
 }
 

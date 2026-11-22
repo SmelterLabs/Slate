@@ -2,7 +2,7 @@
 
 # MCP reference
 
-27 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
+26 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
 
 `*` marks a required param. **REST** is the call the action makes in stdio mode and the route that does the same over HTTP.
 
@@ -35,7 +35,7 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 | `link` | `write` | `kind`\*, `item_id`\*, `id`\* | `POST /items/{item_id}/links` | add a link: kind blocks / blocked_by / relates / duplicate_of / duplicated_by, from this item's side |
 | `unlink` | `write` | `kind`\*, `item_id`\*, `id`\* | `DELETE /items/{item_id}/links` | remove a dependency (same kind and item_id as when added) |
 | `activity` | `read` | `include`, `limit`, `id`\* | `GET /items/{item_id}/activity` | comments and history in one list, oldest first (what people see beside the task) |
-| `watch` | `write` | `account`, `id`\* | `POST /items/{item_id}/watch` | add a watcher (you, or `account`): watchers hear about every change to the item (check-in `watching`, inbox, an assignee_me webhook) |
+| `watch` | `write` | `account`, `id`\* | `POST /items/{item_id}/watch` | add a watcher (you, or `account`): watchers hear about every change to the item (check-in `watching`, inbox) |
 | `unwatch` | `write` | `account`, `id`\* | `POST /items/{item_id}/unwatch` | remove a watcher (you, or `account`) |
 | `watchers` | `read` | `id`\* | `GET /items/{item_id}/watchers` | who follows the item |
 | `set_watchers` | `write` | `watchers`\*, `id`\* | `PUT /items/{item_id}/watchers` | replace who follows the item (handles or ids) |
@@ -49,7 +49,7 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 
 ## `slate_comment`
 
-Comments are the conversation on an item; @handle mentions an account and reaches its inbox and assignee_me webhook. Use it to ask someone something, answer, or react; for progress on work you hold, slate_item report shows it on the card.
+Comments are the conversation on an item; @handle mentions an account and reaches their inbox. Use it to ask someone something, answer, or react; for progress on work you hold, slate_item report shows it on the card.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -210,18 +210,6 @@ Recurring rules spawn an item on a schedule (RFC 5545 RRULE, workspace timezone)
 | `resume` | `write` | `id`\* | `POST /recurrences/{rule_id}/resume` | start spawning again from today |
 | `adopt` | `write` | `item_id`\*, `id`\* | `POST /recurrences/{rule_id}/adopt` | make an existing item the rule's current occurrence (it keeps its due date) |
 | `run_now` | `write` | `id`\* | `POST /recurrences/{rule_id}/run-now` | spawn everything due within the rule's lead window now |
-
-## `slate_webhook`
-
-Webhooks POST signed events to your URL so you are woken instead of polling. Use it to register, inspect or test your own doorbell.
-
-| Action | Scope | Params | REST | What |
-|---|---|---|---|---|
-| `list` | `write` | — | `GET /webhooks` | your webhooks (an admin sees everyone's) |
-| `create` | `write` | `url`\*, `events`\*, `filter` | `POST /webhooks` | subscribe a URL to event types; the reply holds the signing secret, shown only once |
-| `update` | `write` | `url`, `events`, `filter`, `disabled`, `id`\* | `PATCH /webhooks/{webhook_id}` | change url, events, filter (replaced whole) or disabled |
-| `deliveries` | `write` | `limit`, `offset`, `id`\* | `GET /webhooks/{webhook_id}/deliveries` | the delivery log, newest first |
-| `test` | `write` | `id`\* | `POST /webhooks/{webhook_id}/test` | send a webhook.test delivery now (one attempt) and return its outcome |
 
 ## `slate_account`
 

@@ -286,7 +286,6 @@ CONTENT_FAMILIES = frozenset(
         "recurrence",
         "tag",
         "view",
-        "webhook",
     }
 )
 _gate_loaded: WeakKeyDictionary[access.EventGate, tuple[float, str]] = WeakKeyDictionary()

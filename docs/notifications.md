@@ -30,7 +30,7 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   previews it.
 - **Where they land**: inbox reasons `reminder` and `digest` (`inbox.reason_for`, checked before the
   "own events are not news" rule), check-in `why` `reminder`/`digest` (also in the check-in SQL
-  prefilter), webhooks with `assignee_me` (`deliveries.matches`), and push.
+  prefilter) and push.
 - **Web Push**: `webpush.py` with only `cryptography`. The VAPID P-256 key is derived from
   `SLATE_SECRET_KEY` (HMAC "slate-vapid"), so nothing new to configure or back up; rotating the
   secret key changes it and the board re-subscribes on its next load (`lib/push.ts syncPush`).
@@ -43,11 +43,11 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   reply, chat, assigned, waiting, due, unblocked, nudge, reminder, digest, health, access, failed,
   stalled, watching: `push.DEFAULT_REASONS`), and POSTs one
   encrypted JSON `{title, body, url, tag}` per device (tag = item id, so a busy task replaces its
-  notification) through `outbound.post`, like webhooks: besides the `SLATE_PUSH_ENDPOINT_HOSTS`
+  notification) through `outbound.post`. Besides the `SLATE_PUSH_ENDPOINT_HOSTS`
   allowlist (even `["*"]`), the endpoint must resolve to public addresses unless
-  `SLATE_WEBHOOK_PRIVATE_TARGETS` is on (checked at subscribe and at every send; a refused
-  endpoint is a final failure), the connection goes to the checked address, and the answer is
-  drained up to 64 KB within one deadline. 404/410 or 10 failures in a row removes the subscription (`push.expired`, actor =
+  `SLATE_OUTBOUND_PRIVATE_TARGETS` is on. Slate checks at subscribe time and at every send.
+  A refused endpoint is a final failure. The connection goes to the checked address and the
+  answer is drained up to 64 KB within one deadline. 404/410 or 10 failures in a row removes the subscription (`push.expired`, actor =
   its owner, source system). `slate/pusher.py` runs it when `SLATE_PUSH_ENABLED` (default on; off in
   pytest) and a secret key is set. **`chat`** is the one push-only reason:
   `push.chat_reason` turns any `message.posted` by someone else that `inbox.reason_for` did not

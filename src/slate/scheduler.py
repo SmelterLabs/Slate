@@ -20,9 +20,6 @@ failed; one that returns None did not run. When a poller fails
 `health.alert` / `health.recovered` (service/health.py), which owners and admins get in their
 inbox.
 
-The webhook dispatcher is not a hook: it needs a ~1 s cadence and wakes early on the event bus,
-so it is its own asyncio task (`notify.start_dispatcher()`), also started by `lifespan`.
-
 Started and stopped by `slate.app.lifespan` when `settings.scheduler_enabled`; the interval is
 `settings.scheduler_interval_seconds` (default 60).
 """

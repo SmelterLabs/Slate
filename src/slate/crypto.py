@@ -1,7 +1,7 @@
-"""Encryption at rest for webhook secrets.
+"""Encryption at rest for automation signing secrets.
 
-Webhook secrets cannot be hashed like tokens: Slate needs the plaintext to sign each delivery.
-They are encrypted with AES-256-GCM under a key derived from `SLATE_SECRET_KEY` (32+ random
+Slate needs the plaintext automation secret to sign an action's request. Slate encrypts the secrets
+with AES-256-GCM under a key derived from `SLATE_SECRET_KEY` (32+ random
 bytes, given as hex or base64). The row id is the associated data, so a ciphertext copied onto
 another row does not decrypt. Stored form: `v1:<base64(nonce || ciphertext+tag)>`.
 
@@ -47,7 +47,7 @@ def require_key() -> bytes:
     raw = _decode(settings.secret_key or "")
     if len(raw) < MIN_KEY_BYTES:
         raise SecretKeyError(
-            "SLATE_SECRET_KEY must be set to 32+ random bytes (hex or base64) to use webhooks"
+            "SLATE_SECRET_KEY must contain at least 32 random bytes (hex or base64)"
         )
     # A fixed-length key from any 32+ byte input; the input is already high-entropy.
     return hashlib.sha256(b"slate-webhook-secrets\x00" + raw).digest()
@@ -70,5 +70,5 @@ def decrypt(stored: str, *, aad: str) -> str:
         return AESGCM(key).decrypt(blob[:12], blob[12:], aad.encode()).decode()
     except (InvalidTag, ValueError):  # binascii.Error is a ValueError
         raise SecretKeyError(
-            "stored webhook secret does not decrypt; was SLATE_SECRET_KEY changed?"
+            "stored automation signing secret does not decrypt; was SLATE_SECRET_KEY changed?"
         ) from None

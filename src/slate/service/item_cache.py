@@ -10,7 +10,7 @@ Correct only because every change is an event (rule 3): `core.apply_change` call
 
 - An event about an item drops that item, the items its view names (parent, links) and the
   cached items whose views name it: subtask counts and blocked flags read the item's row.
-- Events that cannot touch an item view (views, favorites, tokens, webhooks...) drop nothing.
+- Events that cannot touch an item view (views, favorites, tokens...) drop nothing.
 - Anything else (a list's statuses, a tag rename, an account's name, links, an event
   type this module does not know) drops everything. New event types are safe by default.
 
@@ -40,7 +40,6 @@ NO_EFFECT = (
     "view.",
     "favorite.",
     "token.",
-    "webhook.",
     "automation.",
     "inbox.",
     "push.",

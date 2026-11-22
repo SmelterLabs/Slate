@@ -21,7 +21,7 @@ services:
       SLATE_DATABASE_PATH: /data/slate.db
       SLATE_TIMEZONE: ${SLATE_TIMEZONE:-UTC}
       SLATE_SECRET_KEY: ${SLATE_SECRET_KEY:?Set SLATE_SECRET_KEY in .env before starting}
-      SLATE_WEBHOOK_PRIVATE_TARGETS: "false"
+      SLATE_OUTBOUND_PRIVATE_TARGETS: "false"
     logging:
       driver: json-file
       options:

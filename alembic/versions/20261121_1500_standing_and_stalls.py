@@ -9,8 +9,8 @@
 Downgrade drops the columns; the Asks stay resolved.
 
 Revision ID: 7c3a9e5f1b28
-Revises: d8f6b2e4c913
-Create Date: 2026-11-22 12:00:00
+Revises: a3e7f1c8b264
+Create Date: 2026-11-21 15:00:00
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "7c3a9e5f1b28"
-down_revision = "d8f6b2e4c913"
+down_revision = "a3e7f1c8b264"
 branch_labels = None
 depends_on = None
 

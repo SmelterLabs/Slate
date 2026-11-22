@@ -105,19 +105,6 @@ Each move is one `message.agent_turn` or `doc.agent_turn` event whose `after.sta
 happened: `started`, `done`, `released`, `expired`, `dropped`. Those are transitions, not
 states of the row. A turn's finish names one of `turns.OUTCOMES`: `done`, `release`.
 
-## Webhook deliveries
-
-Declared: `models.DeliveryState`; the column refuses any other word. One row per attempt.
-
-| State | Means | Next |
-|---|---|---|
-| `pending` | queued, sent at `next_at` | the dispatcher claims it: `sending` |
-| `sending` | claimed | `ok`; `retry` (and a new `pending` row for the next attempt); `failed`; `skipped`; back to `pending` after a restart |
-| `ok`, `retry`, `failed`, `skipped` | history (`deliveries.FINISHED`) | pruned after the retention days |
-
-`skipped` is a delivery that must not go out any more: the subscription was disabled, or a
-digest's access changed, before sending.
-
 ## Push and email notifications
 
 Declared: `models.SendState`, shared by `push_deliveries` and `email_deliveries`; the columns

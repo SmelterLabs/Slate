@@ -61,7 +61,7 @@ def test_a_run_says_what_it_is_doing_and_nothing_is_stored(client, alex, todo, m
         "terminal: uv run pytest -q",
         "read_file: docs/board.md",
     ]
-    assert _events() == before  # not a change: no event, so no history line and no webhook
+    assert _events() == before  # not a change: no event, so no history line
     assert client.get(f"{API}/items/{task['id']}", headers=alex).json()["comments"] == []
 
 

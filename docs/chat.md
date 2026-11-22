@@ -68,8 +68,8 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   that a hidden account exists.
 - **Routing reuses the inbox.** `message.posted`/`message.edited` are in the inbox's and check-in's
   `MENTION_TYPES` (they read `after.mentions`), and a reply reaches thread followers as inbox reason
-  `reply` / check-in `why: reply`. Push (`notification_for`) links to `/#/chat/<key>?thread=<root>`;
-  webhooks with `assignee_me` hear mentions and replies. Inbox entries for chat carry `channel` and
+  `reply` / check-in `why: reply`. Push (`notification_for`) links to `/#/chat/<key>?thread=<root>`.
+  Inbox entries for chat carry `channel` and
   `item_title = "#<channel name>"`.
 - **Task links:** `?task=<id>` URLs and `#<id>` in a body become `linked_items` (existing, untrashed
   items only), as does the task made from the message (`item_id`). The board renders `#<id>` as the

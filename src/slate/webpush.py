@@ -1,6 +1,6 @@
 """Web Push (RFC 8030) with VAPID (RFC 8292) and aes128gcm payload encryption (RFC 8291).
 
-No extra dependency: `cryptography` (already used for webhook secrets) does the ECDH, HKDF,
+No extra dependency: `cryptography` (used for automation signing secrets) does the ECDH, HKDF,
 AES-GCM and ES256. The VAPID key pair is derived from `SLATE_SECRET_KEY`, so there is nothing
 new to configure or back up, and every browser subscription survives a restart. Changing the
 secret key changes the VAPID key: browsers must subscribe again (the board does it on its next
@@ -159,8 +159,8 @@ def send(
 ) -> tuple[int | None, str, str | None]:
     """POST one notification. Return status, error and optional Retry-After header.
 
-    Through `slate.outbound.post`, like webhooks: the endpoint must still be a public address
-    (unless `SLATE_WEBHOOK_PRIVATE_TARGETS`), the connection goes to the address that was
+    Through `slate.outbound.post`, which requires the endpoint to be a public address
+    (unless `SLATE_OUTBOUND_PRIVATE_TARGETS`), the connection goes to the address that was
     checked, one deadline covers the whole exchange and the answer is drained up to a cap.
     A refused endpoint comes back as status 0, a final failure."""
     body = encrypt(json.dumps(payload, separators=(",", ":")).encode(), p256dh, auth)

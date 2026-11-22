@@ -33,28 +33,27 @@ ClickUp-style "when this happens, if these hold, do that" rules.
   `bulk_update` for moves, `add_comment`, `archive_item`), so one failing action (a status the
   item's list lacks) is logged and the rest still run. A run is `ok`, `partial` or `failed`.
 - **Run log** (`automation_runs`): one row per run with per-action `{action, ok, detail}`,
-  `event_id`, `triggered_by` (whose change fired it, or who pressed Run now). Bookkeeping like
-  `deliveries` (`core.BOOKKEEPING_MODELS`), pruned after 30 days row by row (the write guard refuses
+  `event_id`, `triggered_by` (whose change fired it, or who pressed Run now). Bookkeeping (`core.BOOKKEEPING_MODELS`), pruned after 30 days row by row (the write guard refuses
   bulk DELETE outside a change). `GET /automations` adds `run_count`, `last_run_at`, `last_status`,
   so it is **not** in fastlane's `CACHEABLE`.
 - **`webhook` action**: a JSON POST `{automation, event, item}`, built through the rule author's
   read filter (`access.reading_as`: no link to a list the author cannot see), with
   `X-Slate-Automation` and
-  the signature headers of webhook deliveries (`X-Slate-Timestamp`, `X-Slate-Signature-V2` over
+  signature headers (`X-Slate-Timestamp`, `X-Slate-Signature-V2` over
   `<timestamp>.<body>`, the body-only `X-Slate-Signature`; `outbound.signed_headers`), keyed by
-  the rule's own secret. It goes through `outbound.post` like a delivery: the address checked is
+  the rule's own secret. It goes through `outbound.post`: the address checked is
   the address connected to, and one deadline covers the whole exchange. The secret (`whsec_…`) is made when a rule first
   gets a webhook action (create or update), stored encrypted in `automations.secret_enc` (in
   `core.SECRET_COLUMNS`' `secret_enc`, so never in an event), returned once as `webhook_secret`, and
   replaced by `POST /automations/{id}/secret` (`automation.secret_rotated`, no secret material).
   Needs `SLATE_SECRET_KEY` (else 503). One attempt, 5 s timeout, outside any write transaction; the
-  result goes in the run. URLs pass `webhooks.validate_url` (https, or http to a private host). For
-  retried delivery an agent registers a real webhook subscription instead.
+  result goes in the run. URLs pass `outbound.validate_url`. Public addresses
+  require HTTPS. Private targets require `SLATE_OUTBOUND_PRIVATE_TARGETS`.
 - **Who reads a webhook address.** An address often carries a secret, so only the rule's author
   and admins (`access.is_admin`) read it in full. Everyone else gets each `webhook` action with
   its `url` cut to `scheme://host[:port]` (`access.masked_hook_urls`), in `GET /automations`, MCP
   and the `automation.*` events (stored history through `access.event_snapshots`, live payloads
-  through `EventGate.project`, webhook delivery bodies). A member who edits the rule's actions
+  through `EventGate.project`). A member who edits the rule's actions
   and sends a webhook action back with that host-only `url` keeps the hidden address (the
   webhook at the same position first, else the first on the same host); any other `url`
   replaces it.

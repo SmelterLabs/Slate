@@ -35,7 +35,6 @@ from slate.api import (
     tags,
     today,
     views,
-    webhooks,
     work,
 )
 from slate.service import errors
@@ -59,7 +58,6 @@ MODULES = (
     favorites,
     inbox,
     chat,
-    webhooks,
     links,
     stats,
     batch,

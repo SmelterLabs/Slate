@@ -159,20 +159,6 @@ class RecurTrigger(enum.StrEnum):
     on_done = "on_done"
 
 
-class DeliveryState(enum.StrEnum):
-    """One webhook delivery attempt (`deliveries.state`, service/deliveries.py): `pending` is
-    queued, `sending` is claimed by the dispatcher; then `ok`, `retry` (a later attempt row
-    exists), `failed` (final) or `skipped` (not sent: the subscription was disabled or lost
-    its access first)."""
-
-    pending = "pending"
-    sending = "sending"
-    ok = "ok"
-    retry = "retry"
-    failed = "failed"
-    skipped = "skipped"
-
-
 class SendState(enum.StrEnum):
     """One push or email notification for one event (`push_deliveries.state`,
     `email_deliveries.state`): `pending` until it is `sent`, `failed` (out of attempts or
@@ -579,45 +565,6 @@ class Favorite(Base):
     created_at: Mapped[datetime] = _created()
 
 
-class Webhook(Base):
-    __tablename__ = "webhooks"
-
-    id: Mapped[str] = _pk()
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
-    url: Mapped[str] = mapped_column(String(2000))
-    # Encrypted, not hashed: Slate signs deliveries with it (slate.crypto; plaintext shown once).
-    secret_enc: Mapped[str] = mapped_column(Text)
-    events_json: Mapped[Any] = mapped_column(JSON)
-    filter_json: Mapped[Any | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = _created()
-    disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-
-
-class Delivery(Base):
-    __tablename__ = "deliveries"
-
-    id: Mapped[str] = _pk()
-    webhook_id: Mapped[str] = mapped_column(
-        ForeignKey("webhooks.id", ondelete="CASCADE"), index=True
-    )
-    event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), index=True)
-    attempt: Mapped[int] = mapped_column(Integer, default=1)
-    status_code: Mapped[int | None] = mapped_column(Integer)
-    response_ms: Mapped[int | None] = mapped_column(Integer)
-    error: Mapped[str | None] = mapped_column(Text)
-    at: Mapped[datetime] = _created()
-    # One row per attempt. `pending` rows are the durable queue (sent at `next_at`);
-    # `sending` is claimed; then `ok`, `retry` (a later attempt row exists), `failed` (final) or
-    # `skipped` (subscription disabled before sending). `body` is the exact signed JSON.
-    state: Mapped[str] = mapped_column(String(10), default="pending")
-    next_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
-    body: Mapped[str] = mapped_column(Text, default="")
-
-    @validates("state")
-    def _check_state(self, _key: str, value: str) -> str:
-        return _state_of(DeliveryState, value)
-
-
 class Attachment(Base):
     __tablename__ = "attachments"
 
@@ -702,7 +649,7 @@ class ChecklistItem(Base):
 
 
 class Watcher(Base):
-    """An account following an item: webhooks with `watching: true` hear about its changes."""
+    """An account following an item: check-in lists it under `watching`."""
 
     __tablename__ = "item_watchers"
 
@@ -764,7 +711,7 @@ class Automation(Base):
     conditions_json: Mapped[Any] = mapped_column(JSON, default=list)
     actions_json: Mapped[Any] = mapped_column(JSON)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Signs the `webhook` action's POSTs (X-Slate-Signature), encrypted like webhook secrets.
+    # Signs the `webhook` action's POSTs (X-Slate-Signature). The secret is stored encrypted.
     # Made when the rule first gets a webhook action; shown once (create, update, rotate).
     secret_enc: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str] = mapped_column(ForeignKey("accounts.id"))
@@ -793,7 +740,7 @@ class AutomationRun(Base):
 
 class EngineCursor(Base):
     """Where a background engine (the automations runner) has read the event log up to, so a
-    restart resumes rather than replays or skips. Bookkeeping, like deliveries."""
+    restart resumes rather than replays or skips. Bookkeeping, like notification receipts."""
 
     __tablename__ = "engine_cursors"
 
@@ -805,7 +752,7 @@ class EngineCursor(Base):
 class Reminder(Base):
     """Remind one account about one item: at a fixed time (`remind_at`) or a number of minutes
     before the item's due date (`before_minutes`; follows the date when it moves). Firing records
-    an `item.reminder` event (inbox, push, check-in, webhooks); `fired_for` is the instant it
+    an `item.reminder` event (inbox, push, check-in); `fired_for` is the instant it
     fired for, so it fires once per time and re-arms when a moved due date puts it ahead again."""
 
     __tablename__ = "reminders"
@@ -845,7 +792,7 @@ class PushDelivery(Base):
     Subscription id is deliberately not a foreign key: terminal outcomes survive endpoint
     removal until retention cleanup. Account id fences a subscription moved to another login.
     Bookkeeping (`core.BOOKKEEPING_MODELS`): the table is the delivery log and the retry
-    state, so service.push writes it without events (like webhook `deliveries`).
+    state, so service.push writes it without events.
     """
 
     __tablename__ = "push_deliveries"

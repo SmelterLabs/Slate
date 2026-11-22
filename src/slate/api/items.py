@@ -367,8 +367,7 @@ def watch(
     item_id: str, auth: WriteAuth, session: DbSession, body: WatchIn | None = None
 ) -> list[dict]:
     """Add a watcher: yourself, or `account` (a person or agent; they are told you added them).
-    A watcher hears about every change to the item (inbox `watching`, check-in `watching`, an
-    `assignee_me` webhook)."""
+    A watcher hears about every change to the item (inbox and check-in `watching`, Web Push)."""
     account = body.account if body else None
     return _people(watchers.watch(session, auth.actor, item_id, account))
 
@@ -398,8 +397,8 @@ def report(item_id: str, body: ReportIn, auth: WriteAuth, session: DbSession) ->
 def run(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
     """Run now: ask the item's agent assignees to start on it now instead of at its run time.
     Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream
-    as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`) and
-    webhooks. 422 when no agent is assigned or the item is done, cancelled or archived."""
+    as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`).
+    Returns 422 when no agent is assigned or the item is done, cancelled or archived."""
     return event_payload(work.request_run(session, auth.actor, item_id))
 
 
