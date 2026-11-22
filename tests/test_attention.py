@@ -137,7 +137,7 @@ def test_agent_turn_is_one_popup_and_ask_is_immediate(client, db, alex, todo, ma
     response = client.post(
         f"{API}/work/{iid}/finish",
         headers=agent,
-        json={"run_id": run, "outcome": "review", "comment": False},
+        json={"run_id": run, "outcome": "review", "status": "Check the labels", "comment": False},
     )
     assert response.status_code == 200, response.text
     assert push.process(db, send) == 1
@@ -343,3 +343,46 @@ def test_released_alert_cursor_skips_backlog_and_matches_push(client, alex, db, 
     assert second_alert["entry"]["reason"] == "mention"
     fresh = client.get(route, headers=alex)
     assert fresh.json() == [] and fresh.headers["X-Slate-Cursor"] == second_alert["cursor"]
+
+
+def test_a_stall_is_its_own_release_after_the_turns_alert(client, db, alex, todo, make_account):
+    """The poked run that answered again: its comment is the turn's one pop-up, and the stall
+    (recorded after the turn ends) is a release of its own, never folded into it."""
+    from slate.service import due
+
+    _, agent = make_account("my-agent", kind="agent")
+    notes, send = _delivery(client, db, alex)
+    card = client.post(
+        f"{API}/items",
+        json={"list_id": todo["id"], "title": "Labels", "assignees": ["my-agent"]},
+        headers=alex,
+    ).json()
+    iid = card["id"]
+
+    def turn(reply, *, comment=None):
+        taken = client.post(f"{API}/work/next", json={"item_id": iid}, headers=agent).json()
+        if comment:
+            r = client.post(f"{API}/items/{iid}/comments", json={"body_md": comment}, headers=agent)
+            assert r.status_code == 201, r.text
+        r = client.post(
+            f"{API}/work/{iid}/finish",
+            headers=agent,
+            json={"run_id": taken["lease"]["run_id"], "outcome": "answered", "reply": reply},
+        )
+        assert r.status_code == 200, r.text
+
+    turn("Printed half.")
+    push.process(db, send)
+    db.expire_all()
+    assert due.poke_stalled(db, now=utcnow() + timedelta(hours=4.1)) == 1
+    route = f"{API}/inbox/alerts"
+    head = client.get(route, headers=alex)
+    cursor = head.headers["X-Slate-Cursor"]
+    turn("Still half.", comment="@alex the printer jammed")
+    push.process(db, send)
+    alerts = client.get(route, headers=alex, params={"after": cursor}).json()
+    reasons = [a["reason"] for a in alerts]
+    assert "stalled" in reasons and len(alerts) == 2, alerts
+    stalled = next(a for a in alerts if a["reason"] == "stalled")
+    assert stalled["loudness"] == 2
+    assert stalled["title"] == "My-Agent stopped without finishing: Labels"
