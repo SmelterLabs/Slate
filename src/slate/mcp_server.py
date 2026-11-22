@@ -44,7 +44,6 @@ from slate import __version__, db, monitor
 from slate.batch import BatchIn
 from slate.mcp_tools import (
     CORE,
-    RULE,
     TODAY_SPEC,
     TOOLS,
     ItemRef,
@@ -379,10 +378,9 @@ def build_server(get_backend: GetBackend, names: list[str] | None = None) -> Ser
         title="Slate",
         instructions=(
             "Slate is the workspace's task board. Sections hold lists, lists hold items; a list's "
-            f"statuses are its columns. {RULE} Find ids with slate_section/slate_list list "
-            "before filing; assignees are account handles. Start with slate_work: take a task, "
-            "keep the lease, and finish it. While you work an item, slate_item report shows "
-            "people a live badge; many changes go in one slate_batch."
+            "statuses are its columns. Read the list's note_md with slate_list list before filing. "
+            "Assignees are account handles. Use slate_work to take a task, keep its lease and "
+            "finish it. Use slate_item report to show people a live badge."
         ),
         on_list_tools=list_tools,
         on_call_tool=call_tool,

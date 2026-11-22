@@ -88,6 +88,59 @@ def test_invalid_list_fields_are_refused(client, alex, todo, fields):
 
 
 @pytest.mark.anyio
+async def test_core_mcp_list_filing_fields_and_inbox(client, alex, todo, make_account):
+    agent, headers = make_account("my-agent")
+    settings = {
+        "note_md": "Proofread the draft.",
+        "default_assignee_id": agent["id"],
+        "default_tags": ["draft"],
+        "reference": True,
+    }
+    async with http_mcp(alex, tools=None) as mcp:
+        created = ok(
+            await call(
+                mcp,
+                "slate_list",
+                "create",
+                section_id=todo["section_id"],
+                name="Drafts",
+                **settings,
+            )
+        )
+        assert {key: created[key] for key in settings} == settings
+        list_id = created["id"]
+        updated = ok(await call(mcp, "slate_list", "update", id=list_id, reference=False))
+        assert updated["reference"] is False
+        rows = ok(await call(mcp, "slate_list", "list"))
+        assert next(row for row in rows if row["id"] == list_id) == updated
+    client.put(
+        f"{API}/settings/inbox", headers=alex, json={"inbox_list_id": list_id}
+    ).raise_for_status()
+    async with http_mcp(headers, tools="core,slate_checkin") as mcp:
+        checked = ok(await call(mcp, "slate_checkin", "get"))
+        expected = client.get(f"{API}/checkin", headers=headers).json()["lists"]
+        # MCP omits nulls from its JSON responses, including an unset filing note.
+        assert checked["lists"] == [
+            {key: value for key, value in row.items() if value is not None} for row in expected
+        ]
+        row = next(row for row in checked["lists"] if row["id"] == list_id)
+        assert (row["note_md"], row["kind"], row["reference"]) == (
+            settings["note_md"],
+            "tasks",
+            False,
+        )
+        card = ok(await call(mcp, "slate_item", "create", title="MCP inbox draft"))
+        assert card["list_id"] == list_id
+        assert card["tags"] == ["draft"]
+        assert [a["handle"] for a in card["assignees"]] == ["my-agent"]
+    async with http_mcp(alex, tools=None) as mcp:
+        cleared = ok(
+            await call(mcp, "slate_list", "update", id=list_id, note_md=None, default_tags=None)
+        )
+        assert cleared["default_tags"] == [] and "note_md" not in cleared
+
+
+@pytest.mark.anyio
 async def test_rest_quick_add_split_and_mcp_use_defaults(client, alex, todo, make_account):
     agent, _ = make_account("my-agent")
     configure(client, alex, todo, default_assignee_id=agent["id"], default_tags=[" Draft "])

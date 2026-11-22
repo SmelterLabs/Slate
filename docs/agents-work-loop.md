@@ -580,9 +580,8 @@ card does; the reply lands in the chat.
 - **A turn never strands later mentions.** An expired turn stays claimed (quarantined: the run
   may still be writing) and shows as `expired` in `agent_turns`. It is settled by the agent's
   `reconcile` with its run proof, by a person's Clear (`POST /work/chat/clear` or
-  `/work/doc/clear` `{channel|doc_id, thread_id, agent_id}`, MCP `slate_work
-  chat_clear|doc_clear`: only a person who may comment there, only an expired turn), or by a
-  person's new mention there (`turns.fold`): each records `agent_turn` `state: released`,
+  `/work/doc/clear` `{channel|doc_id, thread_id, agent_id}` for a person who may comment there),
+  or by a person's new mention there (`turns.fold`): each records `agent_turn` `state: released`,
   `reconciled`, the person as actor, and a mention that waited is pending again (the next take
   answers it, and the new mention's `for` names the agent so its runner hears the hint). The old
   `run_id` stays fenced out of the new turn. A live turn is never cleared or folded over.
@@ -645,7 +644,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
   `/work/doc/heartbeat` and `/work/doc/reconcile` likewise. As in chat, the agent's own comment does
   not end a fenced turn (chat's unfenced `_answered` path is unreachable under protocol 3, so docs
   have no counterpart). `/work/doc/clear`, expiry, folding and dropping are chat's (above). MCP
-  `slate_work doc_heartbeat|doc_finish|doc_reconcile|doc_clear`.
+  `slate_work doc_heartbeat|doc_finish|doc_reconcile`.
 - **Stream**: `doc.mentioned_agent` with the caller in `for`/`queued` is a `work` hint `{doc_id,
   thread_id, comment_id, queued}` (`work.DOC_WAKE_TYPE`). Scheduler hook `docwake.expire` (Health
   key `doc_turns`).

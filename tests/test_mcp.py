@@ -111,6 +111,14 @@ def _branches(schema: dict) -> dict[str, dict]:
     return {branch["properties"]["action"]["const"]: branch for branch in schema["oneOf"]}
 
 
+async def test_default_server_instructions_use_only_advertised_tools(alex):
+    async with http_mcp(alex, tools=None) as client:
+        instructions = client.instructions
+        names = {tool.name for tool in (await client.list_tools()).tools}
+    assert instructions and "slate_list list" in instructions and "note_md" in instructions
+    assert {word for word in instructions.split() if word.startswith("slate_")} <= names
+
+
 async def test_lists_one_tool_per_resource_with_hints_and_the_one_item_rule(alex):
     async with http_mcp(alex) as client:
         tools = {t.name: t for t in (await client.list_tools()).tools}

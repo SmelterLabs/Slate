@@ -1,7 +1,7 @@
 <script lang="ts">
   // "Hand to an agent": assign an agent and tell it what to do, in one atomic POST /batch
-  // (assign + an @mention comment). The agent's check-in (GET /checkin) then shows "assigned" and
-  // "mentioned".. Its reports come back as the badge above.
+  // (update the assignees and add an @mention comment). The agent's check-in then shows "assigned"
+  // and "mentioned". Its reports come back as the badge above.
   import { untrack } from 'svelte';
   import { ApiError, post } from '../../lib/api';
   import { draftKey } from '../../lib/drafts';
@@ -47,10 +47,10 @@
     const handles = item.assignees.map((a) => a.handle);
     const ops: unknown[] = [];
     if (!handles.includes(who)) {
-      ops.push({ tool: 'item', action: 'assign', params: { id: item.id, assignees: [...handles, who] } });
+      ops.push({ tool: 'item', action: 'update', params: { id: item.id, assignees: [...handles, who] } });
     }
     const text = draft.value.trim();
-    if (text) ops.push({ tool: 'item', action: 'comment', params: { id: item.id, body_md: `@${who} ${text}` } });
+    if (text) ops.push({ tool: 'comment', action: 'add', params: { id: item.id, body_md: `@${who} ${text}` } });
     try {
       if (ops.length) await post('/batch', { ops });
       const name = agentsList.find((a) => a.handle === who)?.display_name ?? who;
