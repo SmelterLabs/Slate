@@ -231,7 +231,7 @@ def check_ask(
     questions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Validate either input form and return the stored question list, or None."""
-    if questions is not None and (question is not None or options is not None):
+    if questions is not None and (question is not None or options):
         raise Invalid("send question or questions, not both")
     if questions is None and question is None:
         if options:
@@ -249,7 +249,9 @@ def check_ask(
         text = text.strip() if isinstance(text, str) else ""
         if not text or len(text.splitlines()) != 1 or len(text) > QUESTION_MAX:
             raise Invalid(f"question is one line of 1 to {QUESTION_MAX} characters")
-        raw_options = entry.get("options", [])
+        raw_options = entry.get("options")
+        if raw_options is None:
+            raw_options = []
         message = (
             f"options are {OPTIONS_MIN} to {OPTIONS_MAX} answers of 1 to {OPTION_MAX} characters"
         )

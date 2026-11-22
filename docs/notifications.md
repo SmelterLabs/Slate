@@ -123,7 +123,7 @@ and `tests/test_push_retry.py`.
 
 - **Wording of an agent's ask and a failed run** (`push.notification_for`): a `waiting`
   entry on a card with an open ask (`comments.asks_of`) has its question headline as the
-  title and as `question` on the released alert. The headline is the question, or the count
+  title and as `question` on the released alert and the Web Push payload. The headline is the question, or the count
   and first question. The body says "<Agent> asks on: <title>"; any other `waiting` entry reads "<Agent> is waiting on
   you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
   failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.

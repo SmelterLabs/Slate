@@ -24,6 +24,7 @@ from slate.api.schemas import (
     THREAD_FIELD,
     ActivityOut,
     AgentThreadOut,
+    AskOption,
     CommentOut,
     ItemOut,
     Status,
@@ -317,7 +318,7 @@ class FinishIn(BaseModel):
         "agent you wait on",
     )
     question: str | None = QUESTION_FIELD
-    options: list[str] | None = OPTIONS_FIELD
+    options: list[AskOption] | None = OPTIONS_FIELD
     questions: list[dict[str, Any]] | None = QUESTIONS_FIELD
     url: str | None = Field(
         default=None,

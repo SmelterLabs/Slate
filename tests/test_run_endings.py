@@ -528,6 +528,25 @@ def test_question_and_questions_have_one_storage_and_view_shape(
         assert response.json()["ask"]["questions"] == [q]
 
 
+def test_empty_option_inputs_are_absent_when_reporting_questions(client, alex, todo, make_account):
+    _, agent = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    _next(client, agent, item_id=item["id"])
+    response = _finish(
+        client,
+        agent,
+        item["id"],
+        outcome="ask",
+        options=[],
+        questions=[{"question": "Which file?", "options": None}, {"question": "Send it?"}],
+    )
+    assert response.status_code == 200, response.text
+    assert _view(client, alex, item["id"])["ask"]["questions"] == [
+        {"question": "Which file?", "options": []},
+        {"question": "Send it?", "options": []},
+    ]
+
+
 def test_multiple_questions_share_a_headline_and_one_typed_answer(
     client, alex, todo, make_account, db
 ):
