@@ -68,6 +68,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from slate.ids import new_id
 from slate.models import (
     Account,
     AccountKind,
@@ -331,6 +332,7 @@ def report(
     _taking: bool = False,
     _finishing: bool = False,
     _ask: dict[str, Any] | None = None,
+    _ask_comment_id: str | None = None,
 ) -> Item:
     if state not in STATES:
         raise Invalid(f"state must be one of {', '.join(STATES)}")
@@ -372,6 +374,7 @@ def report(
     if state == "done" and complete:
         finished = done_status(session, item)
     details = ask_view(ask) if ask is not None else None
+    ask_comment_id = _ask_comment_id or (new_id() if ask is not None and comment else None)
     headline = details["question"] if details else None
     badge_note = headline or note or (first_line(reply) if reply else None)
     thread_row = (
@@ -463,6 +466,8 @@ def report(
             after["again"] = waiting_again
         if details is not None:
             after.update(details)
+            if ask_comment_id is not None:
+                after["comment_id"] = ask_comment_id
         # Who a review is for goes with the review flag, whoever reports it.
         item.review_for = reviewer.id if reviewer is not None else None
         if standing is not None:
@@ -484,7 +489,13 @@ def report(
             assert waiting is not None
             body = reply or headline
             comments.add_comment(
-                session, actor, item.id, body_md=body, assignee=waiting.id, ask=ask
+                session,
+                actor,
+                item.id,
+                body_md=body,
+                assignee=waiting.id,
+                ask=ask,
+                _id=ask_comment_id,
             )
         elif reply and comment:
             comments.add_comment(session, actor, item.id, body_md=reply)

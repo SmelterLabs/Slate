@@ -18,17 +18,6 @@
   const ICON: Record<Need, IconName> = { waiting: 'hourglass', blocked: 'alert', asked: 'at', review: 'eye', stalled: 'clock' };
   let cleared = $state<Set<string>>(new Set());
 
-  function who(a: Attention): string | null {
-    const by = a.item.ask?.by_id ?? a.item.agent?.by;
-    return by ? (board.accountName(by) ?? null) : null;
-  }
-  async function answerAsk(e: MouseEvent, a: Attention, option: string) {
-    e.stopPropagation();
-    if (a.item.ask) await task.answer(a.item.ask.comment_id, option);
-  }
-  function note(a: Attention): string | null {
-    return a.item.agent?.note ?? null;
-  }
   function when(a: Attention): string {
     return ago(a.item.agent?.at ?? a.item.updated_at, board.now);
   }
@@ -68,9 +57,18 @@
 {/snippet}
 
 {#snippet row(a: Attention)}
+  {@const viewer = board.me?.account.id}
+  {@const ask = viewer && a.item.waiting_on_account_id === viewer ? a.item.ask : null}
+  {@const questions = ask?.questions ?? []}
+  {@const options = questions.length === 1 ? questions[0].options : []}
+  {@const by = ask?.by_id ?? a.item.agent?.by}
+  {@const who = by ? board.accountName(by) : null}
+  {@const note = a.need === 'review'
+    ? a.item.standing?.line || a.item.agent?.note
+    : a.item.ask && !ask ? null : a.item.agent?.note}
   <div
     class="nd-row need-{a.need}"
-    class:has-opts={!!a.item.ask?.options.length}
+    class:has-opts={options.length > 0}
     role="listitem"
     data-item={a.item.id}
     data-need={a.need}
@@ -78,25 +76,28 @@
     <button class="nd-main" onclick={() => board.open(a.item.id)}>
       <span class="nd-top">
         <span class="nd-chip"><Icon name={ICON[a.need]} size={11} />{LABEL[a.need]}</span>
-        {#if a.item.ask}
-          <span class="nd-title" data-ask-question>{a.item.ask.question}</span>
+        {#if ask}
+          <span class="nd-title" data-ask-question>{ask.question}</span>
         {:else}
           <span class="nd-title">{a.item.title}</span>
         {/if}
       </span>
       <span class="nd-meta">
-        {#if a.item.ask}
-          {#if who(a)}<Icon name="robot" size={11} /><b>{who(a)}</b><span class="nd-note">{a.item.title}</span>{:else}<span>{a.item.title}</span>{/if}
-        {:else if who(a)}<Icon name="robot" size={11} /><b>{who(a)}</b>{#if note(a)}<span class="nd-note">{note(a)}</span>{/if}{:else}<span
+        {#if ask}
+          {#if who}<Icon name="robot" size={11} /><b>{who}</b><span class="nd-note">{a.item.title}</span>{:else}<span>{a.item.title}</span>{/if}
+        {:else if who}<Icon name="robot" size={11} /><b>{who}</b>{#if note}<span class="nd-note">{note}</span>{/if}{:else}<span
             >{board.lists[a.item.list_id]?.name ?? ''}</span
           >{/if}
       </span>
     </button>
     <span class="nd-when">{when(a)}</span>
-    {#if a.item.ask?.options.length}
+    {#if ask && options.length}
       <span class="nd-opts">
-        {#each a.item.ask.options as option}
-          <button class="nd-act" data-answer-option={option} onclick={(e) => answerAsk(e, a, option)}>{option}</button>
+        {#each options as option}
+          <button class="nd-act" data-answer-option={option} onclick={(e) => {
+            e.stopPropagation();
+            void task.answer(ask.comment_id, option);
+          }}>{option}</button>
         {/each}
       </span>
     {:else}

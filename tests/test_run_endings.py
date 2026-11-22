@@ -560,6 +560,7 @@ def test_multiple_questions_share_a_headline_and_one_typed_answer(
     assert view["agent"]["note"] == view["standing"]["line"] == headline
     event = _events(client, alex, item["id"], "item.reported")[-1]["after"]
     assert event["question"] == headline and event["questions"] == questions
+    assert event["comment_id"] == comment["id"]
     attention.release(db, utcnow())
     alerts = client.get(f"{API}/inbox/alerts", headers=alex, params={"after": "0"}).json()
     assert any(row["question"] == headline for row in alerts), alerts
@@ -601,6 +602,10 @@ def test_an_agent_comment_uses_the_trailing_run_of_ask_lines(client, alex, todo,
         {"question": "Second?", "options": []},
         {"question": "Third?", "options": []},
     ]
+    assert (
+        _events(client, alex, item["id"], "item.reported")[-1]["after"]["comment_id"]
+        == response.json()["id"]
+    )
     other = _item(client, alex, todo["id"], assignees=["my-agent"])
     text = "Report.\n" + "\n".join(["SLATE: ask alex: Too many?"] * 5)
     refused = client.post(

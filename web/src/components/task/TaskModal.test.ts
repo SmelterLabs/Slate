@@ -140,12 +140,13 @@ describe('TaskModal ask and waiting banner', () => {
       comment_id: 'C1',
       question: 'Start the import now?',
       options: ['Yes', 'Yes'],
+      questions: [{ question: 'Start the import now?', options: ['Yes', 'Yes'] }],
       by_id: 'sc',
       at: '2026-10-29T10:00:00Z',
     };
     const askComment = makeComment({
       id: 'C1',
-      ask: { question: ask.question, options: ask.options },
+      ask: { question: ask.question, options: ask.options, questions: ask.questions },
     });
     const detail = makeDetail({ ask, comments: [askComment] });
     board.items = { I1: { ...detail } };
@@ -209,6 +210,7 @@ describe('TaskModal ask and waiting banner', () => {
       comment_id: 'C1',
       question: 'Stale question?',
       options: ['A', 'B'],
+      questions: [{ question: 'Stale question?', options: ['A', 'B'] }],
       by_id: 'sc',
       at: '2026-10-29T10:00:00Z',
     };
@@ -229,13 +231,13 @@ describe('TaskModal ask and waiting banner', () => {
     const banner = target.querySelector('[data-banner="waiting"]');
     expect(banner?.querySelectorAll('[data-answer-option]')).toHaveLength(0);
     expect(banner?.textContent).toContain('My Agent is waiting on you');
-    expect(banner?.querySelector('[data-waiting-question]')?.textContent?.trim()).toBe('Which branch should I use?');
+    expect(banner?.querySelector('[data-waiting-question]')).toBeNull();
 
     await unmount(app);
     target.remove();
   });
 
-  it('keeps the old heading and typed reply working on a wait with no ask', async () => {
+  it('keeps a typed reply working without treating prose as an Ask', async () => {
     const comment = makeComment({ id: 'C1', body_md: 'Which branch should I use?', assignee_id: null });
     const detail = makeDetail({
       ask: null,
@@ -252,7 +254,8 @@ describe('TaskModal ask and waiting banner', () => {
 
     const banner = target.querySelector('[data-banner="waiting"]');
     expect(banner?.textContent).toContain('My Agent is waiting on you');
-    expect(banner?.querySelector('[data-waiting-question]')?.textContent?.trim()).toBe('Which branch should I use?');
+    expect(banner?.textContent).not.toContain('Which branch should I use?');
+    expect(banner?.querySelector('[data-waiting-question]')).toBeNull();
     expect(banner?.querySelectorAll('[data-answer-option]')).toHaveLength(0);
 
     const textarea = target.querySelector<HTMLTextAreaElement>('.compose textarea');
@@ -308,6 +311,7 @@ describe('TaskModal ask and waiting banner', () => {
       comment_id: 'C1',
       question: 'Start the import now?',
       options: ['Yes', 'No'],
+      questions: [{ question: 'Start the import now?', options: ['Yes', 'No'] }],
       by_id: 'sc',
       at: '2026-10-29T11:30:00Z',
     };
@@ -325,5 +329,132 @@ describe('TaskModal ask and waiting banner', () => {
 
     await unmount(app);
     target.remove();
+  });
+});
+
+describe('TaskModal questions and reviews', () => {
+  const THREE = {
+    question: '3 questions: Which branch should I ship?',
+    options: [],
+    questions: [
+      { question: 'Which branch should I ship?', options: ['main', 'next'] },
+      { question: 'Tell the customer today?', options: ['Yes', 'No'] },
+      { question: 'Who signs off the invoice?', options: [] },
+    ],
+  };
+
+  async function open(detail: ItemDetail) {
+    board.items = { I1: { ...detail } };
+    board.detail = detail;
+    task.activity = [
+      ...detail.comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment, event: null })),
+    ];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(TaskModal, { target });
+    flushSync();
+    return {
+      target,
+      close: async () => {
+        await unmount(app);
+        target.remove();
+      },
+    };
+  }
+
+  it('puts the question block first in the comment, above its author and body', async () => {
+    const ask = { ...THREE, comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z' };
+    const comment = makeComment({ body_md: 'A long weekly report.\n\nWith many paragraphs.', ask: THREE });
+    const { target, close } = await open(makeDetail({ ask, comments: [comment] }));
+    try {
+      const card = target.querySelector('[data-comment="C1"]')!;
+      expect(card.firstElementChild?.matches('[data-ask-box]')).toBe(true);
+      expect(card.querySelectorAll('[data-ask-box]')).toHaveLength(1);
+      expect(card.querySelector('.ask-pill')).toBeNull();
+      // Three questions: nothing in the thread answers them one tap at a time.
+      expect(card.querySelectorAll('[data-answer-option]')).toHaveLength(0);
+      expect(target.querySelector('[data-banner="waiting"] .wq-heading')?.textContent?.trim()).toBe('My Agent needs 3 answers from you');
+    } finally {
+      await close();
+    }
+  });
+
+  it('keeps the question block in full on a folded comment', async () => {
+    const asked = makeComment({ id: 'C1', ask: THREE, resolved_at: '2026-10-29T10:30:00Z', resolved_by_id: 'me' });
+    const reply = makeComment({
+      id: 'C2',
+      author_id: 'me',
+      author_handle: 'alex',
+      body_md: 'Answers',
+      created_at: '2026-10-29T10:30:00Z',
+      assignee_id: null,
+    });
+    const later = makeComment({ id: 'C3', body_md: 'Done, shipped.', created_at: '2026-10-29T11:00:00Z', assignee_id: null });
+    const { target, close } = await open(
+      makeDetail({ waiting_on_account_id: null, agent: null, ask: null, comments: [asked, reply, later] }),
+    );
+    try {
+      expect(target.querySelector('[data-chat-collapsed][data-comment="C1"]')).not.toBeNull();
+      const block = target.querySelector('[data-ask-box]')!;
+      expect(block.getAttribute('data-ask-state')).toBe('answered');
+      expect([...block.querySelectorAll('[data-ask-question]')].map((q) => q.textContent?.trim())).toEqual(
+        THREE.questions.map((q) => q.question),
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('does not offer a new live Ask when the detail still says the viewer is waiting', async () => {
+    const q = { question: 'Start the import now?', options: ['Yes', 'No'] };
+    const ask = { ...q, questions: [q], comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z' };
+    const detail = makeDetail({ ask });
+    const { target, close } = await open(detail);
+    try {
+      expect(target.querySelector('[data-banner="waiting"] [data-answer-option]')).not.toBeNull();
+      board.items = { I1: {
+        ...detail,
+        waiting_on_account_id: 'other',
+        ask: { ...ask, comment_id: 'C2', question: 'Should the next report wait?',
+          questions: [{ ...q, question: 'Should the next report wait?' }] },
+      } };
+      flushSync();
+      expect(target.querySelector('[data-banner="waiting"]')).toBeNull();
+    } finally {
+      await close();
+    }
+  });
+
+  it('shows a review for the viewer as a banner saying what to check, in place of the badge', async () => {
+    const standing = { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T11:00:00Z', move_id: 'me' };
+    const agent = { state: 'review' as const, by: 'sc', at: '2026-10-29T11:00:00Z', note: 'Here is the weekly report.' };
+    const { target, close } = await open(makeDetail({ waiting_on_account_id: null, ask: null, agent, standing }));
+    try {
+      const banner = target.querySelector('[data-banner="review"]')!;
+      expect(banner.querySelector('.wq-heading')?.textContent?.trim()).toBe(standing.line);
+      expect(target.querySelector('.tw-head')?.textContent).not.toContain('weekly report');
+      expect(target.querySelector('.agent-badge')).toBeNull();
+      expect(target.querySelector('[data-standing]')).toBeNull();
+      banner.querySelector<HTMLButtonElement>('[data-mark-reviewed]')!.click();
+      expect(postMock).toHaveBeenCalledWith('/items/I1/report', { state: 'idle', comment: false });
+    } finally {
+      await close();
+    }
+  });
+
+  it('shows another viewer the review badge with what to check in place of the note', async () => {
+    const standing = { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T11:00:00Z', move_id: 'sc' };
+    const agent = { state: 'review' as const, by: 'sc', at: '2026-10-29T11:00:00Z', note: 'Here is the weekly report.' };
+    const { target, close } = await open(makeDetail({ waiting_on_account_id: null, ask: null, agent, standing }));
+    try {
+      expect(target.querySelector('[data-banner="review"]')).toBeNull();
+      const badge = target.querySelector('.agent-badge')!;
+      expect(badge.querySelector('.note')?.textContent?.trim()).toBe(standing.line);
+      expect(badge.getAttribute('title')).not.toContain('weekly report');
+      expect(target.querySelector('[data-standing-move]')?.textContent?.trim()).toBe('My Agent');
+      expect(target.querySelectorAll('[data-standing-line]')).toHaveLength(0);
+    } finally {
+      await close();
+    }
   });
 });

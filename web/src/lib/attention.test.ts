@@ -44,7 +44,8 @@ describe('needOf', () => {
     expect(needOf(item({ created_by: 'guest', agent: flag('review'), standing: forMe }), ME, accounts)).toBe('review');
   });
   it('a structured ask waiting on me is a need', () => {
-    const ask = { comment_id: 'C1', question: 'Start the import now?', options: ['Yes', 'No'], by_id: 'sc', at: '2026-10-29T10:00:00Z' };
+    const q = { question: 'Start the import now?', options: ['Yes', 'No'] };
+    const ask = { ...q, questions: [q], comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z' };
     expect(needOf(item({ created_by: 'guest', waiting_on_account_id: ME, agent: flag('blocked'), ask }), ME, accounts)).toBe('waiting');
   });
   it('a failed agent is not a need, whoever filed the card or what wait/ask was left on it', () => {

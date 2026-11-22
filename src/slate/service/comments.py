@@ -289,6 +289,7 @@ def add_comment(
     keep_open: bool = False,
     closing_line: bool = False,
     ask: dict[str, Any] | None = None,
+    _id: str | None = None,
 ) -> Comment:
     """Post a comment. With `assignee` (a handle or id) it is an Ask for that account.
     Regardless of `keep_open`, leave every Ask open; callers explicitly resolve completed Asks.
@@ -307,15 +308,16 @@ def add_comment(
             if account is not None and account.kind == AccountKind.agent:
                 try:
                     ask_data = reports.check_ask(questions=line.questions)
+                    comment_id = new_id()
                     with apply_change(session, actor):
                         reports.report(
                             session, actor, item.id, state="blocked", comment=False,
-                            waiting_on=line.waiting_on, _ask=ask_data,
+                            waiting_on=line.waiting_on, _ask=ask_data, _ask_comment_id=comment_id,
                         )  # fmt: skip
                         return add_comment(
                             session, actor, item.id,
                             body_md=line.body or reports.ask_headline(ask_data),
-                            assignee=item.waiting_on_account_id, ask=ask_data,
+                            assignee=item.waiting_on_account_id, ask=ask_data, _id=comment_id,
                         )  # fmt: skip
                 except (Invalid, Conflict, NotFound):
                     pass  # the original comment still stands when the ending cannot apply
@@ -353,7 +355,7 @@ def add_comment(
         }
     with apply_change(session, actor) as cx:
         comment = Comment(
-            id=new_id(),
+            id=_id or new_id(),
             item_id=item.id,
             author_id=actor.account_id,
             body_md=body,

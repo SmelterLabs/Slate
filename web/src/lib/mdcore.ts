@@ -85,7 +85,10 @@ export function renderInline(src: string, hooks: InlineHooks = {}): string {
     stash.push(html);
     return `\u0000${stash.length - 1}\u0000`;
   };
-  let out = escape(src).replace(/`([^`]+)`/g, (_, c: string) => keep(`<code>${c}</code>`));
+  // Keep escaped punctuation literal before parsing emphasis, links and Slate tokens.
+  let out = escape(src).replace(/\\([\\`*_[\]~:])|`([^`]+)`/g, (_, literal: string | undefined, code: string) =>
+    keep(literal ?? `<code>${code}</code>`),
+  );
   if (hooks.tokens) out = hooks.tokens(out, keep);
   if (hooks.image) {
     const image = hooks.image;

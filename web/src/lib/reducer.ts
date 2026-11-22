@@ -2,7 +2,7 @@
 // (which behaves the same on a plain object and on a Svelte $state proxy). Returns what the
 // payload could not supply: items to refetch, and whether the nav or everything needs reloading.
 
-import type { Item, List, SlateEvent } from './types';
+import type { Item, ItemAsk, List, SlateEvent } from './types';
 
 export interface BoardData {
   items: Record<string, Item>;
@@ -231,17 +231,24 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       // An agent's report: the badge is the payload; done and idle clear it.
       fx.today = false;
       if (!it) break;
-      const r = (ev.after ?? {}) as {
+      const r = (ev.after ?? {}) as Partial<ItemAsk> & {
         state?: string;
         note?: string | null;
         status?: string | null;
         progress?: number | null;
         url?: string | null;
-        question?: string;
+        waiting_on?: string;
         thread?: { ref?: string; url?: string | null } | null;
       };
-      // An ask report carries the question but not the comment id the answer button needs:
-      // the item view supplies the full ask.
+      // A report that posts an Ask can populate the live card. Refetch for the comment's
+      // timestamp, the open-Ask count, and older reports that only carry a headline.
+      if (r.comment_id && r.waiting_on && r.questions && r.options && r.question) {
+        it.waiting_on_account_id = r.waiting_on;
+        it.ask = {
+          comment_id: r.comment_id, by_id: ev.actor_id, at: ev.at,
+          question: r.question, options: r.options, questions: r.questions,
+        };
+      }
       if (typeof r.question === 'string') fx.refetch.push(id);
       // Standing updates live from non-working reports; move_id is server-computed, so refetch.
       if (r.state !== 'working' && typeof r.status === 'string' && r.status) {
@@ -327,11 +334,11 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       } else if (ev.field === 'tags' && Array.isArray(ev.after)) {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
+        if (ev.field === 'waiting_on_account_id' && it.waiting_on_account_id !== ev.after) it.ask = null;
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
         // A new due or start date can move the card in or out of "later": the server recomputes it.
         if (ev.field === 'due_at' || ev.field === 'start_at') fx.refetch.push(id);
         if (ev.field === 'waiting_on_account_id') {
-          it.ask = null;
           if (it.standing) fx.refetch.push(id);
         }
         if (ev.field === 'list_id' || ev.field === 'parent_id') fx.refetch.push(id);

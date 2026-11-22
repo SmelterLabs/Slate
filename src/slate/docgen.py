@@ -118,7 +118,8 @@ EVENT_DOCS: dict[str, str] = {
     "session `{ref, url}` when new or changed; `waiting_on` = who a blocked report waits on, "
     "`again` true when it already waited on them, which makes this report their inbox "
     "`waiting` entry; `questions` is the structured list for an ask of a person, `question` "
-    "its headline, and `options` the choices for a single question; `status` = the "
+    "its headline, `options` the choices for a single question, and `comment_id` the new Ask "
+    "comment when one is posted; `status` = the "
     "card's new standing line, on an agent's report other than working; `reason` `stale` when "
     "Slate cleared a working badge nothing ran behind). Drives the live badge. A `failed` or "
     "`stale` report is nobody's inbox entry.",

@@ -35,10 +35,9 @@
   const safeUrl = $derived(safeAgentUrl(flag.url, board.me?.link_schemes));
   // A desktop app's link (myapp://...) is handed to the OS in this tab; a web link opens a new one.
   const newTab = $derived(!!safeUrl && /^https?:/i.test(safeUrl));
-  const tip = $derived(
-    `${who}: ${label}${pct != null ? ` (${pct}%)` : ''} · ${when}` +
-      (flag.note ? `\n${flag.note}` : ''),
-  );
+  // The full task-window review badge says what to check.
+  const note = $derived((full && flag.state === 'review' && item?.standing?.line) || flag.note);
+  const tip = $derived(`${who}: ${label}${pct != null ? ` (${pct}%)` : ''} · ${when}` + (note ? `\n${note}` : ''));
 </script>
 
 <span
@@ -67,7 +66,7 @@
         onclick={(e) => e.stopPropagation()}>Open ↗</a
       >{/if}
   </span>
-  {#if full && flag.note}<span class="note">{flag.note}</span>{/if}
+  {#if full && note}<span class="note">{note}</span>{/if}
   {#if full && item && flag.state === 'review'}
     <button
       class="reviewed"

@@ -42,14 +42,15 @@
   import AutoText from './AutoText.svelte';
   import Checklists from './Checklists.svelte';
   import Icon from '../Icon.svelte';
-  import { ago, dateInput, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
+  import { dateInput, fullStamp, isOpen, openBlockers, shortDate } from '../../lib/format';
   import { workspaceDay } from '../../lib/quickadd';
   import { addDays } from '../../lib/when';
   import { DEPENDS_ON, LEAVES, PUT_AWAY, waitingOn } from '../../lib/words';
-  import { safeAgentUrl, waitingQuestion } from '../../lib/conversation';
+  import { waitingContext } from '../../lib/conversation';
   import PriorityPicker from '../PriorityPicker.svelte';
   import StatusPicker from './StatusPicker.svelte';
   import Subtasks from './Subtasks.svelte';
+  import TurnBanner from './TurnBanner.svelte';
   import { trapFocus } from '../../lib/focustrap';
 
   const d = $derived(board.detail);
@@ -121,15 +122,16 @@
   // Waiting on me: who asked and what, pulled up from the thread so the question is never just
   // the last line of a long comment (the "Needs you" pill's Answer lands here).
   const waitQ = $derived.by(() => {
-    if (!d || !task.me || d.waiting_on_account_id !== task.me) return null;
-    const live = board.items[d.id];
-    const ask = live && live.ask !== undefined ? live.ask : (d.ask ?? null);
-    if (ask) return { structured: true, by: ask.by_id, commentId: ask.comment_id, question: ask.question, options: ask.options as string[] };
+    if (!d || !task.me) return null;
+    const current = board.items[d.id] ?? d;
+    if (current.waiting_on_account_id !== task.me) return null;
+    const ask = current.ask !== undefined ? current.ask : d.waiting_on_account_id === task.me ? d.ask : null;
+    if (ask) return { structured: true, by: ask.by_id, commentId: ask.comment_id, question: ask.question, questions: ask.questions };
     const feed = task.activity ?? [];
     const comments = [...d.comments, ...feed.flatMap((e) => (e.comment ? [e.comment] : []))];
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
-    const q = waitingQuestion(d, comments, events, task.me);
-    return q ? { structured: false, ...q, options: [] as string[] } : null;
+    const context = waitingContext(current, comments, events, task.me);
+    return context ? { structured: false, ...context, question: null, questions: [] } : null;
   });
 
   // The agent that asked is still flagged blocked: its badge would say the banner's sentence a
@@ -138,7 +140,11 @@
   const waitFlag = $derived(
     waitQ && agentFlag?.state === 'blocked' && agentFlag.by === waitQ.by ? agentFlag : null,
   );
-  const waitUrl = $derived(waitFlag ? safeAgentUrl(waitFlag.url, board.me?.link_schemes) : null);
+  // An agent finished and the next move is the viewer's: check its work. The banner says what to
+  // check (the standing line) and carries the review badge's parts, so the badge is left out.
+  const reviewMine = $derived(
+    !waitQ && agentFlag?.state === 'review' && !!standing?.move_id && standing.move_id === task.me ? standing : null,
+  );
 
   // The folded Details line: what is set, in a few words.
   const refSummary = $derived.by((): string[] => {
@@ -517,66 +523,11 @@
           </div>
         {/if}
 
-        {#if waitQ}
-          <div class="banner waiting" data-banner="waiting">
-            {#if waitQ.structured}
-              <p class="wq-heading" data-waiting-question data-ask-question>{waitQ.question}</p>
-              <div class="wq-head wq-sub">
-                <Icon name="hourglass" size={13} />
-                <span>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} asks</span>
-                {#if waitFlag}
-                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
-                  {#if waitUrl}<span class="wq-meta">·</span><a
-                      class="wq-open"
-                      data-waiting-open
-                      href={waitUrl}
-                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
-                      rel="noopener noreferrer"
-                      title="Open where the agent is working">Open ↗</a
-                    >{/if}
-                {/if}
-              </div>
-            {:else}
-              <div class="wq-head">
-                <Icon name="hourglass" size={13} />
-                <strong>{waitQ.by ? (board.accountName(waitQ.by) ?? 'Someone') : 'Someone'} is waiting on you</strong>
-                {#if waitFlag}
-                  <span class="wq-meta" data-waiting-age>· {ago(waitFlag.at, board.now)}</span>
-                  {#if waitUrl}<span class="wq-meta">·</span><a
-                      class="wq-open"
-                      data-waiting-open
-                      href={waitUrl}
-                      target={/^https?:/i.test(waitUrl) ? '_blank' : null}
-                      rel="noopener noreferrer"
-                      title="Open where the agent is working">Open ↗</a
-                    >{/if}
-                {/if}
-              </div>
-              {#if waitQ.question}<p class="wq-text" data-waiting-question>{waitQ.question}</p>
-              {:else if waitFlag?.note}<p class="wq-text" data-waiting-question>{waitFlag.note}</p>{/if}
-            {/if}
-            <div class="wq-actions">
-              {#each waitQ.options as option}
-                <button
-                  class="primary"
-                  data-answer-option={option}
-                  onclick={() => waitQ.commentId && void task.answer(waitQ.commentId, option)}>{option}</button
-                >
-              {/each}
-              <button class="primary" data-answer onclick={() => task.reveal(waitQ.commentId)}>Answer</button>
-              <button class="link" data-not-waiting onclick={() => save({ waiting_on_account_id: null })}>Not waiting on me</button>
-              {#if waitFlag}
-                <button
-                  class="link"
-                  data-clear-blocked
-                  title="Take the agent's blocked badge off this card. It does not change who the card waits on."
-                  onclick={() => task.clearAgentFlag(d.id)}>✕ Clear badge</button>
-              {/if}
-            </div>
-          </div>
+        {#if waitQ || reviewMine}
+          <TurnBanner itemId={d.id} wait={waitQ} review={reviewMine} flag={waitQ ? waitFlag : agentFlag} />
         {/if}
 
-        {#if agentFlag && !waitFlag}
+        {#if agentFlag && !waitFlag && !reviewMine}
           <div class="agent-now"><AgentBadge flag={agentFlag} item={d} full /></div>
         {/if}
 
@@ -584,8 +535,9 @@
           <div class="agent-now"><StalledBadge item={d} full /></div>
         {/if}
 
-        {#if standing && !waitQ?.structured}
-          <StandingLine {standing} full />
+        <!-- The full review badge already says what to check. Keep its next mover visible. -->
+        {#if standing && !reviewMine && (agentFlag?.state === 'review' || !waitQ?.structured)}
+          <StandingLine {standing} full moveOnly={agentFlag?.state === 'review'} />
         {/if}
 
         <div class="status-row">
@@ -1063,53 +1015,6 @@
   .banner.blocked {
     background: color-mix(in srgb, var(--overdue) 10%, transparent);
     border-color: color-mix(in srgb, var(--overdue) 35%, transparent);
-  }
-  .banner.waiting {
-    background: color-mix(in srgb, var(--danger) 8%, transparent);
-    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-    border-left: 3px solid var(--danger);
-  }
-  .wq-heading {
-    margin: 0 0 4px;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text);
-  }
-  .wq-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--danger);
-  }
-  .wq-sub {
-    margin-bottom: 8px;
-    font-size: 12.5px;
-    color: var(--muted);
-  }
-  .wq-meta {
-    color: var(--muted);
-  }
-  .wq-open {
-    color: var(--danger);
-    font-weight: 600;
-    text-decoration: none;
-  }
-  .wq-open:hover {
-    text-decoration: underline;
-  }
-  .wq-text {
-    margin: 6px 0 8px;
-    font-size: 14px;
-    color: var(--text);
-  }
-  .wq-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .wq-actions button {
-    min-height: 28px;
   }
   .banner.trashed {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
