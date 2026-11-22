@@ -164,19 +164,23 @@ def eligible(
     its own `working` badge)."""
     now = now or utcnow()
     lease = aliased(WorkLease)
+    # Reuse one access-filtered Ask query across the eligibility checks. Inlining it in
+    # every branch repeats the visibility binds and can exceed SQLite's parameter limit.
+    asks = _asked_items(account_id).cte()
+    asked_ids = select(asks.c.item_id)
     mine = (
         select(ItemAssignee.item_id.label("id"))
         .where(ItemAssignee.account_id == account_id)
         .union(
             select(Item.id).where(Item.waiting_on_account_id == account_id),
-            _asked_items(account_id),
+            asked_ids,
         )
         .subquery()
     )
     is_mine = Item.id.in_(select(mine.c.id))
     # An open Ask for this account (a question on the card): it is answered now, even on a
     # card that is ready for review, waiting on someone or already done (card chat).
-    asked = Item.id.in_(_asked_items(account_id))
+    asked = Item.id.in_(asked_ids)
     q = (
         select(Item)
         .join(List, List.id == Item.list_id)
@@ -273,14 +277,14 @@ def eligible(
                 Item.agent_state_at.is_not(None),
                 Item.agent_state_at > now - BLOCKED_PAUSE,
                 # An open Ask for you (a reply to your question) ends the pause at once.
-                Item.id.not_in(_asked_items(account_id)),
+                not_(asked),
             )
         ),
         not_(held_by_other),
         not_(i_hold),
     )
     if _is_agent(session, account_id):
-        q = q.where(_run_time_has_come(account_id, now))
+        q = q.where(_run_time_has_come(account_id, now, asked))
     priority_rank = case(
         *((Item.priority == p, r) for p, r in PRIORITY_RANK.items()), else_=len(PRIORITY_RANK)
     )
@@ -345,7 +349,7 @@ def _is_agent(session: Session, account_id: str) -> bool:
     return kind == AccountKind.agent
 
 
-def _run_time_has_come(account_id: str, now: datetime) -> Any:
+def _run_time_has_come(account_id: str, now: datetime, asked: Any) -> Any:
     """The due gate as a SQL condition (module docstring): true for tasks the agent may take.
     An open Ask (assigned comment) for the agent opens it: a question is answered now."""
     assigned = Item.id.in_(
@@ -354,7 +358,7 @@ def _run_time_has_come(account_id: str, now: datetime) -> Any:
     early = dates.early_date_only_due(now)
     return or_(
         not_(assigned),
-        Item.id.in_(_asked_items(account_id)),
+        asked,
         Item.due_at.is_(None),
         Item.due_at <= now,
         and_(Item.due_date_only, Item.due_at == early) if early is not None else false(),
