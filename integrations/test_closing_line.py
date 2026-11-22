@@ -24,6 +24,35 @@ def _load(rel: str):
 
 ADAPTERS = [_load("hermes/run_task.py"), _load("runner-example/run_task.py")]
 
+THREE_ASKS = (
+    "Draft.\nSLATE: ask other-agent: Earlier?\n\n"
+    "SLATE: ask alex: Which date? [Friday | Saturday]\n\n"
+    "`SLATE: ask @Alex: Which file?`\nSLATE: ask alex: Who checks it?"
+)
+QUESTIONS = [
+    {"question": "Which date?", "options": ["Friday", "Saturday"]},
+    {"question": "Which file?", "options": []},
+    {"question": "Who checks it?", "options": []},
+]
+
+
+def test_multiple_questions_cross_both_adapters_and_the_earlier_reply_path():
+    hermes, example = ADAPTERS
+    kept = "Draft.\nSLATE: ask other-agent: Earlier?"
+    assert brief.closing_line(THREE_ASKS).body == kept
+    assert brief.closing_line(THREE_ASKS).questions == QUESTIONS
+    for result in (
+        hermes.result(THREE_ASKS, [], "session"),
+        example.result("completed", None, THREE_ASKS, "https://example.com"),
+    ):
+        assert result["questions"] == QUESTIONS
+        assert result["reply"] == kept
+        assert "question" not in result and result["waiting_on"] == "alex"
+    joined = hermes.with_earlier([THREE_ASKS], "The draft is ready.")
+    assert brief.closing_line(joined).questions == QUESTIONS
+    assert brief.closing_line(joined).body == kept + "\n\nThe draft is ready."
+
+
 # The grammar the server seat is told to use. Adapters keep their own copy of this string.
 CONTRACT_PATTERN = (
     r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
@@ -73,6 +102,8 @@ CASES = [
     "SLATE: finished",
     "no line at all",
     "",
+    THREE_ASKS,
+    "\n".join(["SLATE: ask alex: Too many?"] * 5),
     *[text for text, _want in CONTRACT],
 ]
 
@@ -93,7 +124,9 @@ def test_example_copies_the_service_pattern_exactly():
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=lambda m: m.__name__)
 @pytest.mark.parametrize("text,want", CONTRACT)
 def test_contract_lines(adapter, text, want):
-    assert adapter.closing(text) == want
+    outcome, who, body, question, options, status = want
+    questions = [{"question": question, "options": options or []}] if question is not None else None
+    assert adapter.closing(text) == (outcome, who, body, questions, status)
 
 
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=lambda m: m.__name__)
@@ -101,16 +134,15 @@ def test_contract_lines(adapter, text, want):
 def test_every_adapter_reads_the_line_as_slate_does(adapter, text):
     mine = adapter.closing(text)
     theirs = brief.closing_line(text)
-    got = (mine[0], mine[1], mine[3], tuple(mine[4] or ()), mine[5]) if mine else None
     server = (
         (
             theirs.outcome,
             theirs.waiting_on,
-            theirs.question,
-            theirs.options,
-            getattr(theirs, "status", None),
+            theirs.body,
+            theirs.questions,
+            theirs.status,
         )
         if theirs
         else None
     )
-    assert got == server
+    assert mine == server

@@ -237,7 +237,8 @@ class Slate:
     ) -> dict:
         """working | blocked | review | failed | done | idle. `status` is one line of where
         the card stands (1 to 140 characters). A working report does not change it. kw:
-        progress, comment, complete, waiting_on, question, options, assign_me, claim."""
+        progress, comment, complete, waiting_on, questions (or question and options),
+        assign_me, claim."""
         body = {"state": state, **kw}
         if note is not None:
             body["note"] = note
@@ -284,8 +285,9 @@ class Slate:
     ) -> dict[str, Any]:
         """Report back in one call: outcome done | review | later | ask | answered | failed |
         blocked | release. `status` is one line of where the card stands (1 to 140 characters).
-        Review requires it. Ask uses the question as its standing instead.
-        Other options include hand_to, waiting_on, question, options, progress and reply.
+        Review requires it and never takes questions. An ask takes one to four `questions`,
+        or `question` and optional `options` for one, and uses their headline as its standing.
+        Other options include hand_to, waiting_on, progress and reply.
         Returns `{item}`. Take more work with a separate `next()` call."""
         if "next" in kw:
             raise TypeError("finish does not take next; call next separately")

@@ -15,8 +15,9 @@ with `HERMES_HOME` removed from the child's environment (the profile picks its o
 query is Slate's brief (`GET /items/{id}/brief`). On a reply turn (`reply` on stdin) it is the
 answer on the card, then "continue", then the brief again: nothing persists between turns.
 
-The result comes from the `SLATE:` closing line at the end of the command's stdout (the same
-parser as run_task.py). Text after the colon is the status. A review line with none is done.
+The result comes from the `SLATE:` closing line or trailing ask lines at the end of the
+command's stdout (the same parser as run_task.py). Text after the colon is the status.
+A review line with none is done.
 No line: `answered`, with the stdout as the reply, waiting on nobody.
 A non-zero exit or a turn longer than `HERMES_TURN_TIMEOUT` seconds: `failed`, with the
 machine text as `note`. Nothing adds a person as `waiting_on`.
@@ -42,9 +43,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:  # the gateway adapter beside this file: run_task.py, or a copy named hermes_run_task.py
-    from run_task import ENDINGS, REPLY_MAX, closing, emit_stdout, quoted
+    from run_task import CONTINUE, ENDINGS, emit_stdout, quoted, task_result
 except ImportError:
-    from hermes_run_task import ENDINGS, REPLY_MAX, closing, emit_stdout, quoted
+    from hermes_run_task import CONTINUE, ENDINGS, emit_stdout, quoted, task_result
 
 TAIL = 2000
 CAPABILITIES = {
@@ -55,7 +56,6 @@ CAPABILITIES = {
     "approvals": "native-ui-only",
     "remote_stop": False,
 }
-CONTINUE = "Continue the task. End your answer with the SLATE: line, as before."
 
 
 def command(env: dict[str, str], query: str) -> list[str]:
@@ -143,28 +143,7 @@ def run(
         why = f"The Hermes command exited with {done.returncode}."
         tail = _tail(done.stderr) or _tail(done.stdout)
         return {"outcome": "failed", "note": f"{why}\n\n{tail}".strip()[:4000]}
-    found = closing(done.stdout)
-    if found is None:
-        said = (done.stdout or "").strip()
-        return {"outcome": "answered", "reply": (said[:REPLY_MAX] if said else "Answered.")}
-    outcome, who, body, question, options, standing = found
-    standing = (standing or "").strip()[:140]
-    if outcome == "review" and not standing:
-        outcome = "done"
-    out: dict[str, Any] = {"outcome": outcome}
-    if body:
-        out["reply"] = body[:REPLY_MAX]
-    elif outcome == "answered":
-        out["reply"] = "Answered."
-    if outcome == "ask":
-        out["question"] = question
-        if options:
-            out["options"] = options
-        if who:
-            out["waiting_on"] = who
-    elif standing:
-        out["status"] = standing
-    return out
+    return task_result(done.stdout)
 
 
 def main() -> int:

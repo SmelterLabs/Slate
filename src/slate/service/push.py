@@ -383,6 +383,7 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
             "event_id": ev.id,
             "reason": reason,
         }
+    question = None
     if ev.type == "item.unparked":
         note = after.get("note") or ""
         text = f"Back today: {title} (was waiting on {note})" if note else f"Back today: {title}"
@@ -422,10 +423,11 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
     elif reason == "assigned":
         head, body = f"{who} assigned you", title
     elif reason == "waiting":
-        # An agent's ask: the question is the headline, the card the body.
+        # An agent's ask: its headline names the decision and the body names the card.
         ask = comments.asks_of(session, [item]).get(item.id) if item is not None else None
         if ask is not None:
-            head, body = ask["question"], f"{who} asks on: {title}"
+            question = ask["question"]
+            head, body = question, f"{who} asks on: {title}"
         else:
             head, body = f"{who} is waiting on you", title
     elif reason == "failed":
@@ -457,6 +459,7 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
         "tag": ev.item_id or f"{reason}:{ev.id}",
         "event_id": ev.id,
         "reason": reason,
+        **({"question": question} if question is not None else {}),
     }
 
 

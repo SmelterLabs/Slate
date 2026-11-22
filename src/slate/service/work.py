@@ -1022,6 +1022,7 @@ def finish(
     thread: Any = None,
     question: str | None = None,
     options: list[str] | None = None,
+    questions: list[dict[str, Any]] | None = None,
 ) -> Item:
     """Report back on a task in one transaction and give up the lease.
 
@@ -1030,7 +1031,8 @@ def finish(
     the owner), `later` (you did what you can now and the rest waits for the task's due time:
     no badge, nobody waited on, you stay assigned and the due time runs you again; the task
     needs a due time still to come), `ask` (the only way to stop the card on a person: a
-    one-line `question`, optional `options`, `waiting_on` a person, by default whoever asked
+    one to four `questions` or one `question` with optional `options`, `waiting_on` a person,
+    by default whoever asked
     this turn, else the owner; service/reports.py), `answered` (your `reply` is posted, your
     badge is cleared, nothing else changes, and the Asks this turn took are resolved),
     `failed` (the machine broke: `note` is stored on `item.work_finished`, never posted; the
@@ -1058,9 +1060,10 @@ def finish(
         raise Invalid(f"hand_to goes with review, blocked or release, not {outcome}")
     if waiting_on is not None and outcome not in ("ask", "blocked", "review"):
         raise Invalid("waiting_on goes with ask, review or blocked")
-    if (question is not None or options) and outcome != "ask":
+    ask = reports.check_ask(question, options, questions)
+    if ask is not None and outcome != "ask":
         raise Invalid("question and options go with ask")
-    if outcome == "ask" and question is None:
+    if outcome == "ask" and ask is None:
         raise Invalid("ask needs a question: one line")
     if outcome == "answered" and not (reply or "").strip():
         raise Invalid("answered needs your reply")
@@ -1089,6 +1092,7 @@ def finish(
         thread=thread,
         # Only an ask carries them, so a retried finish of any other outcome digests the same.
         **({"question": question, "options": options} if outcome == "ask" else {}),
+        **({"questions": questions} if questions is not None else {}),
     )
     actor = reports.with_thread_ref(session, actor, reports.check_thread(thread))
     with apply_change(session, actor) as cx:
@@ -1119,12 +1123,12 @@ def finish(
             # blocking on a third person ("someone else's job") is just its answer: no badge, no
             # waiting-on, the question (if any) posted as plain words.
             state, waiting_on = "idle", None
-            reply, question, options = reply or question, None, None
         if row is not None and state in ("review", "blocked") and _ended(session, item, row):
             # The agent closed the card itself during this run: a closed card carries no flag
             # and waits on nobody. Its answer (an ask's question too) is still posted.
             state, waiting_on = "done", None
-            reply, question, options = reply or question, None, None
+        if ask is not None and state != "blocked":
+            reply, ask = reply or "\n".join(q["question"] for q in ask["questions"]), None
         reports.report(
             session,
             actor,
@@ -1140,8 +1144,7 @@ def finish(
             url=url,
             reply=reply,
             thread=thread,
-            question=question,
-            options=options,
+            _ask=ask,
             status=status,
         )
         # A turn that consumed Slate's stalled poke and answered again, on an open card,

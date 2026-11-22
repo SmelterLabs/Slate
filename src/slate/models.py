@@ -422,8 +422,8 @@ class Comment(Base):
     assignee_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     resolved_by_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
-    # An agent's question to a person (`{"question": str, "options": [str]}`): the Ask a
-    # finish `ask` posts, answered by one of its options or a typed reply. service/reports.py.
+    # The questions an agent asks a person (`{"questions": [{"question": str, "options": [str]}]}`).
+    # Answer with one typed reply, or an option when there is one question. service/reports.py.
     ask_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 

@@ -15,11 +15,10 @@ Side effects, each its own ordinary event in the same transaction:
   mentioned accounts' inboxes.
 - `done` moves the item to its list's first done-kind status unless `complete=False` or it is
   already done or cancelled.
-- `blocked` with `waiting_on` (a handle) sets the item's `waiting_on_account_id`. Waiting on a
-  person needs a `question` (one line of 1 to `QUESTION_MAX` characters; `options`: 2 to 4
-  short answers): that is an ask. Its comment (the `reply`, else the question) is an Ask
-  addressed to the person carrying `ask = {question, options}`, the badge note is the
-  question, and the card lands in their Today "waiting on me". Without `waiting_on` an ask
+- `blocked` with `waiting_on` (a handle) sets the item's `waiting_on_account_id`. An ask for a
+  person takes one to four `questions`, or `question` and optional `options` for one. Its
+  comment (the `reply`, else the headline) carries the question list. The badge uses the
+  headline and the card lands in Today "waiting on me". Without `waiting_on` an ask
   waits on the person whose Ask started this turn, else the workspace owner
   (`brief.default_ask`). `blocked` waiting on a person without a question is refused
   (`ASK_ADVICE`); waiting on an agent, or on nobody, needs none. A later report does not clear
@@ -27,8 +26,8 @@ Side effects, each its own ordinary event in the same transaction:
   (done or cancelled, including a `done` report) clears it.
 - **Standing**: an agent's every report but `working` says where the card stands, in one
   line: `status` (checked at the API, 1 to STATUS_MAX characters), else the first line of
-  `reply`, else of `note` (`standing_line`), else the state's label; an ask's question is its
-  status. Stored on `items.standing_*`, kept after the card closes, carried as `after.status`.
+  `reply`, else of `note` (`standing_line`), else the state's label. An ask uses its headline,
+  cut to STATUS_MAX. Stored on `items.standing_*`, kept after closing, carried as `after.status`.
   `review` needs a `status` (what the person should check; REVIEW_ADVICE) and its `waiting_on`
   names the person it is for (`items.review_for`, default as for an ask); it does not set who
   the card waits on. The item view computes whose move it is (`items._move_id`).
@@ -101,6 +100,7 @@ URL_MAX = 2000
 REF_MAX = 200
 REPLY_MAX = 20000
 QUESTION_MAX = 200
+QUESTIONS_MAX = 4
 OPTION_MAX = 40
 OPTIONS_MIN, OPTIONS_MAX = 2, 4
 ASK_ADVICE = "to wait on a person, use ask with a one-line question"
@@ -224,25 +224,59 @@ def standing_line(text: str) -> str | None:
     return None
 
 
-def check_ask(question: str | None, options: list[str] | None) -> dict[str, Any] | None:
-    """`{question, options}` (None without a question): the question one line of 1 to
-    QUESTION_MAX characters; `options` empty, or 2 to 4 answers of 1 to OPTION_MAX each."""
-    if question is None:
+def check_ask(
+    question: str | None = None,
+    options: list[str] | None = None,
+    questions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Validate either input form and return the stored question list, or None."""
+    if questions is not None and (question is not None or options is not None):
+        raise Invalid("send question or questions, not both")
+    if questions is None and question is None:
         if options:
             raise Invalid("options go with a question")
         return None
-    question = question.strip()
-    if not question or "\n" in question or len(question) > QUESTION_MAX:
-        raise Invalid(f"question is one line of 1 to {QUESTION_MAX} characters")
-    options = [o.strip() for o in options or []]
-    if options and (
-        not OPTIONS_MIN <= len(options) <= OPTIONS_MAX
-        or any(not o or "\n" in o or len(o) > OPTION_MAX for o in options)
-    ):
-        raise Invalid(
+    if questions is None:
+        questions = [{"question": question, "options": options or []}]
+    if not isinstance(questions, list) or not 1 <= len(questions) <= QUESTIONS_MAX:
+        raise Invalid(f"send 1 to {QUESTIONS_MAX} questions")
+    checked = []
+    for entry in questions:
+        if not isinstance(entry, dict) or entry.keys() - {"question", "options"}:
+            raise Invalid("each question must be an object with question and optional options")
+        text = entry.get("question")
+        text = text.strip() if isinstance(text, str) else ""
+        if not text or len(text.splitlines()) != 1 or len(text) > QUESTION_MAX:
+            raise Invalid(f"question is one line of 1 to {QUESTION_MAX} characters")
+        raw_options = entry.get("options", [])
+        message = (
             f"options are {OPTIONS_MIN} to {OPTIONS_MAX} answers of 1 to {OPTION_MAX} characters"
         )
-    return {"question": question, "options": options}
+        if not isinstance(raw_options, list) or any(not isinstance(o, str) for o in raw_options):
+            raise Invalid(message)
+        choices = [o.strip() for o in raw_options]
+        if choices and (
+            not OPTIONS_MIN <= len(choices) <= OPTIONS_MAX
+            or any(len(o.splitlines()) != 1 or len(o) > OPTION_MAX for o in choices)
+        ):
+            raise Invalid(message)
+        checked.append({"question": text, "options": choices})
+    return {"questions": checked}
+
+
+def ask_headline(ask: dict[str, Any]) -> str:
+    questions = ask["questions"]
+    first = questions[0]["question"]
+    return first if len(questions) == 1 else f"{len(questions)} questions: {first}"
+
+
+def ask_view(ask: dict[str, Any]) -> dict[str, Any]:
+    questions = ask["questions"]
+    return {
+        "questions": questions,
+        "question": ask_headline(ask),
+        "options": questions[0]["options"] if len(questions) == 1 else [],
+    }
 
 
 def refuse_person_wait(session: Session, actor: Actor, ref: str | None) -> None:
@@ -292,9 +326,11 @@ def report(
     run_id: str | None = None,
     question: str | None = None,
     options: list[str] | None = None,
+    questions: list[dict[str, Any]] | None = None,
     status: str | None = None,
     _taking: bool = False,
     _finishing: bool = False,
+    _ask: dict[str, Any] | None = None,
 ) -> Item:
     if state not in STATES:
         raise Invalid(f"state must be one of {', '.join(STATES)}")
@@ -311,7 +347,7 @@ def report(
         raise Invalid("waiting_on goes with state 'blocked' or 'review'")
     if claim and state != "working":
         raise Invalid("claim goes with state 'working'")
-    ask = check_ask(question, options)
+    ask = _ask if _ask is not None else check_ask(question, options, questions)
     if ask is not None and state != "blocked":
         raise Invalid("question goes with an ask (state 'blocked')")
     if ask is not None and status is not None:
@@ -335,7 +371,9 @@ def report(
     finished = None
     if state == "done" and complete:
         finished = done_status(session, item)
-    badge_note = ask["question"] if ask else note or (first_line(reply) if reply else None)
+    details = ask_view(ask) if ask is not None else None
+    headline = details["question"] if details else None
+    badge_note = headline or note or (first_line(reply) if reply else None)
     thread_row = (
         session.get(AgentThread, (item.id, actor.account_id)) if thread is not None else None
     )
@@ -348,8 +386,8 @@ def report(
     standing = None
     if state != "working" and reporter is not None and reporter.kind == AccountKind.agent:
         standing = (
-            ask["question"]
-            if ask
+            (headline if len(headline) <= STATUS_MAX else headline[: STATUS_MAX - 1] + "…")
+            if headline
             else status or standing_line(reply or "") or standing_line(note or "") or LABELS[state]
         )
 
@@ -423,8 +461,8 @@ def report(
             # waiting_on change follows and this report is what tells them (inbox `waiting`).
             after["waiting_on"] = waiting.id
             after["again"] = waiting_again
-        if ask is not None:
-            after.update(ask)
+        if details is not None:
+            after.update(details)
         # Who a review is for goes with the review flag, whoever reports it.
         item.review_for = reviewer.id if reviewer is not None else None
         if standing is not None:
@@ -444,7 +482,7 @@ def report(
         )
         if ask is not None and comment:
             assert waiting is not None
-            body = reply or ask["question"]
+            body = reply or headline
             comments.add_comment(
                 session, actor, item.id, body_md=body, assignee=waiting.id, ask=ask
             )

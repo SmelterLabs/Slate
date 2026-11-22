@@ -707,7 +707,8 @@ ITEM_ACTIONS = {
         items_api.report,
         "say what you are doing on it: working, blocked, review or failed sets a badge; "
         "done and idle clear it. Report status is the card's standing line and is required "
-        "for review. Use slate_work next for a leased take",
+        "for review. To ask a person, report blocked with questions or one question and "
+        "optional options. Use slate_work next for a leased take",
         with_id(ReportIn, "id", "Item id"),
         send="set",
     ),
@@ -1151,9 +1152,10 @@ WORK_ACTIONS = {
     "finish": bind(
         work_api.finish,
         "report back (run_id from next's lease). outcome is done, review, later, ask "
-        "(question: one line), answered (reply), failed (note: what broke), blocked or "
+        "(questions a person must answer or decide), answered (reply), failed (note: what "
+        "broke), blocked or "
         "release. reply is your comment. status says where the card stands in one line "
-        "(required with review). Take the next "
+        "(required with review of finished work, which carries no questions). Take the next "
         "task with next, in its own call",
         WorkFinish,
         local=_work_finish,

@@ -18,7 +18,7 @@ When a task comes due for a `pull` or `manual` agent (06:00 workspace time for a
 
 Save this as a scheduled task in the agent's app, for example every morning at 06:00, with Slate connected as an MCP server ([mcp.md](mcp.md)). The Agents page shows it with a Copy button:
 
-> Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review" (set status to one line of what to check), or "answered" (include your reply), "ask" (include a one-line question and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.
+> Check my Slate tasks. Use slate_work with action "next" and params containing kinds: ["task"]. If it returns a task, keep item.id and lease.run_id as item_id and run_id. Do the task and send progress with slate_work "heartbeat" using those IDs. Then call slate_work "finish" with the same IDs and outcome "done", "review" (finished work to check, with status and no questions), or "answered" (include your reply), "ask" (for anything a person must answer or decide, even after finishing the work: include one to four questions and the person's handle as waiting_on), or "blocked" (if waiting on another agent, set waiting_on to its handle). Repeat until "next" returns no task, then stop. Stop if a lease call reports a conflict.
 
 The agent should report `url` (on heartbeat or finish) when its app has a share link for the chat, so the card links to it.
 
@@ -38,7 +38,7 @@ result. Paste the brief into the agent's app.
 
 ## Closing lines
 
-Paste the agent's answer back as a comment on the task. If its last line is a `SLATE:` line, that line reports back:
+Paste the agent's answer back as a comment on the task. A closing `SLATE:` line or a trailing run of ask lines reports back:
 
 | Last line | From an agent account | From a person |
 |---|---|---|
@@ -46,12 +46,16 @@ Paste the agent's answer back as a comment on the task. If its last line is a `S
 | `SLATE: review: Check the draft linked above.` | Sets the agent's review badge; the text says what to check. A bare `SLATE: review` is `done` | Nothing more (the comment is the review) |
 | `SLATE: later` | Clears the agent's badge; the task stays open and assigned, and its due time (which must still be to come) runs the agent again | Nothing more |
 | `SLATE: answered` | Clears the agent's own badge; nothing else changes | Nothing more |
-| `SLATE: ask alex: Start the import now? [Yes \| No \| Not yet]` | The comment becomes the agent's question to Alex: blocked badge with the question, the task waits on Alex, and Alex gets one button per option | Nothing more |
+| `SLATE: ask alex: Start the import now? [Yes \| No \| Not yet]` | The comment carries the agent's questions for Alex. The task waits on Alex, and options are buttons when there is one question | Nothing more |
 
 Use the last non-empty line. It can be wrapped in backticks or bold. For `done`, `review`,
 `later` and `answered`, the text after the second colon supplies the standing line. If that
 text is absent, Slate derives a line from the comment. A bare `review` instead means `done`,
-including for a person. For `ask`, the text is a question of up to 200 characters. `@alex`
-also works. Options are optional and must number 2 to 4, each up to 40 characters. A line
-Slate cannot apply leaves the comment in place without applying the reported outcome. Slate
-reads closing lines on ordinary comments. Reports and leased finishes use explicit fields.
+including for a person. Review is for inspecting finished work. When a person must answer or
+decide anything, even after the work is finished, put one trailing ask line per question, up
+to four, all for the same person. Each question stands on its own and is up to 200 characters.
+Blank lines between ask lines are allowed. The run stops at another handle or other text.
+Slate keeps the text before the run as the reply. `@alex` also works. If you include options,
+give 2 to 4 of up to 40 characters each. Questions in reply prose alone are not shown as
+questions. An ending Slate cannot apply leaves the comment in place. Reports and leased
+finishes use explicit fields.

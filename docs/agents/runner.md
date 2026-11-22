@@ -198,7 +198,7 @@ The generic runner, Python/TypeScript clients, gateway/CLI and runner-example ad
 same finish endpoint with the runner's proof.
 
 Answer on the card the way you would text the person who owns the task: a few lines. Put anything
-long in a file or a note and link it. End with the `SLATE:` line. Your answer for the turn is
+long in a file or a note and link it. Put the `SLATE:` line or trailing ask lines last. Your answer for the turn is
 `reply` in the result (one comment by you on the card); the `SLATE:` line is the outcome.
 `done` and `review` both mean the work is finished; background work you started must report
 back before you answer. An answer with no `SLATE:` line is `answered`: the text is the
@@ -209,7 +209,10 @@ where the card stands. Review needs them; without them the line is `done`. The l
 `SLATE: later: Runs Friday at 9.`,
 `SLATE: answered: It is waiting on the bank, not on you.`, and
 `SLATE: ask alex: Start the import now? [Yes | No | Not yet]` (the bracketed choices are
-optional). An old `SLATE: blocked waiting_on alex` is not a closing line, so that turn is
+optional). Review is for inspecting finished work and carries no questions. If a person must
+answer or decide anything, even after the work is finished, put one ask line per question,
+up to four, for the same person. Each question stands on its own. Questions written only
+in reply prose are not shown as questions. An old `SLATE: blocked waiting_on alex` is not a closing line, so that turn is
 `answered` too.
 
 Keep one session per task in your own runtime and tell Slate its id as `thread: {"ref": ...,
@@ -340,9 +343,10 @@ released.
 - `later`: you did what you can now and already have any go you need; the rest runs at the
   task's due time, which must still be to come. No badge, nobody waited on, you stay assigned.
   A `later` with no due time still to come is sent as `answered`.
-- `ask`: the only ending that waits on a person. `question` is one line; `options` is an
-  optional list of 2 to 4 short choices; `waiting_on` is that person's handle. `reply`, when
-  you set it, is the comment; otherwise the question is.
+- `ask`: use when a person must answer or decide anything, even after the work is finished.
+  Send one to four `questions` objects, each with a one-line `question` and optional
+  `options` (2 to 4 short choices if given). A single question can use `question` and
+  `options` directly. `waiting_on` names the person. The comment is `reply` or the headline.
 - `answered`: send your reply as `reply`. The badge clears and the server settles the questions
   the turn took. The column, assignees and existing wait stay as they were.
 - `failed`: the machine broke. `note` is the machine's words (stored on the finish, not posted).
@@ -352,8 +356,8 @@ released.
   another account with `hand_to`. Questions the turn took remain open.
 
 `status` is that one line, at most 140 characters. The runner does not send it with `ask`
-(the question is the standing). `hand_to` works as in `POST /work/{id}/finish`. `question`
-and `options` pass through on `ask`.
+(the question headline is the standing). `hand_to` works as in `POST /work/{id}/finish`.
+`questions`, or the single-question `question` and `options`, pass through on `ask`.
 
 **No result line.** Exit zero without an explicit result is not completion. A non-zero exit,
 a missing result or an unknown outcome is `failed`, with that machine text as `note`. Chat and

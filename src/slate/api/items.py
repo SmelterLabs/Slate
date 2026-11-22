@@ -388,9 +388,10 @@ def report(item_id: str, body: ReportIn, auth: WriteAuth, session: DbSession) ->
     """An agent says what it is doing: `working`, `blocked` or `review` put a live badge on the
     card (who, note, progress); `done` clears it and completes the item (unless
     `complete: false`); `idle` just clears it. The note is also posted as your comment.
-    `blocked` with a `question` (and `waiting_on: alex`) asks that person: the card waits on
-    them and lands in their Today "waiting on me". `blocked` waiting on a person without a
-    question is refused (422)."""
+    `blocked` with `questions` (or one `question` with optional `options`) asks a person:
+    the card waits on them and lands in their Today "waiting on me". `waiting_on` names the
+    recipient. Waiting on a person without a structured ask is refused (422). Review is
+    for inspecting finished work and cannot carry questions."""
     item = reports.report(session, auth.actor, item_id, **body.model_dump())
     return items.views(session, [item])[0]
 
@@ -433,8 +434,9 @@ def get_brief(
     """The task as one paste-ready prompt for an agent in another product's chat ("Copy
     brief"): title, due date, description, checklists and recent comments, then the run rule,
     which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the
-    rest waits for the due time), `SLATE: answered` or `SLATE: ask <ask>: <question>
-    [option | option]`. Post that answer back as a comment and the line reports on the task.
+    rest waits for the due time), `SLATE: answered` or up to four trailing
+    `SLATE: ask <ask>: <question> [option | option]` lines, one per question for the same
+    person. Post that answer back as a comment and the ending reports on the task.
     `ask` (a handle) defaults to you, or the workspace owner."""
     who = ask or brief_svc.default_ask(session, auth.actor.account_id)
     text = brief_svc.brief(session, item_id, ask=who, account_id=auth.actor.account_id)

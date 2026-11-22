@@ -178,6 +178,8 @@ READS = {
     },
     "slate.service.watchers": {"watchers_of", "watcher_ids", "auto_watches"},
     "slate.service.reports": {
+        "ask_headline",
+        "ask_view",
         "flag_of",
         "check_url",
         "done_status",
@@ -946,7 +948,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
                 _item(db, a).id,
                 body_md="Go?",
                 assignee="alex",
-                ask={"question": "Go?", "options": ["Yes", "No"]},
+                ask=reports.check_ask("Go?", ["Yes", "No"]),
             ).id,
             option="Yes",
         ),  # fmt: skip

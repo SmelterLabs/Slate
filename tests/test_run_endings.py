@@ -12,8 +12,8 @@ from sqlalchemy import select
 from conftest import API
 from conftest import item_events as _events
 from run_proofs import remember, run_fields
-from slate.models import Event, Item, utcnow
-from slate.service import due, push
+from slate.models import Comment, Event, Item, utcnow
+from slate.service import attention, due, push
 from slate.service.brief import closing_line
 
 
@@ -76,7 +76,8 @@ def test_ask_posts_the_question_as_an_ask_and_waits_on_the_person(client, alex, 
     assert last["author_id"] == agent["id"]
     assert last["body_md"] == "Start the import now?"
     assert last["assignee_id"] == me["id"]
-    assert last["ask"] == {"question": "Start the import now?", "options": ["Yes", "No", "Not yet"]}
+    q = {"question": "Start the import now?", "options": ["Yes", "No", "Not yet"]}
+    assert last["ask"] == {**q, "questions": [q]}
     assert view["ask"]["comment_id"] == last["id"]
     assert view["ask"]["question"] == "Start the import now?"
     assert view["ask"]["options"] == ["Yes", "No", "Not yet"]
@@ -105,7 +106,8 @@ def test_ask_with_a_reply_posts_the_reply_and_keeps_the_question_on_the_comment(
     assert r.status_code == 200, r.text
     last = _comments(client, alex, item["id"])[-1]
     assert last["body_md"].startswith("The file has two price lists")
-    assert last["ask"] == {"question": "Which list?", "options": []}
+    q = {"question": "Which list?", "options": []}
+    assert last["ask"] == {**q, "questions": [q]}
     assert _view(client, alex, item["id"])["agent"]["note"] == "Which list?"
 
 
@@ -507,14 +509,118 @@ def test_the_waiting_pop_up_leads_with_the_question(client, alex, todo, make_acc
     assert "failed" in push.DEFAULT_REASONS
 
 
+def test_question_and_questions_have_one_storage_and_view_shape(
+    client, alex, todo, make_account, db
+):
+    _, token = make_account("my-agent")
+    options = ["Yes", "No"]
+    q = {"question": "Start the import?", "options": options}
+    for fields in (q, {"questions": [q]}):
+        item = _item(client, alex, todo["id"])
+        response = client.post(
+            f"{API}/items/{item['id']}/report", json={"state": "blocked", **fields}, headers=token
+        )
+        assert response.status_code == 200, response.text
+        comment = _comments(client, alex, item["id"])[-1]
+        db.expire_all()
+        assert db.get(Comment, comment["id"]).ask_json == {"questions": [q]}
+        assert comment["ask"] == {**q, "questions": [q]}
+        assert response.json()["ask"]["questions"] == [q]
+
+
+def test_multiple_questions_share_a_headline_and_one_typed_answer(
+    client, alex, todo, make_account, db
+):
+    _, token = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    attention.release(db, utcnow())  # initialize the release cursor before the waiting event
+    assert _next(client, token, item_id=item["id"])["item"]["id"] == item["id"]
+    questions = [{"question": "Pick a date?", "options": ["Friday", "Saturday"]}] + [
+        {"question": f"Check item {n}?", "options": []} for n in range(2, 5)
+    ]
+    for bad, error in (
+        ({"question": "Go?", "questions": questions}, "send question or questions, not both"),
+        ({"questions": []}, "1 to 4 questions"),
+        ({"questions": [*questions, questions[0]]}, "1 to 4 questions"),
+        ({"questions": [{"question": "Two\rlines?"}]}, "question is one line"),
+        ({"questions": [{"question": "Go?", "options": "Yes"}]}, "options are 2 to 4"),
+    ):
+        response = _finish(client, token, item["id"], outcome="ask", **bad)
+        assert response.status_code == 422, response.text
+        assert error in response.json()["detail"]
+    response = _finish(
+        client, token, item["id"], outcome="ask", questions=questions, reply="Stock is counted."
+    )
+    assert response.status_code == 200, response.text
+    view = _view(client, alex, item["id"])
+    headline = "4 questions: Pick a date?"
+    comment = _comments(client, alex, item["id"])[-1]
+    assert comment["ask"] == {"questions": questions, "question": headline, "options": []}
+    assert view["ask"]["questions"] == questions and view["ask"]["options"] == []
+    assert view["agent"]["note"] == view["standing"]["line"] == headline
+    event = _events(client, alex, item["id"], "item.reported")[-1]["after"]
+    assert event["question"] == headline and event["questions"] == questions
+    attention.release(db, utcnow())
+    alerts = client.get(f"{API}/inbox/alerts", headers=alex, params={"after": "0"}).json()
+    assert any(row["question"] == headline for row in alerts), alerts
+    db.expire_all()
+    event = db.scalar(
+        select(Event).where(Event.item_id == item["id"], Event.field == "waiting_on_account_id")
+    )
+    assert push.notification_for(db, event, "waiting")["title"] == headline
+    tap = client.post(
+        f"{API}/comments/{comment['id']}/answer", json={"option": "Friday"}, headers=alex
+    )
+    assert tap.status_code == 422
+    assert tap.json()["detail"] == "this ask has several questions: answer them in one comment"
+    body = "Friday. Yes on checks two through four."
+    assert (
+        client.post(
+            f"{API}/items/{item['id']}/comments", json={"body_md": body}, headers=alex
+        ).status_code
+        == 201
+    )
+    assert _view(client, alex, item["id"])["ask"] is None
+    assert _next(client, token, item_id=item["id"])["reply"]["body_md"] == body
+
+
+def test_an_agent_comment_uses_the_trailing_run_of_ask_lines(client, alex, todo, make_account):
+    _, token = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    text = (
+        "Report.\nSLATE: ask other-agent: Earlier?\n\nSLATE: ask alex: First? [Yes | No]\n\n"
+        "SLATE: ask @Alex: Second?\nSLATE: ask alex: Third?"
+    )
+    response = client.post(
+        f"{API}/items/{item['id']}/comments", json={"body_md": text}, headers=token
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["body_md"] == "Report.\nSLATE: ask other-agent: Earlier?"
+    assert response.json()["ask"]["questions"] == [
+        {"question": "First?", "options": ["Yes", "No"]},
+        {"question": "Second?", "options": []},
+        {"question": "Third?", "options": []},
+    ]
+    other = _item(client, alex, todo["id"], assignees=["my-agent"])
+    text = "Report.\n" + "\n".join(["SLATE: ask alex: Too many?"] * 5)
+    refused = client.post(
+        f"{API}/items/{other['id']}/comments", json={"body_md": text}, headers=token
+    )
+    assert refused.status_code == 201
+    assert refused.json()["body_md"] == text and refused.json()["ask"] is None
+    assert _view(client, alex, other["id"])["waiting_on_account_id"] is None
+
+
 def test_closing_line_reads_the_new_endings():
     assert closing_line("Ok.\nSLATE: answered").outcome == "answered"
     line = closing_line("Ready.\nSLATE: ask alex: Start the import now? [Yes | No | Not yet]")
     assert (line.outcome, line.waiting_on) == ("ask", "alex")
-    assert line.question == "Start the import now?"
-    assert line.options == ("Yes", "No", "Not yet")
+    assert line.questions == [
+        {"question": "Start the import now?", "options": ["Yes", "No", "Not yet"]}
+    ]
     plain = closing_line("SLATE: ask @alex: Which list?")
-    assert (plain.waiting_on, plain.question, plain.options) == ("alex", "Which list?", ())
+    assert plain.waiting_on == "alex"
+    assert plain.questions == [{"question": "Which list?", "options": []}]
     assert closing_line("SLATE: blocked waiting_on alex") is None
 
 

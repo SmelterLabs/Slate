@@ -18,6 +18,7 @@ from slate.api.doc_comments import DocCommentOut
 from slate.api.schemas import (
     OPTIONS_FIELD,
     QUESTION_FIELD,
+    QUESTIONS_FIELD,
     REPLY_FIELD,
     STATUS_FIELD,
     THREAD_FIELD,
@@ -25,7 +26,6 @@ from slate.api.schemas import (
     AgentThreadOut,
     CommentOut,
     ItemOut,
-    Option,
     Status,
 )
 from slate.service import brief as brief_svc
@@ -289,9 +289,9 @@ class FinishIn(BaseModel):
         "done", "review", "later", "ask", "answered", "failed", "blocked", "release"
     ] = Field(
         description="done completes it; review (with status: what to check) leaves a 'ready "
-        "for review' badge for a person; later "
+        "for review' badge for finished work to check and cannot carry questions; later "
         "keeps it yours with no badge until its due time (which must still be to come) runs "
-        "you again; ask (with question) stops the card on a person, the only way to; answered "
+        "you again; ask carries every question a person must answer or decide; answered "
         "(with reply) posts your reply and changes nothing else; failed (with note) says the "
         "machine broke: nobody is asked, Slate retries after 5 and 30 minutes, then tells the "
         "card's people; blocked waits on an agent or on nobody; release gives it up "
@@ -317,7 +317,8 @@ class FinishIn(BaseModel):
         "agent you wait on",
     )
     question: str | None = QUESTION_FIELD
-    options: list[Option] | None = OPTIONS_FIELD
+    options: list[str] | None = OPTIONS_FIELD
+    questions: list[dict[str, Any]] | None = QUESTIONS_FIELD
     url: str | None = Field(
         default=None,
         max_length=2000,

@@ -595,9 +595,9 @@ Remove a watcher: yourself, or `account`.
 
 Scope: `write` · MCP: `slate_item report`
 
-An agent says what it is doing: `working`, `blocked` or `review` put a live badge on the card (who, note, progress); `done` clears it and completes the item (unless `complete: false`); `idle` just clears it. The note is also posted as your comment. `blocked` with a `question` (and `waiting_on: alex`) asks that person: the card waits on them and lands in their Today "waiting on me". `blocked` waiting on a person without a question is refused (422).
+An agent says what it is doing: `working`, `blocked` or `review` put a live badge on the card (who, note, progress); `done` clears it and completes the item (unless `complete: false`); `idle` just clears it. The note is also posted as your comment. `blocked` with `questions` (or one `question` with optional `options`) asks a person: the card waits on them and lands in their Today "waiting on me". `waiting_on` names the recipient. Waiting on a person without a structured ask is refused (422). Review is for inspecting finished work and cannot carry questions.
 
-- Body: `ReportIn`: `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `status`, `assign_me`, `url`, `claim`, `reply`, `thread`
+- Body: `ReportIn`: `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `questions`, `status`, `assign_me`, `url`, `claim`, `reply`, `thread`
 - Returns: `200` [ItemOut](#itemout)
 
 ### `POST /items/{item_id}/run`
@@ -620,7 +620,7 @@ Stop: ask the agent working on the item to stop what it is doing. Records `item.
 
 Scope: `read` · MCP: `slate_item brief`
 
-The task as one paste-ready prompt for an agent in another product's chat ("Copy brief"): title, due date, description, checklists and recent comments, then the run rule, which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the rest waits for the due time), `SLATE: answered` or `SLATE: ask <ask>: <question> [option | option]`. Post that answer back as a comment and the line reports on the task. `ask` (a handle) defaults to you, or the workspace owner.
+The task as one paste-ready prompt for an agent in another product's chat ("Copy brief"): title, due date, description, checklists and recent comments, then the run rule, which asks it to end its answer with `SLATE: done`, `SLATE: review`, `SLATE: later` (the rest waits for the due time), `SLATE: answered` or up to four trailing `SLATE: ask <ask>: <question> [option | option]` lines, one per question for the same person. Post that answer back as a comment and the ending reports on the task. `ask` (a handle) defaults to you, or the workspace owner.
 
 - Query: `ask`
 - Returns: `200` [BriefOut](#briefout)
@@ -639,7 +639,7 @@ The item's comments, oldest first, with reactions and mentions.
 
 Scope: `write` · MCP: `slate_comment add`
 
-`@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]` also reports back on the task (from an agent: its report, later clearing its badge until the due time, ask making this comment its question; from a person, done completes it and the rest change nothing).
+`@handle` in the body mentions that account in their inbox. `assignee` makes it an Ask: addressed to that account, open until explicitly resolved. Replies notify earlier participants but never resolve Asks; `keep_open` is accepted for compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or up to four trailing `SLATE: ask <handle>: <question> [option | option]` lines for the same person also reports back on the task. An agent's ask stores the questions on its comment and uses the preceding text as its reply. A person's `done` completes the task.
 
 - Body: `CommentIn`: `body_md`\*, `assignee`, `keep_open`
 - Returns: `201` [CommentOut](#commentout)
@@ -673,7 +673,7 @@ Close an Ask: for its assignee, its author or an admin. Idempotent.
 
 Scope: `write` · MCP: `slate_comment answer`
 
-Answer an agent's question (a comment with `ask`) with one of its options, for the person asked or an admin: posts your comment whose text is the option, the card stops waiting on the person, the question is resolved (`reason: answered`) and the agent is woken with your reply, as a typed reply does. Returns your new comment. 422 for an option it does not offer, 409 when it was already answered.
+Answer an agent's question (a comment with `ask`) with one of its options, for the person asked or an admin: posts your comment whose text is the option, the card stops waiting on the person, the question is resolved (`reason: answered`) and the agent is woken with your reply, as a typed reply does. Returns your new comment. 422 for an option it does not offer or when the ask has several questions (answer them in one comment), 409 when it was already answered.
 
 - Body: `AnswerIn`: `option`\*
 - Returns: `200` [CommentOut](#commentout)
@@ -995,7 +995,7 @@ Your notifications from the last 30 days, newest first; cleared ones are left ou
 
 Scope: `read`
 
-Released notifications in cursor order. Start without after to get X-Slate-Cursor.
+Released notifications in cursor order. An open ask includes its question headline. Start without after to get X-Slate-Cursor.
 
 - Query: `after`, `limit`
 - Returns: `200` [list of ReleasedAlert](#releasedalert)
@@ -1394,7 +1394,7 @@ Scope: `write` · MCP: `slate_work finish`
 
 Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a reply posted as a comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. Take the next task with `POST /work/next`. An agent finish settles Asks included at take and later Asks acknowledged in order with `seen`. Stop settles Asks sent before it. The first unread Ask and later Asks stay pending unless covered by Stop. Outcomes failed and release leave Asks unresolved, as do human finishes. An agent that was only asked can answer with done without completing the card.
 
-- Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`
+- Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `questions`, `url`, `reply`, `thread`
 - Returns: `200` [FinishOut](#finishout)
 
 ## automations
@@ -2261,7 +2261,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ReleasedAlert
 
-`cursor`: string, `at`: string, `loudness`: integer, `title`: string, `body`: string, `item_id`: string?, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `stalled` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `entry`: InboxEntry?
+`cursor`: string, `at`: string, `loudness`: integer, `title`: string, `body`: string, `item_id`: string?, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `stalled` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `entry`: InboxEntry?, `question`: string?
 
 ### InboxCount
 

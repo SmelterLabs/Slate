@@ -54,13 +54,15 @@ in its environment could be expanded into the command line, so an `exec` that na
 
 When it exits, the last stdout line that is a JSON object with `outcome` is the result:
 `{"outcome": "done|review|later|ask|answered|failed|blocked|release", "reply": "...",
-"status": "Sent the invoice.", "question": "...", "options": ["Yes", "No"],
+"status": "Sent the invoice.", "questions": [{"question": "...", "options": ["Yes", "No"]}],
 "waiting_on": "alex", "url": "...", "thread": {"ref": "..."}}`. `reply` is the agent's
 answer for this turn, one comment on the card (the card is the conversation); `status` is
 one line of where the card stands (at most 140 characters). `note` is the older, labelled
 form, and for `failed` it is the machine's words (stored on the finish, not posted).
-`ask` is the only ending that waits on a person, and it carries no `status` (the question
-is the standing). A `review` with no `status` is sent as `done`. A task that waits on
+Use `ask` for anything a person must answer or decide, even after finishing the work. Send
+one to four `questions`, or `question` and optional `options` for a single question. The
+headline supplies the standing. `review` is for inspecting finished work and cannot carry
+questions. A `review` with no `status` is sent as `done`. A task that waits on
 someone's answer comes back with `reply` (their comment) and `thread` on stdin when they
 answer. An explicit valid result and exit zero are both required for success. A non-zero
 exit, a missing result or an unknown outcome is `failed` with that machine text as `note`
@@ -157,6 +159,7 @@ RESULT_KEYS = (
     "note",
     "reply",
     "question",
+    "questions",
     "options",
     "thread",
     "waiting_on",
@@ -952,10 +955,17 @@ class Runner:
         if turn_ref(key) is not None or "outcome" not in body or body["outcome"] == "failed":
             return None
         why = detail if isinstance(detail, str) else json.dumps(detail, default=str)
+        asked = str(body.get("question") or "").strip()
+        if isinstance(body.get("questions"), list):
+            asked = "\n".join(
+                str(q.get("question") or "").strip()
+                for q in body["questions"]
+                if isinstance(q, dict)
+            )
         said = [
             f"{label}: {text}"
             for label, text in (
-                ("It asked", str(body.get("question") or "").strip()),
+                ("It asked", asked),
                 ("It said", str(body.get("reply") or body.get("note") or "").strip()),
             )
             if text

@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Slate, SlateError } from '../clients/typescript/slate.ts';
 
+test('report and finish forward structured questions', async () => {
+  const bodies = [];
+  const sdk = new Slate('https://example.com', 'test-token', { fetch: async (_url, opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return Response.json({id: 'task'});
+  }});
+  const questions = [{question: 'Which date?'}, {question: 'Ready?', options: ['Yes', 'No']}];
+  await sdk.report('task', 'blocked', undefined, {questions});
+  await sdk.finish('task', 'ask', undefined, {questions});
+  assert.deepEqual(bodies.map(body => body.questions), [questions, questions]);
+});
+
 for (const denied of [false, true]) {
   test(`execution proof and permission loss (denied=${denied})`, async () => {
     let takes = 0;

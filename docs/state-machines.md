@@ -25,8 +25,8 @@ Read: `reports.flag_of(item)`. Shown: the card's badge, `agent` on the item view
 | `failed` | sets it: the run broke; nobody is told, and the work loop retries the card |
 | `done`, `idle` | clears it; `done` also moves the card to its list's first done status |
 
-A `blocked` report that waits on a person must carry a question (an ask; its note is the
-question). Waiting on an agent, or on nobody, needs none.
+A `blocked` report that waits on a person carries a structured ask of one to four questions.
+Its note is the question headline. Waiting on an agent, or on nobody, needs no ask.
 
 Every report is one `item.reported` event. Besides an agent's own report, the flag changes
 when: a lease runs out (`working` becomes `blocked`, by `slate`); a person moves the card (a
@@ -64,7 +64,7 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 | `done` | cleared | clears with completion | completes the card unless the agent took it only to answer a question |
 | `review` | `review` | unchanged | needs a `status` (what to check); the person it is for is whose move it is |
 | `later` | cleared | unchanged | needs a run time still to come |
-| `ask` | `blocked`, note = the question | the person asked | the question is an Ask to them |
+| `ask` | `blocked`, note = the question headline | the person asked | the questions are one Ask to them |
 | `answered` | cleared | unchanged | the turn's Asks resolve (`answered`); not offered again until a new Ask or Run now |
 | `failed` | `failed`, note = what broke | unchanged | retried at 5 and 30 minutes; the third failure is `item.run_failed` |
 | `blocked` | `blocked` | sets an agent if named; otherwise preserves the existing field | use `ask` to wait on a person |

@@ -68,17 +68,21 @@ SLATE_LINE = re.compile(
     re.IGNORECASE,
 )
 ENDINGS = (
-    "End with one line, last, on its own. The words after the colon are the status "
-    "(where the card stands); review needs them:\n"
+    "Put the closing line or lines last. For non-ask endings, the words after the colon "
+    "are the status (where the card stands); review needs them:\n"
     "`SLATE: done: Sent the invoice. Nothing needed from you.`\n"
     "`SLATE: review: Check the draft linked above.`\n"
     "`SLATE: later: Runs Friday at 9.`\n"
     "`SLATE: answered: It is waiting on the bank, not on you.`\n"
     "`SLATE: ask alex: Start the import now? [Yes | No | Not yet]`\n"
+    "Review is only for finished work a person must look over. If a person must answer or "
+    "decide anything, even after the work is finished, use one ask line per question, up to "
+    "four, all for the same person. Write each question so it stands on its own. Questions "
+    "in the reply body alone are never shown as questions. Options are optional. "
     "A review line with nothing after it is recorded as done. An answer with no such "
     "line is answered and waits on nobody."
 )
-CONTINUE = "Continue the task. End your answer with the SLATE: line, as before."
+CONTINUE = "Continue the task. Put the SLATE: line or ask lines last, as before."
 
 STEER = (
     "A new message arrived on the Slate card while you were working on it. Read it now and "
@@ -86,7 +90,7 @@ STEER = (
 )
 LATE = (
     "This message arrived on the Slate card while you were finishing your last answer, so "
-    "you have not acted on it yet. Deal with it now. End your answer with the SLATE: line, "
+    "you have not acted on it yet. Deal with it now. Put the SLATE: line or ask lines last, "
     "as before."
 )
 STOPPED = (
@@ -237,34 +241,33 @@ def emit_stdout(line: dict[str, Any]) -> None:
 
 def closing(
     text: str,
-) -> tuple[str, str | None, str, str | None, list[str] | None, str | None] | None:
-    """(outcome, who, the text before the line, question, options, status).
-
-    `who`, `question` and `options` are set only for `ask`. `status` is the text after the
-    colon on `done`, `review`, `later` and `answered` (at most 140 characters). A trailing
-    period is allowed on those four when they have no status. An old `waiting_on` line is
-    not a closing line. A `review` with no status is still returned as `review`; the result
-    sends it as `done`."""
-    lines = (text or "").rstrip().splitlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
+) -> tuple[str, str | None, str, list[dict[str, Any]] | None, str | None] | None:
+    """Read the reply's ending as outcome, recipient, body, question list and status."""
+    lines = (text or "").strip().splitlines()
     if not lines:
         return None
     m = SLATE_LINE.match(lines[-1].strip().strip("`*_ "))
     if m is None:
         return None
-    body = "\n".join(lines[:-1]).strip()
     if m.group(1):
-        status = (m.group(2) or "").strip()[:140] or None
-        return m.group(1).lower(), None, body, None, None, status
-    who = (m.group(3) or "").lower()
-    rest = (m.group(4) or "").strip()
-    options: list[str] | None = None
-    bracket = re.fullmatch(r"(.*?)\s*\[([^\[\]]*)\]", rest)
-    if bracket:
-        rest = bracket.group(1).strip()
-        options = [part.strip() for part in bracket.group(2).split("|")]
-    return "ask", who, body, rest, options, None
+        return m.group(1).lower(), None, "\n".join(lines[:-1]).rstrip(), None, m.group(2)
+    who = m.group(3).lower()
+    questions = []
+    start = len(lines) - 1
+    for i in range(start, -1, -1):
+        if not lines[i].strip():
+            continue
+        m = SLATE_LINE.match(lines[i].strip().strip("`*_ "))
+        if not m or not m.group(3) or m.group(3).lower() != who:
+            break
+        question, options = m.group(4), []
+        bracket = re.fullmatch(r"(.*?)\s*\[([^\[\]]*)\]", question)
+        if bracket is not None:
+            question = bracket.group(1)
+            options = [o.strip() for o in bracket.group(2).split("|")]
+        questions.append({"question": question.strip(), "options": options})
+        start = i
+    return "ask", who, "\n".join(lines[:start]).rstrip(), questions[::-1], None
 
 
 def sse(lines: Iterator[str]) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -566,16 +569,20 @@ def answers_before_steers(hermes: httpx.Client, session_id: str) -> list[str]:
 
 def with_earlier(earlier: list[str], reply: str) -> str:
     """`reply` after the answers that came before it in the same run, each without its own
-    closing line. The last answer's line is the run's; when it has none (the agent closed the
-    task in an earlier answer and only added to it), that earlier line still stands."""
+    ending. The last answer supplies the run's ending. When it has none, the earlier ending
+    still stands, including every question in its ask run."""
     parts, line = [], None
     for text in earlier:
         found = closing(text)
         if found:
-            outcome, who, _before, question, options, standing = found
-            if outcome == "ask" and who and question:
-                choice = f" [{' | '.join(options)}]" if options else ""
-                line = f"SLATE: ask {who}: {question}{choice}"
+            outcome, who, _before, questions, standing = found
+            if questions:
+                lines = []
+                for question in questions:
+                    options = question["options"]
+                    choice = f" [{' | '.join(options)}]" if options else ""
+                    lines.append(f"SLATE: ask {who}: {question['question']}{choice}")
+                line = "\n".join(lines)
             elif standing:
                 line = f"SLATE: {outcome}: {standing}"
             else:
@@ -1463,30 +1470,37 @@ def result(
             "thread": thread,
             "note": "The Hermes turn did not finish in time.",
         }
+    return {**task_result(reply), "thread": thread}
+
+
+def task_result(reply: str) -> dict[str, Any]:
+    """Translate the ending of a confirmed task reply for the resident runner."""
     found = closing(reply)
     if found is not None:
-        outcome, who, body, question, options, standing = found
+        outcome, who, body, questions, standing = found
         standing = (standing or "").strip()[:140]
         if outcome == "review" and not standing:
             outcome = "done"
-        out: dict[str, Any] = {"outcome": outcome, "thread": thread}
+        out: dict[str, Any] = {"outcome": outcome}
         if body:
             out["reply"] = body[:REPLY_MAX]
         elif outcome == "answered":
             out["reply"] = "Answered."
-        if outcome == "ask":
-            out["question"] = question
-            if options:
-                out["options"] = options
-            if who:
-                out["waiting_on"] = who
+        if questions:
+            out["waiting_on"] = who
+            if len(questions) == 1:
+                question = questions[0]
+                out["question"] = question["question"]
+                if question["options"]:
+                    out["options"] = question["options"]
+            else:
+                out["questions"] = questions
         elif standing:
             out["status"] = standing
         return out
     said = reply.strip()
     return {
         "outcome": "answered",
-        "thread": thread,
         "reply": said[:REPLY_MAX] if said else "Answered.",
     }
 

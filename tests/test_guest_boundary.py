@@ -586,6 +586,27 @@ def test_only_the_person_asked_can_answer_the_project_agents_option(client, worl
     assert _leaks(reply["body_md"], world["agent"]) == []
 
 
+def test_guests_do_not_see_multiple_questions_from_a_workspace_agent(client, alex, world):
+    card, _ = world["ids"]["item_id"]
+    guest = world["guests"]["guest"]
+    questions = [{"question": "Check the totals?"}, {"question": "Use the Friday date?"}]
+    path = f"{API}/items/{card}"
+    _ok(
+        client.post(
+            f"{path}/report",
+            json={"state": "blocked", "questions": questions},
+            headers=world["agent_headers"],
+        )
+    )
+    assert len(_ok(client.get(path, headers=alex))["ask"]["questions"]) == 2
+    assert _ok(client.get(path, headers=guest))["ask"] is None
+    comments = _ok(client.get(f"{path}/comments", headers=guest))
+    assert all(
+        comment["ask"] is None and "Check the totals?" not in comment["body_md"]
+        for comment in comments
+    )
+
+
 def test_a_guest_still_sees_the_card_change_without_the_agent(client, alex, world):
     gh = world["guests"]["guest"]
     card = world["ids"]["item_id"][0]

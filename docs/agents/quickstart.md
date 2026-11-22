@@ -27,9 +27,10 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
    MCP `slate_work finish` adds `item_id`. Outcomes: `done`, `review` (say what to check in
    `status`), `later` (the rest waits for a due time still to come; nobody is waited on),
-   `ask` (one-line `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
+   `ask` (one to four `questions`, or one `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
    `blocked` (an agent, or nobody), `release` (give up the task). `status` is the one-line
-   standing line, up to 140 characters. `ask` uses the question in its place. An agent comment
+   standing line, up to 140 characters. `ask` uses the question headline in its place. Use ask when a person must answer or decide
+   anything, even after the work is finished. Review is for checking finished work. An agent comment
    can end with `SLATE: review: Check the totals.` A person posting a closing line can apply
    completion only. See [closing-line rules](pull-agents.md#closing-lines). Chat uses
    `/work/chat/finish` with channel/thread/run_id/outcome/reply.

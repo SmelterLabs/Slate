@@ -48,6 +48,30 @@ def test_upgrade_on_empty_file_matches_models_then_downgrades(tmp_path):
     assert down.returncode == 0, down.stderr
 
 
+def test_upgrade_wraps_existing_structured_asks(tmp_path):
+    db = tmp_path / "slate.db"
+    prior = "9eb6bad16d52"
+    up = _alembic(db, "upgrade", prior)
+    assert up.returncode == 0, up.stderr
+    old = {"question": "Which date?", "options": ["Friday", "Saturday"]}
+    with sqlite3.connect(db) as conn:
+        _row(conn, "accounts", id="author", handle="my-agent", kind="agent", role="member")
+        _row(conn, "sections", id="section", slug="home", audience="work")
+        _row(conn, "lists", id="list", section_id="section", slug="tasks")
+        _row(conn, "items", id="item", list_id="list", kind="task", created_by="author")
+        conn.executemany(
+            "INSERT INTO comments (id, item_id, author_id, body_md, created_at, ask_json) "
+            "VALUES (?, 'item', 'author', 'Report', '2026-11-21T00:00:00Z', ?)",
+            [("ask", json.dumps(old)), ("plain", "null"), ("unset", None)],
+        )
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode == 0, up.stderr
+    with sqlite3.connect(db) as conn:
+        rows = dict(conn.execute("SELECT id, ask_json FROM comments"))
+    assert json.loads(rows["ask"]) == {"questions": [old]}
+    assert rows["plain"] == "null" and rows["unset"] is None
+
+
 BASELINE = "a7e2c9d4f1b3"
 VERSIONS = ROOT / "alembic" / "versions"
 
