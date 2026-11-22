@@ -9,10 +9,11 @@
   let { mode }: { mode: 'top' | 'float' } = $props();
 
   const list = $derived(board.needsMe);
-  const n = $derived(list.length);
+  const projectN = $derived((board.projectNeeds ?? []).length);
+  const n = $derived(board.needsTotal);
   const counts = $derived(countBy(list));
   // The most urgent reason colors the badge: red while anything is blocked on you.
-  const top = $derived<Need | null>(list[0]?.need ?? null);
+  const top = $derived<Need | null>(list[0]?.need ?? (projectN ? 'blocked' : null));
   const tone = $derived(
     top === 'waiting' || top === 'blocked' ? 'hot' : top === 'asked' ? 'ask' : top === 'review' ? 'review' : 'stalled',
   );

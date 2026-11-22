@@ -8,7 +8,7 @@
   import { isDocumentKind } from '../../lib/office';
   import { task } from '../../lib/task.svelte';
   import DocumentPreview from '../files/DocumentPreview.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
   import { trapFocus } from '../../lib/focustrap';
 
   const view = $derived(task.viewing);

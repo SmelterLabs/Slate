@@ -191,7 +191,7 @@ export async function pushState(): Promise<PushState> {
       ? "needs-install"
       : "unsupported";
   if (Notification.permission === "denied") return "blocked";
-  if (!(await serverKey().catch(() => null))) return "server-off";
+  if (!(await serverKey())) return "server-off";
   return (await current()) ? "on" : "off";
 }
 
@@ -234,8 +234,11 @@ export async function enablePush(): Promise<void> {
 export async function disablePush(): Promise<void> {
   const sub = await current();
   if (!sub) return;
-  await post("/push/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
-  await sub.unsubscribe();
+  try {
+    await post("/push/unsubscribe", { endpoint: sub.endpoint });
+  } finally {
+    await sub.unsubscribe();
+  }
 }
 
 /** On each start: if this browser is subscribed, make sure the server still has it (it drops
@@ -245,7 +248,7 @@ export async function syncPush(): Promise<void> {
   if (!supported() || Notification.permission !== "granted") return;
   const sub = await current();
   if (!sub) return;
-  const key = await serverKey().catch(() => null);
+  const key = await serverKey();
   if (!key) return;
   const had = bytesToUrlBase64(sub.options.applicationServerKey);
   if (had && had !== key) {

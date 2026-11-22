@@ -1,6 +1,6 @@
 <script lang="ts">
   import { download, exportPath } from '../lib/archive';
-  import { notifySettings } from '../lib/notify.svelte';
+  import { withStorage } from '../lib/storage';
   import { board } from '../lib/store.svelte';
   import { docGlyph, topOf } from '../lib/docs';
   import { docs } from '../lib/docs.svelte';
@@ -43,10 +43,8 @@
     // The key gains the account id a moment after the page opens. With nothing stored under
     // it, keep what is showing: a click on More in that moment must not be undone.
     const key = moreKey;
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored !== null) moreOpen = stored === 'true';
-    } catch { /* optional preference */ }
+    const stored = withStorage((storage) => storage.getItem(key), null);
+    if (stored !== null) moreOpen = stored === 'true';
   });
   const secondary = $derived(moreDestination(page));
   $effect(() => { if (secondary) moreOpen = true; });
@@ -188,6 +186,11 @@
       { label: 'New doc here', disabled: !canEditSection(section.id), onselect: () => newDoc(`s:${section.id}`) },
       favEntry('section', section.id),
       { label: 'Rename', onselect: () => start(`section:${section.id}`, section.name) },
+      {
+        label: section.project ? '✓ This is a project' : 'This is a project',
+        disabled: !canEditSection(section.id),
+        onselect: () => void board.updateSection(section.id, { project: !section.project }),
+      },
       {
         label: 'Move up',
         disabled: !canReorder || savingOrder || index === 0,
@@ -360,11 +363,11 @@
   <a class="nav-item" href="#/home" onclick={onpick} class:active={page === 'home'}>
     <span class="nav-label"><Icon name="target" size={15} /><span>My Work</span></span>
     <!-- Needs you: the same number as the pill, the window title and the app icon. -->
-    {#if board.needsMe.length}<span
+    {#if board.needsTotal}<span
         class="count hot"
-        data-needs-nav={board.needsMe.length}
-        title="{board.needsMe.length} need{board.needsMe.length === 1 ? 's' : ''} you"
-        aria-label="{board.needsMe.length} need you">{board.needsMe.length}</span
+        data-needs-nav={board.needsTotal}
+        title="{board.needsTotal} need{board.needsTotal === 1 ? 's' : ''} you"
+        aria-label="{board.needsTotal} need you">{board.needsTotal}</span
       >{/if}
   </a>
   <a class="nav-item" href="#/inbox" onclick={onpick} class:active={page === 'inbox'}>
@@ -389,7 +392,7 @@
         title="Overdue and due today">{todayCount}</span
       >{/if}
   </a>
-  <button class="nav-item" aria-expanded={moreOpen} aria-controls="nav-more" onclick={() => { moreOpen = !moreOpen; try { localStorage.setItem(moreKey, String(moreOpen)); } catch { /* optional preference */ } }}>
+  <button class="nav-item" aria-expanded={moreOpen} aria-controls="nav-more" onclick={() => { moreOpen = !moreOpen; withStorage((storage) => storage.setItem(moreKey, String(moreOpen)), undefined); }}>
     <span class="nav-label"><Icon name="chevron" size={15} />{secondary ? `More · ${page}` : 'More'}</span>
   </button>
   <div id="nav-more" hidden={!moreOpen}>
@@ -487,6 +490,26 @@
       {/if}
       {#if confirming === `section:${section.id}`}
         {@render confirmRow(`section:${section.id}`, `section ${section.name}`)}
+      {/if}
+      {#if section.project}
+        {@const step = section.next_step}
+        {#if step}
+          {@const who = step.assignee_ids.map((id) => board.accountName(id)).filter(Boolean).join(', ')}
+          <a
+            class="nav-next"
+            href="#/section/{section.id}?task={step.item_id}"
+            data-next-step={section.id}
+            onclick={(e) => {
+              e.preventDefault();
+              onpick();
+              void board.open(step.item_id);
+            }}>Next: {step.title}{#if who}{' · '}{who}{/if} · {shortDate(step.due_at, board.now)}</a
+          >
+        {:else}
+          <a class="nav-next nav-next-none" href="#/section/{section.id}" data-no-next-step={section.id} onclick={onpick}
+            >No next step</a
+          >
+        {/if}
       {/if}
       {#each lists as list, li (list.id)}
         {#if editing === `list:${list.id}`}
@@ -650,7 +673,7 @@
         class="foot-btn"
         aria-label="Notifications"
         title="Notifications"
-        onclick={() => (notifySettings.open = true)}><Icon name="bell" size={15} /></button
+        onclick={() => (inbox.settingsOpen = true)}><Icon name="bell" size={15} /></button
       >
       <button class="foot-btn" aria-label="Tags" title="Tags" onclick={() => board.openTagManager()}
         ><Icon name="tag" size={15} /></button
@@ -673,3 +696,23 @@
 {#if board.listSettingsId && board.lists[board.listSettingsId]}
   <ListSettings list={board.lists[board.listSettingsId]} />
 {/if}
+
+<style>
+  .nav-next {
+    display: block;
+    margin: 0 10px 4px 28px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav-next:hover {
+    color: var(--text);
+  }
+  .nav-next-none {
+    color: var(--danger);
+    font-weight: 600;
+  }
+</style>

@@ -3,7 +3,7 @@
 
 import { workspaceDay } from './quickadd';
 import { addDays } from './when';
-import { isOpen } from './format';
+import { isOpen, isParked } from './format';
 import type { Item } from './types';
 
 export type Bucket = 'overdue' | 'today' | 'tomorrow' | 'week' | 'later' | 'none';
@@ -61,6 +61,7 @@ export function myWork(items: Item[], meId: string, now: Date, referenceLists: R
     if (it.archived_at || referenceLists.has(it.list_id)) continue; // reference lists are not work
     const mine = it.assignees.some((a) => a.id === meId);
     if (isOpen(it)) {
+      if (it.later || isParked(it)) continue;
       if (mine) {
         buckets[bucketOf(it, now)].push(it);
         openCount++;

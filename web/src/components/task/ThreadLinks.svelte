@@ -8,7 +8,7 @@
   import { safeAgentUrl } from '../../lib/conversation';
   import { board } from '../../lib/store.svelte';
   import type { AgentFlag, AgentThread } from '../../lib/types';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { threads = [], flag = null }: { threads?: AgentThread[]; flag?: AgentFlag | null } = $props();
 

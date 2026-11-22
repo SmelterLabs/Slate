@@ -14,10 +14,11 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   (rule 4). `done` clears the flag and, with `complete` (default), moves the item to the list's
   first done status; `idle` clears it only. `blocked` + `waiting_on` sets
   `waiting_on_account_id`; `assign_me` adds the reporter. **Asking a person**
-  (`reports.report` owns the rule, so finish, report, the closing line and MCP all get it):
-  `blocked` waiting on a person needs a `question` (one line, 1 to 200 characters; `options`: 2
-  to 4 answers of 1 to 40), and without one it is refused 422 ("use ask with a one-line
-  question"). With a question and no `waiting_on`, it waits on the person whose Ask started the
+  (`reports.report` owns the rule for finish, direct reports and closing lines). A leased run
+  finishes with `ask`. Its stored badge is `blocked`. An interactive agent's direct report
+  uses that badge and supplies `question` (one line, 1 to 200 characters). Optional `options`
+  contain 2 to 4 answers of 1 to 40 characters each. With a question and no `waiting_on`, it
+  waits on the person whose question started the
   turn, else the workspace owner (`brief.default_ask`). The ask posts one comment by the agent
   (the `reply`, else the question) addressed to the person as an Ask with `comments.ask_json =
   {question, options}`; the badge note is the question; `item.reported.after` carries
@@ -37,7 +38,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `item.work_finished` events that caused it (`after.status`; a finish carries it only when
   it wrote it, so a person's finish never repeats an agent's line) and writes no event of its
   own. `status` is trimmed at the API and refused when empty or more than one line.
-  The item view's `standing` is `{line, by_id, at, move_id}` (null before any agent report) and
+  The item view's `standing` is `{line, by_id, at, move_id}` (null until an agent records a standing line) and
   stays after the card closes. `move_id`, whose move it is, is computed in `items._move_id`:
   who the card waits on; else, for a `review` flag, the person the review is for
   (`items.review_for`); else nobody on a done or cancelled card; else its first agent
@@ -75,7 +76,7 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   `fastlane.Timing` copies it onto the response start. A `304` is answered by `Conditional` before
   auth, so it spends nothing. `limiter.requests` counts requests per token and kind for the usage
   endpoint. In memory, per process. Off in tests (`tests/conftest.py`).
-- **Check-in** (`service/checkin.py`, `GET /checkin`, MCP `slate_checkin`): the agent's poll,
+- **Check-in** (`service/checkin.py`, `GET /checkin`, optional MCP `slate_checkin`): the agent's poll,
   separate from the people-facing Inbox below. `queue` (open items assigned to or waiting on the
   caller) plus `news` (others' events that concern it, with `why`) from one cursor. SQL first keeps
   only candidate events (assignment, mention and waiting-on events, and anything on an item the
@@ -131,9 +132,11 @@ direct reads. Work offers, queue counts and the daily digest omit them.
   would otherwise bury the card's history under identical rows).
 - **Which task:** `work.eligible()` is one SQL select (outer join on the lease). Scope = assigned to
   or waiting on the caller, plus (with `pool`) items with no assignee; restricted callers only get
-  lists they may edit (`access.EDIT`). Skipped: not a task, closed, archived (or its list/section),
+  lists they may edit (`access.EDIT`). Skipped: non-task items, archived items and items in
+  archived lists or sections, Parked cards, reference-list cards, and cards in
   `links.blocked_item_ids()` (the same "open blocker" rule as the item view; the dependency thread
-  keeps it the source of truth), `start_at` in the future, `waiting_on` someone else, `review`
+  keeps it the source of truth), `start_at` in the future unless Run now is pending,
+  `waiting_on` someone else, `review`
   badge, the caller's own `blocked` badge younger than `BLOCKED_PAUSE` (1 h, so a blocked task is
   not retried in a loop), the caller's own last finish `answered` (until a new Ask or Run now),
   a `failed` badge until its retry time (the scheduler's retry and Run
@@ -199,7 +202,7 @@ direct reads. Work offers, queue counts and the daily digest omit them.
   skipped except reminders, digests, its own `item.run_requested` (Run now from another session
   of the same agent) and its own reconcile of an expired run (`item.work_finished` with
   `reconciled` and `expired`), which wake its runner. Counts as a live stream on the Agents page.
-- **MCP work models:** `slate_work next` uses the server's default resume behavior.
+- **MCP work models:** `slate_work next` accepts the original run proof for resume.
   `slate_work finish` uses `reply` for a comment and `note` for a machine failure or hand-off.
   Take more work in a separate `next` call. The resident runner uses the REST models.
 
@@ -209,17 +212,18 @@ Slate stays the doorbell: it never launches an agent.
 
 - **`item.run_requested`** (`work.request_run`, `POST /items/{id}/run` 202 → the event, MCP
   `slate_item run`): actor = who pressed, `after = {for: [agent account ids], reason: "now"}`, field
-  `run_requested_at`. 422 with no agent assignee, or done/cancelled/archived. Also sets
-  `items.run_requested_at`, which `work.take()` clears: "a Run now newer
-  than the last run".
+  `run_requested_at`. 422 with no agent assignee, or done/cancelled/archived. In the same
+  transaction, it clears `parked_until` and `parked_note` through ordinary field changes. Its
+  pending request overrides `start_at` for pickup and leaves the saved date in place.
+  `work.take()` clears `items.run_requested_at`.
 - **Due gate** (`work._run_time_has_come`, inside `eligible()`): when the caller is an agent, a task
   assigned to it with a `due_at` is takeable only once its run time has come or `run_requested_at`
   is set. Run time = `dates.run_at(due_at, due_date_only)`: 06:00 in the workspace timezone on the
   day for a date-only due date (`items.due_date_only`), else `due_at` (a task explicitly due at
   17:00 runs at 17:00). SQL cannot do timezones, so the condition is `due_at <= now OR
   (due_date_only AND due_at = dates.early_date_only_due(now))` (the one 17:00 instant whose 06:00
-  has passed, between 06:00 and 17:00 local). Not gated: tasks with no due date, people, pool and
-  `waiting_on` tasks.
+  has passed, between 06:00 and 17:00 local). The due gate also admits an open question addressed to the agent. It does not hold
+  undated cards, cards taken by people, or cards the agent does not own.
 - **`later` finish** (`work.finish`, `outcome: "later"`, closing line `SLATE: later`): the agent
   did what it can now and the rest must happen at the due time, with any go it needs already
   given. It reports `idle` (badge cleared), keeps its assignment, sets no `waiting_on` and
@@ -268,24 +272,26 @@ Slate stays the doorbell: it never launches an agent.
   and no report for `work.STALE_AFTER` (30 minutes) is cleared, an `idle` report by `slate`
   with `after.reason: "stale"`, after the same test passes again under the write lock (a take
   or report that won the gap is left alone). It reaches nobody (`inbox.reason_for`).
-- **Stalled cards** (`due.poke_stalled`, on the due tick): a card is stalled when it is open,
-  is on a work list, has an agent assignee, waits on nobody, has no `review`, `blocked` or `failed` badge, is not
-  blocked by another card, has no start or due time still to come, has no lease, and an enabled
+- **Stalled cards** (`due.poke_stalled`, on the due tick): a card can receive a retry when it is open,
+  on a work list, unparked, assigned to an agent, waiting on nobody, and has no `review`,
+  `blocked` or `failed` badge. It has no open blocker, future start or due time, or lease. An enabled
   agent assignee that may edit it last finished it `answered` at least `work.STALL_AFTER`
   (4 hours) ago with no Run now since. Every condition is read again under the write lock
-  before anything is written. The first time, Slate pokes that agent: `item.run_requested` by
+  before anything is written. Slate asks that agent to try again once: `item.run_requested` by
   `slate` with `after.reason: "stalled"` and `for` = that agent. The poke is that agent's
   alone: `eligible()` opens the card for it once (`work._stall_poke`: a stalled poke naming it,
   newer than its newest finish there), and its next take on the open card binds the poke to the
   turn (`item.work_started` `after.poke`). Another assignee's take is an ordinary turn and leaves
   the poke waiting. The brief for the bound turn ends with `brief.STALLED_RULE` (the card is
   still open; end `done`, `ask`, `later` or `review`; `GET /items/{id}/brief` reads the
-  caller's own turn). If that turn ends `answered` too, on a card still open, the finish sets
+  caller's own turn). If that turn ends `answered` too, on a card still open, unparked,
+  on a work list and without a future start or due date, the finish sets
   `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
   {agent_id}`), the inbox and push reason `stalled` ("<Agent> stopped without finishing:
   <title>"), told to the card's enabled person assignees and watchers who can see it now, else
   the owners (`inbox.stall_recipients`). No further poke. Run now (`request_run`), a new Ask
-  for an agent (`comments._assign`) or any finish other than `answered` clears it; an
+  for an agent (`comments._assign`), parking, scheduling a future start or due date, closing
+  the card, or any finish other than `answered` clears it; an
   `answered` turn the poke did not start leaves it as it is.
 - **Run stage** (`service/due.py`): for an item with agent assignees, `pending_stages` adds a stage
   `run` at `run_at - 1 µs` (so it sorts before `due` when they coincide) that records
@@ -389,15 +395,13 @@ item's assignees and `waiting_on`.
 
 ### Ask dispatch and settlement (protocol 3)
 
-Task Ask dispatch and resolution are separate. `item.work_started` records the take's ordered
-event boundary; `item.work_finished` consumes assignments through it for that agent/item.
-Every finish outcome consumes dispatch, preserving waiting/review/release semantics without
-closing or hiding open Asks. Assigned-task done leaves them open; asked-only agent done
-explicitly answers and resolves, scoped to the take. New/reassigned Asks during the run remain
-pending. Proof-bound resume/heartbeat never moves the boundary. Protocol 3 carries the execution
-proof in runner/client payloads. The board uses these same receipts to stop typing indicators
-while retaining visible Open/Resolve pills. The event log is authoritative; do not prune these
-records independently of task history.
+`item.work_started` records the take's ordered event boundary. At finish, the server records
+the settlement cursor in `item.work_finished.after.through`, advancing it as described below.
+Every agent finish except `failed` and `release` resolves questions in that boundary with
+`reason: "answered"`. Those two outcomes leave the questions open. Human finishes also leave
+questions open. An agent taking an asked-only turn can finish `done` without completing the
+card. Questions outside the settlement boundary remain pending. The board uses the finish
+receipt to stop typing indicators and comment events to update question state.
 
 ### While a run is going: new messages and Stop
 
@@ -408,8 +412,8 @@ its id back (`heartbeat {seen: [...]}`), and that records `comment.seen` (once p
 ids that are not this run's messages are ignored). The comment view then carries `seen_at` /
 `seen_by_id`, which the board shows as "<agent> got this mid-run". The finish settles what was read:
 `item.work_finished.after.through` is `work._turn_through`, the take's boundary moved past each
-seen message in order and stopped at the first one never read, so a message the run did not
-read is still the agent's next turn, exactly as before.
+seen message in order and stopped at the first one never read. Unread messages beyond that
+boundary can start a later turn.
 
 `POST /items/{id}/stop` (MCP `slate_item stop`) records `item.stop_requested` with `after.for` =
 the account holding the lease; 409 when no live lease exists, and a second press in the same run
@@ -750,7 +754,7 @@ dependent work ordered with dependencies rather than relying on incidental seria
 a recent agent roster. The card and task window share this helper, including after reload;
 no polling is introduced. Roster refreshes occur at load, SSE reconnect and relevant events,
 with generations preventing stale responses from overwriting new data or a signed-out scope.
-The text deliberately does not assert queue receipt, order, capacity or an ETA. The item view
+The text confirms the request only. The item view
 carries `run_requested_at` (`items.views`, `ItemOut`), and `store.pickup()` falls back to it
 when the page did not see the press, so an explicit Run now still says "Waiting for pickup…"
 after a reload. New overdue cards receive their grace interval from creation, not the

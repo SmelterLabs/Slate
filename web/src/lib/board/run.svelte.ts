@@ -89,7 +89,7 @@ export class BoardRun extends BoardItems {
       this.flash(e instanceof ApiError ? e.message : 'Could not ask the agent to run it');
       return;
     }
-    void agents.refreshRoster();
+    void agents.refreshRoster((what, e) => this.loadFailed(what, e));
   }
 
   /** Ask the agent working on the task to stop (POST /items/{id}/stop). */

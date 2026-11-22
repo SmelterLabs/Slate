@@ -172,11 +172,11 @@ async def test_service_change_reaches_stream_within_one_second(live):
         stream = await _open(client, stack, f"{API}/events/stream", headers=_bearer(reader))
         assert await stream.ready() == []
 
-        start = time.monotonic()
         with live.Session() as s:
             acct = accounts.create_account(
                 s, live.actor, handle="agent", display_name="Agent", kind="agent"
             )
+        start = time.monotonic()
         msg = await stream.event(timeout=1)
         assert time.monotonic() - start < 1
 
@@ -198,14 +198,14 @@ async def test_two_streams_both_see_a_third_partys_change(live):
         await sa.ready()
         await sb.ready()
 
-        # The third party writes through the REST API.
-        start = time.monotonic()
+        # The third party writes through the REST API. Time delivery after acknowledgement.
         r = await client.post(
             f"{API}/accounts",
             json={"handle": "agent2", "display_name": "Agent 2", "kind": "agent"},
             headers=_bearer(live.admin_token),
         )
         assert r.status_code == 201
+        start = time.monotonic()
         ma, mb = await asyncio.gather(sa.event(timeout=1), sb.event(timeout=1))
         assert time.monotonic() - start < 1
         assert ma.event == mb.event == "account.created"

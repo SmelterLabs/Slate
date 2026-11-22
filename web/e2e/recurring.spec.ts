@@ -12,8 +12,8 @@ async function scratch(name: string) {
   return api<{ id: string }>('POST', '/lists', { section_id: section.id, name });
 }
 
-test('recur when done: reopen the same task, skip weekends, label on the card', async ({ page }) => {
-  const list = await scratch('Filters');
+test('recur when done: reopen the same task, skip weekends, label on the card', async ({ page }, info) => {
+  const list = await scratch(`Filters ${info.repeatEachIndex + 1}`);
   const today = workspaceDay(new Date());
   const item = await api<{ id: string }>('POST', '/items', {
     list_id: list.id,
@@ -58,7 +58,10 @@ test('recur when done: reopen the same task, skip weekends, label on the card', 
   expect(workspaceDay(new Date(back.due_at)) > addDays(today, 20)).toBe(true);
   const weekday = new Date(`${workspaceDay(new Date(back.due_at))}T12:00:00Z`).getUTCDay();
   expect([0, 6]).not.toContain(weekday);
-  await expect(card).toBeVisible();
+  // The reopened card moves to Later. Open that column after the live update folds it.
+  const later = page.locator('.column[data-group="later"]');
+  await later.locator('.column-strip').click();
+  await expect(later.locator(`.card[data-item="${item.id}"]`)).toBeVisible();
   await shot(page, 'recurring-card-label');
 });
 

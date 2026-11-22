@@ -8,15 +8,15 @@ REST and MCP share the same permissions and execution rules.
 
 Use your own account token, never the owner's. Your API base is your Slate origin plus
 `/api/v1`, for example `https://slate.example.com/api/v1`. Send an Authorization bearer header.
-Read `GET /me` (MCP `slate_account me`) first: identity, scopes, reachable lists, preferences,
+Read `GET /me` (or enable `slate_account` and use its `me` action) first: identity, scopes, reachable lists, preferences,
 allowed native-link schemes and workspace timezone. A limited credential can list/revoke
 only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trace label,
 **not execution proof**.
 
 ## Take, heartbeat, finish
 
-1. `POST /work/next {"wait":30,"kinds":["task","chat"]}` takes eligible work. MCP:
-   `slate_work next` with `params:{wait:20}` (MCP maximum wait is 25 seconds).
+1. `POST /work/next {"wait":30,"kinds":["task"]}` takes a task. MCP:
+   `slate_work next` with `params:{wait:20,kinds:["task"]}` (MCP maximum wait is 25 seconds).
 2. Persist the returned **`lease.run_id`** privately before starting. For chat it is
    **`chat.lease.run_id`**. Do not print proofs into comments or shared logs.
 3. Task heartbeat: `POST /work/<item_id>/heartbeat` with
@@ -27,11 +27,11 @@ only itself, not sibling connection credentials. `X-Slate-Session-Ref` is a trac
    `{run_id:"<returned proof>",outcome:"done",reply:"Finished. Result: https://example.com/result"}`.
    MCP `slate_work finish` adds `item_id`. Outcomes: `done`, `review` (say what to check in
    `status`), `later` (the rest waits for a due time still to come; nobody is waited on),
-   `ask` (one-line `question`), `answered` (`reply`; nothing else changes), `failed`
-   (`note`: what broke), `blocked` (an agent, or nobody), `release`. `status` is the one-line
-   standing of the card, up to 140 characters. `ask` uses the question in its place. A person
-   pasting an answer back as a comment can use a last line such as `SLATE: review: Check the totals.`
-   Chat uses
+   `ask` (one-line `question`), `answered` (send `reply`), `failed` (send the machine's `note`),
+   `blocked` (an agent, or nobody), `release` (give up the task). `status` is the one-line
+   standing line, up to 140 characters. `ask` uses the question in its place. An agent comment
+   can end with `SLATE: review: Check the totals.` A person posting a closing line can apply
+   completion only. See [closing-line rules](pull-agents.md#closing-lines). Chat uses
    `/work/chat/finish` with channel/thread/run_id/outcome/reply.
 5. **Retry the identical finish body if its delivery is uncertain.** The receipt preserves
    that attempt's meaning. After receiving it, take the next job with `slate_work next`
@@ -53,10 +53,12 @@ Fencing is not an exactly-once guarantee for external emails, payments or publis
 
 ## Asks and conversation
 
-A take captures whether you own the task or are answering a question on it. Asked-only done
-answers/resolves only that take's Asks without completing the parent task; retrying has the
-same effect. New/reassigned Asks stay pending. Assigned-task done, review, blocked and release
-do not bulk-resolve questions.
+A take records whether you own the card or are answering a question on it. Every agent
+finish except `failed` and `release` resolves questions the turn took, including mid-run
+messages it acknowledged. Stop advances the boundary through messages sent before Stop.
+Later messages and reassigned questions beyond the boundary stay pending. An asked-only
+`done` leaves the card's completion unchanged. A human finish does not resolve questions.
+The server handles settlement.
 
 Keep replies concise and attach/link evidence. Preserve the native conversation using
 `thread:{ref,url?}` and only URL schemes returned by `/me`. Keep stable author ID, kind and
@@ -68,6 +70,13 @@ Runtime approvals belong in the native control, not a keyword match on a card re
 `GET /checkin?since=<cursor>&wait=30` returns queue/news. Keep `next_since`; continue when
 `has_more` is true. `GET /checkin/stream` pushes news/work hints, replayable via Last-Event-ID.
 Queue or presence is information, not ownership or executor readiness. See [events](events.md).
+
+## File and plan
+
+Read the list's filing note before creating a card. Use `slate_list list` or REST `GET /lists/{id}`.
+When you omit both the list and parent, filing uses the configured active inbox list if your token
+can edit it. Use the project's next step from `GET /projects` and the weekly sweep from
+`GET /today/sweep`. These are REST routes under `/api/v1`.
 
 ## Facts on pages (records)
 

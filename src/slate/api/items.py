@@ -398,7 +398,8 @@ def report(item_id: str, body: ReportIn, auth: WriteAuth, session: DbSession) ->
 @router.post("/items/{item_id}/run", response_model=EventOut, status_code=status.HTTP_202_ACCEPTED)
 def run(item_id: str, auth: WriteAuth, session: DbSession) -> Any:
     """Run now: ask the item's agent assignees to start on it now instead of at its run time.
-    Records `item.run_requested` (`after.for` = the agents), which reaches each agent's stream
+    Clears parking and overrides a future start without changing the saved start date. Records
+    `item.run_requested` (`after.for` = the agents), which reaches each agent's stream
     as a `work` hint (its runner then takes this task with `POST /work/next {item_id}`).
     Returns 422 when no agent is assigned or the item is done, cancelled or archived."""
     return event_payload(work.request_run(session, auth.actor, item_id))

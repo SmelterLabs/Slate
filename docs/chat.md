@@ -16,8 +16,7 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   holds exact exposures beyond the intentional `read_through` cursor. `POST /channels/{key}/read {message_ids: [...]}` unions IDs under the
   change lock; empty lists are no-ops, cross-channel IDs and mixing `through` with IDs are rejected.
   Cursor/read-all calls are intentional prefix reads. `chat.unread_messages()` is the
-  shared read predicate: callers such as push re-nudges must honor exact exposures, not just the
-  cursor. Channels return `first_unread_id`, `first_unread_thread_id` and persistent
+  shared read predicate. Unread and escalation checks use exact exposures as well as the cursor. Channels return `first_unread_id`, `first_unread_thread_id` and persistent
   `unread_threads` counts. Own/deleted messages are never unread. `chat.unread()` gives the
   same answer as counting `unread_messages()`, but in SQL: one `GROUP BY channel, parent_id`
   past the cursor (mentions through `json_each`), then one small query per channel with exposed
@@ -52,9 +51,9 @@ One channel per list and per section, plus `general` (`service/chat.py`, `api/ch
   ordinary reading the list is empty or a handful of ids above one gap. Cap: at most `EXPOSED_KEEP`
   (500) ids are kept above that; beyond it the oldest become the cursor, which does cover whatever
   unread sat below them (a message skipped while 500 later ones were read counts as read; the
-  bounded loss chosen over resurrecting dropped ids as unread, which would also re-nudge push).
+  retention cap treats these skipped messages as read).
   `channel.read` carries `after.through` when the cursor moved. `unread_messages()` answers the
-  same either way, so push re-nudges and reminders see the same answer. Without compaction the
+  same way whether a read is stored as a cursor or an exact exposure. Without compaction the
   list would grow with reading history until a read-all.
 - **Threads** are one level: a reply's `parent_id` is the root, and replying to a reply lands on the
   root. `message.posted` for a reply carries `thread_followers` (account ids of earlier authors in

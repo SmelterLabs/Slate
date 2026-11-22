@@ -24,14 +24,20 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   item, so its alerts re-arm because the due date moved.
 - **Daily digest**: hook `reminders.send_digests()`. Once per day, at the account's
   prefs `digest_hour` in the workspace timezone (default 7; prefs `digest` defaults on for people,
-  off for agents) it records `account.digest` with what is overdue and due today (assigned to you)
-  and waiting on you. Open questions appear first, oldest first, with their text and age.
-  Nothing on an empty day; an account found empty is checked again at most
-  once an hour that day (`QUIET_RECHECK`), not every tick. Idempotent by the `date` in the last digest event. `GET /me/digest`
-  previews it.
+  off for agents) it records `account.digest` with what is overdue and due today (assigned to you;
+  later, parked, reference-list, and stale >14d-overdue cards excluded) and waiting on you. On the
+  account's sweep day (prefs `sweep_weekday`, 0 = Monday .. 6 = Sunday, default 4 Friday), stale
+  cards appear under `decide` oldest first. Project sections the account manages that currently
+  have no `next_step` appear under `projects_without_next_step` (never pushed on their own).
+  Open questions appear first, oldest first, with their text and age.
+  Nothing on an empty day; an account found empty is checked again at most once an hour that day
+  (`QUIET_RECHECK`), not every tick. Idempotent by the `date` in the last digest event.
+  `GET /me/digest` previews it.
 - **Where they land**: inbox reasons `reminder` and `digest` (`inbox.reason_for`, checked before the
   "own events are not news" rule), check-in `why` `reminder`/`digest` (also in the check-in SQL
   prefilter) and push.
+- A card returns from parking at 06:00 workspace time with an `item.unparked` event. The attention
+  policy releases it as a reminder. Projects with no next step and the Decide panel are level 0.
 - **Web Push** derives its VAPID key from `SLATE_SECRET_KEY`. It uses the shared attention
   stream, applies `push_reasons` and checks access again on every attempt. Its payload contains
   `title`, `body`, `url`, `tag`, `loudness` and `silent`.
@@ -66,8 +72,10 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
 | Due, failed, stalled, unblocked, nudge, access | 2 | 2 |
 | Digest | 1 | 1 |
 | Watching, status, update and other reasons | 0 | 0 |
+| No next step and Decide | 0 | 0 |
 
-An urgent card adds one, capped at 4. Level 0 stays in the inbox. Push levels 1 and 2
+An urgent card adds one, capped at 4. No next step and Decide stay at level 0 even for urgent
+work. Level-0 inbox entries do not release an alert. Push levels 1 and 2
 are silent, and levels 3 and 4 have sound. Email requires at least level 3 and five minutes
 unseen. The alert bridge uses level 2 or higher and sends level 4 to the phone.
 Per-channel reason filters still apply at every level.
@@ -90,7 +98,8 @@ summaries represent multiple entries and have no item or source entry. The route
 Push, email and the alert bridge apply their own delivery filters to these releases.
 
 The scheduler records a recipient-only `inbox.escalated` event once per original entry.
-An open question or an unread message or mention by a person reaches level 4 after
+An open task question with the card still waiting on its recipient, or an unread chat message or
+mention by a person, reaches level 4 after
 `escalate_after_minutes` (120 by default, 0 to disable). The escalation keeps its original
 reason and begins "Still waiting: ". A due card with no person assignee also reaches its
 person creator or the workspace owner.
@@ -123,9 +132,8 @@ and `tests/test_push_retry.py`.
 
 ## Email notifications and the waiting bell
 
-- **Why**: an easy way to see "something needs me" without opening a view that
-  has the card, and a ClickUp-style "how and for what" without a wall of options. SMS is out of
-  scope.
+- **Delivery choices**: the waiting bell links to unread work, and notification settings
+  choose which reasons can reach each channel.
 - **The bell** (`web/src/components/WaitingBell.svelte`, `lib/waiting.ts`): top right of the
   favorites bar on a desktop, left of Agents (phones keep the top bar's bell). Chips: `@N` for
   unread mentions/Asks, a chat bubble with N for messages (unread replies and comments in the

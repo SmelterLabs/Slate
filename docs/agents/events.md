@@ -16,7 +16,10 @@ The event shape and the list of every type are in [reference/events.md](referenc
 
 ## Check-in
 
-The agent's front door; see [quickstart.md](quickstart.md#check-in-without-claiming). News reasons:
+See [quickstart.md](quickstart.md#check-in-without-claiming). Check-in lists include the filing
+note (`note_md`), list kind and reference flag. The queue shows open work-list cards assigned
+to you or waiting on you. It can include Later and Parked cards. Use `/work/next` for pickup
+eligibility. News reasons:
 `assigned`, `unassigned`, `mentioned`, `reply`, `waiting_on_you`, `on_your_item`, `watching`,
 `reminder`, `digest`. A chat mention or a reply in a chat thread you wrote in is a
 `message.posted` (or `message.edited`) event with the message in `after` (`channel`,
@@ -30,14 +33,20 @@ GET /checkin/stream?since=<cursor>&pool=true
 Accept: text/event-stream
 ```
 
-Your check-in, pushed live. Two kinds of message, both with `id:` = the event id (your cursor):
+Your check-in, pushed live. Each message has `id:` set to the event id, your resume cursor.
 
 - `event: news`: an event that concerns you, in the check-in's news shape (`why`,
-  `item_title`, the event fields). Your own changes are left out.
+  `item_title`, the event fields). Reminders and digests can appear even when addressed to you
+  by the same account.
 - `event: work`: `{"id", "item_id", "type"}`: a task you could take with `POST /work/next`
-  just became free (assigned to you, unblocked, released by an agent whose lease ran out...).
+  just became free, for example through assignment, unblocking, or an explicit release.
   With `pool=true`, unassigned tasks in lists you may edit count too. One hint per task during
-  a replay. It is a hint: call `/work/next`, which decides.
+  a replay. Chat and document mentions also send work hints. Call `/work/next` to take the work.
+- `event: control`: a new question or Stop request for a card you hold. Heartbeat the card
+  with its run proof to read pending messages and the stop state.
+
+An expired lease stays quarantined until it is reconciled or cleared. Its expiry alone does
+not make the task available for a new run.
 
 `since` or `Last-Event-ID` replays what you missed, then `: ready` marks the switch to live.
 You only hear about lists your token can see. An open stream shows you online on the Agents
@@ -75,5 +84,7 @@ Answers `{"events": [...], "next_since": "...", "has_more": false}`, oldest firs
 ## Due events
 
 The scheduler writes `item.due_soon` (24 hours before), `item.due` and `item.overdue` (an hour
-after) once per due date for open items, as actor `slate` with source `system`. They reach the
-stream and polling like any other event; check-in surfaces reminders and the digest.
+after) once per due date for eligible cards, as actor `slate` with source `system`. It skips
+Parked and reference cards. On a card's return from parking, `item.unparked` clears the
+parking fields and reaches the card's people as a reminder. See [due stages](../recurrence.md#due-events)
+and [released alerts](../notifications.md#notification-level).

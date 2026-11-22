@@ -13,7 +13,7 @@ function safeZone(zone?: string | null): string {
   if (known) return known;
   let valid = zone;
   try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); }
-  catch { valid = DEFAULT_TIMEZONE; }
+  catch { valid = DEFAULT_TIMEZONE; } // a zone the browser does not recognize
   zones.set(zone, valid);
   return valid;
 }

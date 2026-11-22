@@ -3,6 +3,7 @@
 // quick-add list per view and the AI add switch are kept on this device.
 
 import { patch } from '../api';
+import { withStorage } from '../storage';
 import { applyTheme, asTheme, type Theme } from '../theme';
 import type { Prefs } from '../types';
 import type { Scope } from '../views';
@@ -13,23 +14,10 @@ const AI_ADD_KEY = 'slate.aiAdd';
 
 /** AI add is on unless this device turned it off. */
 function readAiAdd(): boolean {
-  try {
-    return localStorage.getItem(AI_ADD_KEY) !== '0';
-  } catch {
-    return true;
-  }
+  return withStorage((storage) => storage.getItem(AI_ADD_KEY) !== '0', true);
 }
 /** Where folded columns lived per browser before they moved onto the account. */
 const LEGACY_COLLAPSE_KEY = 'slate.collapsed.';
-
-function store(key: string, value: string | null) {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    // private mode: per-viewer conveniences only
-  }
-}
 
 export abstract class BoardPrefs extends BoardState {
   /** Prefs from the server, keeping this device's view changes that are not saved yet
@@ -46,7 +34,7 @@ export abstract class BoardPrefs extends BoardState {
 
   /** Merge into the account's prefs; a key set to null is removed. Shown at once, then saved. */
   async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
-    if (!this.me) return;
+    if (!this.me) return false;
     const next: Record<string, unknown> = { ...this.me.prefs };
     for (const [k, v] of Object.entries(changes)) {
       if (v === null) delete next[k];
@@ -56,8 +44,10 @@ export abstract class BoardPrefs extends BoardState {
     try {
       const saved = await patch<Prefs>('/me/prefs', changes);
       if (this.me) this.me.prefs = this.takePrefs(saved);
+      return true;
     } catch (e) {
       this.flash(String(e));
+      return false;
     }
   }
 
@@ -80,39 +70,35 @@ export abstract class BoardPrefs extends BoardState {
   /** Before prefs lived on the account, each browser kept its own theme and folds. Hand any it
    *  still has to the account once, where the account has none, then forget them here. */
   protected async adoptLocalPrefs() {
-    if (!this.me) return;
+    const me = this.me;
+    if (!me) return;
     const changes: Partial<Record<keyof Prefs, unknown>> = {};
     const stale: string[] = [];
-    try {
-      const theme = localStorage.getItem('slate.theme');
-      if (!this.me.prefs.theme && (theme === 'light' || theme === 'dark')) changes.theme = theme;
+    const read = withStorage((storage) => {
+      const theme = storage.getItem('slate.theme');
+      if (!me.prefs.theme && (theme === 'light' || theme === 'dark')) changes.theme = theme;
       const folds: Record<string, Record<string, boolean>> = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
         if (!key?.startsWith(LEGACY_COLLAPSE_KEY)) continue;
         stale.push(key);
-        const state = JSON.parse(localStorage.getItem(key) ?? '{}');
+        const state = JSON.parse(storage.getItem(key) ?? '{}');
         if (state && typeof state === 'object' && Object.keys(state).length) {
           folds[key.slice(LEGACY_COLLAPSE_KEY.length)] = state;
         }
       }
-      if (!this.me.prefs.collapsed && Object.keys(folds).length) changes.collapsed = folds;
-    } catch {
-      return; // no storage: nothing to hand over
-    }
+      if (!me.prefs.collapsed && Object.keys(folds).length) changes.collapsed = folds;
+      return true;
+    }, false);
+    if (!read) return; // no readable preferences to migrate
     if (Object.keys(changes).length) await this.setPrefs(changes);
-    for (const key of stale) store(key, null);
+    for (const key of stale) withStorage((storage) => storage.removeItem(key), undefined);
   }
 
   /** The list quick add files into in a wide scope: remembered per view. */
   quickAddList(viewKey: string, scope: Scope): string | null {
     if (scope.kind === 'list') return scope.id;
-    let remembered: string | null = null;
-    try {
-      remembered = localStorage.getItem(QA_KEY + viewKey);
-    } catch {
-      remembered = null;
-    }
+    const remembered = withStorage((storage) => storage.getItem(QA_KEY + viewKey), null);
     const candidates = this.sortedLists.filter(
       (l) => scope.kind === 'everything' || l.section_id === scope.id,
     );
@@ -122,7 +108,7 @@ export abstract class BoardPrefs extends BoardState {
   }
 
   rememberQuickAddList(viewKey: string, listId: string) {
-    store(QA_KEY + viewKey, listId);
+    withStorage((storage) => storage.setItem(QA_KEY + viewKey, listId), undefined);
   }
 
   // --- AI add switch (this device) --------------------------------------------------------
@@ -137,10 +123,6 @@ export abstract class BoardPrefs extends BoardState {
 
   setAiAdd(on: boolean) {
     this.aiAddOn = on;
-    try {
-      localStorage.setItem(AI_ADD_KEY, on ? '1' : '0');
-    } catch {
-      /* storage unavailable: the choice lasts this page */
-    }
+    withStorage((storage) => storage.setItem(AI_ADD_KEY, on ? '1' : '0'), undefined);
   }
 }

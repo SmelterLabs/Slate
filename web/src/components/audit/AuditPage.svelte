@@ -88,7 +88,7 @@
   $effect(() => {
     void get<{ actors: AuditActor[] }>('/audit/facets')
       .then((f) => (actors = f.actors))
-      .catch(() => {});
+      .catch((e) => board.loadFailed('load audit filters', e));
   });
 
   // Live: new events refresh the first page (debounced) unless the reader has paged back.

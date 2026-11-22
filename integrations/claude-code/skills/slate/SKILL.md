@@ -12,7 +12,7 @@ Slate is a task board. You reach it through the `slate_*` MCP tools (server `sla
 
 A call is `{"action": "...", "params": {...}}`. A tool with one action takes only `params`. Put that action's fields inside `params`. On a write, `session_ref` (your session id) sits beside `action`, so people can trace the events.
 
-By default the server lists five tools: `slate_work`, `slate_item`, `slate_comment`, `slate_search`, `slate_list`. That is the loop below. Other tools (`slate_doc`, `slate_chat`, and the rest) appear when the server is started with `--tools all` or `SLATE_MCP_TOOLS=all`, or named (`--tools core,slate_doc`). A tool that exists but is not listed returns a one-line error naming that flag. The catalogue is `docs/agents/`.
+By default the server lists five tools: `slate_work`, `slate_item`, `slate_comment`, `slate_search`, `slate_list`. That is the loop below. Set `SLATE_MCP_TOOLS=all` or `SLATE_MCP_TOOLS=core,slate_doc` on the server to list more tools. With stdio, `slate-mcp --tools all` or `--tools core,slate_doc` overrides the environment. A tool that exists but is not listed returns a one-line error naming that flag. The catalogue is `docs/agents/`.
 
 Example board: `https://slate.example.com` (REST `/api/v1`, MCP `/mcp`). An item id looks like `Ab12Cd34Ef56`. A board link is `https://slate.example.com/#/list/<list_id>?task=<item_id>`. Give that link, with the list name, whenever you name a task. People and agents are handles (`alex`, `my-agent`).
 
@@ -42,8 +42,8 @@ Finish with `slate_work` `finish`: `item_id`, `run_id`, `outcome`, and `reply` (
 | `review` | Complete, and a person should check it. Say what to check in `status`. |
 | `later` | You did what you can. The rest waits for a due time still to come. You stay assigned. Nobody is waited on. |
 | `ask` | You need a person. `question` is one line. `options` is 2 to 4 short answers when the choice is simple. `waiting_on` is their handle. |
-| `answered` | You only replied. `reply` is required. Nothing else changes. |
-| `failed` | The machine broke. `note` is what broke, in the machine's words. Nobody is asked. |
+| `answered` | You only replied. Send `reply`. The badge clears, and the server settles the questions the turn took. |
+| `failed` | The machine broke. Send `note` in the machine's words. Slate retries twice and alerts the card's people if the third run fails. |
 | `blocked` | You wait on an agent (`waiting_on`) or on nobody. |
 | `release` | You give the card up. |
 
@@ -53,16 +53,18 @@ When someone pastes your answer back as a comment, put the ending and standing o
 
 ## Ask
 
-Asking a person is `finish` with outcome `ask`, not a status you invent. The question is one line. They answer on the card. Your next `next` brings that reply.
+Asking a person is `finish` with outcome `ask`, not a status you invent. The question is one line. They answer on the card. A reply from the person asked becomes a turn you can take.
 
 ## File a card
 
 Read the list first (`slate_list list`). Its note (`note_md`) says what belongs there and how a card there is finished. File only after you have read it.
 
-`slate_item` `create` with `list_id` and `title` files one card. Set `body_md`, `due_at`, `priority`, `tags`, and `assignees` when you know them. Assignees are handles. `slate_item update` changes fields: send only what changes, and `null` clears. `status` on update is a column name or id.
+`slate_item create` files one card. Send `title` and the list ID you chose. If you send neither a list nor a parent, Slate uses the configured active inbox list when your token can edit it. Set `body_md`, `due_at`, `priority`, `tags`, and `assignees` when you know them. Assignees are handles. `slate_item update` changes fields: send only what changes, and `null` clears. `status` on update is a column name or id.
 
 Then `slate_item get` and confirm the list, the due date, the tags, and the assignee in one or two lines, with the board link.
 
 ## Everything else
+
+Use REST `GET /projects` for project next steps and `GET /today/sweep` for your cards more than 14 days overdue, excluding Later, Parked, and reference cards. Both paths are under `/api/v1`. Use `slate_item update` with `parked_until` (a future workspace date) and `parked_note` to schedule a return reminder.
 
 Search is `slate_search`. Comments, docs, chat, reminders, recurrence, accounts, and batch calls are in `docs/agents/` (`reference/mcp.md`, `quickstart.md`).

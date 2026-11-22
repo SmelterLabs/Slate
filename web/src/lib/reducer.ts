@@ -45,6 +45,8 @@ const SCALARS = new Set([
   'archived_at',
   'list_id',
   'parent_id',
+  'parked_until',
+  'parked_note',
 ]);
 
 // Event types whose `field` / `after` are a column and its new value.
@@ -75,6 +77,9 @@ function fromSnapshot(data: BoardData, snap: Record<string, unknown>): Item | nu
     ask: null,
     standing: null,
     stalled: false,
+    later: typeof snap.later === 'boolean' ? snap.later : undefined,
+    parked_until: (snap.parked_until as string | null) ?? null,
+    parked_note: (snap.parked_note as string | null) ?? null,
   };
 }
 
@@ -113,6 +118,11 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       const l = data.lists[ev.subject_id];
       const FIELDS = ['note_md', 'default_assignee_id', 'default_tags', 'reference'];
       if (l && FIELDS.includes(ev.field)) (l as unknown as Record<string, unknown>)[ev.field] = ev.after;
+      if (ev.field === 'reference') {
+        for (const item of Object.values(data.items)) {
+          if (item.list_id === ev.subject_id && (item.start_at || item.due_at)) fx.refetch.push(item.id);
+        }
+      }
     }
     fx.structure = true;
     // New statuses, or restored lists whose items the default load left out: reload all.
@@ -153,9 +163,9 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       if (built) {
         data.items[id] = built;
         bumpParent(data, built.parent_id, 1);
-      } else {
-        fx.refetch.push(id);
       }
+      // A row snapshot normally lacks the server's caller-specific Later flag.
+      if (built?.later === undefined) fx.refetch.push(id);
       break;
     }
     case 'item.trashed': // after = {trashed_at, archived_at}: hidden like an archived item
@@ -293,6 +303,13 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         fx.refetch.push(id);
       }
       break;
+    case 'item.unparked':
+      if (it) {
+        it.parked_until = null;
+        it.parked_note = null;
+        fx.refetch.push(id);
+      }
+      break;
     case 'item.due_soon': // the scheduler's notices: `field` is due_at but `after` is
     case 'item.due': // {due_at, ...}, not a new value, and nothing on the item changed
     case 'item.overdue':
@@ -311,6 +328,8 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
+        // A new due or start date can move the card in or out of "later": the server recomputes it.
+        if (ev.field === 'due_at' || ev.field === 'start_at') fx.refetch.push(id);
         if (ev.field === 'waiting_on_account_id') {
           it.ask = null;
           if (it.standing) fx.refetch.push(id);
