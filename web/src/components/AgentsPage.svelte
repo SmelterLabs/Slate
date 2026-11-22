@@ -35,17 +35,14 @@
 
   onMount(() => {
     void agents.load();
-    void loadStats();
+    // Owners and admins only, like the Health page: anyone else would only be refused.
+    if (board.canManage) {
+      void get<Stats>('/stats')
+        .then((s) => (stats = s))
+        .catch((e) => board.loadFailed('load agent statistics', e));
+    }
     void loadPlan();
   });
-
-  async function loadStats() {
-    try {
-      stats = await get<Stats>('/stats');
-    } catch (e) {
-      board.flash(`Could not load agent statistics: ${e}`);
-    }
-  }
 
   // "Next up": what each agent is about to run (GET /agents/plan), re-read after any event
   // that can move a task's gate or an Ask, debounced like the audit log's live refresh.
@@ -59,7 +56,7 @@
     } catch (e) {
       if (generation === planGeneration) {
         plan = plan ?? [];
-        board.flash(`Could not load the agent plan: ${e}`);
+        board.loadFailed('load the agent plan', e);
       }
     }
   }
