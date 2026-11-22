@@ -464,7 +464,7 @@ def unread(
 
 
 def agent_turns(session: Session) -> dict[str, list[dict[str, Any]]]:
-    """{channel: [open agent turns]} for the board's "is working" line (service/chatwake.py).
+    """{channel: [open agent turns]} for the board's "is working" line (service/turns.py).
     A row not yet taken is `waiting` (mentioned, the runner has not picked it up); a taken row
     with a live lease is `working`; a taken row whose lease ran out is `expired` (the run is
     gone and the turn waits for its runner to reconcile, or for a person's Clear,

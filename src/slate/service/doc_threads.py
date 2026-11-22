@@ -19,7 +19,7 @@ is no longer current (`outdated` in the view). Page identity also uses `anchor_p
 Mentions and Asks: `@handle`s in the body, plus the `assignee` of an Ask, go out as one
 `doc.mentioned` event (`after = {doc_id, title, mentions, excerpt, comment_id, asked}`), the
 same event a page mention records, so the inbox, check-in and push route it without
-new rules; a push agent mentioned or asked also gets a doc turn (service/docwake.py). Replies
+new rules; a push agent mentioned or asked also gets a doc turn (service/turns.py). Replies
 notify the root author, assignee and earlier repliers (deduped, excluding
 the sender), but never resolve an Ask: completion requires Resolve or Accept.
 
@@ -282,9 +282,9 @@ def _record_mentions(
         },
     )
     # A push agent mentioned (or asked) here gets a turn to answer in this thread.
-    from slate.service import docwake  # noqa: PLC0415 (docwake reads this module)
+    from slate.service import turns  # noqa: PLC0415 (turns reads this module)
 
-    docwake.on_mentioned(cx, session, doc, list(handles), comment=comment, excerpt=excerpt)
+    turns.on_doc_mentioned(cx, session, doc, list(handles), comment=comment, excerpt=excerpt)
 
 
 def _resolve(cx: Change, c: DocComment, by: str, reason: str) -> None:

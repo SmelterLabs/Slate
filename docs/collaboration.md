@@ -53,7 +53,7 @@ clause) and in the live gate (`EventGate._members_only`, cached per message id, 
 `message.*` event). `ChatWake` rows of workspace agents are hidden from guests (no "is
 working…" line), `collaboration.project` omits workspace agents from a guest's participants, and
 `access._project_agents(guest=True)` gives a guest only guest agents' own chats (no door to a
-workspace agent's `agent:<id>`), and `chatwake._reaches` stops a guest's `@mention` of a
+workspace agent's `agent:<id>`), and `chatwake.on_mentioned` stops a guest's `@mention` of a
 workspace agent from waking it and a members-only post from waking a guest agent. Tests:
 `tests/test_members_only_chat.py`. `members_only` is a chat flag only: card comments and items
 are work, not conversation, and follow the rule below.

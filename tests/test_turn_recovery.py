@@ -18,7 +18,7 @@ import httpx
 from conftest import API
 from run_proofs import remember
 from slate.models import ChatWake, DocWake, utcnow
-from slate.service import chatwake, docwake
+from slate.service import turns
 from test_api_events import live  # noqa: F401 (a fixture)
 from test_chat_wake import _agent, _events, _post
 
@@ -69,12 +69,12 @@ def _turns(client, h, key):
 
 
 def _expire_chat(db):
-    assert chatwake.expire(db, utcnow() + timedelta(hours=1)) == 1
+    assert turns.expire("chat", db, utcnow() + timedelta(hours=1)) == 1
     db.expire_all()
 
 
 def _expire_doc(db):
-    assert docwake.expire(db, utcnow() + timedelta(hours=1)) == 1
+    assert turns.expire("doc", db, utcnow() + timedelta(hours=1)) == 1
     db.expire_all()
 
 
@@ -287,10 +287,10 @@ def test_the_sweep_drops_turns_out_of_the_agents_reach(client, alex, db):
     _post(client, alex, f"section:{sec['id']}", "@my-agent please look")
     r = client.delete(f"{API}/shares/{share['id']}", headers=alex)
     assert r.status_code in (200, 204), r.text
-    assert chatwake.remaining(db, agent["id"]) == 1  # the row the agent can no longer see
-    chatwake.expire(db, utcnow())
+    assert turns.remaining("chat", db, agent["id"]) == 1  # the row the agent can no longer see
+    turns.expire("chat", db, utcnow())
     db.expire_all()
-    assert chatwake.remaining(db, agent["id"]) == 0
+    assert turns.remaining("chat", db, agent["id"]) == 0
     assert _events(client, alex, "message.agent_turn")[-1]["after"]["state"] == "dropped"
 
 
@@ -304,8 +304,8 @@ def test_a_person_clears_expired_turns(client, alex, todo, db):
     _next(client, ch, channel=key, lease_seconds=60)
     page = _doc(client, alex, title="Roof", body_md="Ask @agent to price it")
     _next(client, ch, doc_id=page["id"], lease_seconds=60)
-    chatwake.expire(db, utcnow() + timedelta(hours=1))
-    docwake.expire(db, utcnow() + timedelta(hours=1))
+    turns.expire("chat", db, utcnow() + timedelta(hours=1))
+    turns.expire("doc", db, utcnow() + timedelta(hours=1))
     got = client.post(
         f"{API}/work/chat/clear",
         json={"channel": key, "agent_id": agent["id"]},
@@ -347,7 +347,7 @@ async def test_a_clear_that_leaves_a_mention_waiting_wakes_the_runner(live):  # 
         assert r.json()["chat"] is not None
         late = (await client.post(url, json={"body_md": "@agent second"}, headers=admin)).json()
         with live.Session() as s:
-            assert chatwake.expire(s, utcnow() + timedelta(hours=1)) == 1
+            assert turns.expire("chat", s, utcnow() + timedelta(hours=1)) == 1
 
         stream = await _open(client, stack, f"{API}/checkin/stream", headers=_bearer(tok))
         await stream.ready()

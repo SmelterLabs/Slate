@@ -31,7 +31,7 @@ SCOPE_RANK = {"read": 1, "write": 2, "admin": 3}
 HANDLE_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 TOKEN_RE = re.compile(r"^slate_([0-9A-Za-z]{12})_([A-Za-z0-9_-]{20,})$")
 THEMES = ("auto", "light", "dark")
-# Inbox reasons a person can choose to get as phone/desktop notifications (slate.pusher).
+# Inbox reasons a person can choose to get as phone/desktop notifications (service/push.py).
 PUSH_REASONS = (
     "mention",
     "reply",

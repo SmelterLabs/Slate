@@ -213,9 +213,7 @@ READS = {
     },
     "slate.service.agents": {"roster", "plan"},
     "slate.service.search": {"search"},
-    "slate.service.chatwake": {"turn_view", "remaining"},
-    "slate.service.docwake": {"turn_view", "remaining", "section_around"},
-    "slate.service.turns": {"key", "live", "lease_view", "remaining", "state"},
+    "slate.service.turns": {"live", "lease_view", "remaining", "state", "section_around"},
     "slate.service.brief": {"brief", "closing_line", "default_ask", "files_note"},
     "slate.service.checkin": {"checkin", "queue", "why"},
     "slate.service.activity": {"activity"},
@@ -267,6 +265,7 @@ READS = {
     },
     "slate.service.due": {"pending_stages"},
     "slate.service.automations": {
+        "send",
         "catalog",
         "clean_trigger",
         "clean_conditions",
@@ -392,32 +391,9 @@ INFRASTRUCTURE = {
     # Writes through items.update_item as Slate's own account (source system, session_ref
     # ai-add) after the request; tests/test_ai_add.py checks those events.
     "slate.service.aiadd": {"fill", "fill_later"},
-    "slate.service.chatwake": {
-        # Called inside chat.post / chat.edit's change (they take the `cx`).
-        "on_posted",
-        "on_mentioned",
-        # Moves the lease only (`ChatWake.until` is bookkeeping): never an event.
-        "heartbeat",
-    },
-    "slate.service.docwake": {
-        # Called inside a page save's or a doc comment's change (it takes the `cx`).
-        "on_mentioned",
-        # Moves the lease only (`DocWake.until` is bookkeeping): never an event.
-        "heartbeat",
-    },
-    # The lease half of chat and doc turns, parameterised by a `Kind`: reached only through
-    # chatwake and docwake, whose public functions are classified (and walked) here. `end` and
-    # `fold` run inside the caller's change (they take the `cx`).
-    "slate.service.turns": {
-        "take",
-        "heartbeat",
-        "end",
-        "finish",
-        "reconcile",
-        "clear",
-        "fold",
-        "expire",
-    },
+    # Mention hooks run inside the original post or page change. Heartbeat moves only a lease.
+    "slate.service.chatwake": {"on_posted", "on_mentioned"},
+    "slate.service.turns": {"on_doc_mentioned", "heartbeat", "end", "fold"},
     # Called inside a comment or item change (it takes the `cx`); each file records its own
     # `item.attachment_added` (tests/test_inline_media.py).
     "slate.service.attachments": {"attach_pasted"},
@@ -745,6 +721,7 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.due": {
         "system_actor": None,
         "emit_due_events": None,
+        "run_due_checks": None,
         "retry_failed_runs": None,
         "clear_stale_badges": None,
         "poke_stalled": None,
@@ -994,25 +971,14 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
         # Scheduler hook, as the `slate` system agent: covered in tests/test_chat_files.py.
         "sweep_unsent": None,
     },
-    "slate.service.chatwake": {
-        # Only an agent mentioned by a person holds a turn; the walk's actor is a person.
-        # Each writes `message.agent_turn` by the agent (or `slate` for expire):
-        # tests/test_chat_wake.py.
-        "next_turn": None,
-        "finish": None,
-        "reconcile": None,  # audited in tests/test_run_safety.py
-        "expire": None,
-        # A person's Clear of an expired turn: tests/test_turn_recovery.py.
-        "clear": None,
-    },
-    "slate.service.docwake": {
-        # The same shape as chatwake: each writes `doc.agent_turn` by the agent (or `slate` for
-        # expire): tests/test_doc_wake.py.
-        "next_turn": None,
+    "slate.service.turns": {
+        # Each records message.agent_turn or doc.agent_turn with the agent, system or person
+        # as actor. Covered in tests/test_chat_wake.py, test_doc_wake.py and test_turn_recovery.py.
+        "take": None,
         "finish": None,
         "reconcile": None,
         "expire": None,
-        "clear": None,  # tests/test_turn_recovery.py
+        "clear": None,
     },
     "slate.service.checklists": {
         "create_checklist": lambda db, a, p: _checklist(db, a),

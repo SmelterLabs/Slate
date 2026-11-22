@@ -37,17 +37,18 @@ Rules of the engine:
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
+import httpx
 from sqlalchemy import delete, func, select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from slate import crypto, outbound
+from slate import __version__, crypto, outbound
 from slate.dates import LOCAL
 from slate.ids import new_id
 from slate.models import (
@@ -64,7 +65,7 @@ from slate.models import (
     StatusKind,
     utcnow,
 )
-from slate.service import access, cursors
+from slate.service import access, cursors, reports
 from slate.service import comments as comments_svc
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
@@ -76,7 +77,6 @@ log = logging.getLogger(__name__)
 
 CURSOR = "automations"
 SESSION_PREFIX = "automation:"
-PAGE = 500
 MAX_RULES = 200
 MAX_ACTIONS = 10
 MAX_CONDITIONS = 10
@@ -141,7 +141,7 @@ TRIGGERS: dict[str, tuple[str, str, dict[str, tuple[str, bool, str]]]] = {
         {"state": ("agent_state", False, "this state (any change if empty)")},
     ),
 }
-AGENT_STATES = ("working", "blocked", "review", "failed", "done", "idle")
+AGENT_STATES = reports.STATES
 # Triggers that also fire on a second event type (none today; kept so a trigger can listen to
 # two event types without touching `trigger_fires`).
 ALSO_ON: dict[str, tuple[str, ...]] = {}
@@ -939,6 +939,30 @@ def run_now(
     return run_rule(session, rule, item, triggered_by=actor.account_id, send=send)
 
 
+TIMEOUT_SECONDS = 5.0
+# Tests swap in an `httpx.MockTransport`; None means real network.
+transport: httpx.BaseTransport | None = None
+
+
+def send(url: str, payload: dict[str, Any], secret: str) -> tuple[bool, str]:
+    """POST one automation webhook, signed with the rule's secret (`outbound.signed_headers`).
+    One bounded attempt through `outbound.post`. The result goes in the run log."""
+    body = json.dumps(payload).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": f"Slate/{__version__}",
+        "X-Slate-Automation": payload["automation"]["id"],
+        **outbound.signed_headers(secret, body),
+    }
+    try:
+        status = outbound.post(
+            url, body, headers, timeout=TIMEOUT_SECONDS, transport=transport
+        ).status
+    except Exception as exc:  # noqa: BLE001  # httpx errors and e.g. IDNA errors
+        return False, f"{type(exc).__name__}: {exc}"[:300]
+    return 200 <= status < 300, f"HTTP {status}"
+
+
 def _cursor(session: Session) -> EngineCursor:
     return cursors.engine_cursor(session, CURSOR)
 
@@ -954,14 +978,8 @@ def process(session: Session, *, now: datetime | None = None, send: Sender | Non
     Returns the number of runs. A rule already logged as run for an event is not run for it
     again (a restart between a run and the cursor's commit). An event that cannot be handled
     is logged and skipped, so it cannot hold up the events after it."""
-    cursor = _cursor(session)
+    _cursor(session)
     rules = [r for r in list_automations(session) if r.enabled]
-    if not rules:
-        latest = session.scalar(select(func.max(Event.id)))
-        if latest and latest != cursor.event_id:
-            cursor.event_id, cursor.updated_at = latest, utcnow()
-            session.commit()
-        return 0
     wanted = {
         ev
         for r in rules
@@ -969,38 +987,24 @@ def process(session: Session, *, now: datetime | None = None, send: Sender | Non
         for ev in (TRIGGERS[r.trigger_json["type"]][0], *ALSO_ON.get(r.trigger_json["type"], ()))
     }
     runs = 0
-    while True:
-        q = select(Event).order_by(Event.id).limit(PAGE)
-        if cursor.event_id:
-            q = q.where(Event.id > cursor.event_id)
-        page = list(session.scalars(q))
-        if not page:
-            break
-        for ev in page:
-            if (
-                ev.type in wanted
-                and ev.item_id
-                and not (ev.session_ref or "").startswith(SESSION_PREFIX)
-            ):
-                try:
-                    n = _handle(session, rules, ev, send)
-                except SQLAlchemyError:
-                    raise  # the database, not this event: the engine retries the step
-                except Exception:
-                    session.rollback()
-                    log.exception("automations: skipping event %s, which failed", ev.id)
-                    n = 0
-                runs += n
-            else:
-                n = 0
-            cursor = _cursor(session)
-            cursor.event_id, cursor.updated_at = ev.id, utcnow()
-            if n:
-                session.commit()  # right after a run: a restart never runs it twice
-        session.commit()
-        if len(page) < PAGE:
-            break
-    _prune(session, now or utcnow())
+
+    def handle(ev: Event) -> bool:
+        nonlocal runs
+        if (
+            ev.type not in wanted
+            or not ev.item_id
+            or (ev.session_ref or "").startswith(SESSION_PREFIX)
+        ):
+            return False
+        count = _handle(session, rules, ev, send)
+        runs += count
+        return count > 0
+
+    cursors.follow(
+        session, CURSOR, now=now or utcnow(), window=None, handle=handle, active=bool(rules)
+    )
+    if rules:
+        _prune(session, now or utcnow())
     return runs
 
 

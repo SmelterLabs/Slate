@@ -225,12 +225,12 @@ def test_expired_task_cannot_restart_until_confirmed_stopped(client, alex, todo,
 
 
 def test_expired_chat_waits_for_reconcile_until_someone_asks_again(client, alex, make_account, db):
-    from slate.service import chatwake
+    from slate.service import turns
 
     _, h = make_account("worker")
     client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker one"})
     first = _next(client, h)
-    chatwake.expire(db, utcnow() + timedelta(hours=1))
+    turns.expire("chat", db, utcnow() + timedelta(hours=1))
     # Quarantined: nothing to take until the run is settled.
     assert _next(client, h)["chat"] is None
     r = client.post(
@@ -250,13 +250,13 @@ def test_expired_chat_waits_for_reconcile_until_someone_asks_again(client, alex,
 def test_a_mention_after_expiry_starts_a_new_fenced_run(client, alex, make_account, db):
     """A person's new mention settles the expired run (it is never swallowed by it), and the
     old run's proof stays fenced out of the new turn."""
-    from slate.service import chatwake
+    from slate.service import turns
 
     _, h = make_account("worker")
     client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker one"})
     first = _next(client, h)
     old = first["chat"]["lease"]["run_id"]
-    chatwake.expire(db, utcnow() + timedelta(hours=1))
+    turns.expire("chat", db, utcnow() + timedelta(hours=1))
     client.post(f"{API}/channels/general/messages", headers=alex, json={"body_md": "@worker two"})
     second = _next(client, h)
     assert second["chat"] is not None and second["chat"]["lease"]["run_id"] != old

@@ -658,7 +658,7 @@ def _dump(model: type[BaseModel], value: Any) -> Any:
     return model.model_validate(value, from_attributes=True).model_dump(mode="json")
 
 
-def _item_views(lc: Local, rows: list, *, now: bool = False) -> list[dict]:
+def item_views(lc: Local, rows: list, *, now: bool = False) -> list[dict]:
     if lc.later is not None and not now:
         marks = [Later(row.id) for row in rows]
         lc.later.extend(marks)

@@ -338,7 +338,7 @@ def test_parked_hides_from_today_digest_due_and_work_next_then_unparks_at_0600(
     attention.release(db, utcnow())
     cursor = client.get(f"{API}/inbox/alerts", headers=alex).headers["X-Slate-Cursor"]
     at_six = datetime.combine(tomorrow, time(6, 0), tzinfo=dates.LOCAL).astimezone(UTC)
-    assert due.unpark_due(db, now=at_six) == 1
+    due.run_due_checks(db, at_six)
 
     refreshed = client.get(f"{API}/items/{item['id']}", headers=alex).json()
     assert refreshed["parked_until"] is None
