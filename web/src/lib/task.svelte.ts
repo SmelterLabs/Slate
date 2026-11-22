@@ -56,7 +56,7 @@ class TaskWindow {
       const entries = await get<ActivityEntry[]>(`/items/${id}/activity`);
       if (board.openId === id) this.activity = entries;
     } catch (e) {
-      if (board.openId === id) board.flash(`Could not refresh task activity: ${e}`);
+      if (board.openId === id) board.loadFailed('refresh task activity', e);
     } finally {
       this.#loading = null;
       if (this.#again) {

@@ -7,6 +7,7 @@
 // plain copies kept in step by `sync`, which every write to `items` must call (proxy
 // reads cost ~10x at 3,000 items).
 
+import { ApiError } from '../api';
 import { workspaceTimezone } from '../timezone';
 import { SvelteSet } from 'svelte/reactivity';
 import { hiddenAsFinished, isOpen } from '../format';
@@ -269,6 +270,14 @@ export class BoardState {
       this.toast = null;
       this.toastAction = null;
     }, action ? 8000 : 5000);
+  }
+
+  /** A read that failed: say what could not load, unless something else already says it.
+   * No answer at all (status 0) is the offline or reconnecting bar's to show, a 401 signs out,
+   * and a 403 is this viewer's role, not an error. */
+  loadFailed(what: string, e: unknown) {
+    if (e instanceof ApiError && [0, 401, 403].includes(e.status)) return;
+    this.flash(`Could not ${what}: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   /** Run a write; on refusal show Slate's reason and return null. */

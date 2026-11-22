@@ -164,7 +164,7 @@
     if (board.ready && !kiosk) prefetchPages();
   });
   $effect(() => {
-    if (board.ready) void syncPush().catch((e) => board.flash(`Could not sync device notifications: ${e}`));
+    if (board.ready) void syncPush().catch((e) => board.loadFailed('sync device notifications', e));
   });
   $effect(() => {
     if (!('serviceWorker' in navigator)) return;

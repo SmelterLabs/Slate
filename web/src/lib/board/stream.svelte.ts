@@ -210,7 +210,7 @@ export class BoardStream extends BoardLoad {
         // the load must not be hit every second).
         if (this.ready) {
           this.#backoff = 1000;
-          void agents.refreshRoster((message) => this.flash(message));
+          void agents.refreshRoster((what, e) => this.loadFailed(what, e));
         }
         resolve(true);
       };
@@ -343,7 +343,7 @@ export class BoardStream extends BoardLoad {
       clearTimeout(this.#accessTimer);
       this.#accessTimer = setTimeout(() => void this.#reloadAccess(), 100);
     }
-    agents.onEvent(ev, (message) => this.flash(message)); // the Agents page's roster and live feed
+    agents.onEvent(ev, (what, e) => this.loadFailed(what, e)); // the Agents page's roster and live feed
     if (dotsChangedBy(ev, this.me?.account.id)) {
       clearTimeout(this.#dotsTimer);
       this.#dotsTimer = setTimeout(() => void this.loadCommentDots(), 150);
@@ -416,7 +416,7 @@ export class BoardStream extends BoardLoad {
       setWorkspaceTimezone(me.timezone);
       await this.loadAll();
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not refresh board access: ${e}`);
+      this.loadFailed('refresh board access', e);
     }
   }
 

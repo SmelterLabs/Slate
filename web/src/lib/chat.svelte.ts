@@ -88,7 +88,7 @@ class Chat {
       if (seq === this.#turnSeq) this.turns = Object.fromEntries(found.map((c) => [c.key, c.agent_turns ?? []]));
       this.loaded = true;
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not refresh chat channels: ${e}`);
+      board.loadFailed('refresh chat channels', e);
     }
   }
 
@@ -144,9 +144,7 @@ class Chat {
       this.#place(await get<ChatMessage>(`/messages/${id}`));
     } catch (e) {
       // A message may be deleted or access may change before the event's fetch completes.
-      if (!(e instanceof ApiError && [401, 403, 404].includes(e.status))) {
-        board.flash(`Could not refresh the message: ${e}`);
-      }
+      if (!(e instanceof ApiError && e.status === 404)) board.loadFailed('refresh the message', e);
     }
   }
 
@@ -242,7 +240,7 @@ class Chat {
     try {
       await post(`/channels/${encodeURIComponent(key)}/read`, {});
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not mark the channel as read: ${e}`);
+      board.loadFailed('mark the channel as read', e);
     }
   }
 

@@ -51,7 +51,7 @@
       const rows = await get<Reminder[]>(`/items/${id}/reminders`);
       if (id === item.id) list = rows;
     } catch (e) {
-      if (id === item.id) board.flash(`Could not refresh task reminders: ${e}`);
+      if (id === item.id) board.loadFailed('refresh task reminders', e);
     }
   }
 

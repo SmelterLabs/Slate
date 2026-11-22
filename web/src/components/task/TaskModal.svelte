@@ -178,7 +178,7 @@
         if (board.detail?.id === id) inDocs = r;
       })
       .catch((e) => {
-        if (board.detail?.id === id) board.flash(`Could not load linked documents: ${e}`);
+        if (board.detail?.id === id) board.loadFailed('load linked documents', e);
       });
   });
 

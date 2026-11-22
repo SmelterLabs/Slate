@@ -23,4 +23,20 @@ describe('automation names', () => {
     expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith('/automations');
   });
+
+  it('reports a failure once and does not ask again on the next render', async () => {
+    vi.resetModules();
+    const { automationNames: fresh } = await import('./automationref.svelte');
+    const boom = new Error('database is locked');
+    get.mockReset();
+    get.mockRejectedValue(boom);
+    const report = vi.fn();
+    fresh.ensure(report);
+    await vi.waitFor(() => expect(report).toHaveBeenCalledWith('load automation names', boom));
+    fresh.ensure(report);
+    fresh.ensure(report);
+    await Promise.resolve();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledTimes(1);
+  });
 });

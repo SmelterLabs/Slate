@@ -31,7 +31,7 @@ export class BoardLoad extends BoardViews {
       get<Item[]>('/items'),
       get<SavedView[]>('/views'),
       get<Favorite[]>('/favorites'),
-      agents.refreshRoster((message) => this.flash(message)),
+      agents.refreshRoster((what, e) => this.loadFailed(what, e)),
     ]);
     if (gen !== this.#loadGen) return; // a newer load is answering instead
     this.views = Object.fromEntries(views.map((v) => [v.id, v]));
@@ -73,12 +73,13 @@ export class BoardLoad extends BoardViews {
             for (const a of p.participants) known[a.id] ??= a;
             agentsBySection[s.id] = p.participants.filter((a) => a.kind === 'agent');
           } catch (e) {
-            // Access can change between loading the sections and loading a project.
-            if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return;
+            // Access can change between loading the sections and loading a project: a project
+            // gone or no longer shared names no one.
+            if (e instanceof ApiError && [403, 404].includes(e.status)) return;
             const previous = this.sectionAgents[s.id] ?? [];
             agentsBySection[s.id] = previous;
             for (const a of previous) known[a.id] ??= a;
-            this.flash(`Could not load project participants: ${e}`);
+            this.loadFailed('load project participants', e);
           }
         }),
     );
@@ -133,7 +134,7 @@ export class BoardLoad extends BoardViews {
           }
         }
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
+        this.loadFailed('refresh tasks', e);
       }
     }
   }
@@ -148,8 +149,8 @@ export class BoardLoad extends BoardViews {
       if (e instanceof ApiError && e.status === 404) {
         delete this.items[id];
         this.sync(id);
-      } else if (!(e instanceof ApiError && e.status === 401)) {
-        this.flash(`Could not refresh task: ${e}`);
+      } else {
+        this.loadFailed('refresh task', e);
       }
     }
   }
@@ -158,7 +159,7 @@ export class BoardLoad extends BoardViews {
     try {
       this.tags = await get<Tag[]>('/tags');
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load tags: ${e}`);
+      this.loadFailed('load tags', e);
     }
   }
 
@@ -167,7 +168,7 @@ export class BoardLoad extends BoardViews {
       const rules = await get<Recurrence[]>('/recurrences');
       this.recurrences = Object.fromEntries(rules.map((r) => [r.id, r]));
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load repeat rules: ${e}`);
+      this.loadFailed('load repeat rules', e);
     }
   }
 
@@ -178,9 +179,7 @@ export class BoardLoad extends BoardViews {
       return r;
     } catch (e) {
       // A rule can be deleted before an item refresh drops its reference.
-      if (!(e instanceof ApiError && [401, 404].includes(e.status))) {
-        this.flash(`Could not load repeat rule: ${e}`);
-      }
+      if (!(e instanceof ApiError && e.status === 404)) this.loadFailed('load repeat rule', e);
       return null;
     }
   }
@@ -189,7 +188,7 @@ export class BoardLoad extends BoardViews {
     try {
       this.favorites = await get<Favorite[]>('/favorites');
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(String(e));
+      this.loadFailed('load favorites', e);
     }
   }
 
@@ -213,7 +212,7 @@ export class BoardLoad extends BoardViews {
       }
       this.commentDots = dots;
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not refresh unread comments: ${e}`);
+      this.loadFailed('refresh unread comments', e);
     }
   }
 
@@ -244,7 +243,7 @@ export class BoardLoad extends BoardViews {
     } catch (e) {
       if (this.openId !== id) return; // the request belonged to a task that was closed
       if (e instanceof ApiError && e.status === 404) this.close();
-      else if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load task details: ${e}`);
+      else this.loadFailed('load task details', e);
     }
   }
 }

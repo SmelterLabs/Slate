@@ -3,7 +3,7 @@
 // (debounced) when one arrives; this account's own inbox.read / inbox.cleared (from another
 // device too) refetch at once, so phone and PC always agree.
 
-import { ApiError, get, post } from './api';
+import { get, post } from './api';
 import { chatHref } from './chat';
 import { describe, type HistoryContext } from './history';
 import { board } from './store.svelte';
@@ -191,7 +191,7 @@ class Inbox {
       // Chat entries need no marking here: the server reads them with their message
       // (`channel.read` from any device brings a refresh).
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not refresh inbox: ${e}`);
+      board.loadFailed('refresh inbox', e);
     }
   }
 

@@ -249,7 +249,7 @@
 
   function sourceLabel(ev: SlateEvent): string {
     const rule = automationOf(ev);
-    if (rule) automationNames.ensure((message) => board.flash(message));
+    if (rule) automationNames.ensure((what, e) => board.loadFailed(what, e));
     if (rule) return `by automation${automationNames.name(rule) ? ` “${automationNames.name(rule)}”` : ''}`;
     return SOURCES[ev.source];
   }

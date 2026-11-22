@@ -175,9 +175,7 @@ class Docs {
       if (epoch !== this.#epoch) return;
       this.list = list;
     } catch (e) {
-      if (epoch === this.#epoch && !(e instanceof ApiError && e.status === 401)) {
-        board.flash(`Could not load the document list: ${e}`);
-      }
+      if (epoch === this.#epoch) board.loadFailed('load the document list', e);
     }
     if (epoch === this.#epoch) this.loaded = true;
   }
@@ -396,9 +394,7 @@ class Docs {
     try {
       fresh = await get<Doc>(`/docs/${encodeURIComponent(open.id)}`);
     } catch (e) {
-      if (generation === this.#openGeneration && !(e instanceof ApiError && e.status === 401)) {
-        board.flash(`Could not refresh the document: ${e}`);
-      }
+      if (generation === this.#openGeneration) board.loadFailed('refresh the document', e);
       return;
     }
     if (generation !== this.#openGeneration || this.current?.id !== fresh.id || this.#saving) return;
@@ -678,10 +674,7 @@ class Docs {
       this.comments = out.comments;
       this.activity = out.events;
     } catch (e) {
-      if (generation === this.#openGeneration && this.current?.id === id
-        && !(e instanceof ApiError && e.status === 401)) {
-        board.flash(`Could not refresh document activity: ${e}`);
-      }
+      if (generation === this.#openGeneration && this.current?.id === id) board.loadFailed('refresh document activity', e);
     }
   }
 
