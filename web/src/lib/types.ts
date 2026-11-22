@@ -178,6 +178,10 @@ export interface Item {
   agent?: AgentFlag | null;
   /** A structured question from an agent while the card waits on a person through it, else null. */
   ask?: ItemAsk | null;
+  /** Where the card stands and whose move it is, set on agent reports/finishes, else null. */
+  standing?: ItemStanding | null;
+  /** True when an agent repeatedly ended a run with `answered` and left the open card stalled. */
+  stalled?: boolean;
   /** Each agent's own conversation for this task (its session ref and a link to open it). */
   agent_threads?: AgentThread[];
   /** A Run now (or the due-time run stage) newer than the last take: asked, not picked up. */
@@ -200,6 +204,14 @@ export interface ItemAsk extends CommentAsk {
   comment_id: string;
   by_id: string;
   at: string;
+}
+
+/** Where a card stands after an agent's report or finish, and whose move it is. */
+export interface ItemStanding {
+  line: string;
+  by_id: string;
+  at: string;
+  move_id: string | null;
 }
 
 export interface AgentFlag {

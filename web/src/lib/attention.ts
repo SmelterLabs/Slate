@@ -9,9 +9,9 @@
 
 import { isOpen } from './format';
 import type { Account, Item } from './types';
-import { AGENT_BLOCKED, READY_FOR_REVIEW, waitingOn } from './words';
+import { AGENT_BLOCKED, READY_FOR_REVIEW, STALLED, waitingOn } from './words';
 
-export type Need = 'waiting' | 'asked' | 'blocked' | 'review';
+export type Need = 'waiting' | 'asked' | 'blocked' | 'review' | 'stalled';
 
 /** Most urgent first: this is also the sort order. The words are lib/words.ts's; `waiting`
  * names the viewer ("Waiting on Alex") through `needLabel`. */
@@ -20,6 +20,7 @@ export const NEEDS: { key: Need; label: string; short: string }[] = [
   { key: 'blocked', label: AGENT_BLOCKED, short: 'Blocked' },
   { key: 'asked', label: 'Asked of you', short: 'Asked' },
   { key: 'review', label: READY_FOR_REVIEW, short: 'Review' },
+  { key: 'stalled', label: STALLED, short: 'Stalled' },
 ];
 
 /** The group's words for the viewer: "Waiting on Alex", "Agent blocked", ... */
@@ -32,7 +33,7 @@ export interface Attention {
   need: Need;
 }
 
-const RANK: Record<Need, number> = { waiting: 0, blocked: 1, asked: 2, review: 3 };
+const RANK: Record<Need, number> = { waiting: 0, blocked: 1, asked: 2, review: 3, stalled: 4 };
 
 /** Why this item needs `me`, or null. */
 export function needOf(item: Item, me: string, accounts: Record<string, Account>): Need | null {
@@ -48,7 +49,11 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
   const answered = !!flag && !!item.open_asks?.includes(flag.by);
   if (flag?.state === 'blocked' && !item.waiting_on_account_id && !answered && mine) return 'blocked';
   if (item.open_asks?.includes(me)) return 'asked';
-  if (flag?.state === 'review' && mine) return 'review';
+  if (flag?.state === 'review') {
+    const reviewer = item.standing?.move_id;
+    if (reviewer ? reviewer === me : mine) return 'review';
+  }
+  if (item.stalled && (item.created_by === me || item.assignees.some((a) => a.id === me && a.kind === 'person'))) return 'stalled';
   return null;
 }
 
@@ -65,7 +70,7 @@ export function attention(items: Item[], me: string, accounts: Record<string, Ac
 }
 
 export function countBy(list: Attention[]): Record<Need, number> {
-  const n: Record<Need, number> = { waiting: 0, blocked: 0, asked: 0, review: 0 };
+  const n: Record<Need, number> = { waiting: 0, blocked: 0, asked: 0, review: 0, stalled: 0 };
   for (const a of list) n[a.need]++;
   return n;
 }

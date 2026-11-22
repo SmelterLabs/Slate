@@ -74,6 +74,10 @@ Per-channel reason filters still apply at every level.
 
 When a person receives entries from an agent's leased run, the card's alerts wait
 until the lease ends. The loudest eligible entry is sent, and a question bypasses the hold.
+A card's `item.stalled` (its agent stopped without finishing twice) is its own release, never
+folded into that last run's alert: the finish records it after `item.work_finished`, so
+`inbox.notification_turn` finds no open turn for it. A stale badge Slate clears is never an
+alert.
 Quiet hours (`quiet_hours` with `from` and `to` in `HH:MM`) use the workspace timezone. Level 4
 passes through. Lower levels are held for one summary at the end, loudest entries first. The inbox still
 shows each entry at its original level. Ordinary messages stay in Chat by default and can
@@ -113,7 +117,9 @@ and `tests/test_push_retry.py`.
   "<Agent> asks on: <title>" as its body; any other `waiting` entry reads "<Agent> is waiting on
   you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
   failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
-  A failed run before that, and the take that retries it, push nothing.
+  A failed run before that, and the take that retries it, push nothing. A `stalled` entry
+  (`item.stalled`) reads "<Agent> stopped without finishing: <title>". A badge Slate clears as
+  stale pushes nothing.
 
 ## Email notifications and the waiting bell
 

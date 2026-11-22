@@ -167,10 +167,10 @@ def test_a_blocked_reply_is_one_comment_and_the_persons_answer_is_the_next_turn(
     assert got["thread"]["ref"] == THREAD["ref"]
     assert got["why"] == "assigned"
 
-    # Finishing the task does not silently settle an outstanding Ask.
+    # Finishing the turn answers the Ask it took.
     _finish(client, ch, item["id"], outcome="done", reply="Verified: signed in. Closing.")
     view = _view(client, alex, item["id"])
-    assert view["status"]["kind"] == "done" and view["open_asks"] == [agent["id"]]
+    assert view["status"]["kind"] == "done" and view["open_asks"] == []
     assert client.post(f"{API}/comments/{answer['id']}/resolve", headers=ch).status_code == 200
     bodies = [c["body_md"] for c in _comments(client, alex, item["id"])]
     assert bodies == [question, "done", "Verified: signed in. Closing."]
@@ -328,7 +328,12 @@ def test_run_now_while_working_names_the_agent(client, alex, todo, make_account)
 
 
 async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    # The setup requests use a live server and can queue on a busy CI host.
+    # Keep the separate one-second deadline for the work notification.
+    async with (
+        httpx.AsyncClient(base_url=live.url, timeout=60) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         admin = _bearer(live.admin_token)
@@ -338,8 +343,12 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
             json={"list_id": todo["id"], "title": "Sign in", "assignees": ["agent"]},
             headers=admin,
         )
+        assert r.status_code == 201, r.text
         item = r.json()
-        r = await client.post(f"{API}/work/next", json={}, headers=_bearer(tok))
+        r = await client.post(
+            f"{API}/work/next", json={"item_id": item["id"]}, headers=_bearer(tok)
+        )
+        assert r.status_code == 200, r.text
         assert r.json()["item"]["id"] == item["id"]
         r = await client.post(
             f"{API}/work/{item['id']}/finish",
@@ -358,6 +367,7 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
         r = await client.post(
             f"{API}/items/{item['id']}/comments", json={"body_md": "done"}, headers=admin
         )
+        assert r.status_code == 201, r.text
         answer = r.json()
         hint = None
         for _ in range(6):
@@ -406,7 +416,9 @@ def test_run_now_on_a_card_waiting_on_you_lets_the_agent_go_on(client, alex, tod
     assert _next(client, ch)["item"]["id"] == item["id"]
 
     # The same for a review badge.
-    _finish(client, ch, item["id"], outcome="review", reply="Have a look")
+    _finish(
+        client, ch, item["id"], outcome="review", status="Check the result", reply="Have a look"
+    )
     assert _next(client, ch)["item"] is None
     assert client.post(f"{API}/items/{item['id']}/run", headers=alex).status_code == 202
     assert _next(client, ch)["item"]["id"] == item["id"]
@@ -420,7 +432,12 @@ def _flagged(client, alex, todo, make_account, state, **kw):
     item = _item(client, alex, todo["id"], assignees=["agent"])
     r = client.post(
         f"{API}/items/{item['id']}/report",
-        json=run_fields(client, ch, item["id"], **{"state": state, **kw}),
+        json=run_fields(
+            client,
+            ch,
+            item["id"],
+            **{"state": state, **({"status": "Check it"} if state == "review" else {}), **kw},
+        ),
         headers=ch,
     )
     assert r.status_code == 200, r.text
@@ -468,7 +485,9 @@ def test_a_working_flag_survives_a_move_and_an_agents_own_move_keeps_review(
     assert r.json()["agent"]["state"] == "working"
     client.post(
         f"{API}/items/{item['id']}/report",
-        json=run_fields(client, ch, item["id"], **{"state": "review"}),
+        json=run_fields(
+            client, ch, item["id"], **{"state": "review", "status": "Check the result"}
+        ),
         headers=ch,
     )
     r = client.patch(
@@ -485,7 +504,14 @@ def test_a_question_on_a_card_ready_for_review_wakes_the_agent(client, alex, tod
     agent, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="review", reply="Fixed, have a look")
+    _finish(
+        client,
+        ch,
+        item["id"],
+        outcome="review",
+        status="Check the result",
+        reply="Fixed, have a look",
+    )
     assert _next(client, ch)["item"] is None  # nothing new to do
 
     ask = _comment(client, alex, item["id"], "Are you stuck?", assignee="agent")
@@ -547,10 +573,14 @@ def test_each_turn_gets_its_answer(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="review", reply="First answer")
+    _finish(
+        client, ch, item["id"], outcome="review", status="Check the result", reply="First answer"
+    )
     _comment(client, alex, item["id"], "And then?", assignee="agent")
     _next(client, ch)
-    _finish(client, ch, item["id"], outcome="review", reply="Second answer")
+    _finish(
+        client, ch, item["id"], outcome="review", status="Check the result", reply="Second answer"
+    )
     bodies = [c["body_md"] for c in _comments(client, alex, item["id"])]
     assert "First answer" in bodies and "Second answer" in bodies
 

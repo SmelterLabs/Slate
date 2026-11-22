@@ -178,6 +178,24 @@ def test_escalation_and_quiet_hours_summary_use_exact_server_wording(tmp_path):
     assert len(fake.gets) == 2
 
 
+def test_stalled_is_a_default_reason_relayed_in_the_servers_words(tmp_path):
+    assert "stalled" in DEFAULT_REASONS.split(",")
+    fake = Fake()
+    b = make(tmp_path, fake, reasons=set(DEFAULT_REASONS.split(",")))
+    b.run_once()
+    fake.released = [
+        alert(
+            "c1",
+            reason="stalled",
+            title="My Agent stopped without finishing: Print labels",
+            body="Run now carries it on",
+        )
+    ]
+    assert b.run_once() == 1
+    assert fake.alerts[0]["title"] == "Slate: My Agent stopped without finishing: Print labels"
+    assert fake.alerts[0]["severity"] == 2
+
+
 def test_failed_publish_resumes_after_the_last_success(tmp_path):
     fake = Fake()
     bridge = make(tmp_path, fake)

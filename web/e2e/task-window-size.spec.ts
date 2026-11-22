@@ -2,13 +2,13 @@
 // activity column widens leftward from its grip; the dock button parks it on the right third or
 // quarter (no scrim, the board usable) and back in the center; all of it survives a reload.
 import { expect, test, type Page } from "@playwright/test";
-import { api, seed, signIn } from "./support";
+import { api, seed, signIn, streamLive } from "./support";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function openCard(page: Page, id: string) {
+async function openCard(page: Page, id: string, listId = seed().listId) {
   await signIn(page);
-  await page.goto(`/#/list/${seed().listId}?task=${id}`);
+  await page.goto(`/#/list/${listId}?task=${id}`);
   const win = page.locator(".tw");
   await expect(win.locator(".title")).toBeVisible();
   return win;
@@ -90,11 +90,19 @@ test("the activity column widens leftward from its grip and remembers its width"
 test("the dock button parks the window on the right third or quarter, with the board live beside it, and back", async ({
   page,
 }) => {
+  const section = await api<{ id: string }>("POST", "/sections", {
+    name: "Docking",
+    audience: "work",
+  });
+  const list = await api<{ id: string }>("POST", "/lists", {
+    section_id: section.id,
+    name: "Docking cards",
+  });
   const item = await api<{ id: string }>("POST", "/items", {
-    list_id: seed().listId,
+    list_id: list.id,
     title: "Dockable",
   });
-  const win = await openCard(page, item.id);
+  const win = await openCard(page, item.id, list.id);
   await expect(page.locator(".tw-scrim")).toHaveCount(1);
   await expect(win).toHaveAttribute("aria-modal", "true");
 
@@ -112,8 +120,9 @@ test("the dock button parks the window on the right third or quarter, with the b
   await expect(page.locator(".tw-corner-grip")).toHaveCount(0);
   await expect(page.locator(".tw-activity-grip")).toHaveCount(0);
   // The board beside it is usable: another card opens from it.
+  await streamLive(page);
   const other = await api<{ id: string }>("POST", "/items", {
-    list_id: seed().listId,
+    list_id: list.id,
     title: "Beside the dock",
   });
   await page.locator(".card", { hasText: "Beside the dock" }).first().click();
@@ -150,6 +159,7 @@ test("the dock button parks the window on the right third or quarter, with the b
   expect(Math.round(b.x + b.width / 2)).toBe(800);
   await expect(page.locator(".tw-scrim")).toHaveCount(1);
   await expect(page.locator(".tw-corner-grip")).toHaveCount(1);
+  await api("PATCH", `/sections/${section.id}`, { archived: true });
 });
 
 test("a long title wraps to show all of it, and still does after the window changes width", async ({

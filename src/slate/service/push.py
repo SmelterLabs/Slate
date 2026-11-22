@@ -68,6 +68,7 @@ DEFAULT_REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     "watching",
 )
 
@@ -426,6 +427,8 @@ def notification_for(session: Session, ev: Event, reason: str) -> dict[str, Any]
     elif reason == "failed":
         head = f"{who} could not run: {title}"
         body = (after.get("note") or "").strip().splitlines()[0] if after.get("note") else title
+    elif reason == "stalled":
+        head, body = f"{who} stopped without finishing: {title}", "Run now carries it on"
     elif reason == "unblocked":
         head, body = "Ready to start", f"{title}: nothing it waits on is open any more"
     elif reason == "nudge":

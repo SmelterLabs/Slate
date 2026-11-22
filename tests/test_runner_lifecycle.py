@@ -419,12 +419,13 @@ def test_exited_parent_with_sleeping_descendant_has_bounded_drain_and_no_late_he
         assert done.wait(3), "an exited parent must not wait for descendant pipe EOF"
         assert stopped.wait(1), "stop must not wait for descendant pipe EOF"
         assert not errors and not stop_errors
-        assert outcomes == ["review"]
+        # A review with no standing line is sent as done, so the card finishes.
+        assert outcomes == ["done"]
         assert not runner.running and not runner._claimed
         assert any(reader.is_alive() for reader in readers), "descendant must still hold pipes"
         before = client.get(f"/api/v1/items/{item['id']}", headers=alex).json()
         events = client.get(f"/api/v1/items/{item['id']}/events", headers=alex).json()
-        assert before["agent"]["state"] == "review"
+        assert before["agent"] is None
         gate.touch()
         for reader in readers:
             reader.join(3)

@@ -114,10 +114,23 @@ def test_ask_line_names_a_person_and_keeps_only_the_body_as_reply(options):
 
 def test_review_and_later_lines():
     out, _ = go(service_client(statuses=["completed"], reply="Draft.\n`SLATE: review`"))
+    assert out["outcome"] == "done" and out["reply"] == "Draft."
+    assert "status" not in out
+    out, _ = go(
+        service_client(
+            statuses=["completed"],
+            reply="Draft.\nSLATE: review: Check the draft linked above.",
+        )
+    )
     assert out["outcome"] == "review" and out["reply"] == "Draft."
+    assert out["status"] == "Check the draft linked above."
     out, _ = go(service_client(statuses=["completed"], reply="At 11:05.\nSLATE: later"))
     assert out["outcome"] == "later" and out["reply"] == "At 11:05."
-    assert "waiting_on" not in out
+    assert "waiting_on" not in out and "status" not in out
+    out, _ = go(
+        service_client(statuses=["completed"], reply="At 11:05.\nSLATE: later: Runs Friday at 9.")
+    )
+    assert out["outcome"] == "later" and out["status"] == "Runs Friday at 9."
 
 
 def test_status_outranks_the_reply_text():

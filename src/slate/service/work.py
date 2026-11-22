@@ -111,6 +111,11 @@ BLOCKED_PAUSE = timedelta(hours=1)
 # (`item.run_failed`, told to people once). Run now starts the count over.
 RETRY_AFTER = (timedelta(minutes=5), timedelta(minutes=30))
 GIVE_UP_AFTER = len(RETRY_AFTER) + 1
+# A `working` badge with no lease and no report for this long is cleared (`due.clear_stale_badges`).
+STALE_AFTER = timedelta(minutes=30)
+# An open card its agent last finished `answered` this long ago is poked once
+# (`due.poke_stalled`); a poked run that answers again marks the card stalled.
+STALL_AFTER = timedelta(hours=4)
 # A lease is `working` until its time runs out, then `expired`: the task stays held until the
 # agent reconciles or a person clears the badge (`docs/state-machines.md`).
 LEASE_STATES = ("working", "expired")
@@ -256,7 +261,7 @@ def eligible(
         ),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.review, pressed, asked),
         or_(Item.agent_state.is_(None), Item.agent_state != AgentState.failed, pressed, asked),
-        or_(_last_outcome(account_id) != "answered", pressed, asked),
+        or_(_last_outcome(account_id) != "answered", pressed, asked, _stall_poke(account_id)),
         pressed
         | not_(
             and_(
@@ -302,6 +307,34 @@ def _last_outcome(account_id: str) -> Any:
         .correlate(Item)
         .scalar_subquery(),
         "",
+    )
+
+
+def _stall_poke(account_id: str) -> Any:
+    """SQL: Slate's stalled poke for this account on the item (`due.poke_stalled`), newer than
+    the account's newest finish there: the card is offered to it, and only it, once."""
+    targets = func.json_each(Event.after_json, "$.for").table_valued("value")
+    finished = (
+        select(func.max(Event.id))
+        .where(
+            Event.type == "item.work_finished",
+            Event.item_id == Item.id,
+            Event.actor_id == account_id,
+        )
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    return (
+        select(Event.id)
+        .where(
+            Event.type == "item.run_requested",
+            Event.item_id == Item.id,
+            Event.after_json["reason"].as_string() == "stalled",
+            select(targets.c.value).where(targets.c.value == account_id).exists(),
+            or_(finished.is_(None), Event.id > finished),
+        )
+        .correlate(Item)
+        .exists()
     )
 
 
@@ -643,10 +676,38 @@ def take(
         if new_turn:
             row.run_id = secrets.token_urlsafe(32)
             row.asked_only = asked or item.completed_at is not None
+            poke = None
+            if item.completed_at is None:  # a closed card taken for an Ask is not the poked run
+                last = session.scalar(
+                    select(func.max(Event.id)).where(
+                        Event.type == "item.work_finished",
+                        Event.item_id == item.id,
+                        Event.actor_id == actor.account_id,
+                    )
+                )
+                for ev in session.scalars(
+                    select(Event)
+                    .where(
+                        Event.type == "item.run_requested",
+                        Event.item_id == item.id,
+                        Event.id > (last or ""),
+                    )
+                    .order_by(Event.id.desc())
+                ):
+                    after = ev.after_json if isinstance(ev.after_json, dict) else {}
+                    if after.get("reason") == "stalled" and actor.account_id in (
+                        after.get("for") or []
+                    ):
+                        poke = ev.id
+                        break
             cx.record(
                 "item.work_started",
                 item_id=item.id,
-                after={"run_digest": _digest(row.run_id), "asked_only": asked},
+                after={
+                    "run_digest": _digest(row.run_id),
+                    "asked_only": asked,
+                    **({"poke": poke} if poke else {}),
+                },
             )
     return row
 
@@ -944,8 +1005,9 @@ def finish(
 ) -> Item:
     """Report back on a task in one transaction and give up the lease.
 
-    `outcome`: `done` (completes it, or moves it to `status`), `review` (badge stays: ready for
-    a person), `later` (you did what you can now and the rest waits for the task's due time:
+    `outcome`: `done` (completes it), `review` (badge stays: something a person must check,
+    said in `status`; `waiting_on` names the person, by default whoever asked this turn, else
+    the owner), `later` (you did what you can now and the rest waits for the task's due time:
     no badge, nobody waited on, you stay assigned and the due time runs you again; the task
     needs a due time still to come), `ask` (the only way to stop the card on a person: a
     one-line `question`, optional `options`, `waiting_on` a person, by default whoever asked
@@ -956,23 +1018,26 @@ def finish(
     consecutive failure records `item.run_failed` instead), `blocked` (waiting on an agent or
     on nobody), `release` (give it
     up: you are un-assigned, so it goes back to its other assignees or the pool). `note` is
-    posted as a comment (unless `comment=false`); `status` sets a
-    status by name or id; `hand_to` (a handle) assigns the task to that account in place of
-    you, so an agent's next `/work/next` picks it up. `reply` is your answer for this turn,
-    posted as one plain comment by you instead of the note (card conversation); `thread` is your
-    own session for this task (service/reports.py). If you already reported this outcome with a
-    comment of your own since you took the task, nothing is posted again (one answer per turn).
-    Agent finishes consume only Ask assignments present at take, for every outcome, without
-    hiding or resolving them. The existing asked-only `done` exception explicitly resolves
-    those taken Asks instead of completing the task. Human finishes never resolve Asks.
+    posted as a comment (unless `comment=false`); `status` is where the card stands in one line
+    (service/reports.py; derived when absent); `hand_to` (a handle) assigns the task to that
+    account in place of you, so an agent's next `/work/next` picks it up. `reply` is your answer
+    for this turn, posted as one plain comment by you instead of the note (card conversation);
+    `thread` is your own session for this task (service/reports.py). If you already reported
+    this outcome with a comment of your own since you took the task, nothing is posted again
+    (one answer per turn).
+    Agent finishes consume only Ask assignments present at take, for every outcome, and every
+    agent finish but `failed` and `release` resolves them (`reason: "answered"`): the turn
+    answered them. An asked-only `done` answers instead of completing the task. Human finishes
+    never resolve Asks. A turn Slate started because the card stalled (`due.poke_stalled`)
+    that ends `answered` again sets `stalled` (`item.stalled`); any other finish clears it.
     A plain comment or report is not a work finish. Legacy takes without a boundary settle
     no Asks; a subsequent take establishes one."""
     if outcome not in OUTCOMES:
         raise Invalid(f"outcome must be one of {', '.join(OUTCOMES)}")
     if hand_to is not None and outcome not in ("review", "blocked", "release"):
         raise Invalid(f"hand_to goes with review, blocked or release, not {outcome}")
-    if waiting_on is not None and outcome not in ("ask", "blocked"):
-        raise Invalid("waiting_on goes with ask or blocked")
+    if waiting_on is not None and outcome not in ("ask", "blocked", "review"):
+        raise Invalid("waiting_on goes with ask, review or blocked")
     if (question is not None or options) and outcome != "ask":
         raise Invalid("question and options go with ask")
     if outcome == "ask" and question is None:
@@ -1020,7 +1085,7 @@ def finish(
             row.asked_only if row is not None else _asked_only(session, item.id, actor.account_id)
         )
         if comment and _already_answered(session, item.id, actor.account_id, state):
-            comment, reply = False, None
+            comment = False  # posted already; the reply still says where the card stands
         start = _turn_start(session, actor.account_id, item.id)
         asks = turn_asks(session, actor.account_id, item.id) if start is not None else []
         through = _turn_through(session, actor.account_id, item.id, start) if start else None
@@ -1048,7 +1113,7 @@ def finish(
             note=reports.first_line(note or "") if outcome == "failed" else note,
             progress=progress,
             comment=comment and target is None and outcome != "failed",
-            complete=status is None and not answering,
+            complete=not answering,
             _finishing=True,
             run_id=run_id,
             waiting_on=waiting_on,
@@ -1057,10 +1122,23 @@ def finish(
             thread=thread,
             question=question,
             options=options,
+            status=status,
         )
+        # A poked turn that answered again stalled; any other finish ends a stall.
+        # A turn that consumed Slate's stalled poke and answered again, on an open card,
+        # stalled; any finish other than answered ends a stall.
+        newly_stalled = (
+            outcome == "answered"
+            and item.stalled_at is None
+            and start is not None
+            and (start.after_json or {}).get("poke") is not None
+            and not _ended(session, item, SimpleNamespace(asked_only=False))
+        )
+        if newly_stalled:
+            item.stalled_at = utcnow()  # rides on item.reported
+        elif outcome != "answered":
+            item.stalled_at = None
         changes: dict[str, Any] = {}
-        if status is not None:
-            changes["status"] = status
         current = _assignee_ids(session, item.id)
         if target is not None:
             keep = [a for a in current if a != actor.account_id]
@@ -1073,11 +1151,8 @@ def finish(
         if changes:
             update_item(session, actor, item.id, changes)
         if start is not None or run_id or outcome == "failed":
-            if answering and outcome == "done" and _is_agent(session, actor.account_id):
-                for ask in asks:
-                    comments.resolve_comment(session, actor, ask.id)
-            if outcome == "answered":
-                for ask in asks:
+            if outcome not in ("failed", "release") and _is_agent(session, actor.account_id):
+                for ask in asks:  # it answered them; a failed or released run did not
                     comments.resolve_comment(session, actor, ask.id, reason="answered")
             failed = {}
             if outcome == "failed":
@@ -1092,10 +1167,18 @@ def finish(
                     "run_digest": _digest(run_id),
                     "request_digest": _digest(payload),
                     **failed,
+                    # Only a finish that wrote the standing carries it (an agent's).
+                    **(
+                        {"status": item.standing_line}
+                        if item.standing_line and item.standing_by == actor.account_id
+                        else {}
+                    ),
                     **({"steps": log.steps, "comment_id": log.comment_id} if log else {}),
                 },
                 covers=[log] if log else [],
             )
+            if newly_stalled:
+                cx.record("item.stalled", item_id=item.id, after={"agent_id": actor.account_id})
             if failed.get("failures", 0) >= GIVE_UP_AFTER:
                 cx.record(
                     "item.run_failed",
@@ -1103,7 +1186,7 @@ def finish(
                     after={
                         "agent_id": actor.account_id,
                         **failed,
-                        "notify": _told_of_failure(session, item.id),
+                        "notify": _people_to_tell(session, item.id),
                     },
                 )
         if row is not None:
@@ -1140,9 +1223,9 @@ def _failures(session: Session, account_id: str, item: Item) -> int:
     return count
 
 
-def _told_of_failure(session: Session, item_id: str) -> list[str]:
-    """Who hears that Slate gave up on a run: the card's person assignees and watchers, else
-    the workspace owners."""
+def _people_to_tell(session: Session, item_id: str) -> list[str]:
+    """Who hears that Slate gave up on a run, or that a card stalled: the card's person
+    assignees and watchers, else the workspace owners."""
     people = (
         select(Account.id)
         .where(Account.kind == AccountKind.person, Account.disabled_at.is_(None))
@@ -1318,6 +1401,7 @@ def request_run(
         if session.get(WorkLease, item.id) is not None:
             raise Conflict("execution state is unknown; reconcile the current run before retrying")
         item.run_requested_at = now
+        item.stalled_at = None  # whoever pressed it wants the agent to go on
         event = cx.record(
             "item.run_requested",
             item_id=item.id,

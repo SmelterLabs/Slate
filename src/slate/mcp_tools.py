@@ -1141,15 +1141,15 @@ WORK_ACTIONS = {
     ),
     "finish": bind(
         work_api.finish,
-        "report back in one call (run_id from next's lease): outcome done / review / later "
+        "report back in one call (run_id from next's lease; status: where the card stands, one "
+        "line, required with review): outcome done / review (something a person must check) / "
+        "later "
         "(stay assigned, no badge, the due time still to come runs you again) / ask (question, "
         "options: the only way to stop the card on a person) / answered (reply: nothing else "
         "changes) / failed (note: the machine broke; nobody is asked, Slate retries) / blocked "
-        "(on an agent or nobody) / release, a note posted as your comment, a status, hand_to "
-        "another account; "
-        "next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, "
-        "not resolution; asked-only agent done explicitly resolves only its taken Asks. "
-        "New/reassigned Asks during the run remain pending; humans must explicitly resolve",
+        "(on an agent or nobody) / release, a note posted as your comment, hand_to another "
+        "account; next: {} also takes your next task. Every finish but failed and release "
+        "resolves the Asks the turn took; new/reassigned Asks during the run remain pending",
         WorkFinish,
         local=_work_finish,
     ),

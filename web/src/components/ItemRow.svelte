@@ -11,6 +11,8 @@
   import CardMenu from './CardMenu.svelte';
   import Icon from './Icon.svelte';
   import QuickActions from './QuickActions.svelte';
+  import StalledBadge from './StalledBadge.svelte';
+  import StandingLine from './StandingLine.svelte';
   import TagPill from './TagPill.svelte';
 
   let {
@@ -71,10 +73,16 @@
         void board.toggleComplete(item.id);
       }}><Icon name="check" size={11} /></button
     >
-    <span class="row-title">{item.title}</span>
-    {#if item.recurrence_id && show.has('recurrence')}<span class="badge" title="Recurring"><Icon name="repeat" size={12} /></span>{/if}
-    {#if item.subtask_count && show.has('subtasks')}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
-    {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
+    <span class="row-title-col">
+      <span class="row-title-top">
+        <span class="row-title">{item.title}</span>
+        {#if item.recurrence_id && show.has('recurrence')}<span class="badge" title="Recurring"><Icon name="repeat" size={12} /></span>{/if}
+        {#if item.subtask_count && show.has('subtasks')}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
+        {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
+        {#if item.stalled}<StalledBadge {item} />{/if}
+      </span>
+      {#if item.standing}<StandingLine standing={item.standing} />{/if}
+    </span>
     {#if armed}<QuickActions {item} /><CardMenu {item} bind:open={menuOpen} />{/if}
   </span>
   {#if showList}<span class="cell c-list muted" role="cell">{board.lists[item.list_id]?.name}</span>{/if}

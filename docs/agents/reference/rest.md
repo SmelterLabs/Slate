@@ -589,7 +589,7 @@ Scope: `write` · MCP: `slate_item report`
 
 An agent says what it is doing: `working`, `blocked` or `review` put a live badge on the card (who, note, progress); `done` clears it and completes the item (unless `complete: false`); `idle` just clears it. The note is also posted as your comment. `blocked` with a `question` (and `waiting_on: alex`) asks that person: the card waits on them and lands in their Today "waiting on me". `blocked` waiting on a person without a question is refused (422).
 
-- Body: `ReportIn`: `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `assign_me`, `url`, `claim`, `reply`, `thread`
+- Body: `ReportIn`: `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `status`, `assign_me`, `url`, `claim`, `reply`, `thread`
 - Returns: `200` [ItemOut](#itemout)
 
 ### `POST /items/{item_id}/run`
@@ -1376,7 +1376,7 @@ What the agent working on this task is doing now: the lines its run posted, olde
 
 Scope: `write` · MCP: `slate_work finish`
 
-Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a note posted as your comment, a `status`, and `hand_to` to pass the task to another account. Your lease ends. With `next`, the same call also takes your next task (and may `wait` for one). Agent finishes consume only Ask assignments present at take, so the same open Ask cannot repeatedly dispatch done, review, blocked or released work. Asks remain visible and explicitly resolvable; only asked-only agent done resolves its taken Asks (without completing the task). New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
+Report back in one round trip, all in one transaction: the outcome (done, review, later, ask, answered, failed, blocked, release), a note posted as your comment, a one-line `status` saying where the card stands (required with review), and `hand_to` to pass the task to another account. Your lease ends. With `next`, the same call also takes your next task (and may `wait` for one). Agent finishes consume only Ask assignments present at take, so the same open Ask cannot dispatch work twice, and every agent finish but failed and release resolves them. New or reassigned Asks during the run remain pending. Human finishes never resolve Asks.
 
 - Body: `FinishIn`: `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`, `next`
 - Returns: `200` [FinishOut](#finishout)
@@ -2160,11 +2160,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### ItemOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean
 
 ### ItemDetailOut
 
-`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
+`id`: string, `list_id`: string, `parent_id`: string?, `kind`: `task`, `title`: string, `body_md`: string, `status`: StatusRef?, `priority`: `urgent` \| `high` \| `normal` \| `low`?, `start_at`: date-time?, `due_at`: date-time?, `due_date_only`: boolean, `completed_at`: date-time?, `waiting_on_account_id`: string?, `acceptance_md`: string?, `recurrence_id`: string?, `occurrence_at`: date-time?, `external_ref`: string?, `position`: integer, `created_by`: string?, `created_at`: date-time, `updated_at`: date-time, `archived_at`: date-time?, `trashed_at`: date-time?, `purge_at`: date-time?, `assignees`: [AssigneeOut], `tags`: [string], `subtask_count`: integer, `blocked_by`: [string], `blocking`: [string], `related`: [string], `duplicate_of`: [string], `duplicated_by`: [string], `blocked`: boolean, `comment_count`: integer, `open_asks`: [string], `checklist_done`: integer, `checklist_total`: integer, `attachment_count`: integer, `agent`: AgentFlag?, `agent_threads`: [AgentThreadOut], `run_requested_at`: date-time?, `ask`: ItemAskOut?, `standing`: StandingOut?, `stalled`: boolean, `subtasks`: [ItemOut], `comments`: [CommentOut], `checklists`: [ChecklistOut], `attachments`: [AttachmentOut], `watchers`: [AssigneeOut], `events`: [slate__api__schemas__EventOut]
 
 ### slate__api__schemas__EventOut
 
@@ -2224,11 +2224,11 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### InboxEntry
 
-`event`: InboxEvent, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `loudness`: integer, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
+`event`: InboxEvent, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `stalled` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `read`: boolean, `loudness`: integer, `item_title`: string?, `list_id`: string?, `channel`: string?, `doc_id`: string?
 
 ### ReleasedAlert
 
-`cursor`: string, `at`: string, `loudness`: integer, `title`: string, `body`: string, `item_id`: string?, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `entry`: InboxEntry?
+`cursor`: string, `at`: string, `loudness`: integer, `title`: string, `body`: string, `item_id`: string?, `reason`: `mention` \| `chat` \| `reply` \| `assigned` \| `waiting` \| `due` \| `unblocked` \| `nudge` \| `reminder` \| `digest` \| `health` \| `access` \| `failed` \| `stalled` \| `comment` \| `status` \| `update` \| `archived` \| `moved` \| `watching`, `entry`: InboxEntry?
 
 ### InboxCount
 

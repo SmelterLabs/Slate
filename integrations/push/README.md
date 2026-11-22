@@ -12,7 +12,7 @@ Each alert is `POST <--broker><--alert-path>` (default path `/v1/alert`) with
 If your broker wants another shape, change `Bridge.publish`.
 
 Use `--reasons` to choose which released reasons to relay. The defaults are mention, reply,
-assigned, waiting, due, unblocked, nudge, reminder, health, access, and failed. Slate provides
+assigned, waiting, due, unblocked, nudge, reminder, health, access, failed, and stalled. Slate provides
 the wording for each alert, including escalations and quiet-hours summaries. The bridge
 prefixes titles with `Slate: ` and links to the card when the alert names one.
 

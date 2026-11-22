@@ -35,8 +35,11 @@ from typing import Any
 log = logging.getLogger("slate-push")
 
 # Card push reasons, without chat and the daily digest, plus `failed` (a run the agent
-# could not finish). A routine digest is not an alert.
-DEFAULT_REASONS = "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed"
+# could not finish) and `stalled` (it stopped without finishing). A routine digest is not
+# an alert.
+DEFAULT_REASONS = (
+    "mention,reply,assigned,waiting,due,unblocked,nudge,reminder,health,access,failed,stalled"
+)
 
 Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any, dict[str, str]]]
 

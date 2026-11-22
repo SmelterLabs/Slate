@@ -295,6 +295,11 @@ selection").
   card's field settings, replacing the gray Waiting-on pill in the footer. Why: once an agent's
   flag is cleared, a small gray footer pill would be the card's only sign while the pill and the
   sidebar are red.
+- **Standing**: the item view's `standing` (`{line, by_id, at, move_id}`, service/reports.py
+  and `items._move_id`) is the agent's one line on where the card stands and whose move it is;
+  the row, the card and the top of the window show it, with "Your move" when `move_id` is the
+  viewer and that account's name otherwise. The agent's long reply stays in the conversation.
+  `stalled` shows a neutral "Stalled" mark with Run now.
 - **Waiting on you, in the window**: a card that waits on the viewer opens with a red
   banner at the top of the main column (`data-banner="waiting"`): who set the wait, the question in
   a sentence or two, **Answer** and **Not waiting on me**. `conversation.waitingQuestion(item,

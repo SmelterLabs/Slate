@@ -24,7 +24,7 @@ export function workingItems(items: Item[], now: Date): WorkingItems {
 export function pickupSince(item: Item, requested: number | undefined, now: Date): number | undefined {
   if (isClosed(item) || item.archived_at || item.agent?.state === 'working') return;
   if (requested != null && Number.isFinite(requested) && (!item.agent || requested > Date.parse(item.agent.at))) return requested;
-  if (item.agent || item.blocked || item.waiting_on_account_id || !item.due_at) return;
+  if (item.agent || item.stalled || item.blocked || item.waiting_on_account_id || !item.due_at) return;
   if (item.start_at && Date.parse(item.start_at) > now.getTime()) return;
   const due = new Date(item.due_at);
   if (!Number.isFinite(due.getTime())) return;

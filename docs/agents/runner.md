@@ -201,10 +201,15 @@ long in a file or a note and link it. End with the `SLATE:` line. Your answer fo
 `reply` in the result (one comment by you on the card); the `SLATE:` line is the outcome.
 `done` and `review` both mean the work is finished; background work you started must report
 back before you answer. An answer with no `SLATE:` line is `answered`: the text is the
-comment and nobody is waited on. The lines are `SLATE: done`, `SLATE: review`, `SLATE: later`,
-`SLATE: answered`, and `SLATE: ask alex: your one-line question? [Yes | No]` (the bracketed
-choices are optional). An old `SLATE: blocked waiting_on alex` is not a closing line, so that
-turn is `answered` too.
+comment and nobody is waited on. The words after the colon are the status, one line of
+where the card stands. Review needs them; without them the line is `done`. The lines are
+`SLATE: done: Sent the invoice. Nothing needed from you.`,
+`SLATE: review: Check the draft linked above.`,
+`SLATE: later: Runs Friday at 9.`,
+`SLATE: answered: It is waiting on the bank, not on you.`, and
+`SLATE: ask alex: Start the import now? [Yes | No | Not yet]` (the bracketed choices are
+optional). An old `SLATE: blocked waiting_on alex` is not a closing line, so that turn is
+`answered` too.
 
 Keep one session per task in your own runtime and tell Slate its id as `thread: {"ref": ...,
 "url": ...}` on your first progress line (`url` is the badge's Open link; http(s), or a desktop
@@ -247,7 +252,7 @@ channel, in the thread when the mention was in one:
 {"outcome": "done", "reply": "Two things: the deck and the invoice. Both open."}
 ```
 
-`review` counts as `done`. `blocked` or `release` ends the turn with **nothing posted** (the note
+`review`, `blocked` or `release` ends the turn with **nothing posted** (the note
 goes to the history as `message.agent_turn`), and so does a failed run or a run with no result
 line: a shared chat never gets a stray stdout tail, and nothing is retried; the person mentions
 the agent again. A normal chat post does not settle a fenced execution. The runner must finish the exact
@@ -328,7 +333,9 @@ released.
 
 `outcome` is one of:
 
-- `done` or `review`: the work is finished.
+- `done`: the work is finished. `status`, when set, is one line of where the card stands.
+- `review`: finished, and a person should check `status` (required, one line). A `review`
+  with no `status` is sent as `done`.
 - `later`: you did what you can now and already have any go you need; the rest runs at the
   task's due time, which must still be to come. No badge, nobody waited on, you stay assigned.
   A `later` with no due time still to come is sent as `answered`.
@@ -341,8 +348,9 @@ released.
 - `blocked` or `release`: passed through when the command says so. The runner never adds
   `waiting_on` on its own. To stop a card on a person, use `ask`.
 
-`status` and `hand_to` work as in `POST /work/{id}/finish`. `question` and `options` pass
-through on `ask`.
+`status` is that one line, at most 140 characters. The runner does not send it with `ask`
+(the question is the standing). `hand_to` works as in `POST /work/{id}/finish`. `question`
+and `options` pass through on `ask`.
 
 **No result line.** Exit zero without an explicit result is not completion. A non-zero exit,
 a missing result or an unknown outcome is `failed`, with that machine text as `note`. Chat and

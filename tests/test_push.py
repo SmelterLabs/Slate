@@ -290,7 +290,7 @@ def test_an_agent_starting_work_is_not_pushed(client, alex, todo, db, browser, m
     n = push.process(db, webpush.send)
     assert (n, browser.received) == (0, [])
 
-    report(state="review", note="Drafted it", comment=False)
+    report(state="review", status="Check the result", note="Drafted it", comment=False)
     push.process(db, webpush.send)
     assert browser.received == []
     # The start is still in the Inbox: only the toast is held back.

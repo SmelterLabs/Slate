@@ -98,7 +98,9 @@ def test_next_skips_blocked_review_waiting_and_future_tasks(client, alex, todo, 
     review = _item(client, alex, todo["id"], "in review", assignees=["agent"], priority="high")
     client.post(
         f"{API}/items/{review['id']}/report",
-        json=run_fields(client, ch, review["id"], **{"state": "review"}),
+        json=run_fields(
+            client, ch, review["id"], **{"state": "review", "status": "Check the result"}
+        ),
         headers=ch,
     )
     plain = _item(client, alex, todo["id"], "plain", assignees=["agent"], priority="low")
@@ -222,7 +224,9 @@ def test_a_mid_turn_review_of_its_own_does_not_hide_the_run_still_going(
     _next(client, ch)
     r = client.post(
         f"{API}/items/{task['id']}/report",
-        json=run_fields(client, ch, task["id"], **{"state": "review"}),
+        json=run_fields(
+            client, ch, task["id"], **{"state": "review", "status": "Check the result"}
+        ),
         headers=ch,
     )
     assert r.status_code == 200 and r.json()["agent"]["state"] == "review"
@@ -239,7 +243,7 @@ def test_a_mid_turn_review_of_its_own_does_not_hide_the_run_still_going(
         and item["agent"]["note"] == "The runtime is using terminal"
     )
 
-    out = _finish(client, ch, task["id"], outcome="review", note="Ready")
+    out = _finish(client, ch, task["id"], outcome="review", status="Check the result", note="Ready")
     assert out["item"]["agent"]["state"] == "review"
 
     # A person's dismissal is not the agent's badge: a late heartbeat stays refused.
@@ -292,7 +296,7 @@ def test_finish_review_and_blocked(client, alex, todo, make_account):
     a = _item(client, alex, todo["id"], "a", assignees=["agent"], priority="high")
     b = _item(client, alex, todo["id"], "b", assignees=["agent"])
     _next(client, ch)
-    out = _finish(client, ch, a["id"], outcome="review", note="PR is up")
+    out = _finish(client, ch, a["id"], outcome="review", status="Check the result", note="PR is up")
     assert out["item"]["agent"]["state"] == "review"
     _next(client, ch)
     out = _finish(client, ch, b["id"], outcome="ask", waiting_on="alex", question="Which one?")

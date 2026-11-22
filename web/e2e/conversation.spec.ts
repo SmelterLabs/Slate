@@ -85,11 +85,13 @@ test('a run reads as a conversation on the card', async ({ page }) => {
   await api('POST', `/work/${item.id}/finish`, { run_id: next.lease.run_id, outcome: 'done', reply: 'Verified: signed in.' }, agent);
   await expect(tw.locator('[data-chat="agent"]')).toContainText('Verified: signed in.');
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
-  await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
+  await expect(tw.locator('[data-ask="open"]')).toHaveCount(0);
+  const comments = await api<{ body_md: string; resolved_at: string | null }[]>('GET', `/items/${item.id}/comments`);
+  expect(comments.find((comment) => comment.body_md === 'done')?.resolved_at).toBeTruthy();
   expect((await api<{ item: unknown }>('POST', '/work/next', { item_id: item.id }, agent)).item).toBeNull();
-  // Reload preserves the separate open-Ask and settled-dispatch states.
+  // Reload preserves the answer's resolution and settled dispatch.
   await page.reload();
-  await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
+  await expect(tw.locator('[data-ask="open"]')).toHaveCount(0);
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
   const folded = tw.locator('[data-chat-collapsed]');
   await expect(folded).toHaveCount(1);
@@ -109,19 +111,18 @@ test('a newer Ask during a run remains open and dispatches exactly one later tur
   await api('POST', `/items/${item.id}/comments`, { body_md: 'First question', assignee: 'agent' });
   const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
   const newer = await api<{ id: string }>('POST', `/items/${item.id}/comments`, { body_md: 'Newer question', assignee: 'agent' });
-  // More work arrived during this turn: keep the task open for review, not completed.
-  // A take on a completed task is intentionally an asked-only answer (and resolves that Ask).
-  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', reply: 'First answer' }, agent);
+  // Review completes the card and resolves the first Ask. The newer Ask still gets its own turn.
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', status: 'Check the first answer', reply: 'First answer' }, agent);
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);
   const tw = page.locator('.tw');
-  await expect(tw.locator('[data-ask="open"]')).toHaveCount(2);
+  await expect(tw.locator('[data-ask="open"]')).toHaveCount(1);
   await expect(tw.locator('[data-agent-pending="sent"]')).toBeVisible();
   const turn = await api<{ lease: { run_id: string }; asks: { id: string }[] }>('POST', '/work/next', { item_id: item.id }, agent);
   expect(turn.asks.map((a) => a.id)).toEqual([newer.id]);
   await api('POST', `/work/${item.id}/finish`, { run_id: turn.lease.run_id, outcome: 'done', reply: 'Newer answer' }, agent);
   await expect(tw.locator('[data-agent-pending]')).toHaveCount(0);
-  await expect(tw.locator('[data-ask="open"]')).toHaveCount(2);
+  await expect(tw.locator('[data-ask="open"]')).toHaveCount(0);
   expect((await api<{ item: unknown }>('POST', '/work/next', { item_id: item.id }, agent)).item).toBeNull();
   await api('PATCH', `/sections/${section.id}`, { archived: true });
 });
@@ -136,7 +137,7 @@ test('Mark reviewed clears an answered card', async ({ page }) => {
     assignees: ['agent'],
   });
   const taken = await api<{ lease: { run_id: string } }>('POST', '/work/next', { item_id: item.id }, agent);
-  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', reply: 'At six on Friday.' }, agent);
+  await api('POST', `/work/${item.id}/finish`, { run_id: taken.lease.run_id, outcome: 'review', status: 'Check the Friday closing time', reply: 'At six on Friday.' }, agent);
 
   await signIn(page);
   await page.goto(`/#/list/${list.id}?task=${item.id}`);

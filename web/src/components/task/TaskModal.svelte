@@ -23,6 +23,8 @@
   import { clampActivity, DOCK_LABELS, DOCKS, STACK_BELOW, windowWidth, type Dock } from '../../lib/taskwindow';
   import type { Item, Priority } from '../../lib/types';
   import AgentBadge from '../AgentBadge.svelte';
+  import StalledBadge from '../StalledBadge.svelte';
+  import StandingLine from '../StandingLine.svelte';
   import AssigneePicker from '../AssigneePicker.svelte';
   import HandOff from './HandOff.svelte';
   import ThreadLinks from './ThreadLinks.svelte';
@@ -85,6 +87,20 @@
   // The live copy on the board follows item.reported events; the detail is a fetched snapshot.
   const agentFlag = $derived(
     d ? (d.id in board.items ? (board.items[d.id].agent ?? null) : (d.agent ?? null)) : null,
+  );
+  const standing = $derived(
+    d
+      ? d.id in board.items && board.items[d.id].standing !== undefined
+        ? board.items[d.id].standing
+        : (d.standing ?? null)
+      : null,
+  );
+  const stalled = $derived(
+    d && isOpen(d)
+      ? d.id in board.items && board.items[d.id].stalled !== undefined
+        ? !!board.items[d.id].stalled
+        : !!d.stalled
+      : false,
   );
   // The agents' sessions for this card: the live row's (kept current by item.reported), else
   // the detail snapshot's.
@@ -552,6 +568,14 @@
 
         {#if agentFlag && !waitFlag}
           <div class="agent-now"><AgentBadge flag={agentFlag} item={d} full /></div>
+        {/if}
+
+        {#if stalled}
+          <div class="agent-now"><StalledBadge item={d} full /></div>
+        {/if}
+
+        {#if standing && !waitQ?.structured}
+          <StandingLine {standing} full />
         {/if}
 
         <div class="status-row">
