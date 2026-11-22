@@ -4,6 +4,7 @@ rhythm. A section marked `project` exposes a computed `next_step`."""
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +18,7 @@ from slate.models import (
     Item,
     ItemAssignee,
     List,
+    Role,
     Section,
     Status,
     StatusKind,
@@ -79,13 +81,21 @@ def next_step_for(
     out: dict[str, dict[str, Any] | None] = {sid: None for sid in section_ids}
     if not section_ids:
         return out
-    from slate.service import access
+    from slate.service import access, guests
     from slate.service.lists import WORK_LIST
 
     caller = access.current(session)
+    guest = caller is not None and caller.role == Role.guest
+    if guest:
+        # A list share is not visibility into the section's project-wide planning.
+        section_ids = [sid for sid in section_ids if caller.section_level(sid) > 0]
+        if not section_ids:
+            return out
     now = now or utcnow()
-    has_assignee = select(ItemAssignee.item_id).where(ItemAssignee.item_id == Item.id).exists()
-    with access.unrestricted(session):
+    assigned = select(ItemAssignee.item_id).where(ItemAssignee.item_id == Item.id)
+    if guest:
+        assigned = assigned.where(ItemAssignee.account_id.not_in(guests.workspace_agents()))
+    with nullcontext() if guest else access.unrestricted(session):
         rows = session.execute(
             select(List.section_id, Item)
             .join(List, List.id == Item.list_id)
@@ -104,7 +114,7 @@ def next_step_for(
                     Status.kind.is_(None),
                     Status.kind.not_in([StatusKind.done, StatusKind.cancelled]),
                 ),
-                has_assignee,
+                assigned.exists(),
             )
         ).all()
 

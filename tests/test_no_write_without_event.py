@@ -234,7 +234,7 @@ READS = {
         "entry_view",
         "notification_turn",
         "follows",
-        "stall_recipients",
+        "person_recipients",
         "reason_for",
         "entries",
         "unread_count",

@@ -16,7 +16,7 @@ Nothing is copied into a notifications table. An entry is an event, chosen for o
   retries it.
 - `stalled`  — a card's agent stopped without finishing twice (it answered, Slate ran it
   again, it answered again: `item.stalled`). Told to the card's enabled person assignees and
-  watchers who can see it now, else the workspace owners (`stall_recipients`).
+  watchers who can see it now, else the workspace owners (`person_recipients`).
 - `due`      — a due or overdue nudge on an item assigned to the account
 - `unblocked` — an open item assigned to the account no longer waits on anything
 - `nudge`    — a task is due for (or Run now was pressed on) an agent no runner wakes (`wake`
@@ -155,7 +155,7 @@ def follows(session: Session, account_id: str) -> Follows:
         .where(Event.type == "item.stalled", Event.at >= utcnow() - WINDOW)
         .distinct()
     ).all()
-    stalls = frozenset(i for i in stalled if account_id in stall_recipients(session, i))
+    stalls = frozenset(i for i in stalled if account_id in person_recipients(session, i))
     suppressed_fallback = session.scalars(
         select(Event.item_id)
         .join(Item, Item.id == Event.item_id)
@@ -178,8 +178,8 @@ def follows(session: Session, account_id: str) -> Follows:
     )
 
 
-def stall_recipients(session: Session, item_id: str) -> set[str]:
-    """Who hears that a card stalled: its enabled person assignees and watchers who can see it
+def person_recipients(session: Session, item_id: str) -> set[str]:
+    """People to notify about a card: enabled assignees and watchers who can see it
     now (a revoked share counts for nothing), else the enabled workspace owners."""
     from slate.service import access  # noqa: PLC0415 (access imports this module's peers)
 

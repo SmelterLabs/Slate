@@ -55,7 +55,6 @@ from slate.models import (
     Source,
     Status,
     StatusKind,
-    Watcher,
     WorkLease,
 )
 from slate.service.core import Actor, apply_change, in_change, jsonable
@@ -485,42 +484,11 @@ def poke_stalled(session: Session, *, now: datetime) -> int:
     return poked
 
 
-def _unpark_recipients(session: Session, item_id: str) -> list[str]:
-    """Person assignees and watchers of `item_id`, else active workspace owners."""
-    people = set(
-        session.scalars(
-            select(Account.id)
-            .join(ItemAssignee, ItemAssignee.account_id == Account.id)
-            .where(
-                ItemAssignee.item_id == item_id,
-                Account.kind == AccountKind.person,
-                Account.disabled_at.is_(None),
-            )
-        )
-    )
-    people.update(
-        session.scalars(
-            select(Account.id)
-            .join(Watcher, Watcher.account_id == Account.id)
-            .where(
-                Watcher.item_id == item_id,
-                Account.kind == AccountKind.person,
-                Account.disabled_at.is_(None),
-            )
-        )
-    )
-    if people:
-        return sorted(people)
-    return sorted(
-        session.scalars(
-            select(Account.id).where(Account.role == Role.owner, Account.disabled_at.is_(None))
-        )
-    )
-
-
 def unpark_due(session: Session, *, now: datetime) -> int:
     """Clear `parked_until` / `parked_note` at 06:00 workspace time on `parked_until` and
     record `item.unparked` (`after: {"note", "notify"}`). Returns how many cards unparked."""
+    from slate.service.inbox import person_recipients
+
     parked = session.scalars(
         select(Item)
         .join(List, List.id == Item.list_id)
@@ -562,7 +530,7 @@ def unpark_due(session: Session, *, now: datetime) -> int:
             if st is not None and st.kind in (StatusKind.done, StatusKind.cancelled):
                 continue
             note = item.parked_note
-            recipients = _unpark_recipients(session, item.id)
+            recipients = sorted(person_recipients(session, item.id))
             item.parked_until = None
             item.parked_note = None
             cx.record(

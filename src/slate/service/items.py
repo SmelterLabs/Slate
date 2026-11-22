@@ -269,6 +269,17 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
     # A project's guest sees no trace of a workspace agent (service/guests.py): not its badge,
     # its session link, a wait on it or its name as the card's maker.
     hide = guests.workspace_agent_ids(session) if guests.viewer_is_guest(session) else set()
+    stall_actors: dict[str, str] = {}
+    stalled_ids = [item.id for item in items if item.stalled_at is not None] if hide else []
+    if stalled_ids:
+        with access.unrestricted(session):
+            rows = session.execute(
+                select(Event.item_id, Event.actor_id)
+                .where(Event.item_id.in_(stalled_ids), Event.type == "item.stalled")
+                .order_by(Event.id.desc())
+            )
+            for item_id, actor_id in rows:
+                stall_actors.setdefault(item_id, actor_id)
     from slate.service import today as today_svc
 
     caller = access.caller(session)
@@ -357,7 +368,9 @@ def views(session: Session, items: Sequence[Item]) -> list[dict[str, Any]]:
                     if item.standing_line
                     else None
                 ),
-                "stalled": item.stalled_at is not None and (st is None or _open(st)),
+                "stalled": item.stalled_at is not None
+                and (st is None or _open(st))
+                and stall_actors.get(item.id) not in hide,
             }
         )
         if hide:

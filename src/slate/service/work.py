@@ -86,7 +86,6 @@ from slate.models import (
     Status,
     StatusKind,
     Tag,
-    Watcher,
     WorkLease,
     utcnow,
 )
@@ -1192,13 +1191,15 @@ def finish(
             if newly_stalled:
                 cx.record("item.stalled", item_id=item.id, after={"agent_id": actor.account_id})
             if failed.get("failures", 0) >= GIVE_UP_AFTER:
+                from slate.service.inbox import person_recipients
+
                 cx.record(
                     "item.run_failed",
                     item_id=item.id,
                     after={
                         "agent_id": actor.account_id,
                         **failed,
-                        "notify": _people_to_tell(session, item.id),
+                        "notify": sorted(person_recipients(session, item.id)),
                     },
                 )
         if row is not None:
@@ -1233,32 +1234,6 @@ def _failures(session: Session, account_id: str, item: Item) -> int:
         else:
             break
     return count
-
-
-def _people_to_tell(session: Session, item_id: str) -> list[str]:
-    """Who hears that Slate gave up on a run, or that a card stalled: the card's person
-    assignees and watchers, else the workspace owners."""
-    people = (
-        select(Account.id)
-        .where(Account.kind == AccountKind.person, Account.disabled_at.is_(None))
-        .where(
-            or_(
-                Account.id.in_(
-                    select(ItemAssignee.account_id).where(ItemAssignee.item_id == item_id)
-                ),
-                Account.id.in_(select(Watcher.account_id).where(Watcher.item_id == item_id)),
-            )
-        )
-        .order_by(Account.id)
-    )
-    found = list(session.scalars(people))
-    return found or list(
-        session.scalars(
-            select(Account.id)
-            .where(Account.role == Role.owner, Account.disabled_at.is_(None))
-            .order_by(Account.id)
-        )
-    )
 
 
 def _keep_run_log(

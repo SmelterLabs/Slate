@@ -393,7 +393,10 @@ def released(
                     continue
                 payload = event_payload(ev)
                 projected = gate.project(session, payload)
-                if projected is None or (account.role == "guest" and projected != payload):
+                # The digest renderer uses the same recipient-scoped snapshot as projection.
+                if projected is None or (
+                    account.role == "guest" and ev.type != "account.digest" and projected != payload
+                ):
                     continue
                 note = push.notification_for(session, ev, ref["reason"])
                 if note:
