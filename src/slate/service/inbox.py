@@ -428,6 +428,13 @@ def _attach_items(session: Session, out: list[dict[str, Any]]) -> None:
         e["list_id"] = item.list_id if item else None
         e["channel"] = None
         e["doc_id"] = None
+        if e["event"]["type"] == "item.unparked":
+            after = e["event"]["after"] or {}
+            note = after.get("note") or ""
+            title = item.title if item else "Slate"
+            e["item_title"] = (
+                f"Back today: {title} (was waiting on {note})" if note else f"Back today: {title}"
+            )
         if e["event"]["type"] == "session.expiring":
             after = e["event"]["after"] or {}
             e["item_title"] = f"Access to {after.get('section') or 'the project'}"

@@ -162,6 +162,25 @@ def _ran_since(item: Item, run: Stage) -> bool:
     )
 
 
+_DUE_ALERT_TYPES = frozenset({"item.due_soon", "item.due", "item.overdue"})
+
+
+def _has_person_assignee(session: Session, item_id: str) -> bool:
+    return (
+        session.scalar(
+            select(ItemAssignee.account_id)
+            .join(Account, Account.id == ItemAssignee.account_id)
+            .where(
+                ItemAssignee.item_id == item_id,
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def emit_due_events(session: Session, *, now: datetime) -> int:
     """One scheduler tick. Returns the number of events emitted."""
     from slate.service import today as today_svc
@@ -198,8 +217,6 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
     from slate.service.work import agent_assignees, nudge_fields
 
     for item in candidates:
-        if today_svc.is_stale(item, now=now):
-            continue
         todo = pending_stages(
             item.due_at,
             item.last_due_event,
@@ -209,6 +226,10 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
         )
         if not todo:
             continue
+        if today_svc.is_stale(item, now=now) and _has_person_assignee(session, item.id):
+            todo = [s for s in todo if s.type not in _DUE_ALERT_TYPES]
+            if not todo:
+                continue
         run = next((s for s in todo if s.key == "run"), None)
         if run and _ran_since(item, run):
             # One of its agents already took it after the run time (assigning it woke one):
@@ -355,10 +376,21 @@ def unpark_due(session: Session, *, now: datetime) -> int:
         ).astimezone(UTC)
         if wake_at > now:
             continue
-        note = item.parked_note
-        recipients = _unpark_recipients(session, item.id)
         actor = actor or system_actor(session)
         with apply_change(session, actor) as cx:
+            session.refresh(item)
+            if item.parked_until is None or item.archived_at is not None:
+                continue
+            refreshed_wake = datetime.combine(
+                date.fromisoformat(item.parked_until), dates.AGENT_RUN_AT, tzinfo=dates.LOCAL
+            ).astimezone(UTC)
+            if refreshed_wake > now:
+                continue
+            st = session.get(Status, item.status_id) if item.status_id else None
+            if st is not None and st.kind in (StatusKind.done, StatusKind.cancelled):
+                continue
+            note = item.parked_note
+            recipients = _unpark_recipients(session, item.id)
             item.parked_until = None
             item.parked_note = None
             cx.record(

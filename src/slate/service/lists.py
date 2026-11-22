@@ -127,12 +127,13 @@ def move_item_to_status(cx: Change, item: Item, status: Status) -> None:
     """Shared by items.update and set_statuses: status change plus completed_at bookkeeping."""
     if cx.set(item, "status_id", status.id, "item.status_changed"):
         _set_completion(cx, item, status)
-        if (
-            status.kind in (StatusKind.done, StatusKind.cancelled)
-            and item.waiting_on_account_id is not None
-        ):
-            # A closed task waits on nobody; it would linger in Today's "waiting on me".
-            cx.set(item, "waiting_on_account_id", None, "item.updated")
+        if status.kind in (StatusKind.done, StatusKind.cancelled):
+            if item.waiting_on_account_id is not None:
+                # A closed task waits on nobody; it would linger in Today's "waiting on me".
+                cx.set(item, "waiting_on_account_id", None, "item.updated")
+            if item.parked_until is not None or item.parked_note is not None:
+                cx.set(item, "parked_until", None, "item.updated")
+                cx.set(item, "parked_note", None, "item.updated")
         if status.kind == StatusKind.done and item.recurrence_id:
             from slate.service import recurrences  # recurrences imports this module
 

@@ -27,13 +27,15 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Sequence
+from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 from pydantic import TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from slate.models import Event, Item
+from slate.models import Account, Event, Item, utcnow
 
 # Events that never change any item view.
 NO_EFFECT = (
@@ -204,7 +206,8 @@ def render(
     if _restricted(session):
         # The cache is shared by every caller, but a restricted caller's view is not the
         # same view (links to items it cannot see are absent): neither serve nor store it.
-        return _build(session, ids, [None] * len(ids), list(ids), views, adapter, None)
+        parts = _build(session, ids, [None] * len(ids), list(ids), views, adapter, None)
+        return _apply_later(session, parts)
     found, missing = cache.get_many(ids)
     if VERIFY:
         _verify(session, ids, found, views, adapter)
@@ -214,8 +217,8 @@ def render(
             again, still = cache.get_many(missing)
             filled = dict(zip(missing, again, strict=True))
             found = [b if b is not None else filled[i] for i, b in zip(ids, found, strict=True)]
-            return _build(session, ids, found, still, views, adapter, token)
-    return _build(session, ids, found, missing, views, adapter, token)
+            return _apply_later(session, _build(session, ids, found, still, views, adapter, token))
+    return _apply_later(session, _build(session, ids, found, missing, views, adapter, token))
 
 
 def _build(session, ids, found, missing, views, adapter, token) -> list[bytes]:  # noqa: ANN001
@@ -226,7 +229,9 @@ def _build(session, ids, found, missing, views, adapter, token) -> list[bytes]: 
             rows = list(session.scalars(select(Item).where(Item.id.in_(chunk))))
             fresh = []
             for view in views(session, rows):
-                data = adapter.dump_json(view, warnings=False)
+                # `later` depends on the clock and the caller's `lead_days`: never cache it.
+                canonical = {**view, "later": False} if view.get("later") else view
+                data = adapter.dump_json(canonical, warnings=False)
                 built[view["id"]] = data
                 near = (view["parent_id"],) if view["parent_id"] else ()
                 near += tuple(view["blocked_by"]) + tuple(view["blocking"]) + tuple(view["related"])
@@ -237,19 +242,50 @@ def _build(session, ids, found, missing, views, adapter, token) -> list[bytes]: 
     return [b for b in found if b is not None]  # an id deleted since it was read is left out
 
 
+def _apply_later(session: Session, parts: list[bytes]) -> list[bytes]:
+    """Set `later` on each serialized view from its cached fields, `utcnow()`, and the caller's
+    `lead_days` pref."""
+    if not parts:
+        return parts
+    from slate.service import access, today
+
+    caller = access.caller(session)
+    lead_days = today.lead_days_for(
+        session.get(Account, caller.account_id) if caller is not None else None
+    )
+    now = utcnow()
+    out: list[bytes] = []
+    for data in parts:
+        # Fast path: undated items are never later, and cached views store `"later":false`.
+        if b'"start_at":null' in data and b'"due_at":null' in data:
+            out.append(data)
+            continue
+        view = json.loads(data)
+        st = view.get("status")
+        is_open = not isinstance(st, dict) or st.get("kind") not in ("done", "cancelled")
+        start_raw, due_raw = view.get("start_at"), view.get("due_at")
+        later = today.is_later(
+            SimpleNamespace(
+                start_at=datetime.fromisoformat(start_raw) if start_raw else None,
+                due_at=datetime.fromisoformat(due_raw) if due_raw else None,
+            ),
+            now=now,
+            lead_days=lead_days,
+            is_open=is_open,
+        )
+        if view.get("later") != later:
+            view["later"] = later
+            out.append(json.dumps(view, ensure_ascii=False, separators=(",", ":")).encode())
+        else:
+            out.append(data)
+    return out
+
+
 def _restricted(session: Session) -> bool:
-    from slate.models import Account
-    from slate.service import access, today  # access imports models only; keep the import local
+    from slate.service import access  # access imports models only; keep the import local
 
     found = access.current(session)
-    if found is not None and found.lists is not None:
-        return True
-    caller = access.caller(session)
-    if caller is not None:
-        acct = session.get(Account, caller.account_id)
-        if today.lead_days_for(acct) != today.DEFAULT_LEAD_DAYS:
-            return True
-    return False
+    return found is not None and found.lists is not None
 
 
 def trim(parts: Sequence[bytes], wanted: set[str] | None) -> list[bytes]:
@@ -280,6 +316,7 @@ def _verify(session, ids, found, views, adapter) -> None:  # noqa: ANN001
         return
     rows = list(session.scalars(select(Item).where(Item.id.in_(list(cached)))))
     for view in views(session, rows):
-        fresh = adapter.dump_json(view, warnings=False)
+        canonical = {**view, "later": False} if view.get("later") else view
+        fresh = adapter.dump_json(canonical, warnings=False)
         if fresh != cached[view["id"]]:
             raise StaleView(f"cached view of {view['id']} is stale:\n{cached[view['id']]}\n{fresh}")

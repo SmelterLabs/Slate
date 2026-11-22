@@ -80,26 +80,33 @@ def next_step_for(
     out: dict[str, dict[str, Any] | None] = {sid: None for sid in section_ids}
     if not section_ids:
         return out
+    from slate.service import access
+
+    caller = access.current(session)
     now = now or utcnow()
     has_assignee = select(ItemAssignee.item_id).where(ItemAssignee.item_id == Item.id).exists()
-    rows = session.execute(
-        select(List.section_id, Item)
-        .join(List, List.id == Item.list_id)
-        .join(Section, Section.id == List.section_id)
-        .outerjoin(Status, Status.id == Item.status_id)
-        .where(
-            List.section_id.in_(list(section_ids)),
-            Item.archived_at.is_(None),
-            Item.parked_until.is_(None),
-            Item.blocked_since.is_(None),
-            Item.due_at.is_not(None),
-            List.archived_at.is_(None),
-            Section.archived_at.is_(None),
-            *today_svc.non_reference_list_filter(),
-            or_(Status.kind.is_(None), Status.kind.not_in([StatusKind.done, StatusKind.cancelled])),
-            has_assignee,
-        )
-    ).all()
+    with access.unrestricted(session):
+        rows = session.execute(
+            select(List.section_id, Item)
+            .join(List, List.id == Item.list_id)
+            .join(Section, Section.id == List.section_id)
+            .outerjoin(Status, Status.id == Item.status_id)
+            .where(
+                List.section_id.in_(list(section_ids)),
+                Item.archived_at.is_(None),
+                Item.parked_until.is_(None),
+                Item.blocked_since.is_(None),
+                Item.due_at.is_not(None),
+                List.archived_at.is_(None),
+                Section.archived_at.is_(None),
+                *today_svc.non_reference_list_filter(),
+                or_(
+                    Status.kind.is_(None),
+                    Status.kind.not_in([StatusKind.done, StatusKind.cancelled]),
+                ),
+                has_assignee,
+            )
+        ).all()
 
     def _key(item: Item) -> tuple[Any, ...]:
         rank = PRIORITY_RANK[item.priority] if item.priority else len(PRIORITY_RANK)
@@ -112,6 +119,9 @@ def next_step_for(
         cur = best.get(sid)
         if cur is None or _key(item) < _key(cur):
             best[sid] = item
+
+    if caller is not None and caller.lists is not None:
+        best = {sid: item for sid, item in best.items() if caller.list_level(item.list_id) > 0}
 
     if not best:
         return out

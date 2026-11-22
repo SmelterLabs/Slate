@@ -237,10 +237,16 @@ def test_parked_hides_from_today_digest_due_and_work_next_then_unparks_at_0600(
     # Check inbox entries for alex (person assignee) and sam (person watcher), not agent.
     alex_inbox = client.get(f"{API}/inbox", headers=alex, params={"reason": "reminder"}).json()
     sam_inbox = client.get(f"{API}/inbox", headers=watcher_h, params={"reason": "reminder"}).json()
-    assert any(
-        e["event"]["type"] == "item.unparked" and e["event"]["item_id"] == item["id"]
-        for e in alex_inbox
+    alex_unpark = next(
+        (
+            e
+            for e in alex_inbox
+            if e["event"]["type"] == "item.unparked" and e["event"]["item_id"] == item["id"]
+        ),
+        None,
     )
+    assert alex_unpark is not None
+    assert alex_unpark["item_title"] == "Back today: Chargeback (was waiting on card issuer)"
     assert any(
         e["event"]["type"] == "item.unparked" and e["event"]["item_id"] == item["id"]
         for e in sam_inbox
@@ -567,3 +573,227 @@ def test_prefs_lead_days_and_sweep_weekday_validation(client, alex):
         client.patch(f"{API}/me/prefs", headers=alex, json={"sweep_weekday": False}).status_code
         == 422
     )
+
+
+# --- Correction round 1 regression tests ---------------------------------------------------
+
+
+def test_later_recomputes_on_cached_item_when_clock_advances(client, alex, monkeypatch):
+    from slate.service import item_cache, items
+
+    _, lst = _make_section_and_list(client, alex)
+    t0 = utcnow()
+    monkeypatch.setattr(items, "utcnow", lambda: t0)
+    monkeypatch.setattr(item_cache, "utcnow", lambda: t0, raising=False)
+
+    # Due 15 days from t0 -> later=True under default lead_days=14.
+    card = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": lst["id"],
+            "title": "Enters window tomorrow",
+            "due_at": (t0 + timedelta(days=15)).isoformat(),
+        },
+    ).json()
+    first = client.get(f"{API}/items", headers=alex, params={"list_id": lst["id"]}).json()
+    assert first[0]["id"] == card["id"] and first[0]["later"] is True
+
+    # Advance the clock by 2 days with NO item event in between: cache hit must say later=False.
+    t1 = t0 + timedelta(days=2)
+    monkeypatch.setattr(items, "utcnow", lambda: t1)
+    monkeypatch.setattr(item_cache, "utcnow", lambda: t1, raising=False)
+    second = client.get(f"{API}/items", headers=alex, params={"list_id": lst["id"]}).json()
+    assert second[0]["id"] == card["id"] and second[0]["later"] is False
+
+
+def test_unpark_rechecks_under_write_lock_after_concurrent_repark(client, alex, db, monkeypatch):
+    from conftest import raw_write
+
+    _, lst = _make_section_and_list(client, alex)
+    tomorrow = dates.local_today() + timedelta(days=1)
+    next_week = (dates.local_today() + timedelta(days=7)).isoformat()
+    card = client.post(
+        f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": "Reparked"}
+    ).json()
+    client.patch(
+        f"{API}/items/{card['id']}",
+        headers=alex,
+        json={"parked_until": tomorrow.isoformat(), "parked_note": "first wait"},
+    )
+
+    # Simulate another request committing a later parked_until right after the outer select.
+    real_actor = due.system_actor
+    did_update = False
+
+    def racing_actor(session):
+        nonlocal did_update
+        if not did_update:
+            did_update = True
+            raw_write(
+                "UPDATE items SET parked_until = :u, parked_note = :n WHERE id = :id",
+                {"u": next_week, "n": "extended wait", "id": card["id"]},
+            )
+        return real_actor(session)
+
+    monkeypatch.setattr(due, "system_actor", racing_actor)
+    at_six = datetime.combine(tomorrow, time(6, 0), tzinfo=dates.LOCAL).astimezone(UTC)
+    assert due.unpark_due(db, now=at_six) == 0
+
+    refreshed = client.get(f"{API}/items/{card['id']}", headers=alex).json()
+    assert refreshed["parked_until"] == next_week
+    assert refreshed["parked_note"] == "extended wait"
+
+
+def test_stale_only_suppresses_due_alerts_for_person_assigned_and_never_run_requested(
+    client, alex, make_account, db
+):
+    _, lst = _make_section_and_list(client, alex)
+    make_account("my-agent", ("write",), kind="agent")
+    now = utcnow()
+    old_due = (now - timedelta(days=15)).isoformat()
+
+    unassigned = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={"list_id": lst["id"], "title": "Unassigned old", "due_at": old_due},
+    ).json()
+    agent_only = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": lst["id"],
+            "title": "Agent-only old",
+            "due_at": old_due,
+            "assignees": ["my-agent"],
+        },
+    ).json()
+    both = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": lst["id"],
+            "title": "Person + agent old",
+            "due_at": old_due,
+            "assignees": ["alex", "my-agent"],
+        },
+    ).json()
+
+    assert due.emit_due_events(db, now=now) > 0
+
+    def ev_types(item_id):
+        return {
+            e.type
+            for e in db.query(Event)
+            .filter(
+                Event.item_id == item_id,
+                Event.type.in_(["item.due_soon", "item.due", "item.overdue", "item.run_requested"]),
+            )
+            .all()
+        }
+
+    # Unassigned card is not stale -> still gets overdue.
+    assert "item.overdue" in ev_types(unassigned["id"])
+    # Agent-only card is not stale -> still gets run_requested.
+    assert "item.run_requested" in ev_types(agent_only["id"])
+    # Person + agent card: due/overdue suppressed, but run_requested still fires.
+    both_types = ev_types(both["id"])
+    assert "item.run_requested" in both_types
+    assert "item.overdue" not in both_types
+    assert "item.due" not in both_types
+
+
+def test_closing_card_clears_parked_fields(client, alex, db):
+    _, lst = _make_section_and_list(client, alex)
+    statuses = [*lst["statuses"], {"name": "Dropped", "kind": "cancelled"}]
+    client.put(f"{API}/lists/{lst['id']}/statuses", headers=alex, json={"statuses": statuses})
+
+    tomorrow = dates.local_today() + timedelta(days=1)
+    done_card = client.post(
+        f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": "Will finish"}
+    ).json()
+    cancel_card = client.post(
+        f"{API}/items", headers=alex, json={"list_id": lst["id"], "title": "Will cancel"}
+    ).json()
+    for cid in (done_card["id"], cancel_card["id"]):
+        client.patch(
+            f"{API}/items/{cid}",
+            headers=alex,
+            json={"parked_until": tomorrow.isoformat(), "parked_note": "waiting"},
+        )
+
+    r1 = client.patch(f"{API}/items/{done_card['id']}", headers=alex, json={"status": "Done"})
+    assert r1.status_code == 200
+    assert r1.json()["parked_until"] is None and r1.json()["parked_note"] is None
+
+    r2 = client.patch(f"{API}/items/{cancel_card['id']}", headers=alex, json={"status": "Dropped"})
+    assert r2.status_code == 200
+    assert r2.json()["parked_until"] is None and r2.json()["parked_note"] is None
+
+    at_six = datetime.combine(tomorrow, time(6, 0), tzinfo=dates.LOCAL).astimezone(UTC)
+    assert due.unpark_due(db, now=at_six) == 0
+
+
+def test_next_step_for_restricted_caller_does_not_substitute_later_visible_card(client, alex):
+    sec, private_list = _make_section_and_list(
+        client, alex, name="Secret Project", list_name="Private"
+    )
+    shared_list = client.post(
+        f"{API}/lists", headers=alex, json={"section_id": sec["id"], "name": "Shared"}
+    ).json()
+    client.patch(
+        f"{API}/sections/{sec['id']}", headers=alex, json={"project": True, "private": True}
+    )
+
+    guest_acct = client.post(
+        f"{API}/accounts",
+        headers=alex,
+        json={"handle": "guest1", "display_name": "Guest", "kind": "person", "role": "guest"},
+    ).json()
+    guest_tok = client.post(
+        f"{API}/accounts/{guest_acct['id']}/tokens",
+        headers=alex,
+        json={"scopes": ["read"], "label": "guest"},
+    ).json()["token"]
+    guest_h = {"Authorization": f"Bearer {guest_tok}"}
+    client.put(
+        f"{API}/shares",
+        headers=alex,
+        json={
+            "account_id": guest_acct["id"],
+            "scope_kind": "list",
+            "scope_id": shared_list["id"],
+            "level": "view",
+        },
+    )
+
+    now = utcnow()
+    # Earlier real next step is on Private (invisible to guest).
+    early = client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": private_list["id"],
+            "title": "Real next step",
+            "due_at": (now + timedelta(days=1)).isoformat(),
+            "assignees": ["alex"],
+        },
+    ).json()
+    # Later card is on Shared (visible to guest).
+    client.post(
+        f"{API}/items",
+        headers=alex,
+        json={
+            "list_id": shared_list["id"],
+            "title": "Later visible step",
+            "due_at": (now + timedelta(days=3)).isoformat(),
+            "assignees": ["alex"],
+        },
+    )
+
+    owner_proj = client.get(f"{API}/projects", headers=alex).json()[0]
+    assert owner_proj["next_step"]["item_id"] == early["id"]
+
+    # Guest must NOT be shown the later visible card as the project's next step.
+    guest_proj = client.get(f"{API}/projects", headers=guest_h).json()[0]
+    assert guest_proj["next_step"] is None
