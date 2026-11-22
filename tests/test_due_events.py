@@ -7,19 +7,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from slate import notify, scheduler
+from slate import scheduler
 from slate.dates import LOCAL
 from slate.models import Account, AccountKind, Event, Item, Source, utcnow
 from slate.service import (
     accounts,
     attention,
     chat_files,
-    chatwake,
-    docwake,
     due,
     items,
     lists,
     recurrences,
+    reminders,
     sections,
     sessions,
     trash,
@@ -171,14 +170,14 @@ def test_due_events_are_a_scheduler_hook_after_recurrence(db, world):
     # After materialize, so instances spawned this tick get their due events in the same tick.
     assert scheduler.hooks == [
         recurrences.materialize,
-        notify.due_events_tick,
-        notify.reminders_tick,
+        due.run_due_checks,
+        reminders.fire_reminders,
         attention.escalate,
-        notify.digest_tick,
+        reminders.send_digests,
         trash.purge_expired,
         work.expire_leases,
-        chatwake.expire,
-        docwake.expire,
+        scheduler.EXPIRE_CHAT,
+        scheduler.EXPIRE_DOC,
         sessions.notify_expiring,
         chat_files.sweep_unsent,
     ]

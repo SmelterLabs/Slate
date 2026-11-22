@@ -391,9 +391,9 @@ def _record_mentions(session: Session, cx: Change, doc: Doc, before: str, after:
             "excerpt": excerpt,
         },
     )
-    from slate.service import docwake  # noqa: PLC0415 (docwake reads this module)
+    from slate.service import turns  # noqa: PLC0415 (turns reads this module)
 
-    docwake.on_mentioned(cx, session, doc, added, excerpt=excerpt)
+    turns.on_doc_mentioned(cx, session, doc, added, excerpt=excerpt)
 
 
 def _insert(

@@ -97,10 +97,11 @@ each with its own fresh `db.SessionLocal()` closed afterwards, so no transaction
 raising hook is logged; the rest run. `scheduler.last_tick_at` is the `now` of the last finished
 tick (for `/healthz`).
 
-**Hooks** (`scheduler.hooks`, in order): `recurrences.materialize`, `notify.due_events_tick`,
-`notify.reminders_tick`, `notify.digest_tick`, `trash.purge_expired`, `work.expire_leases`,
-`chatwake.expire`, `docwake.expire`, `sessions.notify_expiring`, `chat_files.sweep_unsent`
-(`notify.due_events_tick` also runs `due.retry_failed_runs`, which offers a failed agent run
+**Hooks** (`scheduler.hooks`, in order): `recurrences.materialize`, `due.run_due_checks`,
+`reminders.fire_reminders`, `attention.escalate`, `reminders.send_digests`, `trash.purge_expired`,
+`work.expire_leases`, `turns.expire` for chat and then doc, `sessions.notify_expiring`,
+and `chat_files.sweep_unsent`
+(`due.run_due_checks` also runs `due.retry_failed_runs`, which offers a failed agent run
 again at its retry time: `docs/agents-work-loop.md`, "Failed runs"); `scheduler.POLLERS` names
 each on
 the Health page.
@@ -158,7 +159,7 @@ the path is not read as an id.
 
 ## Due events
 
-The scheduler runs `notify.due_events_tick` after recurrence materialization. `service/due.py`
+The scheduler runs `due.run_due_checks` after recurrence materialization. `service/due.py`
 emits `item.due_soon` 24 hours before the due time, `item.due` at that time and `item.overdue`
 one hour later. For cards assigned to agents, `item.run_requested` comes at the scheduled run
 time (06:00 workspace time for a date-only due date). The actor is Slate's system account.

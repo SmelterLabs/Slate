@@ -10,7 +10,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import func, select
 
-from slate import automator, emailer, engine, monitor, pusher
+from slate import engine, mailer, monitor, scheduler, webpush
 from slate.db import SessionLocal
 from slate.models import AutomationRun, EmailDelivery, Event, PushDelivery, utcnow
 from slate.service import automations, email, push
@@ -49,9 +49,11 @@ async def test_every_engine_runs_the_shared_loop(monkeypatch):
         seen.append(name)
 
     monkeypatch.setattr(engine, "run", fake_run)
-    await automator.run()
-    await pusher.run()
-    await emailer.run()
+    monkeypatch.setattr(settings, "automations_enabled", True)
+    monkeypatch.setattr(settings, "push_enabled", True)
+    monkeypatch.setattr(webpush, "enabled", lambda: True)
+    monkeypatch.setattr(mailer, "enabled", lambda: True)
+    await asyncio.gather(*scheduler.start_engines())
     assert seen == ["automations", "push", "email"]
 
 

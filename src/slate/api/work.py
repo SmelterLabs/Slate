@@ -28,7 +28,7 @@ from slate.api.schemas import (
     Option,
     Status,
 )
-from slate.service import chatwake, comments, docwake, items, reports, work
+from slate.service import comments, items, reports, turns, work
 from slate.service.core import Actor
 from slate.service.errors import Invalid
 
@@ -354,8 +354,8 @@ def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | 
     def left() -> int:
         return (
             work.remaining(session, actor.account_id, tag=body.tag, **scope)
-            + chatwake.remaining(session, actor.account_id)
-            + docwake.remaining(session, actor.account_id)
+            + turns.remaining("chat", session, actor.account_id)
+            + turns.remaining("doc", session, actor.account_id)
         )
 
     got = None
@@ -376,21 +376,23 @@ def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | 
             return None
         turn = None
         if not body.doc_id and "chat" in body.kinds:
-            turn = chatwake.next_turn(
+            turn = turns.take(
+                "chat",
                 session,
                 actor,
                 lease=body.lease_seconds,
-                channel=body.channel,
+                place=body.channel,
                 thread_id=body.thread_id,
                 resume=body.resume,
                 run_id=body.run_id,
             )
         if turn is None and not body.channel and "doc" in body.kinds:
-            turn = docwake.next_turn(
+            turn = turns.take(
+                "doc",
                 session,
                 actor,
                 lease=body.lease_seconds,
-                doc_id=body.doc_id,
+                place=body.doc_id,
                 thread_id=body.thread_id,
                 resume=body.resume,
                 run_id=body.run_id,
@@ -559,13 +561,31 @@ class DocReconcileIn(ReconcileIn):
 @router.post("/work/chat/reconcile")
 def chat_reconcile(body: ChatReconcileIn, auth: WriteAuth, session: DbSession) -> dict:
     """Confirm remote termination with retained run proof; local process exit is not evidence."""
-    return chatwake.reconcile(session, auth.actor, **body.model_dump())
+    return turns.reconcile(
+        "chat",
+        session,
+        auth.actor,
+        body.channel,
+        body.thread_id,
+        run_id=body.run_id,
+        state=body.state,
+        evidence=body.evidence,
+    )
 
 
 @router.post("/work/doc/reconcile")
 def doc_reconcile(body: DocReconcileIn, auth: WriteAuth, session: DbSession) -> dict:
     """Confirm remote termination of a doc turn with retained run proof (after it expired)."""
-    return docwake.reconcile(session, auth.actor, **body.model_dump())
+    return turns.reconcile(
+        "doc",
+        session,
+        auth.actor,
+        body.doc_id,
+        body.thread_id,
+        run_id=body.run_id,
+        state=body.state,
+        evidence=body.evidence,
+    )
 
 
 class ChatClearIn(BaseModel):
@@ -597,7 +617,9 @@ def chat_clear(body: ChatClearIn, auth: WriteAuth, session: DbSession) -> dict:
     as the actor; a mention that waited in the turn is the agent's next turn. 403 for an agent
     (it reconciles its own turn with its run proof); 409 when there is no expired turn there
     (a live turn ends when the agent finishes or its lease runs out)."""
-    return chatwake.clear(session, auth.actor, body.channel, body.thread_id, agent_id=body.agent_id)
+    return turns.clear(
+        "chat", session, auth.actor, body.channel, body.thread_id, agent_id=body.agent_id
+    )
 
 
 @router.post("/work/doc/clear", response_model=ClearOut)
@@ -605,7 +627,9 @@ def doc_clear(body: DocClearIn, auth: WriteAuth, session: DbSession) -> dict:
     """Clear an agent's expired doc turn, the same contract as `/work/chat/clear`: a person
     who may comment on the doc confirms the run is over (`doc.agent_turn` `state: released`,
     `reconciled`, by you)."""
-    return docwake.clear(session, auth.actor, body.doc_id, body.thread_id, agent_id=body.agent_id)
+    return turns.clear(
+        "doc", session, auth.actor, body.doc_id, body.thread_id, agent_id=body.agent_id
+    )
 
 
 @router.post("/work/{item_id}/reconcile")
@@ -618,7 +642,8 @@ def reconcile(item_id: str, body: ReconcileIn, auth: WriteAuth, session: DbSessi
 def chat_heartbeat(body: ChatHeartbeatIn, auth: WriteAuth, session: DbSession) -> dict:
     """Keep holding a chat turn (`chat` from `/work/next`): the lease runs `lease_seconds`
     from now. 409 when you hold no open turn there (it ended or ran out)."""
-    row = chatwake.heartbeat(
+    row = turns.heartbeat(
+        "chat",
         session,
         auth.actor,
         body.channel,
@@ -626,7 +651,7 @@ def chat_heartbeat(body: ChatHeartbeatIn, auth: WriteAuth, session: DbSession) -
         lease=body.lease_seconds,
         run_id=body.run_id,
     )
-    return chatwake.lease_view(row)
+    return turns.lease_view(row)
 
 
 @router.post("/work/chat/finish", response_model=ChatFinishOut)
@@ -637,7 +662,8 @@ def chat_finish(body: ChatFinishIn, auth: WriteAuth, session: DbSession) -> dict
     posted. Any message you post in that channel or thread yourself ends the turn too, so an
     agent answering through `POST /channels/{key}/messages` or MCP `slate_chat post` needs no
     finish call. 409 when you hold no open turn there."""
-    return chatwake.finish(
+    return turns.finish(
+        "chat",
         session,
         auth.actor,
         body.channel,
@@ -653,7 +679,8 @@ def chat_finish(body: ChatFinishIn, auth: WriteAuth, session: DbSession) -> dict
 def doc_heartbeat(body: DocHeartbeatIn, auth: WriteAuth, session: DbSession) -> dict:
     """Keep holding a doc turn (`doc` from `/work/next`): the lease runs `lease_seconds` from
     now. 409 when you hold no open turn there (it ended or ran out)."""
-    row = docwake.heartbeat(
+    row = turns.heartbeat(
+        "doc",
         session,
         auth.actor,
         body.doc_id,
@@ -661,7 +688,7 @@ def doc_heartbeat(body: DocHeartbeatIn, auth: WriteAuth, session: DbSession) -> 
         lease=body.lease_seconds,
         run_id=body.run_id,
     )
-    return docwake.lease_view(row)
+    return turns.lease_view(row)
 
 
 @router.post("/work/doc/finish", response_model=DocFinishOut)
@@ -671,7 +698,8 @@ def doc_finish(body: DocFinishIn, auth: WriteAuth, session: DbSession) -> dict:
     the page when the mention was in the body; it reaches the board live like any comment.
     `release` (or `done` with no reply) ends the turn with nothing posted. An identical retry
     returns the first result. 409 when you hold no open turn there."""
-    return docwake.finish(
+    return turns.finish(
+        "doc",
         session,
         auth.actor,
         body.doc_id,

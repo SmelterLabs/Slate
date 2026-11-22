@@ -612,10 +612,9 @@ card does; the reply lands in the chat.
   Receipts make identical finish retries safe and preserve mentions arriving during the run.
   Timeout/lease expiry is unknown, not remote cancellation; capabilities restrict admission before
   taking unsupported work.
-- **Shared lease code** (`service/turns.py`): chat and doc turns differ in who is woken, what the
-  runner is handed and how the answer is posted (`chatwake.py`, `docwake.py`); take, heartbeat,
-  finish, expire, reconcile and clear are one implementation parameterised by a `turns.Kind`
-  (model, place column, event name, mention counters, view, access level).
+- **Shared turn code** (`service/turns.py`): chat and doc turns use one implementation for take,
+  heartbeat, finish, expire, reconcile and clear. Each kind declares its wake model, event
+  fields, mention lookup, access checks, runner context and reply posting.
 - **A turn never strands later mentions.** An expired turn stays claimed (quarantined: the run
   may still be writing) and shows as `expired` in `agent_turns`. It is settled by the agent's
   `reconcile` with its run proof, by a person's Clear (`POST /work/chat/clear` or
@@ -664,7 +663,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
   taken_no`. `comment_id`/`excerpt`/`by_id` are the newest mention's. `(DocWake, "until")` is
   bookkeeping; the row follows the doc's visibility (`read_criteria`) and needs `comment` on the doc
   (`_COMMENT_MODELS`, `check_object`'s doc branch).
-- **Service** `service/docwake.py`, called from `docs._record_mentions` (body) and
+- **Service** `service/turns.py`, called from `docs._record_mentions` (body) and
   `doc_threads._record_mentions` (comments, Asks, `assign_comment`) inside their change, right after
   `doc.mentioned`. Same wake rule as chat: enabled `push` agents that may comment on the doc (their
   own `access.compute`), and never when the poster is an agent. One `doc.mentioned_agent` event
@@ -673,7 +672,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
 - **Turn** `POST /work/next`: tasks, then chat, then doc (`kinds` default `task,chat,doc`);
   `{doc_id, thread_id}` takes exactly that turn. `doc` carries the page (`doc_id`, `title`, `kind`,
   `path`), `section_md` (the heading section around `@handle` for a body mention, around the root's
-  `anchor_quote` for an anchored thread; at most 8000 chars, `docwake.section_around`),
+  `anchor_quote` for an anchored thread; at most 8000 chars, `turns.section_around`),
   `body_chars`, `comments` (the thread), `mention` (`excerpt`, `by_*`, the comment), `may` (`reply`;
   `edit` when the agent can edit a page) and `lease` with `run_id`. Events `doc.agent_turn` `state`
   started / done (`reply_id`) / released / expired (actor `slate`, `reconciliation_required`) /
@@ -686,7 +685,7 @@ mentions it, or an Ask addressed to it) is a turn the runner takes; the answer l
   have no counterpart). `/work/doc/clear`, expiry, folding and dropping are chat's (above). MCP
   `slate_work doc_heartbeat|doc_finish|doc_reconcile|doc_clear`.
 - **Stream**: `doc.mentioned_agent` with the caller in `for`/`queued` is a `work` hint `{doc_id,
-  thread_id, comment_id, queued}` (`work.DOC_WAKE_TYPE`). Scheduler hook `docwake.expire` (Health
+  thread_id, comment_id, queued}` (`work.DOC_WAKE_TYPE`). Scheduler hook `turns.expire("doc", ...)` (Health
   key `doc_turns`).
 - **Runner**: key `doc:<doc_id>|<thread>` (`doc_key`, `turn_ref` maps chat and doc keys to their
   routes); `doc` on stdin, env `SLATE_DOC_ID`, `SLATE_THREAD_ID`, `SLATE_DOC_URL`; the result maps

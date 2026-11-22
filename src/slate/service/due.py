@@ -445,3 +445,13 @@ def poke_stalled(session: Session, *, now: datetime) -> int:
             )
             poked += 1
     return poked
+
+
+def run_due_checks(session: Session, now: datetime) -> int:
+    """Emit due events, retry due runs, clear stale badges and poke stalled cards in order."""
+    return (
+        emit_due_events(session, now=now)
+        + retry_failed_runs(session, now=now)
+        + clear_stale_badges(session, now=now)
+        + poke_stalled(session, now=now)
+    )

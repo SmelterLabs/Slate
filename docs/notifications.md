@@ -10,7 +10,7 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   `before_minutes` before the item's due date (0 = at it). `POST /items/{id}/reminders {at |
   before_minutes, account?, note?}` records `item.reminder_set`; `DELETE /reminders/{id}` (the
   reminded account or whoever set it) `item.reminder_removed`. The scheduler hook
-  `notify.reminders_tick` → `reminders.fire_reminders()` records `item.reminder` as the `slate`
+  `reminders.fire_reminders()` records `item.reminder` as the `slate`
   system agent (`after = {reminder_id, account_id, account, note, at, due_at}`) for open items only.
   `fired_for` stores the time it fired for, so a lead-time reminder fires again when the due date
   moves later. `GET /reminders` lists your unfired ones.
@@ -22,7 +22,7 @@ Reminders and before-due alerts, the daily digest, Web Push (VAPID key, the push
   each new instance (`reminders.copy_due_alerts`, one `item.reminder_set` each, always, not behind
   `copy_checklists`); fixed-time reminders are not copied. Reopen and roll-forward keep the same
   item, so its alerts re-arm because the due date moved.
-- **Daily digest**: hook `notify.digest_tick` → `send_digests()`. Once per day, at the account's
+- **Daily digest**: hook `reminders.send_digests()`. Once per day, at the account's
   prefs `digest_hour` in the workspace timezone (default 7; prefs `digest` defaults on for people,
   off for agents) it records `account.digest` with what is overdue and due today (assigned to you)
   and waiting on you. Open questions appear first, oldest first, with their text and age.
@@ -137,7 +137,7 @@ and `tests/test_push_retry.py`.
   against Toast / push and Email, rather than one checkbox per reason. A row stands for several
   server reasons; its box is checked when all are chosen, indeterminate when some are, and ticking
   it sets them all. The server stores the reasons themselves (`push_reasons` is the stored truth).
-- **Email** (`service/email.py`, `slate/emailer.py`, `slate/mailer.py`): prefs `email_to` (one
+- **Email** (`service/email.py` and `slate/mailer.py`): prefs `email_to` (one
   address) and `email_reasons` (same reason words as push, default mention and waiting),
   validated in `accounts._validate_prefs`. `email.process()` queues `email_deliveries` (account,
   event) for released alerts whose reason matches and whose level is at least 3. Delivery is due
@@ -147,7 +147,7 @@ and `tests/test_push_retry.py`.
   ONE email (subject is the single title, or "N things in Slate need you"). Access and prefs are
   rechecked at send time and text is `push.notification_for` under the recipient's read filter.
   Failed sends retry every 5 min up to 4 times within a day. Receipts are bookkeeping (no
-  events). `slate/emailer.py` runs it when `SLATE_SMTP_HOST` and `SLATE_SMTP_FROM` are set
+  events). The scheduler starts it when `SLATE_SMTP_HOST` and `SLATE_SMTP_FROM` are set
   (`SLATE_PUSH_ENABLED` is Web Push only); the Health page tracks it as "Email notifications" with a cursor.
   `GET /me` says `email: true` so the board shows the column; `POST /email/test` sends a test.
   `SLATE_PUBLIC_URL` makes the links absolute. Agents (kind `agent`) are never emailed.

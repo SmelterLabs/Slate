@@ -22,12 +22,9 @@ from sqlalchemy import text
 from slate import (
     __version__,
     api,
-    automator,
-    emailer,
     fastlane,
     mcp_server,
     monitor,
-    pusher,
     runner_compat,
     scheduler,
 )
@@ -128,41 +125,20 @@ def _warm_items() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Start the MCP task group, scheduler and event-log engines. Stop them in reverse.
     async with app.state.mcp_manager.run():  # MCP at /mcp needs its task group running
-        engine_task: asyncio.Task | None = None
         if settings.scheduler_enabled:
             monitor.track("scheduler", scheduler.start())
         else:
             monitor.track("scheduler", None, "SLATE_SCHEDULER_ENABLED=false")
-        if settings.automations_enabled:
-            engine_task = automator.start()
-        push_task = pusher.start() if settings.push_enabled else None
-        # Email has its own switch: the SMTP settings (slate.mailer.enabled).
-        email_task = emailer.start()
-        # The Health page shows each engine as running, off, or stopped (slate.monitor).
-        monitor.track("automations", engine_task, "SLATE_AUTOMATIONS_ENABLED=false")
-        monitor.track(
-            "push",
-            push_task,
-            "SLATE_SECRET_KEY is not set" if settings.push_enabled else "SLATE_PUSH_ENABLED=false",
-        )
-        monitor.track("email", email_task, "SLATE_SMTP_HOST / SLATE_SMTP_FROM not set")
+        engine_tasks = scheduler.start_engines()
         # The first board to open after a restart finds its items built (docs/PERFORMANCE.md).
         threading.Thread(target=_warm_items, name="slate-warm", daemon=True).start()
         try:
             yield
         finally:
-            if email_task is not None:
-                email_task.cancel()
+            for task in reversed(engine_tasks):
+                task.cancel()
                 with suppress(asyncio.CancelledError):
-                    await email_task
-            if push_task is not None:
-                push_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await push_task
-            if engine_task is not None:
-                engine_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await engine_task
+                    await task
             await scheduler.stop()
 
 

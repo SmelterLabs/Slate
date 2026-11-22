@@ -55,12 +55,11 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `dates.py` | `parse_when()` (the date rule), `local_day_bounds()`, `run_at()`, `is_date_only_input()`. |
 | `crypto.py` | AES-GCM for automation signing secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
-| `scheduler.py` | The asyncio tick loop and `hooks`/`POLLERS` (`docs/recurrence.md`). |
-| `notify.py` | Due, reminder and digest scheduler hooks. |
+| `scheduler.py` | The asyncio tick loop, its hooks, and registration of the automations, push and email engines (`docs/recurrence.md`). |
 | `outbound.py` | The one outbound POST (automation webhook actions and Web Push): resolve once and connect to the checked address, one wall-clock deadline, capped drain; the signature headers. |
-| `automator.py`, `pusher.py`, `emailer.py` | The automations, Web Push and email engines (`mailer.py` is the plain SMTP client; `service/email.py` decides who is emailed). |
 | `engine.py` | The one bus-woken loop those three engines run; reports each step to Health. |
 | `webpush.py` | Web Push protocol: VAPID, ES256 JWT, aes128gcm. |
+| `mailer.py` | SMTP delivery for the email notification engine (`service/email.py`). |
 | `fastlane.py` | `Timing`, GZip, `Conditional` (ETags from the event cursor, `CACHEABLE`). |
 | `batch.py` | `/batch` and `slate_batch`: many MCP actions in one request, atomic by default. |
 | `ratelimit.py`, `presence.py`, `monitor.py` | In-memory per-token buckets, who is around, what the Health page counts. |
@@ -84,10 +83,10 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `service/item_reads.py` | Comment dots: when each account last opened each item (`docs/board.md`). |
 | `service/attention.py` | Notification loudness, quiet periods and question escalation (`docs/notifications.md`). |
 | `service/today.py`, `inbox.py`, `checkin.py`, `brief.py` | Today; the inbox derived from events; the agent check-in; the paste-ready brief. |
-| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `docwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
+| `service/reports.py`, `work.py`, `agents.py`, `chatwake.py`, `turns.py` | Agent badges, the card's standing line and asking a person (the one rule: waiting on a person needs a question), the work loop, its run endings and leases, the roster and plan, chat- and doc-mention wakes and their shared turn lease (`docs/agents-work-loop.md`). |
 | `service/recurrences.py`, `due.py`, `reminders.py` | Rules and the materializer; due events, the run stage, the retries of failed runs, stale badges and stalled cards; reminders and the digest. |
 | `service/automations.py`, `push.py` | The automation engine step and vocabulary; push subscriptions and the push engine step. |
-| `service/cursors.py` | Engine cursors and the event walk push and email share. |
+| `service/cursors.py` | Engine cursors and the event walk shared by automations, push and email. |
 | `service/chat.py` | Channels, messages, threads, reactions, exact read exposure (`docs/chat.md`). |
 | `service/chat_files.py` | Files on chat messages: upload to a channel, send with a message, read where the message is read (`docs/chat.md`, "Files on messages"). |
 | `service/docs.py` with `doc_tree.py`, `doc_pages.py`, `doc_files.py`, `doc_listing.py`, `doc_shape.py`; `doc_threads.py`, `doc_compare.py`, `doc_hub.py` | Pages, file docs and drawers, split by job (`docs.py` re-exports the public names); discussion and review threads; extract and compare; the project hub (`docs/docs-and-files.md`). |
