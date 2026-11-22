@@ -427,6 +427,7 @@ describe('TaskModal questions and reviews', () => {
       const badge = target.querySelector('.agent-badge')!;
       expect(badge.querySelector('.note')?.textContent?.trim()).toBe(standing.line);
       expect(badge.getAttribute('title')).not.toContain('weekly report');
+      expect(target.querySelector('[data-standing-move]')?.textContent?.trim()).toBe('My Agent');
       expect(target.querySelectorAll('[data-standing-line]')).toHaveLength(0);
     } finally {
       await close();

@@ -534,10 +534,9 @@
           <div class="agent-now"><StalledBadge item={d} full /></div>
         {/if}
 
-        <!-- An ask's banner says the standing line's question; a review badge or banner says what
-             to check in its place. -->
-        {#if standing && !waitQ?.structured && agentFlag?.state !== 'review'}
-          <StandingLine {standing} full />
+        <!-- The full review badge already says what to check. Keep its next mover visible. -->
+        {#if standing && !reviewMine && (agentFlag?.state === 'review' || !waitQ?.structured)}
+          <StandingLine {standing} full moveOnly={agentFlag?.state === 'review'} />
         {/if}
 
         <div class="status-row">

@@ -303,9 +303,9 @@ selection").
   the row, the card and the top of the window show it, with "Your move" when `move_id` is the
   viewer and that account's name otherwise. The agent's long reply stays in the conversation.
   `stalled` shows a neutral "Stalled" mark with Run now. On a `review` flag the standing line is
-  what the person is to check, so it stands in for the flag's note (the reply's first line)
-  wherever the review shows: the `AgentBadge` note and tooltip, and the second line of a Needs
-  you review row. The window does not repeat it under a review badge or banner.
+  what the person is to check. It stands in for the flag's note in the full task-window badge
+  and on a Needs you review row. Compact badge tooltips show the agent's note. The task window
+  shows the reviewer’s name beside the full badge and shows the standing text once.
 - **Questions on a comment** (`task/AskQuestions.svelte`): a comment that carries an agent's ask
   (`comment.ask`) opens with one tinted block, above its author line and body: "Question for
   you" / "Questions for Alex", the Open or Answered state, and the questions, numbered when
