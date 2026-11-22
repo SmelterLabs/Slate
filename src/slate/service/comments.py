@@ -411,40 +411,39 @@ def _apply_closing_line(
     said = {"reply": body, "status": reports.standing_line(line.status or "")}
     outcome = "done" if line.outcome == "review" and not said["status"] else line.outcome
     ask = reports.check_ask(questions=line.questions) if is_agent and outcome == "ask" else None
-    try:
-        if outcome == "ask":
-            if ask is not None:
-                reports.report(
-                    session, actor, item.id, state="blocked", comment=False,
-                    waiting_on=line.waiting_on, ask=ask, _ask_comment_id=comment_id,
-                )  # fmt: skip
-                return line.body or ask_headline(ask), ask
-        elif is_agent and outcome == "later":
-            from slate.service.work import check_later
-
-            check_later(item)  # parked until its run time; refused (no change) without one
-            reports.report(session, actor, item.id, state="idle", comment=False, **said)
-        elif is_agent and outcome == "answered":
-            if item.agent_state_by in (None, actor.account_id):
-                reports.report(session, actor, item.id, state="idle", comment=False, **said)
-        elif is_agent:
-            assigned = session.get(ItemAssignee, (item.id, account.id)) is not None
-            reports.report(
-                session,
-                actor,
-                item.id,
-                state=outcome,
-                comment=False,
-                complete=assigned,
-                **said,
-            )
-        elif outcome == "done":
-            status = reports.done_status(session, item)
+    if not is_agent:
+        if outcome == "done":
+            try:
+                status = reports.done_status(session, item)
+            except Invalid:
+                return body, None
             if status is not None:
                 update_item(session, actor, item.id, {"status": status.id})
-    except (Invalid, Conflict, NotFound):
-        pass  # the original comment stands when the ending cannot apply
-    return body, None
+        return body, None
+
+    if outcome == "later":
+        from slate.service.work import check_later
+
+        try:
+            check_later(item)
+        except Invalid:
+            return body, None
+    if outcome == "answered" and item.agent_state_by not in (None, actor.account_id):
+        return body, None
+
+    complete = outcome == "done" and session.get(ItemAssignee, (item.id, account.id)) is not None
+    try:
+        reports.report(
+            session, actor, item.id,
+            state={"ask": "blocked", "later": "idle", "answered": "idle"}.get(outcome, outcome),
+            comment=False, complete=complete, _closing_line=True,
+            waiting_on=line.waiting_on if ask is not None else None, ask=ask,
+            _ask_comment_id=comment_id if ask is not None else None,
+            **(said if ask is None else {}),
+        )  # fmt: skip
+    except reports.ClosingReportRefused:
+        return body, None
+    return (line.body or ask_headline(ask), ask) if ask is not None else (body, None)
 
 
 def _assign(

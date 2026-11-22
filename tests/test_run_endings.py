@@ -767,6 +767,34 @@ def test_an_ask_comment_write_error_rolls_back_the_ending(
     assert _events(client, alex, item["id"], "item.reported") == []
 
 
+def test_an_ask_comment_late_report_refusal_rolls_back_everything(
+    client, alex, todo, make_account, monkeypatch
+):
+    from slate.service import reports
+    from slate.service.errors import Invalid
+
+    _, agent = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    saved_events = set(e["id"] for e in _events(client, alex, item["id"]))
+
+    def refuse_update(_session, _actor, item_id, changes):
+        assert item_id == item["id"] and list(changes) == ["waiting_on_account_id"]
+        raise Invalid("could not save the wait")
+
+    monkeypatch.setattr(reports, "update_item", refuse_update)
+    response = client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "Report.\nSLATE: ask alex: Which file?"},
+        headers=agent,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "could not save the wait"
+    assert _comments(client, alex, item["id"]) == []
+    assert {e["id"] for e in _events(client, alex, item["id"])} == saved_events
+    view = _view(client, alex, item["id"])
+    assert view["agent"] is None and view["ask"] is None and view["waiting_on_account_id"] is None
+
+
 def test_the_failed_badge_is_stored(db, client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _taken(client, alex, ch, todo)

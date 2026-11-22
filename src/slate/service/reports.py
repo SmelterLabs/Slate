@@ -61,6 +61,8 @@ Side effects, each its own ordinary event in the same transaction:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -83,7 +85,7 @@ from slate.models import (
 )
 from slate.service import comments
 from slate.service.core import Actor, apply_change, in_change
-from slate.service.errors import Conflict, Invalid
+from slate.service.errors import Conflict, Invalid, NotFound
 from slate.service.items import get_item, resolve_account, update_item
 from slate.settings import safe_link_schemes, settings
 
@@ -294,6 +296,20 @@ def _comment_body(state: str, note: str, progress: int | None) -> str:
     return f"**{LABELS[state]}{pct}** · {note}"
 
 
+class ClosingReportRefused(Exception):
+    """A comment's ending does not apply, as determined before writing its report."""
+
+
+@contextmanager
+def _report_preflight(closing_line: bool) -> Iterator[None]:
+    try:
+        yield
+    except (Invalid, Conflict, NotFound) as exc:
+        if closing_line:
+            raise ClosingReportRefused from exc
+        raise
+
+
 def report(
     session: Session,
     actor: Actor,
@@ -317,45 +333,47 @@ def report(
     _taking: bool = False,
     _finishing: bool = False,
     _ask_comment_id: str | None = None,
+    _closing_line: bool = False,
 ) -> Item:
-    if state not in STATES:
-        raise Invalid(f"state must be one of {', '.join(STATES)}")
-    if progress is not None and not 0 <= progress <= 100:
-        raise Invalid("progress is a percentage, 0 to 100")
-    note = (note or "").strip() or None
-    reply = (reply or "").strip() or None
-    if reply is not None and len(reply) > REPLY_MAX:
-        raise Invalid(f"reply is at most {REPLY_MAX} characters")
-    thread = check_thread(thread)
-    url = check_url(url) or (thread or {}).get("url")
-    actor = with_thread_ref(session, actor, thread)
-    if waiting_on is not None and state not in ("blocked", "review"):
-        raise Invalid("waiting_on goes with state 'blocked' or 'review'")
-    if claim and state != "working":
-        raise Invalid("claim goes with state 'working'")
-    if ask is not None and state != "blocked":
-        raise Invalid("question goes with an ask (state 'blocked')")
-    if ask is not None and status is not None:
-        raise Invalid("an ask's question is its status: send no status with it")
-    if state == "review" and status is None:
-        raise Invalid(REVIEW_ADVICE)
-    assign_me = (assign_me or claim) and not no_assign
-    item = get_item(session, item_id)
-    waiting = resolve_account(session, waiting_on) if waiting_on else None
-    reviewer = None
-    if state == "review":
-        reviewer, waiting = waiting or _asker(session, actor, item.id), None
-        if reviewer.kind != AccountKind.person:
-            raise Invalid("a review is for a person: waiting_on names who checks it")
-    if ask is not None and waiting is None:
-        waiting = _asker(session, actor, item.id)
-    if waiting is not None and waiting.kind == AccountKind.person and ask is None:
-        raise Invalid(f"blocked cannot wait on a person without a question: {ASK_ADVICE}")
-    if ask is not None and waiting.kind != AccountKind.person:
-        raise Invalid("an ask waits on a person; blocked waits on an agent or on nobody")
-    finished = None
-    if state == "done" and complete:
-        finished = done_status(session, item)
+    with _report_preflight(_closing_line):
+        if state not in STATES:
+            raise Invalid(f"state must be one of {', '.join(STATES)}")
+        if progress is not None and not 0 <= progress <= 100:
+            raise Invalid("progress is a percentage, 0 to 100")
+        note = (note or "").strip() or None
+        reply = (reply or "").strip() or None
+        if reply is not None and len(reply) > REPLY_MAX:
+            raise Invalid(f"reply is at most {REPLY_MAX} characters")
+        thread = check_thread(thread)
+        url = check_url(url) or (thread or {}).get("url")
+        actor = with_thread_ref(session, actor, thread)
+        if waiting_on is not None and state not in ("blocked", "review"):
+            raise Invalid("waiting_on goes with state 'blocked' or 'review'")
+        if claim and state != "working":
+            raise Invalid("claim goes with state 'working'")
+        if ask is not None and state != "blocked":
+            raise Invalid("question goes with an ask (state 'blocked')")
+        if ask is not None and status is not None:
+            raise Invalid("an ask's question is its status: send no status with it")
+        if state == "review" and status is None:
+            raise Invalid(REVIEW_ADVICE)
+        assign_me = (assign_me or claim) and not no_assign
+        item = get_item(session, item_id)
+        waiting = resolve_account(session, waiting_on) if waiting_on else None
+        reviewer = None
+        if state == "review":
+            reviewer, waiting = waiting or _asker(session, actor, item.id), None
+            if reviewer.kind != AccountKind.person:
+                raise Invalid("a review is for a person: waiting_on names who checks it")
+        if ask is not None and waiting is None:
+            waiting = _asker(session, actor, item.id)
+        if waiting is not None and waiting.kind == AccountKind.person and ask is None:
+            raise Invalid(f"blocked cannot wait on a person without a question: {ASK_ADVICE}")
+        if ask is not None and waiting.kind != AccountKind.person:
+            raise Invalid("an ask waits on a person; blocked waits on an agent or on nobody")
+        finished = None
+        if state == "done" and complete:
+            finished = done_status(session, item)
     details = comments.ask_view(ask) if ask is not None else None
     ask_comment_id = _ask_comment_id or (new_id() if ask is not None and comment else None)
     headline = details["question"] if details else None
@@ -391,7 +409,8 @@ def report(
         ):
             held = None  # a person confirmed the expired run stopped (Clear on its badge)
         if not _taking and (held is not None or run_id):
-            work._holding(session, actor, item, run_id)
+            with _report_preflight(_closing_line):
+                work._holding(session, actor, item, run_id)
             if not _finishing:
                 finished = None  # only the fenced finish may settle this execution
         if claim:
