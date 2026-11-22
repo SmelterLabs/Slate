@@ -7,7 +7,7 @@ a chat product with no API), and what a runner adapter can send as its first tur
 due date, description, checklist, attached files and recent comments, then the run rule
 (RUN_RULE), and for the caller's own turn what it must know about it: the card stalled
 (STALLED_RULE), its last run failed and why (FAILED_RULE), or it was only asked on a card
-that is not its own, where `done` answers and leaves the card open (ASKED_RULE). The run rule
+that is not its own, which it cannot close and must say so (ASKED_RULE). The run rule
 tells the agent to look in its own memory for related work first and to save what it learns
 (a card runs in a fresh session, so memory is how one card's work reaches the next), and
 asks it to end its answer with one line Slate understands:
@@ -40,9 +40,9 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
+    ItemAssignee,
     List,
     Role,
-    WorkLease,
 )
 from slate.service.items import get_item
 
@@ -74,13 +74,14 @@ FAILED_RULE = (
 )
 FAILURE_CHARS = 1200
 ASKED_RULE = (
-    "You were asked something on this card; it is not assigned to you. `SLATE: done` here "
-    "only answers the question: the card stays open and Slate does not close it for you. If "
-    "whoever asked wants the card closed or finished, close it yourself first by setting its "
-    "status to done with your Slate tools (`slate_item update`, or `PATCH /api/v1/items/<id>` "
-    "with `status`), check that it took, and only then say it is closed. If you cannot, say "
-    "so plainly and say who must mark it done. Never write that the card is closed, or that "
-    "you are closing it, unless you set that status yourself in this turn."
+    "You were asked something on this card; it is not assigned to you (assigned to: {owners}). "
+    "You cannot close it: `SLATE: done` here only answers the question and leaves the card "
+    "open, and Slate refuses a move to done or cancelled from you. If whoever asked wants the "
+    "card closed or finished, do not try, do not assign it to yourself, and never write that "
+    "it is closed or that you are closing it. Make the first line of your answer say that you "
+    "cannot close it because it is not assigned to you, and end with this line so they see "
+    "it:\n"
+    "`SLATE: ask {asker}: I can't close this card: it is assigned to {owners}, not me.`"
 )
 
 _LINE = re.compile(
@@ -222,7 +223,7 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
     # The caller's own run is the one Slate started because the card stalled (the take bound
     # the poke to it: service/work.py `take`).
     if account_id is not None:
-        from slate.service.work import _turn_start, last_failure
+        from slate.service.work import _turn_start, asked_turn, last_failure
 
         start = _turn_start(session, account_id, item.id)
         if start is not None and (start.after_json or {}).get("poke"):
@@ -233,13 +234,28 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
             if len(failed) > FAILURE_CHARS:
                 failed = failed[:FAILURE_CHARS] + "…"
             out += ["", FAILED_RULE, "\n".join("> " + line for line in failed.splitlines())]
-        # Asked, not assigned: its `done` answers and leaves the card open (work.finish).
-        lease = session.get(WorkLease, item.id)
-        if (
-            lease is not None
-            and lease.account_id == account_id
-            and lease.asked_only
-            and item.completed_at is None
-        ):
-            out += ["", ASKED_RULE]
+        # Asked, not assigned: it cannot close the card (lists.move_item_to_status).
+        if item.completed_at is None and asked_turn(session, item, account_id):
+            owners = session.scalars(
+                select(Account.handle)
+                .join(ItemAssignee, ItemAssignee.account_id == Account.id)
+                .where(ItemAssignee.item_id == item.id)
+                .order_by(Account.handle)
+            ).all()
+            asker = session.scalar(
+                select(Account.handle)
+                .join(Comment, Comment.author_id == Account.id)
+                .where(
+                    Comment.item_id == item.id,
+                    Comment.assignee_id == account_id,
+                    Comment.resolved_at.is_(None),
+                    Account.kind == AccountKind.person,
+                )
+                .order_by(Comment.created_at.desc(), Comment.id.desc())
+                .limit(1)
+            )
+            out += [
+                "",
+                ASKED_RULE.format(owners=", ".join(owners) or "nobody", asker=asker or ask),
+            ]
     return "\n".join(out)
