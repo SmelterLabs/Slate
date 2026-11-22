@@ -284,7 +284,10 @@ selection").
   caches it per `rev`. Shown by `NeedsBadge.svelte` (desktop: a pill docked bottom-right on every
   page except My Work and Inbox, opening the list; phone: a pill in the top bar linking to My Work)
   and `work/NeedsPanel.svelte` (grouped by reason at the top of My Work and the Inbox, with Mark
-  reviewed). Each sidebar list shows a `.needs-mark` (count, colored by its most urgent reason) from
+  reviewed). A row waiting through an ask has the ask's headline as its title (the question, or
+  "3 questions: <first>"), with one button per option when the ask has one question and
+  **Answer →** (opens the card) when it has several; a review row's second line is the standing
+  line. Each sidebar list shows a `.needs-mark` (count, colored by its most urgent reason) from
   `board.needsIn(listId)` (`attention.byList`, cached with `needsMe`). Cards on their lists keep
   their own agent badge. E2E `e2e/needs-you.spec.ts`.
 - **Needs you on the card itself** (`Card.svelte`): each card runs `needOf` (the same
@@ -299,8 +302,35 @@ selection").
   and `items._move_id`) is the agent's one line on where the card stands and whose move it is;
   the row, the card and the top of the window show it, with "Your move" when `move_id` is the
   viewer and that account's name otherwise. The agent's long reply stays in the conversation.
-  `stalled` shows a neutral "Stalled" mark with Run now.
-- **Waiting on you, in the window**: a card that waits on the viewer opens with a red
+  `stalled` shows a neutral "Stalled" mark with Run now. On a `review` flag the standing line is
+  what the person is to check, so it stands in for the flag's note (the reply's first line)
+  wherever the review shows: the `AgentBadge` note and tooltip, and the second line of a Needs
+  you review row. The window does not repeat it under a review badge or banner.
+- **Questions on a comment** (`task/AskQuestions.svelte`): a comment that carries an agent's ask
+  (`comment.ask`) opens with one tinted block, above its author line and body: "Question for
+  you" / "Questions for Alex", the Open or Answered state, and the questions, numbered when
+  there are several, each with its options under it. It is the only place a comment shows its
+  ask (an ask comment has no "Asked … · Open" pill), and it stays in full when the exchange is
+  folded. An option is a live answer (`POST /comments/{id}/answer`) only on an open ask with one
+  question addressed to the viewer; otherwise options are plain chips. Every component reads an
+  ask's questions through `conversation.askQuestions(ask)` (`ask.questions`, or the single
+  `question` and `options` a server without multi-question asks sends). When the thread opens or
+  grows while pinned to the bottom and the newest open question would sit above the fold (a long
+  report under it), the feed brings that question to the top instead, once per question.
+- **Your move, in the window** (`task/TurnBanner.svelte`, one component for the waiting and
+  review banners; `TaskModal` decides which and passes the flag whose parts it carries). A card
+  that waits on the viewer through an ask with one question opens with the question as the red
+  banner's heading, "My Agent asks", one button per option, **Answer** and **Not waiting on me**.
+  With several questions the heading is "My Agent needs 3 answers from you"; each question is
+  numbered with its options as single-select chips and a line to type an answer (typing wins
+  over a chip); **Send answers**, enabled once every question has an answer, posts one ordinary
+  comment, a numbered list with each answer in bold after its question, which is the answer the
+  server takes (`POST /comments/{id}/answer` refuses an ask with several questions). A review
+  whose `standing.move_id` is the viewer opens with an amber banner (`data-banner="review"`): the
+  standing line (what to check) as its heading, "My Agent finished and asks you to check", the
+  flag's age and **Open ↗**, and **✓ Mark reviewed** (clears the flag); the badge is left out and
+  the reply's first line is not shown. Any other viewer keeps the review badge.
+- **Waiting on you with no ask**: a card that waits on the viewer opens with a red
   banner at the top of the main column (`data-banner="waiting"`): who set the wait, the question in
   a sentence or two, **Answer** and **Not waiting on me**. `conversation.waitingQuestion(item,
   comments, events, me)` finds it: the latest `waiting_on_account_id` event naming me, its actor's
