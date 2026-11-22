@@ -456,7 +456,6 @@ export interface Prefs {
    * people, off for agents; service/watchers.py). */
   auto_watch?: { created?: boolean; assigned?: boolean; commented?: boolean };
   /** Minutes after which chat still unread is pushed once more (default 10; 0 = never). */
-  chat_renudge_minutes?: number;
   /** Doc pages unfolded in the Docs tree (their subpages show). */
   docs_expanded?: string[];
   /** Per scope key (`everything`, `list:<id>`...): the view tab last open there. */

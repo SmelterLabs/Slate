@@ -96,6 +96,8 @@ test('notification settings follow the account', async ({ page }) => {
   const panel = page.getByRole('dialog', { name: 'Notifications' });
   await expect(panel).toBeVisible();
   await expect(panel.locator('.ns-state')).not.toHaveText('Checking…');
+  await expect(panel.getByLabel('Nudge again about unread chat')).toHaveCount(0);
+  await expect(panel.getByLabel('If I have not answered, alert my phone after')).toBeVisible();
 
   await panel.getByLabel('Digest hour').selectOption('6');
   // Each control saves asynchronously. This checks persistence, not simultaneous preference

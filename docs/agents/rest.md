@@ -44,16 +44,12 @@ A failed `POST /batch` op adds `"failed_op": <index>` to the body.
 | Nothing if nothing changed | send the last `ETag` back as `If-None-Match`; an unchanged answer is `304` with no body |
 | Smaller bytes | send `Accept-Encoding: gzip`; JSON over 1 KB is compressed |
 
-`ETag`s cover the reads that depend only on stored state: items (and their events, versions,
-activity, watchers, comments, checklists, attachments, links), lists, sections, tags, views,
-accounts, favorites, `me` and `checkin`. The generated
-reference marks each one. The event cursor can stay unchanged while a card's `later` flag
-changes or a project's next step becomes eligible. Request a fresh response without
-`If-None-Match` when you need those time-sensitive values. `GET /today`, `GET /today/sweep`
-and `GET /projects` are uncached by the event ETag, as are recurrence previews, token lists
-and usage. The `stale=true` item filter also bypasses the event ETag. That filter finds cards
-whose due date moved three times or which have stayed open and untouched for 30 days. The
-weekly sweep uses a different rule and returns your eligible cards more than 14 days overdue.
+`ETag`s cover reads that depend only on stored state, such as item events, lists, tags and
+views. The generated reference marks each one. Item lists, item detail and check-in
+recalculate `later` on every request. Sections and projects recalculate the next step.
+These reads still carry the event cursor. The `stale=true` item filter finds cards whose
+due date moved three times or which have stayed open and untouched for 30 days. The
+weekly sweep returns your eligible cards more than 14 days overdue.
 
 A `304` is answered before the token is even checked against the rate limiter, so polling
 with `If-None-Match` is close to free.

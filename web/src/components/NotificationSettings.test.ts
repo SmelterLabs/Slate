@@ -47,6 +47,7 @@ it('round-trips the quiet hours and escalation controls through account preferen
   };
 
   try {
+    expect(target.querySelector('[aria-label="Nudge again about unread chat"]')).toBeNull();
     expect(input(enable).checked).toBe(false);
     expect(input(minutes).value).toBe('120');
     await save(enable, true);

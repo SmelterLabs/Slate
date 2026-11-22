@@ -494,7 +494,9 @@ def bootstrap(session: Session, *, handle: str, display_name: str) -> tuple[Acco
 
 
 def get_prefs(account: Account) -> dict[str, Any]:
-    return dict(account.prefs_json or {})
+    prefs = dict(account.prefs_json or {})
+    prefs.pop("chat_renudge_minutes", None)
+    return prefs
 
 
 def _validate_prefs(prefs: dict[str, Any]) -> None:
@@ -586,6 +588,8 @@ def set_prefs(session: Session, actor: Actor, changes: dict[str, Any]) -> dict[s
     account = get_account(session, actor.account_id)
     prefs = get_prefs(account)
     for key, value in changes.items():
+        if key == "chat_renudge_minutes":
+            continue
         if value is None:
             prefs.pop(key, None)
         else:

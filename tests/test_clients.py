@@ -70,12 +70,10 @@ def test_me_and_checkin_cursor(client, alex, todo, agent):
 
 
 def test_unchanged_reads_come_back_as_304_from_the_cache(client, alex, todo, agent):
-    _assign(client, alex, todo)
-    agent.checkin()  # cold start
-    agent.checkin()  # from the cursor
-    agent.checkin()  # same cursor, nothing changed
+    first = agent.get("/lists")
+    again = agent.get("/lists")
     assert agent.last_response.status_code == 304
-    assert agent.checkin().queue  # served from the cache
+    assert again == first and any(row["id"] == todo["id"] for row in again)
 
 
 def test_the_whole_loop_claim_progress_comment_done(client, alex, todo, agent):

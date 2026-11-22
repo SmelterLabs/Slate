@@ -135,7 +135,8 @@ direct reads. Work offers, queue counts and the daily digest omit them.
   lists they may edit (`access.EDIT`). Skipped: non-task items, archived items and items in
   archived lists or sections, Parked cards, reference-list cards, and cards in
   `links.blocked_item_ids()` (the same "open blocker" rule as the item view; the dependency thread
-  keeps it the source of truth), `start_at` in the future, `waiting_on` someone else, `review`
+  keeps it the source of truth), `start_at` in the future unless Run now is pending,
+  `waiting_on` someone else, `review`
   badge, the caller's own `blocked` badge younger than `BLOCKED_PAUSE` (1 h, so a blocked task is
   not retried in a loop), the caller's own last finish `answered` (until a new Ask or Run now),
   a `failed` badge until its retry time (the scheduler's retry and Run
@@ -211,9 +212,10 @@ Slate stays the doorbell: it never launches an agent.
 
 - **`item.run_requested`** (`work.request_run`, `POST /items/{id}/run` 202 → the event, MCP
   `slate_item run`): actor = who pressed, `after = {for: [agent account ids], reason: "now"}`, field
-  `run_requested_at`. 422 with no agent assignee, or done/cancelled/archived. Also sets
-  `items.run_requested_at`, which `work.take()` clears: "a Run now newer
-  than the last run".
+  `run_requested_at`. 422 with no agent assignee, or done/cancelled/archived. In the same
+  transaction, it clears `parked_until` and `parked_note` through ordinary field changes. Its
+  pending request overrides `start_at` for pickup and leaves the saved date in place.
+  `work.take()` clears `items.run_requested_at`.
 - **Due gate** (`work._run_time_has_come`, inside `eligible()`): when the caller is an agent, a task
   assigned to it with a `due_at` is takeable only once its run time has come or `run_requested_at`
   is set. Run time = `dates.run_at(due_at, due_date_only)`: 06:00 in the workspace timezone on the

@@ -52,16 +52,15 @@ GZIP_LEVEL = 1
 CURSOR_HEADER = "X-Slate-Cursor"
 
 # GET paths (under /api/v1) whose answer depends only on stored state, the URL and the caller.
+# Item reads and check-in include the clock-dependent `later` flag. Sections include a
+# next step computed from it. Those reads keep their cursor and run the route each time.
 CACHEABLE = re.compile(
-    r"^/api/v1/(items(/[0-9A-Za-z]{12}"
-    r"(/(events|versions|activity|watchers|comments|checklists|attachments|links))?)?"
+    r"^/api/v1/(items/[0-9A-Za-z]{12}"
+    r"/(events|versions|activity|watchers|comments|checklists|attachments|links)"
     r"|lists(/[0-9A-Za-z]{12})?"
-    r"|sections|tags|views(/[0-9A-Za-z]{12})?|accounts|favorites|me"
-    r"|checkin|docs(/[0-9A-Za-z]{12}(/versions)?)?)$"
+    r"|tags|views(/[0-9A-Za-z]{12})?|accounts|favorites|me"
+    r"|docs(/[0-9A-Za-z]{12}(/versions)?)?)$"
 )
-# `stale=true` depends on the clock; a long-poll (`wait=` > 0, e.g. `/checkin`) answers a
-# later state than the cursor its tag would name, and must wait instead of answering 304.
-_TIME_DEPENDENT_QUERY = re.compile(r"(^|&)(stale=(1|true)|wait=0*[1-9])", re.IGNORECASE)
 
 
 def _measured(path: str) -> bool:
@@ -240,9 +239,7 @@ class Conditional:
         cursor = current_cursor()
         headers = Headers(scope=scope)
         etag = None
-        if CACHEABLE.match(scope["path"]) and not _TIME_DEPENDENT_QUERY.search(
-            scope.get("query_string", b"").decode()
-        ):
+        if CACHEABLE.match(scope["path"]):
             etag = etag_for(cursor, scope, headers.get("authorization", ""))
             inm = headers.get("if-none-match")
             # Only an authenticated caller can hold a tag: the token is part of it.

@@ -255,11 +255,25 @@ def eligible(
         Item.run_requested_at.is_not(None),
         or_(Item.agent_state_at.is_(None), Item.run_requested_at > Item.agent_state_at),
     )
+    # Only an explicit Run now can override the start date. A scheduled retry also sets
+    # run_requested_at, so check the reason on the request still waiting to be taken.
+    requested_now = (
+        select(Event.after_json["reason"].as_string())
+        .where(
+            Event.item_id == Item.id,
+            Event.type == "item.run_requested",
+            Event.after_json["reason"].as_string().in_(("now", "retry")),
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    ) == "now"
     q = q.where(
         lease.item_id.is_(None),  # expired is unknown, not proof of remote cancellation
         or_(is_mine, and_(unassigned, true() if pool else false())),
         Item.id.not_in(links.blocked_item_ids()),
-        or_(Item.start_at.is_(None), Item.start_at <= now),
+        or_(Item.start_at.is_(None), Item.start_at <= now, and_(pressed, requested_now)),
         or_(
             Item.waiting_on_account_id.is_(None),
             Item.waiting_on_account_id == account_id,
@@ -1385,8 +1399,8 @@ def request_run(
     reason: str = "now",
     now: datetime | None = None,
 ) -> Any:
-    """Ask the item's agent assignees to run it now: one `item.run_requested` event
-    (`after = {for, reason}`), which reaches their agent streams as a `work` hint.
+    """Clear parking and ask the item's agent assignees to run it now. The
+    `item.run_requested` event (`after = {for, reason}`) reaches their streams as a `work` hint.
     For agents whose `wake` is pull or manual, the event also
     carries `nudge` and `notify` (nudge_fields), and those people get a `nudge` inbox entry.
     `Invalid` when no agent is assigned, or it is done, cancelled or archived. `Conflict` (409)
@@ -1407,13 +1421,15 @@ def request_run(
     _refuse_if_working(session, item, now)
     nudge = nudge_fields(session, agents)  # read before the write: a query here would flush
     with apply_change(session, actor) as cx:
-        before = item.run_requested_at
         session.refresh(item)
         if not session.scalar(select(List.id).where(List.id == item.list_id, WORK_LIST)):
             raise Invalid("reference lists are not offered as work")
         _refuse_if_working(session, item, now)
         if session.get(WorkLease, item.id) is not None:
             raise Conflict("execution state is unknown; reconcile the current run before retrying")
+        cx.set(item, "parked_until", None, "item.updated")
+        cx.set(item, "parked_note", None, "item.updated")
+        before = item.run_requested_at
         item.run_requested_at = now
         item.stalled_at = None  # whoever pressed it wants the agent to go on
         event = cx.record(

@@ -1,6 +1,4 @@
-"""What a project's guests reach in chat: the push re-nudge counts only what they can read,
-an @mention never confirms a handle they cannot see, and an owner or admin can take a message
-down."""
+"""What a project's guests reach in chat, who they can mention, and who can remove messages."""
 
 from __future__ import annotations
 

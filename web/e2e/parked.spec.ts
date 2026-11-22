@@ -1,5 +1,5 @@
 // Parked: parking a card in the task window removes it from My Work and shows
-// "Waiting on <note> until <date>" in its list. Needs s6-server merged to pass.
+// "Waiting on <note> until <date>" in its list.
 import { expect, test } from '@playwright/test';
 import { api, seed, signIn } from './support';
 
@@ -31,4 +31,29 @@ test('parked: parking a card removes it from My Work and shows the line in its l
   await page.goto(`/#/list/${listId}`);
   const card = page.locator(`[data-item="${created.id}"]`);
   await expect(card.locator('[data-parked]')).toContainText('Waiting on Bank dispute desk until');
+});
+
+test('Run now unparks a card and makes it available for pickup', async ({ page }) => {
+  const { listId, agent } = seed();
+  const { id } = await api<{ id: string }>('POST', '/items', {
+    list_id: listId,
+    title: 'Review the draft',
+    assignees: ['agent'],
+  });
+  const future = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+  await api('PATCH', `/items/${id}`, { parked_until: future, parked_note: 'Review window' });
+  const take = () => api<{ item: { id: string } | null }>('POST', '/work/next', { item_id: id }, agent);
+  expect((await take()).item).toBeNull();
+
+  await signIn(page);
+  await page.goto(`/#/list/${listId}`);
+  const card = page.locator(`[data-item="${id}"]`);
+  await expect(card.locator('[data-parked]')).toBeVisible();
+  await card.click();
+  const dialog = page.getByRole('dialog', { name: 'Task: Review the draft' });
+  const run = dialog.getByRole('button', { name: 'Run now', exact: true });
+  await run.click();
+  await page.keyboard.press('Escape');
+  await expect(card.locator('[data-parked]')).toHaveCount(0);
+  expect((await take()).item?.id).toBe(id);
 });

@@ -40,6 +40,16 @@ def test_generated_reference_is_current():
     assert not stale, f"run `uv run slate docs` and commit: {stale}"
 
 
+def test_work_reference_describes_expired_leases_and_ask_settlement():
+    from slate.app import app
+
+    operations = app.openapi()["paths"]
+    heartbeat = operations["/api/v1/work/{item_id}/heartbeat"]["post"]["description"]
+    assert "quarantined" in heartbeat
+    finish = operations["/api/v1/work/{item_id}/finish"]["post"]["description"]
+    assert "acknowledged" in finish and "failed and release" in finish
+
+
 def test_every_event_type_in_the_code_is_documented():
     missing = docgen.event_types_in_code() - set(docgen.EVENT_DOCS)
     assert not missing, f"add a line to docgen.EVENT_DOCS for: {sorted(missing)}"

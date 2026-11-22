@@ -432,16 +432,8 @@ def test_a_long_poll_check_in_is_never_answered_304(client, alex, todo, make_acc
     _, ch = make_account("agent")
     first = client.get(f"{API}/checkin", headers=ch)
     since = first.json()["next_since"]
-    tagged = client.get(f"{API}/checkin", params={"since": since}, headers=ch)
-    etag = tagged.headers["etag"]
-    assert (
-        client.get(
-            f"{API}/checkin", params={"since": since}, headers={**ch, "If-None-Match": etag}
-        ).status_code
-        == 304
-    )
     waited = client.get(
-        f"{API}/checkin", params={"since": since, "wait": 1}, headers={**ch, "If-None-Match": etag}
+        f"{API}/checkin", params={"since": since, "wait": 1}, headers={**ch, "If-None-Match": "*"}
     )
     assert waited.status_code == 200 and "etag" not in waited.headers
 
