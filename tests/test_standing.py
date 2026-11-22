@@ -752,3 +752,22 @@ def test_a_stall_nobody_can_see_goes_to_the_owner(client, alex, make_account, db
     assert r.status_code in (200, 201, 204), r.text
     _poked_and_answered(client, ch, item, db)
     assert _told(client, alex, item["id"])
+
+
+def test_closing_a_stalled_card_ends_the_stall_for_good(client, alex, todo, make_account, db):
+    _, ch = make_account("agent")
+    item, _ = _stalled(client, alex, ch, todo, db)
+    for status in ("Done", "In progress"):
+        r = client.patch(f"{API}/items/{item['id']}", json={"status": status}, headers=alex)
+        assert r.status_code == 200, r.text
+    assert _view(client, alex, item["id"])["stalled"] is False  # reopened: not stalled again
+
+
+def test_the_agents_page_lists_a_card_whose_run_failed(client, alex, todo, make_account):
+    _, ch = make_account("agent")
+    item = _taken(client, alex, ch, todo)
+    _done(client, ch, item["id"], outcome="failed", note="The login expired.")
+    r = client.get(f"{API}/agents", headers=alex)
+    assert r.status_code == 200, r.text
+    states = [w["state"] for a in r.json() for w in a["working"] if w["item_id"] == item["id"]]
+    assert states == ["failed"]

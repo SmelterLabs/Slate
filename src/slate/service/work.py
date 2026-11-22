@@ -1498,15 +1498,19 @@ def _expire_lease(session: Session, actor: Actor, row: WorkLease, now: datetime)
     """Quarantine under the write lock: elapsed time cannot prove remote cancellation."""
     with apply_change(session, actor) as cx:
         fresh = session.get(WorkLease, row.item_id, populate_existing=True)
-        if fresh is None or fresh.until >= now or fresh.quarantined:
+        if fresh is None or fresh.until >= now:
             return 0
         row = fresh
         item = session.get(Item, row.item_id, populate_existing=True)
         if item is None:
             return 0
         if _ended(session, item, row) == "closed":
+            # Also a lease quarantined while the card was open and closed since: nobody can
+            # Clear a badge the close already took off, so it would hold the card for ever.
             _settle_closed(session, cx, item, row)
             return 1
+        if row.quarantined:
+            return 0
         before = reports.flag_of(item)
         row.quarantined = True
         if item.agent_state == AgentState.working and item.agent_state_by == row.account_id:

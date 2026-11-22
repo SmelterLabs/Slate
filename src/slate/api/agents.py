@@ -20,7 +20,7 @@ class WorkOut(BaseModel):
     item_id: str
     title: str
     list_id: str
-    state: Literal["working", "blocked", "review"]
+    state: Literal["working", "blocked", "review", "failed"]
     note: str | None
     progress: int | None
     url: str | None = None

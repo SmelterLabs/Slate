@@ -53,6 +53,10 @@ describe('needOf', () => {
     expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
     expect(needOf(item({ created_by: ME, open_asks: [ME], agent: flag('failed') }), ME, accounts)).toBeNull();
   });
+  it('a parked or later card needs nobody, even with an Ask or a wait on it', () => {
+    expect(needOf(item({ created_by: ME, open_asks: [ME], parked_until: '2026-12-01T00:00:00Z' }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, later: true }), ME, accounts)).toBeNull();
+  });
   it('stalled counts for person assignees and the creator, not others, and ranks below asked', () => {
     expect(needOf(item({ created_by: ME, stalled: true }), ME, accounts)).toBe('stalled');
     expect(

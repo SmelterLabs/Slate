@@ -75,6 +75,7 @@
 
   const busy = $derived(agents.agents.flatMap((a) => a.working));
   const online = $derived(privatePresence ? [] : agents.agents.filter((a) => isOnline(a, board.now)));
+  const inProgress = $derived(busy.filter((w) => w.state === 'working').length);
   const blocked = $derived(busy.filter((w) => w.state === 'blocked').length);
   const review = $derived(busy.filter((w) => w.state === 'review').length);
   // One number for "how fast is Slate for agents": the median of the busiest routes, weighted.
@@ -130,7 +131,7 @@
     {/if}
     <div class="ag-stats" aria-label="Summary">
       <div class="stat"><b>{privatePresence ? "—" : online.length}</b><span>{privatePresence ? "presence not shared" : "recent activity"}</span></div>
-      <div class="stat"><b>{busy.length}</b><span>in progress</span></div>
+      <div class="stat"><b>{inProgress}</b><span>in progress</span></div>
       <div class="stat" class:warn={blocked > 0}><b>{blocked}</b><span>blocked</span></div>
       <div class="stat" class:note={review > 0}><b>{review}</b><span>to review</span></div>
       {#if median != null}
@@ -504,7 +505,8 @@
     border-radius: 8px;
     background: color-mix(in srgb, var(--tone) 10%, transparent);
   }
-  .now li.state-blocked {
+  .now li.state-blocked,
+  .now li.state-failed {
     --tone: var(--danger);
   }
   .now li.state-review {
