@@ -29,7 +29,7 @@ from slate.models import (
 from slate.service import sections
 from slate.service.colors import clean_color
 from slate.service.core import Actor, Change, apply_change
-from slate.service.errors import Conflict, Invalid, NotFound
+from slate.service.errors import Conflict, Forbidden, Invalid, NotFound
 
 DEFAULT_STATUSES: tuple[dict[str, str], ...] = (
     {"name": "To do", "kind": "open"},
@@ -126,7 +126,18 @@ def _set_completion(cx: Change, item: Item, status: Status) -> None:
 
 
 def move_item_to_status(cx: Change, item: Item, status: Status) -> None:
-    """Shared by items.update and set_statuses: status change plus completed_at bookkeeping."""
+    """Shared by items.update and set_statuses: status change plus completed_at bookkeeping.
+    An agent in a turn it took only to answer an Ask, on a card not assigned to it, cannot
+    close the card."""
+    closing = status.kind in (StatusKind.done, StatusKind.cancelled)
+    if closing and item.status_id != status.id:
+        from slate.service.work import asked_turn  # work imports this module
+
+        if asked_turn(cx.session, item, cx.actor.account_id):
+            raise Forbidden(
+                "this card is not assigned to you, so you cannot close it: tell whoever "
+                "asked that you cannot (end your turn with an ask to them saying so)"
+            )
     if cx.set(item, "status_id", status.id, "item.status_changed"):
         _set_completion(cx, item, status)
         if status.kind in (StatusKind.done, StatusKind.cancelled):

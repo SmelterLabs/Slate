@@ -152,7 +152,7 @@ def test_an_agent_asked_on_a_task_takes_it_without_being_assigned_and_done_answe
     assert view["assignees"] == []
 
 
-def test_the_brief_tells_an_asked_agent_its_done_leaves_the_card_open(
+def test_an_asked_agent_cannot_close_the_card_and_is_told_to_say_so(
     client, alex, todo, make_account
 ):
     from slate.service.brief import ASKED_RULE
@@ -161,35 +161,58 @@ def test_the_brief_tells_an_asked_agent_its_done_leaves_the_card_open(
     _, ch = make_account("agent")
     mine = _item(client, alex, todo["id"], "Mine", assignees=["agent"])
     got = client.post(f"{API}/work/next", json={}, headers=ch).json()
-    assert got["item"]["id"] == mine["id"] and ASKED_RULE not in got["brief"]
-    client.post(
+    assert got["item"]["id"] == mine["id"] and "not assigned to you" not in got["brief"]
+    r = client.post(
         f"{API}/work/{mine['id']}/finish",
-        json={"outcome": "later", "run_id": got["lease"]["run_id"]},
+        json={"outcome": "done", "run_id": got["lease"]["run_id"]},
         headers=ch,
     )
+    assert r.json()["item"]["completed_at"] is not None  # its own card: done closes it
 
     item = _item(client, alex, todo["id"], "Budget", assignees=["other"])
     _comment(client, alex, item["id"], "Close it.", assignee="agent")
     got = client.post(f"{API}/work/next", json={}, headers=ch).json()
     assert got["item"]["id"] == item["id"] and got["why"] == "asked"
-    assert got["brief"].endswith(ASKED_RULE)
-    read = client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"]
-    assert read.endswith(ASKED_RULE)
+    rule = ASKED_RULE.format(owners="other", asker="alex")
+    assert got["brief"].endswith(rule)
+    assert "`SLATE: ask alex: I can't close this card: it is assigned to other, not me.`" in rule
+    assert client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"].endswith(rule)
     # Anyone else reading the brief is not in that turn.
-    assert (
-        ASKED_RULE not in client.get(f"{API}/items/{item['id']}/brief", headers=alex).json()["text"]
-    )
+    theirs = client.get(f"{API}/items/{item['id']}/brief", headers=alex).json()["text"]
+    assert "not assigned to you" not in theirs
 
-    # The agent closes the card itself, then answers: the card stays closed.
-    done = client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=ch)
-    assert done.status_code == 200, done.text
+    # Slate refuses the close itself, whichever way the agent tries it.
+    r = client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=ch)
+    assert r.status_code == 403 and "not assigned to you" in r.text, r.text
+    r = client.post(f"{API}/items/{item['id']}/report", json={"state": "done"}, headers=ch)
+    assert r.status_code == 409, r.text  # a report needs the run: finish is the door
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["completed_at"] is None
+
+    # It says so with an Ask to whoever asked: the card waits on that person.
+    said = "I can't close this card: it is assigned to other, not me."
     r = client.post(
         f"{API}/work/{item['id']}/finish",
-        json={"outcome": "done", "note": "Closed.", "run_id": got["lease"]["run_id"]},
+        json={
+            "outcome": "ask",
+            "waiting_on": "alex",
+            "question": said,
+            "reply": "I can't close this card.",
+            "run_id": got["lease"]["run_id"],
+        },
         headers=ch,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["item"]["completed_at"] is not None
+    view = r.json()["item"]
+    assert view["completed_at"] is None and view["standing"]["line"] == said
+    assert view["waiting_on_account_id"] == _me(client, alex)["id"]
+
+    # The person closes it; an agent outside such a turn closes cards as before.
+    assert client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=alex).json()[
+        "completed_at"
+    ]
+    free = _item(client, alex, todo["id"], "Loose end", assignees=["other"])
+    r = client.patch(f"{API}/items/{free['id']}", json={"status": "done"}, headers=ch)
+    assert r.status_code == 200, r.text
 
 
 def test_ask_opens_the_due_gate(client, alex, todo, make_account):
