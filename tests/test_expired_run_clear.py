@@ -219,7 +219,11 @@ def test_runner_keeps_an_undelivered_result_while_its_lease_is_live(
         state="delivery_failed",
         remote_state="terminal",
         path=f"/work/{item['id']}/finish",
-        result={"outcome": "review", "run_id": grant["lease"]["run_id"]},
+        result={
+            "outcome": "review",
+            "status": "Check the result",
+            "run_id": grant["lease"]["run_id"],
+        },
     )
     assert runner.settle_released() == []
     runner.retry_due(now=0.0)  # schedules the first resend

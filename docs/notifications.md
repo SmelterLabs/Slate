@@ -113,7 +113,9 @@ and `tests/test_push_retry.py`.
   "<Agent> asks on: <title>" as its body; any other `waiting` entry reads "<Agent> is waiting on
   you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
   failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
-  A failed run before that, and the take that retries it, push nothing.
+  A failed run before that, and the take that retries it, push nothing. A `stalled` entry
+  (`item.stalled`) reads "<Agent> stopped without finishing: <title>". A badge Slate clears as
+  stale pushes nothing.
 
 ## Email notifications and the waiting bell
 

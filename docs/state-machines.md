@@ -60,7 +60,7 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 | Outcome | Badge | Who the card waits on | Also |
 |---|---|---|---|
 | `done` | cleared | cleared (the card closes) | completes the card |
-| `review` | `review` | unchanged | |
+| `review` | `review` | unchanged | needs a `status` (what to check); the person it is for is whose move it is |
 | `later` | cleared | unchanged | needs a run time still to come |
 | `ask` | `blocked`, note = the question | the person asked | the question is an Ask to them |
 | `answered` | cleared | unchanged | the turn's Asks resolve (`answered`); not offered again until a new Ask or Run now |
@@ -71,6 +71,22 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 A failed run is offered again only when its retry time has come (`work.RETRY_AFTER`, the
 scheduler's `item.run_requested` with `reason: "retry"`) or someone presses Run now, which also
 starts the count over (`work._failures`).
+
+Every agent finish but `failed` and `release` resolves the Asks its turn took, and every agent
+report but `working` sets the card's standing line (`after.status`).
+
+## Stalled card
+
+Declared: `items.stalled_at`. Read: the item view's `stalled` (set and open). Shown: a
+"Stalled" mark with Run now.
+
+| State | Means | Leaves by |
+|---|---|---|
+| not stalled | normal | the agent's newest finish is `answered`, 4 hours pass with nothing else: Slate pokes it once (`item.run_requested`, `reason: "stalled"`); that run ends `answered` again: stalled (`item.stalled`) |
+| stalled | the agent stopped without finishing twice | Run now, a new Ask for an agent, or any finish other than `answered` |
+
+A `working` badge with no lease and no report for 30 minutes is cleared by the scheduler
+(an `idle` report, `reason: "stale"`), so an open card never shows a run that is not there.
 
 ## Chat and doc turns (an agent mentioned in a channel or on a page)
 

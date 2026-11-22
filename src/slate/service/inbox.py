@@ -14,6 +14,9 @@ Nothing is copied into a notifications table. An entry is an event, chosen for o
   (`item.run_failed`, `after.notify`: the card's person assignees and watchers, else the
   owners). A `failed` report before that is nobody's news, and neither is the take that
   retries it.
+- `stalled`  — a card's agent stopped without finishing twice (it answered, Slate ran it
+  again, it answered again: `item.stalled`). Told to the card's enabled person assignees and
+  watchers who can see it now, else the workspace owners (`stall_recipients`).
 - `due`      — a due or overdue nudge on an item assigned to the account
 - `unblocked` — an open item assigned to the account no longer waits on anything
 - `nudge`    — a task is due for (or Run now was pressed on) an agent no runner wakes (`wake`
@@ -53,6 +56,7 @@ from sqlalchemy.orm import Session
 from slate.ids import event_id_floor
 from slate.models import (
     Account,
+    AccountKind,
     Event,
     InboxMark,
     InboxState,
@@ -127,6 +131,8 @@ class Follows:
     assigned: frozenset[str]
     followed: frozenset[str]
     watched: frozenset[str] = frozenset()
+    # Cards whose stall (`item.stalled`, in the window) this account is told about.
+    stalls: frozenset[str] = frozenset()
 
 
 def follows(session: Session, account_id: str) -> Follows:
@@ -136,7 +142,46 @@ def follows(session: Session, account_id: str) -> Follows:
     watching = frozenset(
         session.scalars(select(Watcher.item_id).where(Watcher.account_id == account_id))
     )
-    return Follows(assigned=assigned, followed=assigned | watching, watched=watching)
+    stalled = session.scalars(
+        select(Event.item_id)
+        .where(Event.type == "item.stalled", Event.at >= utcnow() - WINDOW)
+        .distinct()
+    ).all()
+    stalls = frozenset(i for i in stalled if account_id in stall_recipients(session, i))
+    return Follows(assigned=assigned, followed=assigned | watching, watched=watching, stalls=stalls)
+
+
+def stall_recipients(session: Session, item_id: str) -> set[str]:
+    """Who hears that a card stalled: its enabled person assignees and watchers who can see it
+    now (a revoked share counts for nothing), else the enabled workspace owners."""
+    from slate.service import access  # noqa: PLC0415 (access imports this module's peers)
+
+    with access.unrestricted(session):
+        item = session.get(Item, item_id)
+        if item is None:
+            return set()
+        people = session.scalars(
+            select(Account).where(
+                Account.kind == AccountKind.person,
+                Account.disabled_at.is_(None),
+                or_(
+                    Account.id.in_(
+                        select(ItemAssignee.account_id).where(ItemAssignee.item_id == item_id)
+                    ),
+                    Account.id.in_(select(Watcher.account_id).where(Watcher.item_id == item_id)),
+                ),
+            )
+        ).all()
+        told = set()
+        for person in people:
+            reach = access.compute(session, person)
+            if reach.lists is None or reach.lists.get(item.list_id, 0) >= access.VIEW:
+                told.add(person.id)
+        return told or set(
+            session.scalars(
+                select(Account.id).where(Account.role == Role.owner, Account.disabled_at.is_(None))
+            )
+        )
 
 
 def _handles(value: Any) -> list[str]:
@@ -168,6 +213,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         return "nudge" if account.id in ((ev.after_json or {}).get("notify") or []) else None
     if ev.type == "item.run_failed":
         return "failed" if account.id in ((ev.after_json or {}).get("notify") or []) else None
+    if ev.type == "item.stalled":
+        return "stalled" if ev.item_id in f.stalls else None
     if ev.type == "comment.assigned":
         after = ev.after_json or {}
         # An agent's ask is told as `waiting` (its wait), not also as a mention.
@@ -195,6 +242,8 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return "waiting"
         if "failed" in (after.get("state"), (ev.before_json or {}).get("state")):
             return None  # a failed run and its retry are quiet until Slate gives up
+        if after.get("reason") == "stale":
+            return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
         if ev.item_id in f.assigned or account.id in ((ev.after_json or {}).get("notify") or []):
@@ -263,6 +312,7 @@ REASONS = (
     "health",
     "access",
     "failed",
+    "stalled",
     *sorted(FOLLOW_REASONS),
 )
 SAME_CHANGE = timedelta(seconds=2)
@@ -514,6 +564,8 @@ def _candidates(
         conds.append(Event.type == "message.posted")
     if _sees_health(account):
         conds.append(Event.type.in_(HEALTH_TYPES))
+    if f.stalls:
+        conds.append((Event.type == "item.stalled") & Event.item_id.in_(f.stalls))
     if f.followed:
         conds.append(Event.item_id.in_(f.followed) & Event.type.in_(FOLLOW_TYPES + ASSIGNEE_TYPES))
     if f.watched:

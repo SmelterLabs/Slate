@@ -242,9 +242,9 @@ def test_a_person_pasting_an_answer(client, alex, todo, make_account):
     view = _view(client, alex, item["id"])
     assert view["agent"] is None  # a person's ask line changes nothing
     assert view["waiting_on_account_id"] is None
-    _comment(client, alex, item["id"], "SLATE: review")  # nothing to change
+    _comment(client, alex, item["id"], "SLATE: review: Check the invite")  # nothing to change
     assert _view(client, alex, item["id"])["completed_at"] is None
-    _comment(client, alex, item["id"], "Agent3: done, invite sent\nSLATE: done")
+    _comment(client, alex, item["id"], "Agent3: invite sent\nSLATE: review")  # bare: done
     assert _view(client, alex, item["id"])["completed_at"] is not None
 
 
@@ -261,7 +261,7 @@ def test_a_report_note_ending_with_the_line_is_not_applied_twice(client, alex, t
     item = _item(client, alex, todo["id"], assignees=["agent2"])
     r = client.post(
         f"{API}/items/{item['id']}/report",
-        json={"state": "review", "note": "Draft ready\nSLATE: done"},
+        json={"state": "review", "status": "Check the result", "note": "Draft ready\nSLATE: done"},
         headers=gh,
     )
     assert r.status_code == 200, r.text

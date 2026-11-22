@@ -26,6 +26,7 @@ Reason = Literal[
     "health",
     "access",
     "failed",
+    "stalled",
     "comment",
     "status",
     "update",

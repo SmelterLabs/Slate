@@ -31,7 +31,14 @@ def test_a_runs_lines_are_kept_with_its_answer(client, alex, todo, make_account)
     _next(client, ch)
     _say(client, ch, item["id"], "terminal: uv run pytest -q", "read_file: docs/board.md")
     _say(client, ch, item["id"], "Thinking: two tests fail")
-    _finish(client, ch, item["id"], outcome="review", reply="Fixed both tests.")
+    _finish(
+        client,
+        ch,
+        item["id"],
+        outcome="review",
+        status="Check the result",
+        reply="Fixed both tests.",
+    )
 
     [answer] = _comments(client, alex, item["id"])
     assert answer["body_md"] == "Fixed both tests." and answer["run_steps"] == 3
@@ -55,7 +62,14 @@ def test_no_lines_or_no_answer_keeps_nothing(client, alex, todo, make_account):
     _, ch = make_account("agent")
     quiet = _item(client, alex, todo["id"], title="Quiet", assignees=["agent"])
     _next(client, ch)
-    _finish(client, ch, quiet["id"], outcome="review", reply="Done without a word.")
+    _finish(
+        client,
+        ch,
+        quiet["id"],
+        outcome="review",
+        status="Check the result",
+        reply="Done without a word.",
+    )
     [answer] = _comments(client, alex, quiet["id"])
     assert answer["run_steps"] is None
     assert client.get(f"{API}/comments/{answer['id']}/run", headers=alex).status_code == 404
@@ -76,11 +90,11 @@ def test_each_run_keeps_its_own_log_and_deleting_the_answer_drops_it(
     item = _item(client, alex, todo["id"], assignees=["agent"])
     _next(client, ch)
     _say(client, ch, item["id"], "first run")
-    _finish(client, ch, item["id"], outcome="review", reply="One.")
+    _finish(client, ch, item["id"], outcome="review", status="Check the result", reply="One.")
     client.post(f"{API}/items/{item['id']}/run", headers=alex)
     _next(client, ch)
     _say(client, ch, item["id"], "second run", "still the second")
-    _finish(client, ch, item["id"], outcome="review", reply="Two.")
+    _finish(client, ch, item["id"], outcome="review", status="Check the result", reply="Two.")
     one, two = _comments(client, alex, item["id"])
     assert (one["run_steps"], two["run_steps"]) == (1, 2)
     log = client.get(f"{API}/comments/{two['id']}/run", headers=alex).json()

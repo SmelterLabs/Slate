@@ -175,6 +175,7 @@ READS = {
         "first_line",
         "with_thread_ref",
         "check_ask",
+        "standing_line",
         "refuse_person_wait",
     },
     "slate.service.work": {
@@ -223,6 +224,7 @@ READS = {
         "entry_view",
         "notification_turn",
         "follows",
+        "stall_recipients",
         "reason_for",
         "entries",
         "unread_count",
@@ -722,7 +724,13 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
     },
     "slate.service.attention": {"escalate": None, "release": None},
     # Both act as the `slate` system account, not the caller: covered in tests/test_due_events.py.
-    "slate.service.due": {"system_actor": None, "emit_due_events": None, "retry_failed_runs": None},
+    "slate.service.due": {
+        "system_actor": None,
+        "emit_due_events": None,
+        "retry_failed_runs": None,
+        "clear_stale_badges": None,
+        "poke_stalled": None,
+    },
     "slate.service.automations": {
         "create_automation": lambda db, a, p: _automation(db, a),
         "update_automation": lambda db, a, p: automations.update_automation(

@@ -55,7 +55,14 @@ def test_a_message_sent_mid_run_is_handed_over_marked_seen_and_settled(
     assert len(_events(client, alex, item["id"], "comment.seen")) == 1
 
     # The finish settles the message it read: it is not handed over again as a new turn.
-    _finish(client, ch, item["id"], outcome="review", reply="Report and totals done")
+    _finish(
+        client,
+        ch,
+        item["id"],
+        outcome="review",
+        status="Check the result",
+        reply="Report and totals done",
+    )
     assert _next(client, ch)["item"] is None
 
 
@@ -69,7 +76,7 @@ def test_a_message_the_run_never_saw_is_still_its_next_turn(client, alex, todo, 
     # Only the later one is marked: the earlier one was never read, so nothing is settled past it.
     left = _beat(client, ch, item["id"], seen=[two["id"]])
     assert [m["id"] for m in left["messages"]] == [one["id"]]
-    _finish(client, ch, item["id"], outcome="review", reply="Done")
+    _finish(client, ch, item["id"], outcome="review", status="Check the result", reply="Done")
     got = _next(client, ch)
     assert got["item"]["id"] == item["id"]
     assert [a["id"] for a in got["asks"]] == [one["id"], two["id"]]

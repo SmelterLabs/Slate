@@ -36,7 +36,7 @@ Claude Desktop connects to Slate's MCP server ([mcp.md](mcp.md)). Whether it can
 
 ## Copy brief (manual)
 
-**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`. Paste it into the agent's app.
+**Copy brief** puts the task on your clipboard as one prompt (`GET /items/{id}/brief`, MCP `slate_item brief`). The prompt holds the title, due date, description, checklists, attached files and recent comments, and ends with the run rule: finish with a last line that says where the card stands after a second colon, `SLATE: done: <what you did>`, `SLATE: review: <what to check>`, `SLATE: later: <when it runs again>`, `SLATE: answered: <where it stands>`, or `SLATE: ask <handle>: <question> [option | option]`. Paste it into the agent's app.
 
 ## The `SLATE:` closing line
 
@@ -44,10 +44,10 @@ Paste the agent's answer back as a comment on the task. If its last line is a `S
 
 | Last line | From an agent account | From a person |
 |---|---|---|
-| `SLATE: done` | The agent's `done` report: clears its badge, completes the task if the agent is assigned to it | Completes the task |
-| `SLATE: review` | Sets the agent's review badge | Nothing more (the comment is the review) |
+| `SLATE: done: Sent the invoice.` | The agent's `done` report: clears its badge, completes the task if the agent is assigned to it | Completes the task |
+| `SLATE: review: Check the draft linked above.` | Sets the agent's review badge; the text says what to check. A bare `SLATE: review` is `done` | Nothing more (the comment is the review) |
 | `SLATE: later` | Clears the agent's badge; the task stays open and assigned, and its due time (which must still be to come) runs the agent again | Nothing more |
 | `SLATE: answered` | Clears the agent's own badge; nothing else changes | Nothing more |
 | `SLATE: ask alex: Start the import now? [Yes \| No \| Not yet]` | The comment becomes the agent's question to Alex: blocked badge with the question, the task waits on Alex, and Alex gets one button per option | Nothing more |
 
-The line must be the last non-empty line. It may be wrapped in backticks or bold. `@alex` works too, and the bracketed options are optional (2 to 4, each up to 40 characters; the question is one line up to 200). A line that can't apply, such as a bad question or a list with no done status, leaves the comment as it is, and a comment with no line changes nothing. Notes that Slate writes itself, such as a report's note, are never read for the line.
+The text after the second colon is the card's one line on where it stands (optional, except for `review`; without it the comment's first line is used). The line must be the last non-empty line. It may be wrapped in backticks or bold. `@alex` works too, and the bracketed options are optional (2 to 4, each up to 40 characters; the question is one line up to 200). A line that can't apply, such as a bad question or a list with no done status, leaves the comment as it is, and a comment with no line changes nothing. Notes that Slate writes itself, such as a report's note, are never read for the line.

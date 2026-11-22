@@ -147,7 +147,8 @@ The thin bar across the top holds your favorites: one click opens a list, a sect
 - **Agent blocked**: an agent on your card stopped and named nobody. Nothing is asked of you, and **Run now** in the red box carries it on.
 - **Could not run**: the agent's run broke (a crash, a missing tool), not something for you to answer. It never counts in **Needs you**. Slate runs the card again on its own after 5 minutes, and again after 30; if the third run fails too, the card's people (or the owner) get one notification, "My Agent could not run: …". **Run now** tries again at once.
 - **Asked of you**: an open question addressed to you.
-- **Ready for review**: an agent says the work is done.
+- **Ready for review**: an agent finished something you need to check; its one line says what to check.
+- **Stalled**: the agent stopped without finishing, twice: it answered and left the card open, Slate ran it again four hours later, and it answered again. A neutral mark with **Run now**; it counts in **Needs you** for the card's people and whoever filed it, below questions, and they get one notification, "My Agent stopped without finishing: …". Run now, a new question for the agent, or any other ending clears it.
 
 *Depends on*, agents still working and overdue dates are not counted. **The number** on My Work in the menu, the pill (bottom right on a computer, top bar on a phone), the window title **(3) Slate** and the installed app's taskbar or dock icon is this same count. Click the pill for the list. Each list in the menu shows a small count when it holds cards that need you. Unread chat has its own badge on **Chat**; overdue and due today are the badge on **Everything**.
 
@@ -308,7 +309,7 @@ A task assigned to an agent with a runner starts on its own: at once if it has n
 
 ### Following the work
 
-The agent reports as it goes: working (with how far along), blocked, ready for review, could not run, or done. The report is a small badge on the card, "🤖 My Agent · Working 40%", and in full at the top of the task window with its note. A working badge pulses and fades if nobody refreshes it for six hours; blocked is red (**Waiting on Alex**, or **Agent blocked** when it named nobody); ready for review is amber. Done clears the badge and completes the task. Each report is in the history, and its note is a comment from the agent.
+The agent reports as it goes: working (with how far along), blocked, ready for review, could not run, or done. Every card it reported on carries one line on where it stands and whose move it is ("Your move", or a name), in the row, on the card and at the top of the task window; its long reply stays in the conversation. A working badge with no run behind it goes after 30 minutes. The report is a small badge on the card, "🤖 My Agent · Working 40%", and in full at the top of the task window with its note. A working badge pulses and fades if nobody refreshes it for six hours; blocked is red (**Waiting on Alex**, or **Agent blocked** when it named nobody); ready for review is amber. Done clears the badge and completes the task. Each report is in the history, and its note is a comment from the agent.
 
 - **Later.** When the agent has done what it can and the rest waits for the due time (you already gave it the go), it says so in its comment and leaves no badge: the card is not waiting on you, stays assigned, and the due time runs the agent again.
 - **Paused.** If a run stops without saying where things stand, the card waits on you with a "Paused" note; reply on the card to let it carry on.
@@ -323,7 +324,7 @@ The agent reports as it goes: working (with how far along), blocked, ready for r
 
 **Show an agent a screenshot**: paste it into the comment box. The agent is told which files are on the card and can open them.
 
-**Agents in other apps.** Some agents live in another company's app and Slate cannot start them. On the Agents page an admin sets how each agent is woken: **a runner** (Run now), **its own app checks Slate** (the card says **Nudge**: you get a notification to open that app; the Agents page has the prompt to save as a scheduled task there), or **by hand** (the card says **Copy brief**: the task as a prompt to paste into the agent's app). Paste the agent's answer back as a comment. A last line `SLATE: done` completes the task; `SLATE: ask alex: Start now? [Yes | No]` from the agent's own account asks Alex that question. Details: [docs/agents/pull-agents.md](docs/agents/pull-agents.md).
+**Agents in other apps.** Some agents live in another company's app and Slate cannot start them. On the Agents page an admin sets how each agent is woken: **a runner** (Run now), **its own app checks Slate** (the card says **Nudge**: you get a notification to open that app; the Agents page has the prompt to save as a scheduled task there), or **by hand** (the card says **Copy brief**: the task as a prompt to paste into the agent's app). Paste the agent's answer back as a comment. A last line `SLATE: done: Sent the invoice.` completes the task (the text after the second colon is the card's line); `SLATE: ask alex: Start now? [Yes | No]` from the agent's own account asks Alex that question. Details: [docs/agents/pull-agents.md](docs/agents/pull-agents.md).
 
 ### The Agents page
 
