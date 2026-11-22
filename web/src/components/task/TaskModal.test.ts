@@ -327,3 +327,109 @@ describe('TaskModal ask and waiting banner', () => {
     target.remove();
   });
 });
+
+describe('TaskModal questions and reviews', () => {
+  const THREE = {
+    question: '3 questions: Which branch should I ship?',
+    options: [],
+    questions: [
+      { question: 'Which branch should I ship?', options: ['main', 'next'] },
+      { question: 'Tell the customer today?', options: ['Yes', 'No'] },
+      { question: 'Who signs off the invoice?', options: [] },
+    ],
+  };
+
+  async function open(detail: ItemDetail) {
+    board.items = { I1: { ...detail } };
+    board.detail = detail;
+    task.activity = [
+      ...detail.comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment, event: null })),
+    ];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(TaskModal, { target });
+    flushSync();
+    return {
+      target,
+      close: async () => {
+        await unmount(app);
+        target.remove();
+      },
+    };
+  }
+
+  it('puts the question block first in the comment, above its author and body', async () => {
+    const ask = { ...THREE, comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z' };
+    const comment = makeComment({ body_md: 'A long weekly report.\n\nWith many paragraphs.', ask: THREE });
+    const { target, close } = await open(makeDetail({ ask, comments: [comment] }));
+    try {
+      const card = target.querySelector('[data-comment="C1"]')!;
+      expect(card.firstElementChild?.matches('[data-ask-box]')).toBe(true);
+      expect(card.querySelectorAll('[data-ask-box]')).toHaveLength(1);
+      expect(card.querySelector('.ask-pill')).toBeNull();
+      // Three questions: nothing in the thread answers them one tap at a time.
+      expect(card.querySelectorAll('[data-answer-option]')).toHaveLength(0);
+      expect(target.querySelector('[data-banner="waiting"] .wq-heading')?.textContent?.trim()).toBe('My Agent needs 3 answers from you');
+    } finally {
+      await close();
+    }
+  });
+
+  it('keeps the question block in full on a folded comment', async () => {
+    const asked = makeComment({ id: 'C1', ask: THREE, resolved_at: '2026-10-29T10:30:00Z', resolved_by_id: 'me' });
+    const reply = makeComment({
+      id: 'C2',
+      author_id: 'me',
+      author_handle: 'alex',
+      body_md: 'Answers',
+      created_at: '2026-10-29T10:30:00Z',
+      assignee_id: null,
+    });
+    const later = makeComment({ id: 'C3', body_md: 'Done, shipped.', created_at: '2026-10-29T11:00:00Z', assignee_id: null });
+    const { target, close } = await open(
+      makeDetail({ waiting_on_account_id: null, agent: null, ask: null, comments: [asked, reply, later] }),
+    );
+    try {
+      expect(target.querySelector('[data-chat-collapsed][data-comment="C1"]')).not.toBeNull();
+      const block = target.querySelector('[data-ask-box]')!;
+      expect(block.getAttribute('data-ask-state')).toBe('answered');
+      expect([...block.querySelectorAll('[data-ask-question]')].map((q) => q.textContent?.trim())).toEqual(
+        THREE.questions.map((q) => q.question),
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('shows a review for the viewer as a banner saying what to check, in place of the badge', async () => {
+    const standing = { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T11:00:00Z', move_id: 'me' };
+    const agent = { state: 'review' as const, by: 'sc', at: '2026-10-29T11:00:00Z', note: 'Here is the weekly report.' };
+    const { target, close } = await open(makeDetail({ waiting_on_account_id: null, ask: null, agent, standing }));
+    try {
+      const banner = target.querySelector('[data-banner="review"]')!;
+      expect(banner.querySelector('.wq-heading')?.textContent?.trim()).toBe(standing.line);
+      expect(target.querySelector('.tw-head')?.textContent).not.toContain('weekly report');
+      expect(target.querySelector('.agent-badge')).toBeNull();
+      expect(target.querySelector('[data-standing]')).toBeNull();
+      banner.querySelector<HTMLButtonElement>('[data-mark-reviewed]')!.click();
+      expect(postMock).toHaveBeenCalledWith('/items/I1/report', { state: 'idle', comment: false });
+    } finally {
+      await close();
+    }
+  });
+
+  it('shows another viewer the review badge with what to check in place of the note', async () => {
+    const standing = { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T11:00:00Z', move_id: 'sc' };
+    const agent = { state: 'review' as const, by: 'sc', at: '2026-10-29T11:00:00Z', note: 'Here is the weekly report.' };
+    const { target, close } = await open(makeDetail({ waiting_on_account_id: null, ask: null, agent, standing }));
+    try {
+      expect(target.querySelector('[data-banner="review"]')).toBeNull();
+      const badge = target.querySelector('.agent-badge')!;
+      expect(badge.querySelector('.note')?.textContent?.trim()).toBe(standing.line);
+      expect(badge.getAttribute('title')).not.toContain('weekly report');
+      expect(target.querySelectorAll('[data-standing-line]')).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
+});

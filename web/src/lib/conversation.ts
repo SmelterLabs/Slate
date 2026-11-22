@@ -4,7 +4,7 @@
 // answer; every exchange older than the newest collapses to its first line. The live bubble and
 // the badge words come from the item's agent flag. Pure; the components feed it plain data.
 
-import type { Account, AgentFlag, Comment, Item, SlateEvent } from './types';
+import type { Account, AgentFlag, AskQuestion, Comment, CommentAsk, Item, SlateEvent } from './types';
 import type { Row } from './activity';
 import { waitingOn } from './words';
 import { PICKUP_WAIT_MS } from './pickup';
@@ -46,6 +46,13 @@ export function firstLine(md: string, max = 140): string {
       .map((l) => l.replace(/^[\s#>*-]+/, '').replace(/[*_`]/g, '').trim())
       .find((l) => l) ?? '';
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/** An ask's questions, one or several, as every component reads them. A server from before
+ * multi-question asks sends only `question` and `options`; that fallback goes once the server
+ * sends `questions` on every ask. */
+export function askQuestions(ask: CommentAsk): AskQuestion[] {
+  return ask.questions ?? [{ question: ask.question, options: ask.options }];
 }
 
 /** The badge's words (lib/words.ts): "Waiting on Alex" while an agent's blocked report names a

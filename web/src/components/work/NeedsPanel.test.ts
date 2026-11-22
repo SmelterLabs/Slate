@@ -113,3 +113,44 @@ describe('NeedsPanel ask row', () => {
     await unmount(app);
   });
 });
+
+describe('NeedsPanel questions and reviews', () => {
+  it('shows an ask with several questions by its headline, with Answer → instead of options', async () => {
+    const several = {
+      ...askItem.ask!,
+      question: '2 questions: Start the import now?',
+      options: [],
+      questions: [
+        { question: 'Start the import now?', options: ['Yes', 'No'] },
+        { question: 'Which file first?', options: [] },
+      ],
+    };
+    boardState.needsMe = [{ item: { ...askItem, ask: several }, need: 'waiting' }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const row = target.querySelector('[data-item="I1"]')!;
+    expect(row.querySelector('[data-ask-question]')?.textContent).toBe('2 questions: Start the import now?');
+    expect(row.querySelectorAll('[data-answer-option]')).toHaveLength(0);
+    expect(row.classList.contains('has-opts')).toBe(false);
+    expect(row.querySelector('.nd-act')?.textContent?.trim()).toBe('Answer →');
+    await unmount(app);
+  });
+
+  it('gives a review row what to check, not the first line of the reply', async () => {
+    const review: Item = {
+      ...askItem,
+      id: 'I3',
+      ask: null,
+      waiting_on_account_id: null,
+      agent: { state: 'review', by: 'sc', at: '2026-10-29T10:00:00Z', note: 'Here is the weekly report.' },
+      standing: { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T10:00:00Z', move_id: 'me' },
+    };
+    boardState.needsMe = [{ item: review, need: 'review' }];
+    const target = document.createElement('div');
+    const app = mount(NeedsPanel, { target });
+    const meta = target.querySelector('[data-item="I3"] .nd-meta')!;
+    expect(meta.textContent).toContain('Check the totals in the March column');
+    expect(meta.textContent).not.toContain('weekly report');
+    await unmount(app);
+  });
+});

@@ -33,6 +33,7 @@
   import { task } from '../../lib/task.svelte';
   import type { Comment, ItemDetail, SlateEvent } from '../../lib/types';
   import Avatars from '../Avatars.svelte';
+  import AskQuestions from './AskQuestions.svelte';
   import Composer from './Composer.svelte';
   import Icon from '../Icon.svelte';
   import LiveActivity from './LiveActivity.svelte';
@@ -330,6 +331,7 @@
     {#each rows as r (r.key)}
       {#if r.kind === 'comment' && collapsed.has(r.comment.id) && !opened[r.comment.id]}
         {@const c = r.comment}
+        <AskQuestions comment={c} />
         <button
           class="chat-collapsed"
           class:from-agent={isAgent(c.author_id)}
@@ -354,12 +356,13 @@
           class:from-agent={isAgent(c.author_id)}
           data-chat={isChat(c, isAgent) ? (isAgent(c.author_id) ? 'agent' : 'person') : undefined}
         >
+          <AskQuestions comment={c} />
           <div class="who">
             <Avatars people={person(c.author_id)} />
             <strong>{authorName(c)}</strong>
             <time class="muted" datetime={c.created_at} title={fullStamp(c.created_at)}>{stamp(c.created_at, board.now)}</time>
             {#if c.edited_at}<span class="muted" title="Edited {fullStamp(c.edited_at)}">(edited)</span>{/if}
-            {#if c.assignee_id}
+            {#if c.assignee_id && !c.ask}
               <span class="ask-pill" class:resolved={!!c.resolved_at} data-ask={c.resolved_at ? 'resolved' : 'open'}>
                 <Avatars people={person(c.assignee_id)} />
                 Asked {board.accountName(c.assignee_id) ?? 'someone'} · {c.resolved_at ? 'Resolved' : 'Open'}
@@ -375,22 +378,6 @@
               </span>
             {/if}
           </div>
-          {#if c.ask}
-            <div class="ask-box" data-ask-box>
-              <p class="ask-q" data-ask-question>{c.ask.question}</p>
-              {#if c.ask.options.length}
-                <div class="ask-opts">
-                  {#each c.ask.options as option}
-                    {#if !c.resolved_at && c.assignee_id === task.me}
-                      <button class="ask-opt" data-answer-option={option} onclick={() => void task.answer(c.id, option)}>{option}</button>
-                    {:else}
-                      <span class="ask-opt plain" data-ask-option>{option}</span>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
           {#if editing === c.id}
             <textarea
               class="edit"
@@ -773,40 +760,6 @@
     border-color: var(--line);
     background: none;
     color: var(--muted);
-  }
-  .ask-box {
-    margin: 6px 0;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-  }
-  .ask-q {
-    margin: 0 0 6px;
-    font-weight: 600;
-  }
-  .ask-opts {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .ask-opt {
-    min-height: 28px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  button.ask-opt {
-    cursor: pointer;
-    background: color-mix(in srgb, var(--prio-high) 14%, transparent);
-  }
-  .ask-opt.plain {
-    display: inline-flex;
-    align-items: center;
-    color: var(--muted);
-    background: none;
   }
   .activity {
     display: flex;

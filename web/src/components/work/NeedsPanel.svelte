@@ -3,6 +3,7 @@
   // pop-up (rows): each card that waits on the viewer, colored by why
   // (lib/attention.ts), with the agent's note and the one action that moves it on.
   import { countBy, needLabel, NEEDS, type Attention, type Need } from '../../lib/attention';
+  import { askQuestions } from '../../lib/conversation';
   import { ago } from '../../lib/format';
   import { board } from '../../lib/store.svelte';
   import { task } from '../../lib/task.svelte';
@@ -26,9 +27,12 @@
     e.stopPropagation();
     if (a.item.ask) await task.answer(a.item.ask.comment_id, option);
   }
+  // A review row says what to check (the standing line), not the reply's first line.
   function note(a: Attention): string | null {
-    return a.item.agent?.note ?? null;
+    return (a.need === 'review' && a.item.standing?.line) || (a.item.agent?.note ?? null);
   }
+  // Tap answers only for an ask with one question; several are answered on the card.
+  const options = (a: Attention) => (a.item.ask && askQuestions(a.item.ask).length === 1 ? a.item.ask.options : []);
   function when(a: Attention): string {
     return ago(a.item.agent?.at ?? a.item.updated_at, board.now);
   }
@@ -70,7 +74,7 @@
 {#snippet row(a: Attention)}
   <div
     class="nd-row need-{a.need}"
-    class:has-opts={!!a.item.ask?.options.length}
+    class:has-opts={options(a).length > 0}
     role="listitem"
     data-item={a.item.id}
     data-need={a.need}
@@ -93,9 +97,9 @@
       </span>
     </button>
     <span class="nd-when">{when(a)}</span>
-    {#if a.item.ask?.options.length}
+    {#if options(a).length}
       <span class="nd-opts">
-        {#each a.item.ask.options as option}
+        {#each options(a) as option}
           <button class="nd-act" data-answer-option={option} onclick={(e) => answerAsk(e, a, option)}>{option}</button>
         {/each}
       </span>
