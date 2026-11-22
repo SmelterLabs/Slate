@@ -10,7 +10,7 @@ from datetime import timedelta
 from conftest import API
 from run_proofs import remember, run_fields
 from slate.models import DocWake, utcnow
-from slate.service import docwake
+from slate.service import turns
 from test_chat_wake import _agent, _events
 
 
@@ -230,7 +230,7 @@ def test_heartbeat_expire_and_reconcile(client, alex, db):
     assert r.json()["until"] > until
     assert [e["after"]["state"] for e in _events(client, alex, "doc.agent_turn")] == ["started"]
 
-    assert docwake.expire(db, utcnow() + timedelta(hours=1)) == 1
+    assert turns.expire("doc", db, utcnow() + timedelta(hours=1)) == 1
     ended = _events(client, alex, "doc.agent_turn")[-1]
     assert ended["after"]["state"] == "expired" and ended["source"] == "system"
     assert ended["after"]["reconciliation_required"] is True
@@ -281,10 +281,10 @@ def test_finish_without_a_turn_or_proof_is_a_409(client, alex):
 
 
 def test_section_around():
-    assert docwake.section_around("", "@x") == ""
-    assert docwake.section_around("a\nb", "@x") == "a\nb"
+    assert turns.section_around("", "@x") == ""
+    assert turns.section_around("a\nb", "@x") == "a\nb"
     body = "# A\n\none\n\n## B\n\n@x here\n\n### C\n\nsub\n\n## D\n\nend"
-    assert docwake.section_around(body, "@X") == "## B\n\n@x here\n\n### C\n\nsub\n"
+    assert turns.section_around(body, "@X") == "## B\n\n@x here\n\n### C\n\nsub\n"
     long = "\n".join(["filler"] * 3000 + ["@x"] + ["tail"] * 3000)
-    cut = docwake.section_around(long, "@x")
-    assert len(cut) == docwake.SECTION_MAX and "@x" in cut
+    cut = turns.section_around(long, "@x")
+    assert len(cut) == turns.SECTION_MAX and "@x" in cut

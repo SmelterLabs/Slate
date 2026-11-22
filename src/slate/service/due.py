@@ -541,3 +541,14 @@ def unpark_due(session: Session, *, now: datetime) -> int:
             )
         unparked += 1
     return unparked
+
+
+def run_due_checks(session: Session, now: datetime) -> int:
+    """Emit due events, retry runs, clear stale badges, poke stalled cards and unpark cards."""
+    return (
+        emit_due_events(session, now=now)
+        + retry_failed_runs(session, now=now)
+        + clear_stale_badges(session, now=now)
+        + poke_stalled(session, now=now)
+        + unpark_due(session, now=now)
+    )

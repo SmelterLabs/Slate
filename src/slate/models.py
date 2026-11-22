@@ -1202,7 +1202,7 @@ class WorkLease(Base):
 
 
 class ChatWake(Base):
-    """An agent's pending or open turn in one chat channel or thread (service/chatwake.py): a
+    """An agent's pending or open turn in one chat channel or thread (service/turns.py): a
     person @mentioned it there, so its runner has work to take. One row per (agent, channel,
     thread); `thread_id` is "" for the channel itself (NULL cannot be part of the key).
     `message_id` is the newest mention not yet answered and `since_id` the oldest; a take sets
@@ -1225,7 +1225,7 @@ class ChatWake(Base):
 
 
 class DocWake(Base):
-    """An agent's pending or open turn on one doc (service/docwake.py): a person @mentioned it
+    """An agent's pending or open turn on one doc (service/turns.py): a person @mentioned it
     on the page or in one of its comment threads, so its runner has work to take. One row per
     (agent, doc, thread); `thread_id` is the thread's first comment, or "" for a mention in the
     page body (the answer then starts a new discussion thread). `mention_no` counts the

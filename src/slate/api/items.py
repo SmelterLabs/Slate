@@ -45,7 +45,7 @@ JSON = "application/json"
 
 
 ITEM_FIELDS = tuple(ItemOut.model_fields)
-_ITEM_ADAPTER = TypeAdapter(ItemOut)
+ITEM_ADAPTER = TypeAdapter(ItemOut)
 
 
 def parse_fields(fields: str | None) -> set[str] | None:
@@ -166,7 +166,7 @@ def query_items(
         only_ids=True,
     )
     parts = item_cache.trim(
-        item_cache.render(session, found, items.views, _ITEM_ADAPTER, token), wanted
+        item_cache.render(session, found, items.views, ITEM_ADAPTER, token), wanted
     )
     return Response(b"[" + b",".join(parts) + b"]", media_type=JSON)
 

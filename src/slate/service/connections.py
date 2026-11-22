@@ -210,9 +210,9 @@ def exchange(
     """Consume once atomically; issue a distinct list-limited write token, never an admin."""
     # The actor is the issuer: the bearer of their one-time consent has no account yet.
     # Take the same write lock before the first lookup (not a cached pre-lock ORM read).
-    from slate.service.core import _write_lock
+    from slate.service.core import write_lock
 
-    with _write_lock:
+    with write_lock:
         row = session.scalar(
             select(AgentConnection)
             .where(AgentConnection.secret_hash == accounts.hash_token(code))

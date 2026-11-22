@@ -21,7 +21,7 @@ Module: `src/slate/api/events.py`, mounted from `app.py` by `events.install(app)
   only.
 
 **Why "id > cursor" is a complete answer.** `apply_change()` holds a process-wide `threading.RLock`
-(`core._write_lock`) from the start of the outermost block to the end of its publishes. Event ids
+(`core.write_lock`) from the start of the outermost block to the end of its publishes. Event ids
 are chosen at flush, so with the lock they are assigned, committed and published in one order.
 Without it, an event-only transaction (no earlier write to take SQLite's write lock first) could
 pick an id, lose the race to SQLite's lock, and commit after a later id: a cursor client would then

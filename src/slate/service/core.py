@@ -67,7 +67,7 @@ from slate.service.bus import bus
 from slate.service.item_cache import cache as item_views
 
 _SCOPE_KEY = "slate.change"
-_write_lock = threading.RLock()
+write_lock = threading.RLock()
 # (waited, held) seconds of the last LOCK_SAMPLES outermost changes: write contention, for /stats.
 LOCK_SAMPLES = 2000
 _lock_times: deque[tuple[float, float]] = deque(maxlen=LOCK_SAMPLES)
@@ -332,7 +332,7 @@ def apply_change(session: Session, actor: Actor) -> Iterator[Change]:
     # published in one order, so `id > cursor` is a complete catch-up (slate.api.events). SQLite
     # serialises writers anyway; this only moves the queue from the database to here.
     asked = time.perf_counter()
-    with _write_lock:
+    with write_lock:
         got = time.perf_counter()
         session.info[_SCOPE_KEY] = change
         try:

@@ -136,6 +136,9 @@ def move_item_to_status(cx: Change, item: Item, status: Status) -> None:
             if item.parked_until is not None or item.parked_note is not None:
                 cx.set(item, "parked_until", None, "item.updated")
                 cx.set(item, "parked_note", None, "item.updated")
+            if item.stalled_at is not None:
+                # A closed card is not stalled, and reopening it must not bring the mark back.
+                cx.set(item, "stalled_at", None, "item.updated")
         if status.kind == StatusKind.done and item.recurrence_id:
             from slate.service import recurrences  # recurrences imports this module
 
