@@ -42,8 +42,8 @@
   async function loadStats() {
     try {
       stats = await get<Stats>('/stats');
-    } catch {
-      stats = null;
+    } catch (e) {
+      board.flash(`Could not load agent statistics: ${e}`);
     }
   }
 
@@ -56,8 +56,11 @@
     try {
       const out = await get<PlanOut>('/agents/plan');
       if (generation === planGeneration) plan = out.agents;
-    } catch {
-      if (generation === planGeneration) plan = plan ?? [];
+    } catch (e) {
+      if (generation === planGeneration) {
+        plan = plan ?? [];
+        board.flash(`Could not load the agent plan: ${e}`);
+      }
     }
   }
   let planTimer: ReturnType<typeof setTimeout> | undefined;

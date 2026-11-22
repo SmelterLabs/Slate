@@ -2,7 +2,7 @@
 // (seeded by GET /events?tail=true&actor_kind=agent, then fed by the board's one SSE stream
 // through `onEvent`). Presence loads with the board; the feed loads when Agents opens.
 
-import { get } from './api';
+import { ApiError, get } from './api';
 import { connections } from './connection-data.svelte';
 import type { AgentEntry, AgentState, SlateEvent } from './types';
 
@@ -99,7 +99,7 @@ class Agents {
   }
 
   /** Every stream event passes through here (from the board store). */
-  onEvent(ev: SlateEvent) {
+  onEvent(ev: SlateEvent, reportError: (message: string) => void) {
     connections.onEvent(ev);
     if (!this.#watchRoster) return;
     const prev = this.#last;
@@ -115,7 +115,7 @@ class Agents {
     // Reports move "working on"; new accounts join the roster. Re-read, coalesced.
     if (ev.type === 'item.reported' || ev.type === 'item.run_requested' || ev.type.startsWith('account.') || !who) {
       clearTimeout(this.#reload);
-      this.#reload = setTimeout(() => void this.refreshRoster(), 300);
+      this.#reload = setTimeout(() => void this.refreshRoster(reportError), 300);
     }
   }
 
@@ -132,7 +132,7 @@ class Agents {
     this.#last = undefined;
   }
 
-  async refreshRoster() {
+  async refreshRoster(reportError: (message: string) => void) {
     this.#watchRoster = true;
     const generation = ++this.#rosterGeneration;
     try {
@@ -140,9 +140,10 @@ class Agents {
       if (generation !== this.#rosterGeneration) return;
       this.roster = roster;
       this.rosterAt = Date.now();
-    } catch {
-      if (generation === this.#rosterGeneration) this.rosterAt = null;
-      // the next event or a page visit tries again
+    } catch (e) {
+      if (generation !== this.#rosterGeneration) return;
+      this.rosterAt = null;
+      if (!(e instanceof ApiError && e.status === 401)) reportError(`Could not refresh agent roster: ${e}`);
     }
   }
 }

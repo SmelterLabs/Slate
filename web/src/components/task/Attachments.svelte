@@ -7,7 +7,7 @@
   import { board } from '../../lib/store.svelte';
   import { task } from '../../lib/task.svelte';
   import type { ItemDetail } from '../../lib/types';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { item, picker = $bindable() }: { item: ItemDetail; picker?: HTMLInputElement } = $props();
 
@@ -38,7 +38,7 @@
 {#if files.length || task.uploading}
   <section class="block" aria-label="Attachments">
     <header>
-      <h3><Icon name="clip" /> Attachments <span class="count">{files.length}</span></h3>
+      <h3><Icon name="clip" size={16} /> Attachments <span class="count">{files.length}</span></h3>
       <button class="link small" onclick={() => picker?.click()}>+ Add</button>
     </header>
     <ul class="grid">

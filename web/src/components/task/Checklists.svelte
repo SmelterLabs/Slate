@@ -9,7 +9,7 @@
   import { task } from '../../lib/task.svelte';
   import type { Checklist, ChecklistEntry, ItemDetail } from '../../lib/types';
   import Menu from '../Menu.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../Icon.svelte';
 
   let { item }: { item: ItemDetail } = $props();
 
@@ -124,7 +124,7 @@
         />
       {:else}
         <h3>
-          <Icon name="checklist" />
+          <Icon name="checklist" size={16} />
           <button
             class="plain"
             title="Rename"

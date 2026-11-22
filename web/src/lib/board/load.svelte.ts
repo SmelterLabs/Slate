@@ -31,7 +31,7 @@ export class BoardLoad extends BoardViews {
       get<Item[]>('/items'),
       get<SavedView[]>('/views'),
       get<Favorite[]>('/favorites'),
-      agents.refreshRoster(),
+      agents.refreshRoster((message) => this.flash(message)),
     ]);
     if (gen !== this.#loadGen) return; // a newer load is answering instead
     this.views = Object.fromEntries(views.map((v) => [v.id, v]));
@@ -72,8 +72,13 @@ export class BoardLoad extends BoardViews {
             const p = await get<{ participants: Account[] }>(`/sections/${s.id}/project`);
             for (const a of p.participants) known[a.id] ??= a;
             agentsBySection[s.id] = p.participants.filter((a) => a.kind === 'agent');
-          } catch {
-            // not this account's project after all: nothing to name
+          } catch (e) {
+            // Access can change between loading the sections and loading a project.
+            if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return;
+            const previous = this.sectionAgents[s.id] ?? [];
+            agentsBySection[s.id] = previous;
+            for (const a of previous) known[a.id] ??= a;
+            this.flash(`Could not load project participants: ${e}`);
           }
         }),
     );
@@ -143,6 +148,8 @@ export class BoardLoad extends BoardViews {
       if (e instanceof ApiError && e.status === 404) {
         delete this.items[id];
         this.sync(id);
+      } else if (!(e instanceof ApiError && e.status === 401)) {
+        this.flash(`Could not refresh task: ${e}`);
       }
     }
   }
@@ -150,8 +157,8 @@ export class BoardLoad extends BoardViews {
   async loadTags() {
     try {
       this.tags = await get<Tag[]>('/tags');
-    } catch {
-      // Autocomplete is a nicety; typing a tag still works without it.
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load tags: ${e}`);
     }
   }
 
@@ -159,8 +166,8 @@ export class BoardLoad extends BoardViews {
     try {
       const rules = await get<Recurrence[]>('/recurrences');
       this.recurrences = Object.fromEntries(rules.map((r) => [r.id, r]));
-    } catch {
-      // labels fall back to "Recurring"
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load repeat rules: ${e}`);
     }
   }
 
@@ -169,7 +176,11 @@ export class BoardLoad extends BoardViews {
       const r = await get<Recurrence>(`/recurrences/${id}`);
       this.recurrences[id] = r;
       return r;
-    } catch {
+    } catch (e) {
+      // A rule can be deleted before an item refresh drops its reference.
+      if (!(e instanceof ApiError && [401, 404].includes(e.status))) {
+        this.flash(`Could not load repeat rule: ${e}`);
+      }
       return null;
     }
   }
@@ -201,8 +212,8 @@ export class BoardLoad extends BoardViews {
         this.#markRead(open);
       }
       this.commentDots = dots;
-    } catch {
-      /* the next comment or reload retries */
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not refresh unread comments: ${e}`);
     }
   }
 
@@ -231,7 +242,9 @@ export class BoardLoad extends BoardViews {
         await this.loadRule(d.recurrence_id);
       }
     } catch (e) {
+      if (this.openId !== id) return; // the request belonged to a task that was closed
       if (e instanceof ApiError && e.status === 404) this.close();
+      else if (!(e instanceof ApiError && e.status === 401)) this.flash(`Could not load task details: ${e}`);
     }
   }
 }

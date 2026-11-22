@@ -25,7 +25,6 @@
   import TaskModal from './components/task/TaskModal.svelte';
   import MediaViewer from './components/task/MediaViewer.svelte';
   import { task } from './lib/task.svelte';
-  import { notifySettings } from './lib/notify.svelte';
   import { syncPush } from './lib/push';
   import HomePage from './components/work/HomePage.svelte';
   import InboxPage from './components/work/InboxPage.svelte';
@@ -165,7 +164,7 @@
     if (board.ready && !kiosk) prefetchPages();
   });
   $effect(() => {
-    if (board.ready) void syncPush().catch(() => {});
+    if (board.ready) void syncPush().catch((e) => board.flash(`Could not sync device notifications: ${e}`));
   });
   $effect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -205,8 +204,8 @@
     const flash = board.token && !inFront ? flashTitle(chat.channels) : null;
     document.title = title;
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
-    if (count) void nav.setAppBadge?.(count).catch(() => {});
-    else void nav.clearAppBadge?.().catch(() => {});
+    if (count) void nav.setAppBadge?.(count).catch(() => { /* the browser badge is optional */ });
+    else void nav.clearAppBadge?.().catch(() => { /* the in-app count is still current */ });
     if (!flash) return;
     let other = true;
     const timer = setInterval(() => {
@@ -466,7 +465,7 @@
     {#if board.shareTarget}
       <ShareDialog kind={board.shareTarget.kind} id={board.shareTarget.id} />
     {/if}
-    {#if notifySettings.open}
+    {#if inbox.settingsOpen}
       {@const NotificationSettings = pages.notifications.component}
       {#if NotificationSettings}<NotificationSettings />{:else}<PageLoad page={pages.notifications} dialog />{/if}
     {/if}

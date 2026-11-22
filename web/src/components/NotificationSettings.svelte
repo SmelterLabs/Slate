@@ -6,7 +6,7 @@
   // prefs, so phone and PC show the same; only "this device" is per browser.
   import { onMount } from 'svelte';
   import { api, get } from '../lib/api';
-  import { notifySettings } from '../lib/notify.svelte';
+  import { inbox } from '../lib/inbox.svelte';
   import {
     DEFAULT_EMAIL_REASONS,
     DEFAULT_PUSH_REASONS,
@@ -77,14 +77,16 @@
   };
 
   async function refresh() {
-    pstate = await pushState().catch(() => 'unsupported' as PushState);
-    devices = await listDevices().catch(() => []);
+    await Promise.all([
+      pushState().then((state) => (pstate = state)).catch((e) => board.flash(`Could not check device notifications: ${e}`)),
+      listDevices().then((rows) => (devices = rows)).catch((e) => board.flash(`Could not load notification devices: ${e}`)),
+    ]);
   }
 
   onMount(() => {
     void refresh();
-    void get<Reminder[]>('/reminders?limit=20').then((r) => (upcoming = r)).catch(() => {});
-    void get<{ counts: DigestCounts }>('/me/digest').then((d) => (digest = d)).catch(() => {});
+    void get<Reminder[]>('/reminders?limit=20').then((r) => (upcoming = r)).catch((e) => board.flash(`Could not load upcoming reminders: ${e}`));
+    void get<{ counts: DigestCounts }>('/me/digest').then((d) => (digest = d)).catch((e) => board.flash(`Could not load the digest preview: ${e}`));
   });
 
   async function run(fn: () => Promise<unknown>, done?: string) {
@@ -155,7 +157,7 @@
   }
 
   function close() {
-    notifySettings.open = false;
+    inbox.settingsOpen = false;
   }
 </script>
 

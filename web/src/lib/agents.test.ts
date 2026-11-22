@@ -17,7 +17,7 @@ it('a concurrent presence refresh does not leave the Agents page loading forever
     return [];
   });
   const load = agents.load();
-  await agents.refreshRoster();
+  await agents.refreshRoster(vi.fn());
   resolveTail({ events: [] });
   await load;
   expect(agents.loaded).toBe(true);
@@ -26,7 +26,7 @@ it('a concurrent presence refresh does not leave the Agents page loading forever
 it('a roster response from a signed-out scope cannot restore presence', async () => {
   let resolve!: (value: never[]) => void;
   vi.mocked(get).mockImplementation(() => new Promise((done) => { resolve = done; }));
-  const refresh = agents.refreshRoster();
+  const refresh = agents.refreshRoster(vi.fn());
   agents.resetRoster();
   resolve([]);
   await refresh;

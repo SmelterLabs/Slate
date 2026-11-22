@@ -87,8 +87,8 @@ class Chat {
       this.channels = found;
       if (seq === this.#turnSeq) this.turns = Object.fromEntries(found.map((c) => [c.key, c.agent_turns ?? []]));
       this.loaded = true;
-    } catch {
-      // badges stay as they were; the next event retries
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not refresh chat channels: ${e}`);
     }
   }
 
@@ -142,8 +142,11 @@ class Chat {
     if (!wanted) return;
     try {
       this.#place(await get<ChatMessage>(`/messages/${id}`));
-    } catch {
-      // gone or unreachable: the next load shows the truth
+    } catch (e) {
+      // A message may be deleted or access may change before the event's fetch completes.
+      if (!(e instanceof ApiError && [401, 403, 404].includes(e.status))) {
+        board.flash(`Could not refresh the message: ${e}`);
+      }
     }
   }
 
@@ -210,6 +213,7 @@ class Chat {
       try {
         await post(`/channels/${encodeURIComponent(channel)}/read`, { message_ids: ids });
       } catch {
+        // Automatic read marks retry the next time the messages are exposed.
         for (const id of ids) this.exposed.delete(id);
       }
     }
@@ -237,8 +241,8 @@ class Chat {
     }
     try {
       await post(`/channels/${encodeURIComponent(key)}/read`, {});
-    } catch {
-      // the counts come back on the next refresh
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not mark the channel as read: ${e}`);
     }
   }
 

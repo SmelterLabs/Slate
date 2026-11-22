@@ -2,7 +2,7 @@
 // automation makes carries `session_ref` = `automation:<id>`. Rules are set up through the API
 // (GET/POST /automations); the board only reads their names, once, when an activity needs one.
 
-import { get } from './api';
+import { ApiError, get } from './api';
 import type { SlateEvent } from './types';
 
 export const SESSION_PREFIX = 'automation:';
@@ -18,12 +18,17 @@ class AutomationNames {
   #requested = false;
 
   /** Load the rule names once; a token that cannot read them shows no names. */
-  ensure() {
+  ensure(reportError: (message: string) => void) {
     if (this.#requested) return;
     this.#requested = true;
     void get<{ id: string; name: string }[]>('/automations')
       .then((rules) => (this.#names = Object.fromEntries(rules.map((r) => [r.id, r.name]))))
-      .catch(() => {});
+      .catch((e) => {
+        // Rules may be hidden from this token; the activity still has the rule id.
+        if (e instanceof ApiError && [401, 403].includes(e.status)) return;
+        this.#requested = false;
+        reportError(`Could not load automation names: ${e}`);
+      });
   }
 
   name(id: string): string | undefined {

@@ -8,6 +8,7 @@ import { authHeaders } from './api';
 
 import { api, ApiError, get, patch, post } from './api';
 import type { Anchor, Doc, DocComment, DocDiff, DocEvent, DocFile, DocRevision, DocSummary, DocTemplate, DocVersion, Drawer, Place, RevisionCompare, SectionDocuments } from './docs';
+import { withStorage } from './storage';
 import { board } from './store.svelte';
 import type { Item, SlateEvent } from './types';
 
@@ -93,20 +94,23 @@ class Docs {
     const key = this.#draftKey(this.current.id);
     const text = { ...this.draft };
     this.#drafts.set(key, text);
-    try { localStorage.setItem(key, JSON.stringify(text)); }
-    catch { board.flash('Draft kept for this session only. Download it before reloading.'); }
+    const persisted = withStorage((storage) => {
+      storage.setItem(key, JSON.stringify(text));
+      return true;
+    }, false);
+    if (!persisted) board.flash('Draft kept for this session only. Download it before reloading.');
   }
 
   #forget(id: string) {
     const key = this.#draftKey(id);
     this.#drafts.delete(key);
-    try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+    withStorage((storage) => storage.removeItem(key), undefined);
   }
 
   #recover(d: Doc) {
     const key = this.#draftKey(d.id);
-    let saved = this.#drafts.get(key);
-    try { saved ??= JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { /* damaged draft */ }
+    const saved = this.#drafts.get(key)
+      ?? withStorage((storage) => JSON.parse(storage.getItem(key) ?? 'null'), null);
     if (!saved || typeof saved.title !== 'string' || typeof saved.body_md !== 'string'
       || (saved.icon !== null && typeof saved.icon !== 'string')) return;
     if (!Object.keys(changed(saved, textOf(d))).length) return this.#forget(d.id);
@@ -170,8 +174,10 @@ class Docs {
       const list = await get<DocSummary[]>('/docs');
       if (epoch !== this.#epoch) return;
       this.list = list;
-    } catch {
-      /* the index is a convenience; the page still opens */
+    } catch (e) {
+      if (epoch === this.#epoch && !(e instanceof ApiError && e.status === 401)) {
+        board.flash(`Could not load the document list: ${e}`);
+      }
     }
     if (epoch === this.#epoch) this.loaded = true;
   }
@@ -389,7 +395,10 @@ class Docs {
     let fresh: Doc;
     try {
       fresh = await get<Doc>(`/docs/${encodeURIComponent(open.id)}`);
-    } catch {
+    } catch (e) {
+      if (generation === this.#openGeneration && !(e instanceof ApiError && e.status === 401)) {
+        board.flash(`Could not refresh the document: ${e}`);
+      }
       return;
     }
     if (generation !== this.#openGeneration || this.current?.id !== fresh.id || this.#saving) return;
@@ -668,8 +677,11 @@ class Docs {
       if (generation !== this.#openGeneration || this.current?.id !== id) return;
       this.comments = out.comments;
       this.activity = out.events;
-    } catch {
-      /* the panel shows what it has */
+    } catch (e) {
+      if (generation === this.#openGeneration && this.current?.id === id
+        && !(e instanceof ApiError && e.status === 401)) {
+        board.flash(`Could not refresh document activity: ${e}`);
+      }
     }
   }
 

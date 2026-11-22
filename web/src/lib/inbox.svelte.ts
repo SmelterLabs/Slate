@@ -3,7 +3,7 @@
 // (debounced) when one arrives; this account's own inbox.read / inbox.cleared (from another
 // device too) refetch at once, so phone and PC always agree.
 
-import { get, post } from './api';
+import { ApiError, get, post } from './api';
 import { chatHref } from './chat';
 import { describe, type HistoryContext } from './history';
 import { board } from './store.svelte';
@@ -148,6 +148,7 @@ export function groupEntries(entries: InboxEntry[]): InboxGroup[] {
 }
 
 class Inbox {
+  settingsOpen = $state(false);
   entries = $state<InboxEntry[]>([]);
   unread = $state(0);
   loaded = $state(false);
@@ -189,8 +190,8 @@ class Inbox {
       this.loaded = true;
       // Chat entries need no marking here: the server reads them with their message
       // (`channel.read` from any device brings a refresh).
-    } catch {
-      // the badge just stays as it was; the next event retries
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) board.flash(`Could not refresh inbox: ${e}`);
     }
   }
 
