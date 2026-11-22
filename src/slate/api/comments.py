@@ -36,8 +36,10 @@ def add_comment(item_id: str, body: CommentIn, auth: WriteAuth, session: DbSessi
     compatibility. A last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE:
     answered` or up to four trailing `SLATE: ask <handle>: <question> [option | option]`
     lines for the same person also reports back on the task. An agent's ask stores the
-    questions on its comment and uses the preceding text as its reply. A malformed agent
-    ask returns 422 with the validation reason and posts nothing. A person's `done`
+    questions on its comment and uses the preceding text as its reply. An explicit
+    `assignee` must be valid and reachable. When the closing Ask applies, its recipient
+    is the comment's assignee. A malformed agent ask returns 422 with the validation
+    reason and posts nothing. A person's `done`
     completes the task."""
     comment = comments.add_comment(
         session,

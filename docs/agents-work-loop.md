@@ -244,7 +244,9 @@ Slate stays the doorbell: it never launches an agent.
   handle or other text. The ask lines live in the question block, and everything before the
   run stays in the reply body. Other endings keep their closing line in the comment. A malformed
   agent ask returns 422 with the validation reason and posts no comment. A valid ending that
-  cannot apply leaves the comment body as written. An agent only
+  cannot apply leaves the comment body as written. Slate validates any explicit `assignee`
+  and checks that the caller can reach it before applying the ending. An applied closing Ask
+  assigns the comment once, to the person asked in the ending. An agent only
   asked something on a card may ask whoever asked it (the third-person rule below).
 - **Answering an ask** (`comments.answer`, `POST /comments/{id}/answer {option}`, MCP
   `slate_comment answer`): the person asked (or an admin) picks one of the options. It posts a

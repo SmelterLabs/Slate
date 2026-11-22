@@ -607,6 +607,25 @@ def test_guests_do_not_see_multiple_questions_from_a_workspace_agent(client, ale
     )
 
 
+def test_guest_agent_cannot_bypass_explicit_assignee_reach_with_a_closing_ask(client, alex, world):
+    card, _ = world["ids"]["item_id"]
+    path = f"{API}/items/{card}"
+    before = _ok(client.get(f"{path}/comments", headers=alex))
+    headers = world["guests"]["other-agent"]
+    plain = client.post(
+        f"{path}/comments", json={"assignee": "my-agent", "body_md": "Report."}, headers=headers
+    )
+    assert plain.status_code == 422, plain.text
+    response = client.post(
+        f"{path}/comments",
+        json={"assignee": "my-agent", "body_md": "Report.\nSLATE: ask guest: Which file?"},
+        headers=headers,
+    )
+    assert response.status_code == plain.status_code, response.text
+    assert response.json() == plain.json()
+    assert _ok(client.get(f"{path}/comments", headers=alex)) == before
+
+
 def test_a_guest_still_sees_the_card_change_without_the_agent(client, alex, world):
     gh = world["guests"]["guest"]
     card = world["ids"]["item_id"][0]

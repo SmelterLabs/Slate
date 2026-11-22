@@ -33,6 +33,25 @@ def _comment(client, h, item_id, body, **kw):
     return r.json()
 
 
+def test_closing_ask_checks_explicit_assignee_then_assigns_once(client, alex, todo, make_account):
+    _, agent = make_account("my-agent")
+    make_account("other-agent")
+    item = _item(client, alex, todo["id"])
+    route = f"{API}/items/{item['id']}/comments"
+    body = {"body_md": "Report.\nSLATE: ask alex: Which file?", "assignee": "missing"}
+    response = client.post(route, json=body, headers=agent)
+    assert response.status_code == 422, response.text
+    assert client.get(route, headers=alex).json() == []
+    assert _events(client, alex, item["id"], "item.reported") == []
+
+    comment = _comment(client, agent, item["id"], body["body_md"], assignee="other-agent")
+    assert comment["ask"]["question"] == "Which file?"
+    assert comment["body_md"] == "Report."
+    [assigned] = _events(client, alex, item["id"], "comment.assigned")
+    assert assigned["after"]["assignee"] == "alex"
+    assert comment["assignee_id"] == assigned["after"]["assignee_id"]
+
+
 def _me(client, h):
     return client.get(f"{API}/me", headers=h).json()["account"]
 

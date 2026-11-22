@@ -319,14 +319,15 @@ def add_comment(
         )
     )
     with apply_change(session, actor) as cx:
+        # A project's guests never reach a workspace agent (service/guests.py).
+        target = resolve_account(session, assignee) if assignee else None
+        guests.refuse(session, actor.account_id, target)
         if closing_line:
             body, ending_ask = _apply_closing_line(session, actor, item, body, comment_id)
             if ending_ask is not None:
-                ask, assignee = ending_ask, item.waiting_on_account_id
-        # A project's guests never reach a workspace agent (service/guests.py).
+                ask = ending_ask
+                target = session.get(Account, item.waiting_on_account_id)
         mentions = guests.reachable_handles(session, actor.account_id, mentions_in(session, body))
-        target = resolve_account(session, assignee) if assignee else None
-        guests.refuse(session, actor.account_id, target)
         if target is not None and (replying is None or replying.id != target.id):
             replying = None  # addressed to someone other than the agent waiting on the author
         addressed = replying or target
