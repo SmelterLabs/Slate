@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { mount, unmount } from 'svelte';
+import { flushSync, mount, unmount } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIST, item } from '../../lib/fixtures';
 import type { Item } from '../../lib/types';
@@ -61,6 +61,7 @@ vi.mock('../../lib/store.svelte', () => ({
     open: vi.fn(),
     update: updateMock,
     moveToStatus: moveToStatusMock,
+    flash: vi.fn(),
   },
 }));
 
@@ -90,6 +91,42 @@ describe('DecidePanel', () => {
       expect.objectContaining({ id: 'st_cancel', kind: 'cancelled' }),
     );
 
+    await unmount(app);
+  });
+
+  it('New date sets due_at through the same ordinary edit', async () => {
+    const target = document.createElement('div');
+    const app = mount(DecidePanel, { target });
+    await vi.waitFor(() => {
+      expect(target.querySelector('[data-decide-item="I_OLD"]')).not.toBeNull();
+    });
+    target.querySelector<HTMLButtonElement>('[aria-label^="New date:"]')!.click();
+    flushSync();
+    // The picker panel floats under <body>, not inside the panel.
+    const date = document.querySelector<HTMLInputElement>('[aria-label="New date date"]');
+    expect(date).not.toBeNull();
+    date!.value = '2026-11-05';
+    date!.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(updateMock).toHaveBeenCalledWith('I_OLD', { due_at: expect.stringContaining('2026-11-05') });
+    await unmount(app);
+  });
+
+  it('Drop says why when the list has no cancelled or done status', async () => {
+    const { board } = await import('../../lib/store.svelte');
+    const mocked = board as unknown as { lists: Record<string, unknown>; flash: ReturnType<typeof vi.fn> };
+    const was = mocked.lists;
+    mocked.lists = {
+      L1: { ...LIST, statuses: LIST.statuses.filter((s) => s.kind === 'open') },
+    };
+    const target = document.createElement('div');
+    const app = mount(DecidePanel, { target });
+    await vi.waitFor(() => {
+      expect(target.querySelector('[data-decide-item="I_OLD"]')).not.toBeNull();
+    });
+    target.querySelector<HTMLButtonElement>('[data-sweep-drop]')!.click();
+    expect(moveToStatusMock).not.toHaveBeenCalled();
+    expect(mocked.flash).toHaveBeenCalled();
+    mocked.lists = was;
     await unmount(app);
   });
 });

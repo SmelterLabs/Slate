@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { attention, byList, countBy, needOf, projectAttention } from './attention';
+import { LIST } from './fixtures';
 import { item } from './fixtures';
 import type { Account, AgentFlag, MyAccess, Section } from './types';
 
@@ -89,6 +90,18 @@ describe('byList', () => {
     expect(m.get('L1')).toEqual({ n: 2, top: 'waiting' });
     expect(m.get('L2')).toEqual({ n: 1, top: 'asked' });
     expect(m.get('L3')).toBeUndefined();
+  });
+});
+
+describe('attention in reference lists', () => {
+  it('a reference-list card never needs me, waiting or asked', () => {
+    const lists = { L1: LIST, L_REF: { ...LIST, id: 'L_REF', reference: true } };
+    const items = [
+      item({ id: 'w', list_id: 'L_REF', created_by: ME, waiting_on_account_id: ME }),
+      item({ id: 'a', list_id: 'L_REF', created_by: 'guest', open_asks: [ME] }),
+      item({ id: 'n', list_id: 'L1', created_by: ME, waiting_on_account_id: ME }),
+    ];
+    expect(attention(items, ME, accounts, lists).map((x) => x.item.id)).toEqual(['n']);
   });
 });
 

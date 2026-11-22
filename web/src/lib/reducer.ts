@@ -150,6 +150,9 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
       if (built) {
         data.items[id] = built;
         bumpParent(data, built.parent_id, 1);
+        // The snapshot is the row's columns: it cannot say `later` (computed for the caller),
+        // so the item view is fetched as well.
+        fx.refetch.push(id);
       } else {
         fx.refetch.push(id);
       }
@@ -274,6 +277,8 @@ export function applyEvent(data: BoardData, ev: SlateEvent): Effects {
         it.tags = [...(ev.after as string[])];
       } else if (ev.field && SCALARS.has(ev.field)) {
         (it as unknown as Record<string, unknown>)[ev.field] = ev.after;
+        // A new due or start date can move the card in or out of "later": the server recomputes it.
+        if (ev.field === 'due_at' || ev.field === 'start_at') fx.refetch.push(id);
         if (ev.field === 'waiting_on_account_id') it.ask = null;
         if (ev.field === 'list_id' || ev.field === 'parent_id') fx.refetch.push(id);
       } else {

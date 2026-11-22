@@ -195,13 +195,18 @@ export class BoardState {
   get needsMe(): Attention[] {
     void this.rev;
     const me = this.me?.account.id ?? '';
-    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}`;
+    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}|${Object.values(this.lists).filter((l) => l.reference).map((l) => l.id).join(',')}`;
     if (key !== this.#attnKey) {
       this.#attnKey = key;
-      this.#attn = attention([...this.#plain.values()], me, this.accounts);
+      this.#attn = attention([...this.#plain.values()], me, this.accounts, this.lists);
       this.#attnByList = byList(this.#attn);
     }
     return this.#attn;
+  }
+
+  /** Every surface's one Needs-you total: item needs plus project needs. */
+  get needsTotal(): number {
+    return this.needsMe.length + this.projectNeeds.length;
   }
 
   /** The sidebar's per-list "needs you" marker, or undefined. */

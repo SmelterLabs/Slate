@@ -365,11 +365,11 @@
   <a class="nav-item" href="#/home" onclick={onpick} class:active={page === 'home'}>
     <span class="nav-label"><Icon name="target" size={15} /><span>My Work</span></span>
     <!-- Needs you: the same number as the pill, the window title and the app icon. -->
-    {#if board.needsMe.length}<span
+    {#if board.needsTotal}<span
         class="count hot"
-        data-needs-nav={board.needsMe.length}
-        title="{board.needsMe.length} need{board.needsMe.length === 1 ? 's' : ''} you"
-        aria-label="{board.needsMe.length} need you">{board.needsMe.length}</span
+        data-needs-nav={board.needsTotal}
+        title="{board.needsTotal} need{board.needsTotal === 1 ? 's' : ''} you"
+        aria-label="{board.needsTotal} need you">{board.needsTotal}</span
       >{/if}
   </a>
   <a class="nav-item" href="#/inbox" onclick={onpick} class:active={page === 'inbox'}>

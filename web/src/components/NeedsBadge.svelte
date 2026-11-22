@@ -10,7 +10,7 @@
 
   const list = $derived(board.needsMe);
   const projectN = $derived((board.projectNeeds ?? []).length);
-  const n = $derived(list.length + projectN);
+  const n = $derived(board.needsTotal);
   const counts = $derived(countBy(list));
   // The most urgent reason colors the badge: red while anything is blocked on you.
   const top = $derived<Need | null>(list[0]?.need ?? (projectN ? 'blocked' : null));

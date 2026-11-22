@@ -61,7 +61,7 @@
     folded = next;
   }
 
-  const needsCount = $derived(board.needsMe.length + (board.projectNeeds ?? []).length);
+  const needsCount = $derived(board.needsTotal);
   const tiles = $derived([
     { label: 'Needs you', n: needsCount, hot: needsCount > 0, href: null },
     { label: 'Overdue', n: work.buckets.overdue.length, hot: work.buckets.overdue.length > 0, href: null },

@@ -15,6 +15,7 @@ import { applyTheme, asTheme } from '../theme';
 import { liveActivity } from '../liveactivity.svelte';
 import type { Me, Prefs, SlateEvent } from '../types';
 import { COOKIE_SESSION, inviteSecretFrom } from '../collaboration';
+import { workspaceDay } from '../quickadd';
 import { TOKEN_KEY } from './state.svelte';
 import { BoardLoad } from './load.svelte';
 import { EVENT_TYPES } from './events';
@@ -33,6 +34,7 @@ export class BoardStream extends BoardLoad {
   #tagsTimer: ReturnType<typeof setTimeout> | undefined;
   #ruleQueue = new Set<string>();
   #ruleTimer: ReturnType<typeof setTimeout> | undefined;
+  #projectTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     super();
@@ -132,7 +134,16 @@ export class BoardStream extends BoardLoad {
       for (const ev of buffered) this.#apply(ev);
       this.ready = true;
       this.#backoff = 1000;
-      this.#clock = setInterval(() => (this.now = new Date()), 30_000);
+      this.#clock = setInterval(() => {
+        const day = workspaceDay(this.now);
+        this.now = new Date();
+        // The day rolled over: a Later card's time may have arrived. The server recomputes
+        // `later` on the refetch; no timer per card.
+        if (workspaceDay(this.now) !== day) {
+          const ids = Object.values(this.items).filter((i) => i.later).map((i) => i.id);
+          if (ids.length) void this.refetchItems(ids);
+        }
+      }, 30_000);
     } catch (e) {
       if (gen !== this.#startGen) return;
       if (e instanceof ApiError && e.status === 401) return; // signed out by the api layer
@@ -382,6 +393,16 @@ export class BoardStream extends BoardLoad {
     }
     if (fx.reload) this.#scheduleReload();
     else if (fx.structure) void this.loadStructure();
+    // A card in a project section moved: its section's computed next step may have changed.
+    // One debounced structure reload, the way the tag and rule reloads above are debounced.
+    if (ev.item_id && !fx.structure) {
+      const item = this.items[ev.item_id];
+      const section = item && this.sections.find((s) => s.id === this.lists[item.list_id]?.section_id);
+      if (section?.project) {
+        clearTimeout(this.#projectTimer);
+        this.#projectTimer = setTimeout(() => void this.loadStructure(), 300);
+      }
+    }
     // Someone joined or left a project: its names and its agents (the Ask default) changed.
     if (ev.type === 'section.participants_changed') {
       clearTimeout(this.#participantsTimer);

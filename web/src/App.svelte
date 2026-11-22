@@ -201,7 +201,7 @@
     };
   });
   $effect(() => {
-    const { title, count } = windowBadge(board.token ? board.needsMe.length : 0);
+    const { title, count } = windowBadge(board.token ? board.needsTotal : 0);
     const flash = board.token && !inFront ? flashTitle(chat.channels) : null;
     document.title = title;
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };

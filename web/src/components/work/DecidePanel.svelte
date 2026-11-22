@@ -11,16 +11,19 @@
 
   let fetched = $state<Item[]>([]);
   let loading = $state(false);
+  let loadGen = 0;
 
   async function load() {
     if (!board.me) return;
+    const gen = ++loadGen;
     loading = true;
     try {
-      fetched = await get<Item[]>('/today/sweep');
+      const got = await get<Item[]>('/today/sweep');
+      if (gen === loadGen) fetched = got; // an older answer never overwrites a newer one
     } catch {
       // keep previous list if offline
     } finally {
-      loading = false;
+      if (gen === loadGen) loading = false;
     }
   }
 
@@ -47,6 +50,7 @@
   async function drop(item: Item) {
     const status = dropStatus(board.lists[item.list_id]);
     if (status) await board.moveToStatus(item.id, status);
+    else board.flash(`${board.lists[item.list_id]?.name ?? 'That list'} has no cancelled or done status to drop to`);
   }
 </script>
 

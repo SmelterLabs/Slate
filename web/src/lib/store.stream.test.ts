@@ -176,6 +176,54 @@ describe('applying events', () => {
     expect(board.tags.find((t) => t.name === 'garden')?.color).toBe('#C8102E');
   });
 
+  it('an item event in a project section schedules one debounced structure reload', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true, next_step: null },
+    ];
+    const sections = () => calls.filter((p) => p === '/sections').length;
+    const before = sections();
+    await emit(ev({ field: 'due_at', after: '2026-11-01T22:00:00Z' }), ev({ field: 'title', after: 'Again' }));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(sections()).toBe(before);
+    await vi.advanceTimersByTimeAsync(200);
+    await settle();
+    expect(sections()).toBe(before + 1); // a burst is one reload
+  });
+
+  it('an item event outside a project section schedules no structure reload', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Plain', slug: 'plain', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: false, next_step: null },
+    ];
+    const sections = () => calls.filter((p) => p === '/sections').length;
+    const before = sections();
+    await emit(ev({ field: 'due_at', after: '2026-11-01T22:00:00Z' }));
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(sections()).toBe(before);
+  });
+
+  it('when the board day rolls over, later cards are refetched so they can come back', async () => {
+    board.items.I1 = { ...board.items.I1, later: true, due_at: '2026-10-24T22:00:00Z' };
+    routes.set('/items', () => [item({ later: false, due_at: '2026-10-24T22:00:00Z' })]);
+    // 2026-10-22 23:59:50 in Chicago (UTC-5): the next 30 s clock tick crosses midnight.
+    vi.setSystemTime(new Date('2026-10-23T04:59:50Z'));
+    board.now = new Date('2026-10-23T04:59:50Z');
+    const before = requests.filter((r) => r.path === '/items').length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await settle();
+    const refetches = requests.slice(before).filter((r) => r.path === '/items');
+    expect(refetches).toHaveLength(1); // one batch for the Later cards, nothing else
+    expect(board.items.I1.later).toBe(false); // the server's recomputed flag replaced the stale one
+  });
+
+  it('the needs total counts item needs and project needs together', async () => {
+    board.sections = [
+      { id: 'S1', name: 'Launch', slug: 'launch', position: 0, audience: 'work', created_at: '2026-10-20T00:00:00Z', archived_at: null, project: true, next_step: null },
+    ];
+    expect(board.projectNeeds.map((p) => p.section.id)).toEqual(['S1']);
+    expect(board.needsTotal).toBe(board.needsMe.length + 1);
+  });
+
   it('a lone event applies on the next tick, with no batching wait', async () => {
     FakeEventSource.last.emit(ev({ field: 'title', after: 'One' }));
     await vi.advanceTimersByTimeAsync(0);

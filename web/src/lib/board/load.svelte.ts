@@ -11,6 +11,7 @@ import type {
   Item,
   ItemDetail,
   List,
+  Prefs,
   Recurrence,
   SavedView,
   Section,
@@ -19,6 +20,15 @@ import type {
 import { BoardViews } from './views.svelte';
 
 export class BoardLoad extends BoardViews {
+  /** `later` on every held item was computed with the old lead_days: fetch them again. */
+  override async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
+    await super.setPrefs(changes);
+    if ('lead_days' in changes) {
+      const ids = Object.keys(this.items);
+      if (ids.length) void this.refetchItems(ids);
+    }
+  }
+
   // Full reloads overlap (a burst of list.statuses_changed, a share change during a refresh):
   // only the newest one may write, so an older answer never overwrites a newer one.
   #loadGen = 0;

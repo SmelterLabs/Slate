@@ -9,7 +9,7 @@
 
 import { isOpen } from './format';
 import { atLeast, sectionLevel } from './permissions';
-import type { Account, Item, MyAccess, Section } from './types';
+import type { Account, Item, List, MyAccess, Section } from './types';
 import { AGENT_BLOCKED, READY_FOR_REVIEW, waitingOn } from './words';
 
 export type Need = 'waiting' | 'asked' | 'blocked' | 'review';
@@ -53,11 +53,18 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
   return null;
 }
 
-/** Everything that needs `me`, most urgent first, then oldest flag first. */
-export function attention(items: Item[], me: string, accounts: Record<string, Account>): Attention[] {
+/** Everything that needs `me`, most urgent first, then oldest flag first. Cards in a
+ * reference list are material, not work: they never need anyone. */
+export function attention(
+  items: Item[],
+  me: string,
+  accounts: Record<string, Account>,
+  lists: Record<string, List> = {},
+): Attention[] {
   if (!me) return [];
   const out: Attention[] = [];
   for (const item of items) {
+    if (lists[item.list_id]?.reference) continue;
     const need = needOf(item, me, accounts);
     if (need) out.push({ item, need });
   }
