@@ -23,6 +23,7 @@
     type PushState,
   } from '../lib/push';
   import { digestText, hourLabel, whenText, type DigestCounts, type Reminder } from '../lib/reminders';
+  import { WEEKDAYS } from '../lib/sweep';
   import { board } from '../lib/store.svelte';
   import { ago } from '../lib/format';
   import Icon from './Icon.svelte';
@@ -43,6 +44,8 @@
   const mailReasons = $derived(new Set(board.prefs.email_reasons ?? DEFAULT_EMAIL_REASONS));
   const digestOn = $derived(board.prefs.digest ?? board.me?.account.kind !== 'agent');
   const digestHour = $derived(board.prefs.digest_hour ?? 7);
+  const leadDays = $derived(board.prefs.lead_days ?? 14);
+  const sweepWeekday = $derived(board.prefs.sweep_weekday ?? 4);
   const renudge = $derived(board.prefs.chat_renudge_minutes ?? 10);
   const RENUDGE_CHOICES: { minutes: number; label: string }[] = [
     { minutes: 0, label: 'Never' },
@@ -300,6 +303,39 @@
       </select>
     </div>
     {#if digest}<p class="muted small">Today it says: {digestText(digest.counts)}. Nothing is sent on an empty day.</p>{/if}
+  </section>
+
+  <section class="ns-block" aria-label="Planning and weekly sweep">
+    <h3><Icon name="calendar" size={15} /> Planning</h3>
+    <div class="inline ns-plan">
+      <label class="inline">
+        <span>Hide cards due more than</span>
+        <input
+          type="number"
+          aria-label="Hide cards due more than N days away"
+          min="0"
+          step="1"
+          required
+          value={leadDays}
+          onchange={(e) => {
+            const f = e.currentTarget;
+            if (f.checkValidity()) void board.setPrefs({ lead_days: f.valueAsNumber });
+            else f.value = String(leadDays);
+          }}
+        />
+        <span class="muted small">days away (0 turns off)</span>
+      </label>
+      <label class="inline">
+        <span>Weekly sweep day</span>
+        <select
+          aria-label="Weekly sweep day"
+          value={sweepWeekday}
+          onchange={(e) => void board.setPrefs({ sweep_weekday: Number(e.currentTarget.value) })}
+        >
+          {#each WEEKDAYS as day, i (day)}<option value={i}>{day}</option>{/each}
+        </select>
+      </label>
+    </div>
   </section>
 
   <section class="ns-block" aria-label="Upcoming reminders">

@@ -77,7 +77,8 @@ describe('applyEvent', () => {
     expect(d.items.I2.status?.name).toBe('Ready');
     expect(d.items.I2.tags).toEqual([]);
     expect(d.items.I2.subtask_count).toBe(0);
-    expect(fx.refetch).toEqual([]);
+    // Built at once from the snapshot, then refetched: the snapshot cannot say `later`.
+    expect(fx.refetch).toEqual(['I2']);
   });
 
   it('a created event for an item already held changes nothing', () => {
@@ -336,5 +337,43 @@ describe('applyEvent', () => {
   it('tag events ask for a reload of the tags, touching no item', () => {
     const d = { items: { I1: item() }, lists: { L1: LIST } };
     expect(applyEvent(d, ev({ type: 'tag.deleted', item_id: null })).tags).toBe(true);
+  });
+
+  it('a due or start change refetches the item so the server can recompute later', () => {
+    for (const field of ['due_at', 'start_at']) {
+      const d = data(item({ due_at: '2026-10-28T09:00:00Z' }));
+      const fx = applyEvent(d, ev({ field, before: null, after: '2027-01-01T09:00:00Z' }));
+      expect(fx.refetch).toEqual(['I1']);
+    }
+    const d = data(item());
+    expect(applyEvent(d, ev({ field: 'title', after: 'Renamed' })).refetch).toEqual([]);
+  });
+
+  it('a created snapshot cannot say later, so the item is also refetched', () => {
+    const d = data();
+    const fx = applyEvent(d, ev({ type: 'item.created', item_id: 'I2', after: snapshotOf({ id: 'I2', title: 'New' }, 'st_ready') }));
+    expect(d.items.I2.title).toBe('New');
+    expect(fx.refetch).toEqual(['I2']);
+    expect(d.items.I2.later).toBeUndefined();
+  });
+
+  it('uses a supplied later flag without refetching the created item', () => {
+    const d = data();
+    const after = { ...snapshotOf({ id: 'I2' }, 'st_ready'), later: true };
+    const fx = applyEvent(d, ev({ type: 'item.created', item_id: 'I2', after }));
+    expect(d.items.I2.later).toBe(true);
+    expect(fx.refetch).toEqual([]);
+  });
+
+  it('patches parked fields and clears them on item.unparked', () => {
+    const d = data(item());
+    applyEvent(d, ev({ field: 'parked_until', before: null, after: '2026-11-20' }));
+    applyEvent(d, ev({ field: 'parked_note', before: null, after: 'Bank review' }));
+    expect(d.items.I1.parked_until).toBe('2026-11-20');
+    expect(d.items.I1.parked_note).toBe('Bank review');
+    const fx = applyEvent(d, ev({ type: 'item.unparked', after: { note: 'Bank review' } }));
+    expect(d.items.I1.parked_until).toBeNull();
+    expect(d.items.I1.parked_note).toBeNull();
+    expect(fx.refetch).toEqual(['I1']);
   });
 });

@@ -8,7 +8,8 @@
 // (the Overdue column and Today count already say so), and anything waiting on someone else.
 
 import { isOpen } from './format';
-import type { Account, Item } from './types';
+import { atLeast, sectionLevel } from './permissions';
+import type { Account, Item, List, MyAccess, Section } from './types';
 import { AGENT_BLOCKED, READY_FOR_REVIEW, waitingOn } from './words';
 
 export type Need = 'waiting' | 'asked' | 'blocked' | 'review';
@@ -52,11 +53,18 @@ export function needOf(item: Item, me: string, accounts: Record<string, Account>
   return null;
 }
 
-/** Everything that needs `me`, most urgent first, then oldest flag first. */
-export function attention(items: Item[], me: string, accounts: Record<string, Account>): Attention[] {
+/** Everything that needs `me`, most urgent first, then oldest flag first. Cards in a
+ * reference list are material, not work: they never need anyone. */
+export function attention(
+  items: Item[],
+  me: string,
+  accounts: Record<string, Account>,
+  lists: Record<string, List> = {},
+): Attention[] {
   if (!me) return [];
   const out: Attention[] = [];
   for (const item of items) {
+    if (lists[item.list_id]?.reference) continue;
     const need = needOf(item, me, accounts);
     if (need) out.push({ item, need });
   }
@@ -80,4 +88,15 @@ export function byList(list: Attention[]): Map<string, { n: number; top: Need }>
     else out.set(a.item.list_id, { n: 1, top: a.need }); // `list` is most urgent first
   }
   return out;
+}
+
+export interface ProjectNeed {
+  section: Section;
+}
+
+/** Project sections with no computed next step that the viewer may manage. */
+export function projectAttention(sections: Section[], access: MyAccess | undefined): ProjectNeed[] {
+  return sections
+    .filter((s) => !s.archived_at && s.project && !s.next_step && atLeast(sectionLevel(access, s.id), 'edit'))
+    .map((section) => ({ section }));
 }

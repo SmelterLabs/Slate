@@ -512,4 +512,35 @@ describe('layouts', () => {
     expect(normalizeConfig({ layout: 'table' }, EVERYTHING).layout).toBe('table');
     expect(normalizeConfig(null, EVERYTHING).layout).toBe('board');
   });
+
+  it('collects later open items into one Later group at the bottom for list and board, not table', () => {
+    const nowItem = item({ id: 'a', title: 'Now' });
+    const laterItem = item({ id: 'b', title: 'Far out', later: true });
+    const listGroups = runView(
+      [nowItem, laterItem],
+      EVERYTHING,
+      { ...defaultConfig(EVERYTHING), layout: 'list', group_by: 'none' },
+      ctx(),
+    );
+    expect(listGroups.map((g) => g.key)).toEqual(['all', 'done', 'later']);
+    expect(listGroups.at(-1)?.items.map((i) => i.id)).toEqual(['b']);
+
+    const boardGroups = runView(
+      [nowItem, laterItem],
+      EVERYTHING,
+      { ...defaultConfig(EVERYTHING), layout: 'board', group_by: 'status_kind' },
+      ctx(),
+    );
+    expect(boardGroups.at(-1)?.key).toBe('later');
+    expect(boardGroups.at(-1)?.items.map((i) => i.id)).toEqual(['b']);
+
+    const tableGroups = runView(
+      [nowItem, laterItem],
+      EVERYTHING,
+      { ...defaultConfig(EVERYTHING), layout: 'table', group_by: 'none' },
+      ctx(),
+    );
+    expect(tableGroups.map((g) => g.key)).toEqual(['all', 'done']);
+    expect(tableGroups[0].items.map((i) => i.id)).toEqual(['a', 'b']);
+  });
 });

@@ -27,7 +27,7 @@ export class BoardEditors extends BoardRun {
     return s;
   }
 
-  async updateSection(id: string, changes: Partial<Pick<Section, 'name' | 'audience'>>) {
+  async updateSection(id: string, changes: Partial<Pick<Section, 'name' | 'audience' | 'project'>>) {
     if (await this.attempt(() => patch<Section>(`/sections/${id}`, changes))) {
       await this.reloadStructure();
     }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dueLabel, isOverdue } from '../lib/format';
+  import { dueLabel, isOverdue, shortDate } from '../lib/format';
   import { priorityLabel } from '../lib/priority';
   import { rowHandlers } from '../lib/itemrow';
   import { board } from '../lib/store.svelte';
@@ -72,6 +72,7 @@
       }}><Icon name="check" size={11} /></button
     >
     <span class="row-title">{item.title}</span>
+    {#if item.parked_until && item.parked_note}<span class="muted small" data-parked>Waiting on {item.parked_note} until {shortDate(item.parked_until, board.now)}</span>{/if}
     {#if item.recurrence_id && show.has('recurrence')}<span class="badge" title="Recurring"><Icon name="repeat" size={12} /></span>{/if}
     {#if item.subtask_count && show.has('subtasks')}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
     {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}

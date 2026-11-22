@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIST, item } from './fixtures';
 import { LEAVES } from './words';
 import type { Favorite, Item, Section } from './types';
-import { deferred, freshBoard, routes, settle, startLive, tearDown, writes, type Board } from './board/testkit';
+import { calls, deferred, freshBoard, routes, settle, startLive, tearDown, writes, type Board } from './board/testkit';
 
 let board: Board;
 
@@ -82,6 +82,26 @@ describe('optimistic edits', () => {
     expect(board.items.I1.priority).toBeNull();
     expect(board.undoDepth).toBe(0);
     expect(board.toast).toBe('Undone: Changed priority on task');
+  });
+
+  it('changing lead_days refetches items so later is recomputed with the new pref', async () => {
+    const items = () => calls.filter((p) => p === '/items').length;
+    const before = items();
+    await board.setPrefs({ lead_days: 7 });
+    await settle();
+    expect(items()).toBeGreaterThan(before);
+  });
+
+  it('a sweep This-week edit (due_at through update) is one Undo back', async () => {
+    acceptPatch();
+    const old = board.items.I1.due_at;
+    await board.update('I1', { due_at: '2026-10-23' });
+    expect(board.items.I1.due_at).toBe('2026-10-23');
+    expect(board.undoDepth).toBe(1);
+    acceptBulk();
+    await board.undoLast();
+    expect(board.items.I1.due_at).toBe(old);
+    expect(board.undoDepth).toBe(0);
   });
 
   it('signing out forgets the undo history: the next account cannot replay it', async () => {

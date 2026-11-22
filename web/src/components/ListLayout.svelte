@@ -12,6 +12,7 @@
 
   const PAGE = 100;
   let collapsed = $state<Record<string, boolean>>({});
+  const isFolded = (key: string) => collapsed[key] ?? key === 'later';
   let limits = $state<Record<string, number>>({});
   let dragOver = $state<string | null>(null);
 
@@ -113,13 +114,13 @@
       }}
       ondrop={(e) => dropInRows(e, g)}
     >
-      {#if config.group_by !== 'none'}
+      {#if config.group_by !== 'none' || g.key === 'later'}
         <button
           class="group-head"
           class:over={dragOver === g.key}
           class:hot={g.hot && g.items.length > 0}
-          aria-expanded={!collapsed[g.key]}
-          onclick={() => (collapsed[g.key] = !collapsed[g.key])}
+          aria-expanded={!isFolded(g.key)}
+          onclick={() => (collapsed[g.key] = !isFolded(g.key))}
           ondragover={(e) => {
             // A group that can't take it still accepts, so the drop can say why.
             e.preventDefault();
@@ -128,14 +129,14 @@
           ondragleave={() => (dragOver = null)}
           ondrop={(e) => onDrop(e, g)}
         >
-          <span class="caret"><Icon name={collapsed[g.key] ? 'chevronRight' : 'down'} size={12} /></span>
+          <span class="caret"><Icon name={isFolded(g.key) ? 'chevronRight' : 'down'} size={12} /></span>
           {#if g.color}<span class="dot" style:background={g.color}></span>{/if}
-          <span>{g.title}</span>
+          <span>{g.key === 'later' ? `Later (${g.items.length})` : g.title}</span>
           {#if g.hint && g.hint !== g.title}<span class="muted small">{g.hint}</span>{/if}
-          <span class="count">{g.items.length}</span>
+          {#if g.key !== 'later'}<span class="count">{g.items.length}</span>{/if}
         </button>
       {/if}
-      {#if !collapsed[g.key]}
+      {#if !isFolded(g.key)}
         {#each g.items.slice(0, limit) as item (item.id)}
           <ItemRow {item} {config} showList={wide} {noStatus} slotBefore={slot?.group === g.key && slot.before === item.id} />
         {/each}

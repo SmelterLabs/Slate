@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { attention, byList, countBy, needOf } from './attention';
+import { attention, byList, countBy, needOf, projectAttention } from './attention';
+import { LIST } from './fixtures';
 import { item } from './fixtures';
-import type { Account, AgentFlag } from './types';
+import type { Account, AgentFlag, MyAccess, Section } from './types';
 
 const ME = 'me';
 const accounts: Record<string, Account> = {
@@ -89,5 +90,51 @@ describe('byList', () => {
     expect(m.get('L1')).toEqual({ n: 2, top: 'waiting' });
     expect(m.get('L2')).toEqual({ n: 1, top: 'asked' });
     expect(m.get('L3')).toBeUndefined();
+  });
+});
+
+describe('attention in reference lists', () => {
+  it('a reference-list card never needs me, waiting or asked', () => {
+    const lists = { L1: LIST, L_REF: { ...LIST, id: 'L_REF', reference: true } };
+    const items = [
+      item({ id: 'w', list_id: 'L_REF', created_by: ME, waiting_on_account_id: ME }),
+      item({ id: 'a', list_id: 'L_REF', created_by: 'guest', open_asks: [ME] }),
+      item({ id: 'n', list_id: 'L1', created_by: ME, waiting_on_account_id: ME }),
+    ];
+    expect(attention(items, ME, accounts, lists).map((x) => x.item.id)).toEqual(['n']);
+  });
+});
+
+describe('projectAttention', () => {
+  const sec = (over: Partial<Section>): Section => ({
+    id: 'S1',
+    name: 'Launch',
+    slug: 'launch',
+    position: 0,
+    audience: 'work',
+    created_at: '2026-10-20T00:00:00Z',
+    archived_at: null,
+    project: true,
+    next_step: null,
+    ...over,
+  });
+  it('flags open project sections with no next step only for managers of that section', () => {
+    const sections = [
+      sec({ id: 'S1', name: 'Launch', project: true, next_step: null }),
+      sec({ id: 'S2', name: 'Has next', project: true, next_step: { item_id: 'I1', title: 'Ship', assignee_ids: ['me'], due_at: '2026-11-01T22:00:00Z' } }),
+      sec({ id: 'S3', name: 'Not a project', project: false, next_step: null }),
+      sec({ id: 'S4', name: 'Archived', project: true, next_step: null, archived_at: '2026-10-21T00:00:00Z' }),
+      sec({ id: 'S5', name: 'View only', project: true, next_step: null }),
+    ];
+    const access: MyAccess = {
+      all: false,
+      level: 'edit',
+      manage: false,
+      general: true,
+      sections: { S1: 'edit', S2: 'edit', S3: 'edit', S4: 'edit', S5: 'view' },
+      lists: {},
+    };
+    expect(projectAttention(sections, access).map((p) => p.section.id)).toEqual(['S1']);
+    expect(projectAttention(sections, undefined).map((p) => p.section.id)).toEqual(['S1', 'S5']);
   });
 });
