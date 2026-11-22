@@ -70,13 +70,14 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 | `blocked` | `blocked` | sets an agent if named; otherwise preserves the existing field | use `ask` to wait on a person |
 | `release` | cleared | unchanged | un-assigns the agent |
 
-A failed run is offered again only when its retry time has come (`work.RETRY_AFTER`, the
-scheduler's `item.run_requested` with `reason: "retry"`) or someone presses Run now, which also
-starts the count over (`work._failures`).
+A failed run is offered again after the scheduler requests a retry (`work.RETRY_AFTER`,
+`item.run_requested` with `reason: "retry"`), a new Ask wakes it, or someone presses Run now,
+which also starts the count over (`work._failures`).
 
 Every agent finish except `failed` and `release` resolves the questions the turn took or
-read within its settlement boundary. Only agent reports other than `working` set the
-card's standing line (`after.status`).
+read within its settlement boundary. A failed finish leaves those Asks pending for the next
+take, including messages marked seen during the run. Only agent reports other than `working`
+set the card's standing line (`after.status`).
 
 ## Stalled card
 

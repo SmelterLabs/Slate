@@ -1,10 +1,15 @@
 """Finishing a turn settles only the Asks it took, not the entire conversation."""
 
+from datetime import timedelta
+
 import pytest
 
-from conftest import API
+from conftest import API, item_events
 from run_proofs import run_fields
+from slate.models import utcnow
+from slate.service import due, work
 from test_assigned_comments import _comment, _item
+from test_mid_run import _beat
 from test_work import _finish, _next
 
 
@@ -12,6 +17,70 @@ def _asks(client, headers, item):
     return {
         c["id"]: c for c in client.get(f"{API}/items/{item['id']}/comments", headers=headers).json()
     }
+
+
+@pytest.mark.parametrize(("assigned", "mid_run"), [(False, False), (True, False), (True, True)])
+def test_retry_takes_the_original_asks(client, alex, todo, make_account, db, assigned, mid_run):
+    agent, ch = make_account("my-agent")
+    assignees = ["my-agent"] if assigned else ["alex"]
+    item = _item(client, alex, todo["id"], assignees=assignees)
+    item_id = item["id"]
+    first = _comment(client, alex, item_id, "Check the report", assignee="my-agent")
+    assert _next(client, ch)["reply"]["id"] == first["id"]
+    ask_ids = [first["id"]]
+    if mid_run:
+        followup = _comment(client, alex, item_id, "Also check the totals", assignee="my-agent")
+        ask_ids.append(followup["id"])
+        assert [message["id"] for message in _beat(client, ch, item_id)["messages"]] == [
+            followup["id"]
+        ]
+        assert _beat(client, ch, item_id, seen=[followup["id"]])["messages"] == []
+    _finish(client, ch, item_id, outcome="failed", note="Connection refused")
+    assert _next(client, ch)["item"] is None
+
+    assert due.retry_failed_runs(db, now=utcnow() + timedelta(minutes=6)) == 1
+    retry = _next(client, ch)
+    assert retry["item"]["id"] == item_id
+    assert retry["reply"]["id"] == ask_ids[-1]
+    assert [ask["id"] for ask in retry["asks"]] == ask_ids
+    finished = _finish(client, ch, item_id, outcome="answered", reply="The report checks out")
+    assert finished["item"]["assignees"] == item["assignees"]
+    rows = _asks(client, alex, item)
+    assert all(rows[ask_id]["resolved_by_id"] == agent["id"] for ask_id in ask_ids)
+    assert _next(client, ch)["item"] is None
+
+
+def test_third_failure_gives_up_once_and_keeps_the_ask_pending(
+    client, alex, todo, make_account, db
+):
+    agent, ch = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    item_id = item["id"]
+    ask = _comment(client, alex, item_id, "Check the report", assignee="my-agent")
+    for attempt, delay in enumerate((6, 31, 60), start=1):
+        assert _next(client, ch)["item"]["id"] == item_id
+        _finish(client, ch, item_id, outcome="failed", note="Connection refused")
+        assert _next(client, ch)["item"] is None
+        assert due.retry_failed_runs(db, now=utcnow() + timedelta(minutes=delay)) == int(
+            attempt < 3
+        )
+
+    assert len(item_events(client, alex, item_id, "item.run_failed")) == 1
+    assert _asks(client, alex, item)[ask["id"]]["resolved_at"] is None
+    assert [pending.id for pending in work.pending_asks(db, agent["id"])] == [ask["id"]]
+    assert _next(client, ch)["item"] is None
+
+
+def test_a_new_ask_still_wakes_a_failed_card(client, alex, todo, make_account):
+    _, ch = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    item_id = item["id"]
+    first = _comment(client, alex, item_id, "Check the report", assignee="my-agent")
+    assert _next(client, ch)["item"]["id"] == item_id
+    _finish(client, ch, item_id, outcome="failed", note="Connection refused")
+
+    followup = _comment(client, alex, item_id, "Use the revised report", assignee="my-agent")
+    assert [ask["id"] for ask in _next(client, ch)["asks"]] == [first["id"], followup["id"]]
 
 
 @pytest.mark.parametrize("assigned", [False, True])
