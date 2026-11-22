@@ -42,6 +42,8 @@ test.fixme('an ask with three questions leads its comment and is answered in one
   const comment = tw.locator('[data-chat="agent"]').filter({ hasText: 'Weekly run finished' });
   const block = comment.locator('[data-ask-box]');
   await expect(block).toContainText('Questions for you');
+  // The thread opens on the questions, not on the end of the long report under them.
+  await expect(block).toBeInViewport();
   await expect(block.locator('[data-ask-question]')).toHaveText([
     'Send the two left-over invoices to the bank?',
     'Which account pays the March fees?',

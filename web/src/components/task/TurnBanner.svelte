@@ -71,10 +71,10 @@
 {/snippet}
 
 {#if wait}
-  <div class="banner waiting" data-banner="waiting">
+  <div class="turn waiting" data-banner="waiting">
     {#if several}
       <p class="wq-heading">{who} needs {wait.questions.length} answers from you</p>
-      <div class="wq-head wq-sub"><Icon name="hourglass" size={13} />{@render meta()}</div>
+      <div class="wq-head wq-sub"><Icon name="hourglass" size={13} /><span>Answer each, then send them together</span>{@render meta()}</div>
       <ol class="wq-list">
         {#each wait.questions as q, i}
           <li class="wq-item">
@@ -146,7 +146,7 @@
     </div>
   </div>
 {:else if review}
-  <div class="banner review" data-banner="review">
+  <div class="turn review" data-banner="review">
     <p class="wq-heading" data-review-check>{review.line}</p>
     <div class="wq-head wq-sub">
       <Icon name="eye" size={13} />
@@ -165,7 +165,7 @@
 {/if}
 
 <style>
-  .banner {
+  .turn {
     --tone: var(--danger);
     margin-bottom: 12px;
     padding: 8px 12px;
@@ -175,7 +175,7 @@
     background: color-mix(in srgb, var(--tone) 8%, transparent);
     font-size: 13px;
   }
-  .banner.review {
+  .turn.review {
     --tone: var(--prio-high);
   }
   .wq-heading {
