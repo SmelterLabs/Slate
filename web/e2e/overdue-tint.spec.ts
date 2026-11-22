@@ -1,9 +1,9 @@
 // The Overdue column on the day board wears a soft red wash (like Today's amber one), in light
 // and dark, and the other plain columns stay grey.
-import { expect, test } from '@playwright/test';
-import { workspaceDay } from '../src/lib/quickadd';
+import { expect } from '@playwright/test';
+import { today } from './seed';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, signIn } from './support';
+import { api, calendarTest as test, screenshots, signIn } from './support';
 
 // SLATE_SCREENSHOTS=1 writes screenshots into docs/img/.
 const shot = screenshots();
@@ -17,7 +17,6 @@ function rgb(css: string): number[] {
 test.use({ viewport: { width: 1400, height: 700 } });
 
 test('the Overdue column is washed red in light and dark; plain columns are not', async ({ page }) => {
-  const today = workspaceDay(new Date());
   const sectionId = (await api<{ id: string }>('POST', '/sections', { name: 'Overdue tint', audience: 'personal' })).id;
   const listId = (
     await api<{ id: string }>('POST', '/lists', {
@@ -30,9 +29,9 @@ test('the Overdue column is washed red in light and dark; plain columns are not'
     })
   ).id;
   for (const [title, due_at] of [
-    ['Renew car registration', addDays(today, -3)],
-    ['Call the dentist back', addDays(today, -1)],
-    ['Pay water bill', today],
+    ['Renew car registration', addDays(today(), -3)],
+    ['Call the dentist back', addDays(today(), -1)],
+    ['Pay water bill', today()],
   ])
     await api('POST', '/items', { list_id: listId, title, due_at });
   await api('POST', '/items', { list_id: listId, title: 'Sort the garage' });

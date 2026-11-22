@@ -1,7 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, screenshots, seed, signedIn, streamLive } from './support';
+import { today, WORKSPACE_TIMEZONE } from './seed';
+import { api, calendarTest as test, screenshots, seed, signedIn, streamLive } from './support';
 
 const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
@@ -12,7 +13,6 @@ test.use({ viewport: { width: 1920, height: 1080 } });
 // Toolbar changes are remembered on the account until Save or Revert: start each test clean.
 test.beforeEach(() => api('PATCH', '/me/prefs', { last_view: null, view_drafts: null }));
 
-const today = () => workspaceDay(new Date());
 const column = (page: Page, key: string) => page.locator(`.column[data-group="${key}"]`);
 const card = (page: Page, title: string) => page.locator('.card', { hasText: title });
 /** The shared No due date column fills up across specs: open its "Show more" so a card past the cap counts. */
@@ -38,6 +38,9 @@ async function workBoard(page: Page, query = '') {
 
 test('Everything lands on "This week": Overdue, Today, named days, Future, No due date, Done', async ({ page }) => {
   await signedIn(page);
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(WORKSPACE_TIMEZONE);
+  const me = await api<{ timezone: string }>('GET', '/me');
+  expect(me.timezone).toBe(WORKSPACE_TIMEZONE);
   await expect(page.getByRole('tab', { name: /This week/ })).toHaveAttribute('aria-selected', 'true');
   const heads = page.locator('.column .column-head > span:first-of-type');
   await expect(heads.first()).toBeVisible();
@@ -67,22 +70,24 @@ test('Everything lands on "This week": Overdue, Today, named days, Future, No du
 test('dragging a card from Today to a day column moves its due date, keeping the time', async ({ page }) => {
   await workBoard(page);
   const target = addDays(today(), 2);
+  const { todayId } = seed();
+  const itemPath = `/items/${todayId}`;
+  const { due_at: originalDue } = await api<{ due_at: string }>('GET', itemPath);
   await card(page, 'Today errand').dragTo(column(page, target));
   await expect(column(page, target).locator('.card', { hasText: 'Today errand' })).toBeVisible();
-  const { todayId } = seed();
   await expect
-    .poll(async () => workspaceDay(new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`)).due_at)))
+    .poll(async () => workspaceDay(new Date((await api<{ due_at: string }>('GET', itemPath)).due_at)))
     .toBe(target);
-  const due = new Date((await api<{ due_at: string }>('GET', `/items/${todayId}`)).due_at);
+  const due = new Date((await api<{ due_at: string }>('GET', itemPath)).due_at);
   const time = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
+    timeZone: WORKSPACE_TIMEZONE,
     hour: 'numeric',
     minute: '2-digit',
     hour12: false,
   }).format(due);
   expect(time).toBe('23:59');
   // Put it back for the specs after this one.
-  await api('PATCH', `/items/${todayId}`, { due_at: new Date(due.getTime() - 2 * 86_400_000).toISOString() });
+  await api('PATCH', itemPath, { due_at: originalDue });
 });
 
 test('a filter on tag and priority narrows the board, and chips summarise it', async ({ page }) => {
@@ -213,7 +218,7 @@ test('bulk: status kind across two lists is one call and lands each in its own D
     section_id: workSectionId,
     name: 'Kind tasks',
   });
-  const due = `${today()}T22:00:00Z`;
+  const due = today();
   const a = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Kind one', due_at: due });
   const b = await api<{ id: string }>('POST', '/items', { list_id: other.id, title: 'Kind two', due_at: due });
   const calls: string[] = [];
@@ -241,7 +246,7 @@ test('bulk: status kind across two lists is one call and lands each in its own D
 
 test('bulk: delete asks first, moves the cards to the trash, and Undo brings them back', async ({ page }) => {
   const { tasksId } = seed();
-  const due = `${today()}T22:00:00Z`;
+  const due = today();
   const a = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash one', due_at: due });
   const b = await api<{ id: string }>('POST', '/items', { list_id: tasksId, title: 'Trash two', due_at: due });
   await workBoard(page);

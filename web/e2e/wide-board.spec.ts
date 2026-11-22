@@ -1,14 +1,14 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
 import { addDays } from '../src/lib/when';
-import { api, signIn } from './support';
+import { calendarNow, today, WORKSPACE_TIMEZONE } from './seed';
+import { api, calendarTest as test, signIn } from './support';
 
 // The ClickUp-style board: folded empty days, + Add Task per column, the Done column, clickable
 // pills and the Customize panel. Runs last, in its own section so earlier specs are untouched.
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
-const today = () => workspaceDay(new Date());
 const column = (page: Page, key: string) => page.locator(`.column[data-group="${key}"]`);
 const card = (page: Page, title: string) => page.locator('.card', { hasText: title });
 
@@ -18,7 +18,7 @@ let listId = '';
 test.beforeAll(async () => {
   sectionId = (await api<{ id: string }>('POST', '/sections', { name: `Board lab ${Date.now()}`, audience: 'personal' })).id;
   listId = (await api<{ id: string }>('POST', '/lists', { section_id: sectionId, name: 'Lab' })).id;
-  await api('POST', '/items', { list_id: listId, title: 'Lab today', due_at: `${today()}T23:00:00Z`, tags: ['lab'] });
+  await api('POST', '/items', { list_id: listId, title: 'Lab today', due_at: today(), tags: ['lab'] });
   await api('POST', '/items', { list_id: listId, title: 'Lab undated', body_md: 'has notes', priority: 'high' });
 });
 
@@ -52,8 +52,9 @@ test('folded columns and the theme follow the account to another device', async 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // A second device: its own, empty storage, signed in with the same account.
-  const other = await browser.newContext();
+  const other = await browser.newContext({ timezoneId: WORKSPACE_TIMEZONE });
   const phone = await other.newPage();
+  await phone.clock.setFixedTime(calendarNow());
   await labBoard(phone);
   await expect(column(phone, day)).not.toHaveClass(/collapsed/);
   await expect(phone.locator('html')).toHaveAttribute('data-theme', 'dark');

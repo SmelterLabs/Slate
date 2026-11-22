@@ -1,6 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { api, screenshots, seed, signedIn } from './support';
+import { addDays } from '../src/lib/when';
+import { today, WORKSPACE_TIMEZONE } from './seed';
+import { api, calendarTest as test, screenshots, seed, signedIn } from './support';
 
 const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
@@ -112,11 +114,11 @@ test('quick add parses #tag !high due:tomorrow into one item', async ({ page }) 
   expect(item.tags).toEqual(['home']);
   expect(item.priority).toBe('high');
   expect(item.assignees.map((a) => a.handle)).toEqual(['agent']);
-  const tomorrow = workspaceDay(new Date(Date.now() + 86_400_000));
+  const tomorrow = addDays(today(), 1);
   const due = new Date(item.due_at);
   expect(workspaceDay(due)).toBe(tomorrow);
   const hour = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
+    timeZone: WORKSPACE_TIMEZONE,
     hour: 'numeric',
     hour12: false,
   }).format(due);

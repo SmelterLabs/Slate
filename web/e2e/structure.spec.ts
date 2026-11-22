@@ -1,9 +1,11 @@
 // Sections and lists from the nav, list settings, the drawer's editors and the
 // recurrence editor, against a real server. Each test makes its own section or items so the
 // order of files does not matter.
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { workspaceDay } from '../src/lib/quickadd';
-import { api, screenshots, signedIn } from './support';
+import { addDays } from '../src/lib/when';
+import { today, WORKSPACE_TIMEZONE } from './seed';
+import { api, calendarTest as test, screenshots, signedIn } from './support';
 
 const shot = screenshots('SLATE_SCREENSHOTS', { scheme: 'dark' });
 
@@ -206,7 +208,7 @@ test('drawer editors: due date quick pick and time, tags with autocomplete, assi
   // Due: Tomorrow, then 9:30.
   await drawer.getByRole('button', { name: /^Due:/ }).click();
   await drawer.getByRole('button', { name: 'Tomorrow' }).click();
-  const tomorrow = workspaceDay(new Date(Date.now() + 86_400_000));
+  const tomorrow = addDays(today(), 1);
   await expect.poll(async () => (await got()).due_at && workspaceDay(new Date((await got()).due_at!))).toBe(tomorrow);
   await drawer.getByRole('button', { name: /^Due:/ }).click();
   await drawer.getByRole('button', { name: '+ time' }).click();
@@ -217,7 +219,7 @@ test('drawer editors: due date quick pick and time, tags with autocomplete, assi
       const due = (await got()).due_at;
       return due
         ? new Intl.DateTimeFormat('en-GB', {
-            timeZone: 'America/Chicago',
+            timeZone: WORKSPACE_TIMEZONE,
             hour: '2-digit',
             minute: '2-digit',
             hourCycle: 'h23',

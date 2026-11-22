@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_URL } from './e2e/seed';
+import { BASE_URL, WORKSPACE_TIMEZONE } from './e2e/seed';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -12,9 +12,10 @@ const port = new URL(BASE_URL).port;
 const dataDir = join(here, '.e2e');
 const dbPath = join(dataDir, 'slate-e2e.db');
 
-// One fixed sample zone with daylight saving for the whole run: the server, the Python helpers
-// the specs spawn, and the date helpers the specs borrow from the board (e2e/seed.ts).
-process.env.SLATE_TIMEZONE ??= 'America/Chicago';
+// Keep the test workspace independent of any local Slate configuration.
+process.env.SLATE_TIMEZONE = WORKSPACE_TIMEZONE;
+const fixedTime = process.env.SLATE_E2E_NOW;
+process.env.SLATE_E2E_NOW = new Date(fixedTime ?? Date.now()).toISOString();
 
 // Fresh database per run. The config is evaluated by the runner and by each worker, so only
 // the runner (no TEST_WORKER_INDEX yet) wipes it.
@@ -31,7 +32,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? 'github' : 'list',
   globalSetup: './e2e/global-setup.ts',
-  use: { baseURL: BASE_URL, trace: 'retain-on-failure' },
+  use: { baseURL: BASE_URL, timezoneId: WORKSPACE_TIMEZONE, trace: 'retain-on-failure' },
   projects: [
     {
       name: 'chromium',
@@ -45,7 +46,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `uv run slate migrate && uv run slate serve --port ${port}`,
+    command: `uv run slate migrate && uv run ${fixedTime ? 'python web/e2e/serve.py' : 'slate serve --port'} ${port}`,
     cwd: root,
     url: `${BASE_URL}/healthz`,
     reuseExistingServer: false,
@@ -61,7 +62,7 @@ export default defineConfig({
       // that starts asking in a loop.
       SLATE_RATE_LIMIT_READS_PER_MINUTE: '6000',
       SLATE_RATE_LIMIT_WRITES_PER_MINUTE: '1500',
-      SLATE_TIMEZONE: process.env.SLATE_TIMEZONE ?? 'America/Chicago',
+      SLATE_TIMEZONE: WORKSPACE_TIMEZONE,
       // A fixed test-only key, so rows that keep secrets (automation webhooks) work in the e2e.
       SLATE_SECRET_KEY: process.env.SLATE_SECRET_KEY ?? '00'.repeat(16) + '22'.repeat(16),
     },
