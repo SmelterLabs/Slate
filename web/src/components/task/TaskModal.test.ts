@@ -401,6 +401,25 @@ describe('TaskModal questions and reviews', () => {
     }
   });
 
+  it('does not offer a new live Ask when the detail still says the viewer is waiting', async () => {
+    const ask = { comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z',
+      question: 'Start the import now?', options: ['Yes', 'No'] };
+    const detail = makeDetail({ ask });
+    const { target, close } = await open(detail);
+    try {
+      expect(target.querySelector('[data-banner="waiting"] [data-answer-option]')).not.toBeNull();
+      board.items = { I1: {
+        ...detail,
+        waiting_on_account_id: 'other',
+        ask: { ...ask, comment_id: 'C2', question: 'Should the next report wait?' },
+      } };
+      flushSync();
+      expect(target.querySelector('[data-banner="waiting"]')).toBeNull();
+    } finally {
+      await close();
+    }
+  });
+
   it('shows a review for the viewer as a banner saying what to check, in place of the badge', async () => {
     const standing = { line: 'Check the totals in the March column', by_id: 'sc', at: '2026-10-29T11:00:00Z', move_id: 'me' };
     const agent = { state: 'review' as const, by: 'sc', at: '2026-10-29T11:00:00Z', note: 'Here is the weekly report.' };

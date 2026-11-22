@@ -122,14 +122,15 @@
   // Waiting on me: who asked and what, pulled up from the thread so the question is never just
   // the last line of a long comment (the "Needs you" pill's Answer lands here).
   const waitQ = $derived.by(() => {
-    if (!d || !task.me || d.waiting_on_account_id !== task.me) return null;
-    const live = board.items[d.id];
-    const ask = live && live.ask !== undefined ? live.ask : (d.ask ?? null);
+    if (!d || !task.me) return null;
+    const current = board.items[d.id] ?? d;
+    if (current.waiting_on_account_id !== task.me) return null;
+    const ask = current.ask !== undefined ? current.ask : d.waiting_on_account_id === task.me ? d.ask : null;
     if (ask) return { structured: true, by: ask.by_id, commentId: ask.comment_id, question: ask.question, questions: askQuestions(ask) };
     const feed = task.activity ?? [];
     const comments = [...d.comments, ...feed.flatMap((e) => (e.comment ? [e.comment] : []))];
     const events = [...d.events, ...feed.flatMap((e) => (e.event ? [e.event] : []))];
-    const q = waitingQuestion(d, comments, events, task.me);
+    const q = waitingQuestion(current, comments, events, task.me);
     return q ? { structured: false, ...q, questions: [] } : null;
   });
 
