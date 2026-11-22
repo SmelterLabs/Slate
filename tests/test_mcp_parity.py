@@ -31,14 +31,13 @@ from slate.mcp_tools import TOOLS
 # (tool, action) -> {field: reason}. A field named here is skipped in every direction.
 # "*" covers the whole action (its REST body is deliberately a subset: a narrow action).
 ALLOW: dict[tuple[str, str], dict[str, str]] = {
-    ("slate_item", "set_status"): {"*": "narrow PATCH: only `status`"},
-    ("slate_item", "assign"): {"*": "narrow PATCH: only `assignees`"},
-    ("slate_item", "tag"): {"*": "narrow PATCH: only `tags`"},
-    ("slate_item", "comment"): {"*": "narrow POST: only `body_md`; `slate_comment add` has all"},
+    ("slate_item", "report"): {
+        "claim": "an agent takes work with slate_work next; claim stays on REST for a person "
+        "and for an Ask without a lease"
+    },
     ("slate_comment", "assign"): {"*": "narrow PATCH: only `assignee`"},
     ("slate_comment", "edit"): {"*": "narrow PATCH: only `body_md`"},
     ("slate_share", "private"): {"*": "narrow PATCH on a section or list: only `private`"},
-    ("slate_work", "finish"): {"next": "MCP-only: also takes the next task in the same call"},
 }
 
 

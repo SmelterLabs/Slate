@@ -154,7 +154,7 @@ def test_work_loop_next_heartbeat_finish(client, alex, todo, agent):
     assert [r["item_id"] for r in agent.held()] == [first["id"]]
     out = agent.finish(first["id"], "done", "Shipped", run_id=task["lease"]["run_id"])
     assert out["item"]["status"]["kind"] == "done"
-    assert out["next"] is None
+    assert "next" not in out
     assert agent.next()["item"]["id"] == second["id"]
 
 

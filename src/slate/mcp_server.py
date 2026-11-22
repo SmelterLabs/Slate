@@ -18,6 +18,7 @@ the service layer's plain-English message. See docs/mcp-server.md to add a tool.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -41,7 +42,9 @@ from starlette.types import Receive, Scope, Send
 
 from slate import __version__, db, monitor
 from slate.mcp_tools import (
+    CORE,
     RULE,
+    TODAY_SPEC,
     TOOLS,
     ItemRef,
     Local,
@@ -245,16 +248,67 @@ def _error(message: str) -> types.CallToolResult:
     )
 
 
-def build_server(get_backend: GetBackend) -> Server:
-    """The MCP server object. `get_backend(ctx)` picks local (HTTP) or REST (stdio) per call."""
+def advertised_tools(spec: str | None = None) -> list[str]:
+    """Tools to list. Empty or ``core`` is the core five; ``all`` is every tool.
+
+    A comma list expands the token ``core`` and adds named tools (``core,slate_doc``).
+    An unknown name fails at startup. ``spec`` None reads ``SLATE_MCP_TOOLS``.
+    """
+    raw = spec if spec is not None else os.environ.get("SLATE_MCP_TOOLS", "")
+    raw = raw.strip()
+    if raw in ("", "core"):
+        return list(CORE)
+    if raw == "all":
+        return list(TOOLS)
+    names: list[str] = []
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if token == "core":
+            for name in CORE:
+                if name not in names:
+                    names.append(name)
+        elif token == "all":
+            for name in TOOLS:
+                if name not in names:
+                    names.append(name)
+        elif token in TOOLS:
+            if token not in names:
+                names.append(token)
+        else:
+            raise SystemExit(f"slate-mcp: unknown tool '{token}'. Tools: {', '.join(TOOLS)}")
+    return names or list(CORE)
+
+
+def tools_from_args(argv: list[str]) -> str | None:
+    """``--tools`` from argv, or None when the flag is absent. Unknown args are ignored."""
+    parser = argparse.ArgumentParser(prog="slate-mcp", add_help=False)
+    parser.add_argument("--tools", default=None)
+    args, _rest = parser.parse_known_args(argv)
+    return args.tools
+
+
+def build_server(get_backend: GetBackend, names: list[str] | None = None) -> Server:
+    """The MCP server object. `get_backend(ctx)` picks local (HTTP) or REST (stdio) per call.
+
+    `names` is the advertised set. None reads ``SLATE_MCP_TOOLS`` (default: the core five).
+    """
+    advertised = list(names) if names is not None else advertised_tools()
+    listed = set(advertised)
 
     async def list_tools(_ctx, _params) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=tool_list())
+        return types.ListToolsResult(tools=tool_list(advertised))
 
     async def call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         spec = TOOLS.get(params.name)
         if spec is None:
             return _error(f"unknown tool '{params.name}'; tools: {', '.join(TOOLS)}")
+        if params.name not in listed:
+            return _error(
+                f"{params.name} is not listed; start slate-mcp with --tools all "
+                "or set SLATE_MCP_TOOLS=all"
+            )
         try:
             name, model, session_ref = _parse_call(spec, params.arguments or {})
             result = await get_backend(ctx).run(spec, name, model, session_ref)
@@ -295,7 +349,7 @@ def build_server(get_backend: GetBackend) -> Server:
         backend = get_backend(ctx)
         try:
             if uri == "slate://today":
-                spec, name = TOOLS["slate_today"], "get"
+                spec, name = TODAY_SPEC, "get"
                 model = spec.actions[name].params()
                 render: Callable[[Any], str] = render_today
             elif uri.startswith("slate://item/") and uri.count("/") == 3:
@@ -317,9 +371,9 @@ def build_server(get_backend: GetBackend) -> Server:
         instructions=(
             "Slate is the workspace's task board. Sections hold lists, lists hold items; a list's "
             f"statuses are its columns. {RULE} Find ids with slate_section/slate_list list "
-            "before filing; assignees are account handles. Start each run with slate_checkin "
-            "(your open work and what changed for you); while you work an item, slate_item "
-            "report shows people a live badge; many changes go in one slate_batch."
+            "before filing; assignees are account handles. Start with slate_work: take a task, "
+            "keep the lease, and finish it. While you work an item, slate_item report shows "
+            "people a live badge; many changes go in one slate_batch."
         ),
         on_list_tools=list_tools,
         on_call_tool=call_tool,
@@ -487,6 +541,7 @@ def install(app: FastAPI) -> None:
 
 def main() -> None:
     """`slate-mcp`: MCP over stdio, calling Slate's REST API at SLATE_URL with SLATE_TOKEN."""
+    chosen = advertised_tools(tools_from_args(sys.argv[1:]))
     url = os.environ.get("SLATE_URL", "").strip()
     token = os.environ.get("SLATE_TOKEN", "").strip()
     missing = [n for n, v in (("SLATE_URL", url), ("SLATE_TOKEN", token)) if not v]
@@ -501,7 +556,7 @@ def main() -> None:
 
         async with httpx.AsyncClient(base_url=url, timeout=30) as client:
             backend = RestBackend(client, token)
-            server = build_server(lambda _ctx: backend)
+            server = build_server(lambda _ctx: backend, chosen)
             async with stdio_server() as (read, write):
                 await server.run(read, write, server.create_initialization_options())
 

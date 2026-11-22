@@ -1,5 +1,5 @@
-"""The agent plan ("about to"): `GET /agents/plan`, MCP `slate_work plan`, the digest's
-"Agents today" block, and `run_requested_at` on the item view."""
+"""The agent plan ("about to"): `GET /agents/plan`, the digest's "Agents today" block,
+and `run_requested_at` on the item view. Agents do not take the plan through MCP."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from slate import dates
 from slate.models import Account, Source, utcnow
 from slate.service import agents, reminders
 from slate.service.core import Actor
-from test_mcp import call, http_mcp, ok
+from test_mcp import call, err, http_mcp
 from test_permissions import share
 
 DAY = "2026-11-03"
@@ -103,7 +103,7 @@ def test_run_now_asks_and_leases_show_with_their_reason(client, alex, todo, make
     assert 0 <= lease["age_seconds"] < 60 and lease["until"] > lease["claimed_at"]
 
 
-def test_the_route_and_mcp_action(client, alex, todo, make_account):
+def test_the_route(client, alex, todo, make_account):
     make_account("agent")
     _item(client, alex, todo["id"], "Soon", assignees=["agent"])
     r = client.get(f"{API}/agents/plan", headers=alex)
@@ -114,12 +114,10 @@ def test_the_route_and_mcp_action(client, alex, todo, make_account):
     assert body["agents"][0]["next"][0]["title"] == "Soon"
 
 
-async def test_plan_through_mcp(client, alex, todo, make_account):
-    make_account("agent")
-    _item(client, alex, todo["id"], "Soon", assignees=["agent"])
+async def test_plan_is_not_an_agent_tool(alex):
     async with http_mcp(alex) as mcp:
-        out = ok(await call(mcp, "slate_work", "plan"))
-    assert [a["handle"] for a in out["agents"]] == ["agent"]
+        message = err(await call(mcp, "slate_work", "plan"))
+    assert "unknown action 'plan'" in message
 
 
 def test_a_restricted_caller_sees_only_agents_and_items_in_reach(client, alex, todo, make_account):

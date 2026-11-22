@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -281,14 +281,6 @@ class FinishIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str | None = Field(default=None, max_length=64)
 
-    @model_validator(mode="after")
-    def separate_take(self):
-        if self.run_id and self.next is not None:
-            raise ValueError(
-                "fenced finish must be separate from next; retry delivery before taking more work"
-            )
-        return self
-
     outcome: Literal[
         "done", "review", "later", "ask", "answered", "failed", "blocked", "release"
     ] = Field(
@@ -329,14 +321,10 @@ class FinishIn(BaseModel):
     )
     reply: str | None = REPLY_FIELD
     thread: dict[str, Any] | None = THREAD_FIELD
-    next: NextIn | None = Field(
-        default=None, description="Also take your next task in the same call"
-    )
 
 
 class FinishOut(BaseModel):
     item: ItemOut = Field(description="The task you reported on, as it is now")
-    next: NextOut | None = Field(description="Your next task, when you asked for one")
 
 
 def take_next(session: Session, actor: Actor, body: NextIn) -> dict[str, Any] | None:
@@ -751,26 +739,15 @@ async def finish(item_id: str, body: FinishIn, auth: WriteAuth, session: DbSessi
     """Report back in one round trip, all in one transaction: the outcome (done, review,
     later, ask, answered, failed, blocked, release), a note posted as your comment, a
     `status`, and
-    `hand_to` to pass the task to another account. Your lease ends. With `next`, the same
-    call also takes your next task (and may `wait` for one). Agent finishes consume only Ask
+    `hand_to` to pass the task to another account. Your lease ends. Take the next task
+    with `POST /work/next`. Agent finishes consume only Ask
     assignments present at take, so the same open Ask cannot repeatedly dispatch done,
     review, blocked or released work. Asks remain visible and explicitly resolvable; only
     asked-only agent done resolves its taken Asks (without completing the task). New or
     reassigned Asks during the run remain pending. Human finishes never resolve Asks."""
 
     def report() -> dict:
-        item = work.finish(
-            session,
-            auth.actor,
-            item_id,
-            **body.model_dump(exclude={"next"}),
-        )
+        item = work.finish(session, auth.actor, item_id, **body.model_dump())
         return items.views(session, [item])[0]
 
-    view = await run_in_threadpool(report)
-    nxt = None
-    if body.next is not None and not session.info.get("work_finish_replayed"):
-        n = body.next
-        nxt = await longpoll.wait_async(lambda: take_next(session, auth.actor, n), n.wait, session)
-        nxt = nxt or nothing()
-    return {"item": view, "next": nxt}
+    return {"item": await run_in_threadpool(report)}
