@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from runpy import run_path
 
 import pytest
 from sqlalchemy import select
@@ -90,6 +92,17 @@ def test_exact_boundaries(db, world):
     ]:
         due.emit_due_events(db, now=now)
         assert [e.type for e in _due_events(db, item.id)] == expected, now
+
+
+def test_browser_due_tick_emits_due_and_overdue_events(db, world, monkeypatch, capsys):
+    item = _item(db, world)
+    monkeypatch.setattr("slate.models.utcnow", lambda: DUE + timedelta(hours=2))
+    helper = Path(__file__).resolve().parents[1] / "web" / "e2e" / "due_tick.py"
+
+    run_path(str(helper))
+
+    assert int(capsys.readouterr().out) == 2
+    assert [event.type for event in _due_events(db, item.id)] == ["item.due", "item.overdue"]
 
 
 def test_restart_emits_no_duplicates(db, world, tmp_path):

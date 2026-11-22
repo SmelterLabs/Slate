@@ -82,6 +82,7 @@ def quiet_until(account: Account, at: datetime) -> datetime | None:
 def open_questions(session: Session, account_id: str, now: datetime) -> list[dict[str, Any]]:
     """Open task and document questions visible to the recipient, oldest first."""
     from slate.models import Doc, DocComment, List, Section, Status, StatusKind
+    from slate.service.lists import WORK_LIST
 
     tasks = session.execute(
         select(Comment, Item)
@@ -95,6 +96,7 @@ def open_questions(session: Session, account_id: str, now: datetime) -> list[dic
             Item.archived_at.is_(None),
             Item.completed_at.is_(None),
             List.archived_at.is_(None),
+            WORK_LIST,
             Section.archived_at.is_(None),
             (Status.id.is_(None)) | Status.kind.not_in((StatusKind.done, StatusKind.cancelled)),
         )

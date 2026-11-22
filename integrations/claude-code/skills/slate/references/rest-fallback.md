@@ -23,7 +23,8 @@ one is an admin step (`docs/agents/chat-apps.md`).
    {"tool": "item", "action": "get", "params": {"id": "$t.id"}}]}`. Put a create and its
    read-back in one batch; the `get` result is your check.
 4. Unfamiliar list: `{"tool": "list", "action": "list", "params": {}}` gives each list's
-   statuses and default status; `{"tool": "tag", "action": "list", "params": {}}` the tags.
+   statuses, default status, and note (`note_md`: what belongs there). Read that note
+   before you file. `{"tool": "tag", "action": "list", "params": {}}` gives the tags.
 
 ## Quirks
 

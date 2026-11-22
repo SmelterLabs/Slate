@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from slate.ids import new_id, slugify
 from slate.models import (
+    SYSTEM_HANDLE,
     Account,
     AccountKind,
     AgentState,
@@ -22,6 +23,7 @@ from slate.models import (
     Section,
     Status,
     StatusKind,
+    WorkspaceSetting,
     utcnow,
 )
 from slate.service import sections
@@ -161,6 +163,66 @@ def _settle_agent_flag(cx: Change, item: Item, *, closed: bool) -> None:
 
 
 LIST_KINDS = ("tasks", "drawer")
+FILING_FIELDS = ("note_md", "default_assignee_id", "default_tags", "reference")
+WORK_LIST = List.reference.is_(False)
+INBOX_LIST_KEY = "inbox_list_id"
+
+
+def inbox_list_id(session: Session) -> str | None:
+    setting = session.get(WorkspaceSetting, INBOX_LIST_KEY)
+    return setting.value_json if setting is not None else None
+
+
+def can_file_inbox(session: Session, list_id: str) -> bool:
+    """Can the current caller file in this active work list?"""
+    from slate.service import access
+
+    caller = access.current(session)
+    return bool(
+        (caller is None or min(caller.cap, caller.list_level(list_id)) >= access.EDIT)
+        and session.scalar(
+            select(List.id)
+            .join(Section, Section.id == List.section_id)
+            .where(
+                List.id == list_id,
+                List.kind == "tasks",
+                List.archived_at.is_(None),
+                Section.archived_at.is_(None),
+                WORK_LIST,
+            )
+        )
+    )
+
+
+def on_work_list(session: Session, item_id: str) -> bool:
+    """Check the item's current list at write time, without relying on cached rows."""
+    return (
+        session.scalar(
+            select(Item.id).join(List, List.id == Item.list_id).where(Item.id == item_id, WORK_LIST)
+        )
+        is not None
+    )
+
+
+def set_inbox_list(session: Session, actor: Actor, list_id: str | None) -> None:
+    """Choose the workspace’s default destination for items with no list."""
+    from slate.service import access
+
+    access.require_admin(session, "choose the inbox list")
+    with apply_change(session, actor) as cx:
+        if list_id is not None and not can_file_inbox(session, list_id):
+            raise Invalid("the inbox list must be an active work list you can file in")
+        setting = session.get(WorkspaceSetting, INBOX_LIST_KEY)
+        before = setting.value_json if setting is not None else None
+        if before == list_id:
+            return
+        if setting is None:
+            setting = WorkspaceSetting(key=INBOX_LIST_KEY)
+            session.add(setting)
+        setting.value_json = list_id
+        cx.record(
+            "settings.changed", field=INBOX_LIST_KEY, before=before, after=list_id, covers=[setting]
+        )
 
 
 def require_tasks(lst: List) -> List:
@@ -177,6 +239,17 @@ def _kind(value: Any) -> str:
     return kind
 
 
+def valid_default_assignee(account: Account | None) -> bool:
+    return account is not None and account.disabled_at is None and account.handle != SYSTEM_HANDLE
+
+
+def _checked_filing(filing: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    fields = filing or {}
+    if set(fields).difference(FILING_FIELDS):
+        raise Invalid("unknown list filing field")
+    return fields
+
+
 def create_list(
     session: Session,
     actor: Actor,
@@ -186,10 +259,12 @@ def create_list(
     position: int | None = None,
     statuses: Sequence[Mapping[str, Any]] | None = None,
     kind: str = "tasks",
+    filing: Mapping[str, Any] | None = None,
 ) -> List:
     """`statuses`, or the default set. `kind = drawer` makes a list of documents (it still
     gets statuses, unused for now)."""
     kind = _kind(kind)
+    filing = _checked_filing(filing)
     section = sections.get_section(session, section_id)
     name = _name(name)
     slug = slugify(name)
@@ -199,7 +274,9 @@ def create_list(
         position = len(list_lists(session, section_id=section.id, include_archived=True))
     with apply_change(session, actor) as cx:
         lst = cx.create(
-            List(section_id=section.id, name=name, slug=slug, position=position, kind=kind),
+            List(
+                section_id=section.id, name=name, slug=slug, position=position, kind=kind, **filing
+            ),
             "list.created",
         )
         # The request's access snapshot predates this list. Authorised section editors
@@ -251,6 +328,7 @@ def update_list(
     default_status: str | None = None,
     archived: bool | None = None,
     kind: str | None = None,
+    filing: Mapping[str, Any] | None = None,
 ) -> List:
     """Change any of name (slug follows), section, position, default status, archived, kind,
     in one change. Moving to another section puts the list at its end unless `position` is
@@ -258,6 +336,7 @@ def update_list(
     list becomes a drawer only when it holds no tasks (archived ones included); a drawer
     becomes a task list at any time, its documents stay where they are."""
     lst = get_list(session, list_id)
+    filing = _checked_filing(filing)
     if kind is not None:
         kind = _kind(kind)
         if kind == "drawer" and lst.kind != "drawer":
@@ -299,6 +378,8 @@ def update_list(
                 cx.set(
                     lst, "archived_at", stamp, "list.archived" if archived else "list.unarchived"
                 )
+        for field, value in filing.items():
+            cx.set(lst, field, value, "list.updated")
     return lst
 
 

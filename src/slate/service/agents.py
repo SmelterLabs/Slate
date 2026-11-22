@@ -31,6 +31,7 @@ from slate.models import (
 )
 from slate.presence import presence
 from slate.service import access
+from slate.service.lists import WORK_LIST
 
 ONLINE_WINDOW = timedelta(minutes=2)
 ACTIVITY_WINDOW = timedelta(hours=24)
@@ -87,9 +88,11 @@ def roster(
         session.execute(
             select(ItemAssignee.account_id, func.count())
             .join(Item, Item.id == ItemAssignee.item_id)
+            .join(List, List.id == Item.list_id)
             .outerjoin(Status, Status.id == Item.status_id)
             .where(
                 ItemAssignee.account_id.in_(ids),
+                WORK_LIST,
                 Item.archived_at.is_(None),
                 Item.completed_at.is_(None),
                 (Status.kind.is_(None))
@@ -101,8 +104,10 @@ def roster(
     working: dict[str, list[dict[str, Any]]] = {i: [] for i in ids}
     for item in session.scalars(
         select(Item)
+        .join(List, List.id == Item.list_id)
         .where(
             Item.agent_state_by.in_(ids),
+            WORK_LIST,
             Item.agent_state.is_not(None),
             Item.archived_at.is_(None),
             Item.trashed_at.is_(None),

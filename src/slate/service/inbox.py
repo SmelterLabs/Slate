@@ -62,6 +62,7 @@ from slate.models import (
     InboxState,
     Item,
     ItemAssignee,
+    List,
     Role,
     Watcher,
     WorkLease,
@@ -70,6 +71,7 @@ from slate.models import (
 from slate.service import attention
 from slate.service.core import Actor, apply_change, event_payload
 from slate.service.errors import Invalid
+from slate.service.lists import WORK_LIST
 
 WINDOW = timedelta(days=30)
 MAX_ENTRIES = 500
@@ -131,14 +133,19 @@ class Follows:
     assigned: frozenset[str]
     followed: frozenset[str]
     watched: frozenset[str] = frozenset()
+    reference: frozenset[str] = frozenset()
     # Cards whose stall (`item.stalled`, in the window) this account is told about.
     stalls: frozenset[str] = frozenset()
 
 
 def follows(session: Session, account_id: str) -> Follows:
-    assigned = frozenset(
-        session.scalars(select(ItemAssignee.item_id).where(ItemAssignee.account_id == account_id))
-    )
+    assignments = session.execute(
+        select(ItemAssignee.item_id, WORK_LIST)
+        .join(Item, Item.id == ItemAssignee.item_id)
+        .join(List, List.id == Item.list_id)
+        .where(ItemAssignee.account_id == account_id)
+    ).all()
+    assigned = frozenset(item_id for item_id, _ in assignments)
     watching = frozenset(
         session.scalars(select(Watcher.item_id).where(Watcher.account_id == account_id))
     )
@@ -148,7 +155,26 @@ def follows(session: Session, account_id: str) -> Follows:
         .distinct()
     ).all()
     stalls = frozenset(i for i in stalled if account_id in stall_recipients(session, i))
-    return Follows(assigned=assigned, followed=assigned | watching, watched=watching, stalls=stalls)
+    fallback_reference = session.scalars(
+        select(Event.item_id)
+        .join(Item, Item.id == Event.item_id)
+        .join(List, List.id == Item.list_id)
+        .where(
+            Event.type.in_(DUE_TYPES),
+            Event.at >= utcnow() - WINDOW,
+            ~WORK_LIST,
+            _in_after("$.notify", account_id),
+        )
+        .distinct()
+    )
+    return Follows(
+        assigned=assigned,
+        followed=assigned | watching,
+        watched=watching,
+        stalls=stalls,
+        reference=frozenset(item_id for item_id, is_work in assignments if not is_work)
+        | frozenset(fallback_reference),
+    )
 
 
 def stall_recipients(session: Session, item_id: str) -> set[str]:
@@ -246,7 +272,9 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
             return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
     if ev.type in DUE_TYPES:
-        if ev.item_id in f.assigned or account.id in ((ev.after_json or {}).get("notify") or []):
+        if ev.item_id not in f.reference and (
+            ev.item_id in f.assigned or account.id in ((ev.after_json or {}).get("notify") or [])
+        ):
             return "due"
         return None
     if ev.type == "item.unblocked":

@@ -89,7 +89,22 @@ class StatusOut(_Out):
     position: int | None = None
 
 
-class ListIn(BaseModel):
+class _ListFields(BaseModel):
+    note_md: str | None = Field(
+        default=None, max_length=2000, description="What belongs in this list"
+    )
+    default_assignee_id: str | None = Field(
+        default=None, description="Account for cards filed without assignees"
+    )
+    default_tags: list[str] = Field(
+        default_factory=list, max_length=5, description="Tags added when filing"
+    )
+    reference: bool = Field(
+        default=False, description="Exclude this list from work queues, counts and due alerts"
+    )
+
+
+class ListIn(_ListFields):
     section_id: str
     name: str = Field(min_length=1, max_length=100)
     position: int | None = None
@@ -102,7 +117,10 @@ class ListIn(BaseModel):
     )
 
 
-class ListPatch(BaseModel):
+class ListPatch(_ListFields):
+    default_tags: list[str] | None = Field(
+        default=None, max_length=5, description="Tags added when filing; null clears them"
+    )
     name: str | None = Field(default=None, min_length=1, max_length=100)
     kind: Literal["tasks", "drawer"] | None = Field(
         default=None,
@@ -139,6 +157,10 @@ class ListOut(_Out):
     archived_at: datetime | None
     private: bool = False
     kind: Literal["tasks", "drawer"] = "tasks"
+    note_md: str | None = None
+    default_assignee_id: str | None = None
+    default_tags: list[str] = Field(default_factory=list)
+    reference: bool = False
     statuses: list[StatusOut]
 
 
@@ -194,7 +216,9 @@ class ChildIn(_ItemFields):
 
 
 class ItemIn(ChildIn):
-    list_id: str | None = Field(default=None, description="Required unless parent_id is given")
+    list_id: str | None = Field(
+        default=None, description="Omit for the parent’s list or the configured workspace inbox"
+    )
     parent_id: str | None = Field(
         default=None,
         description="Makes this a subtask of the parent; subtasks nest four deep under a top task",

@@ -2,7 +2,7 @@
 
 - A lease that ran out (the runner died, lost its run proof, or was replaced) is shown on the
   board (`expired`), and a person who may post there clears it (`POST /work/chat/clear`,
-  `POST /work/doc/clear`, MCP `slate_work chat_clear` / `doc_clear`).
+  `POST /work/doc/clear`).
 - A person's new mention after the lease ran out is not swallowed by the dead turn: it ends
   the quarantine and is a new turn the agent is handed.
 - A pending turn the agent can no longer answer (its share was lowered or removed, the place is
@@ -297,9 +297,7 @@ def test_the_sweep_drops_turns_out_of_the_agents_reach(client, alex, db):
 # --- MCP ------------------------------------------------------------------------------------
 
 
-async def test_a_person_clears_expired_turns_through_mcp(client, alex, todo, db):
-    from test_mcp import call, http_mcp, ok
-
+def test_a_person_clears_expired_turns(client, alex, todo, db):
     agent, ch = _agent(client, alex)
     key = f"list:{todo['id']}"
     _post(client, alex, key, "@agent first")
@@ -308,13 +306,20 @@ async def test_a_person_clears_expired_turns_through_mcp(client, alex, todo, db)
     _next(client, ch, doc_id=page["id"], lease_seconds=60)
     turns.expire("chat", db, utcnow() + timedelta(hours=1))
     turns.expire("doc", db, utcnow() + timedelta(hours=1))
-    async with http_mcp(alex) as mcp:
-        got = ok(await call(mcp, "slate_work", "chat_clear", channel=key, agent_id=agent["id"]))
-        assert got == {"cleared": True, "pending": False}
-        got = ok(
-            await call(mcp, "slate_work", "doc_clear", doc_id=page["id"], agent_id=agent["id"])
-        )
-        assert got == {"cleared": True, "pending": False}
+    got = client.post(
+        f"{API}/work/chat/clear",
+        json={"channel": key, "agent_id": agent["id"]},
+        headers=alex,
+    )
+    assert got.status_code == 200, got.text
+    assert got.json() == {"cleared": True, "pending": False}
+    got = client.post(
+        f"{API}/work/doc/clear",
+        json={"doc_id": page["id"], "agent_id": agent["id"]},
+        headers=alex,
+    )
+    assert got.status_code == 200, got.text
+    assert got.json() == {"cleared": True, "pending": False}
 
 
 # --- the agent's stream -----------------------------------------------------------------------

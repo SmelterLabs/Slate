@@ -146,7 +146,7 @@ export class BoardState {
   #tally() {
     void this.rev;
     const now = this.now;
-    const key = `${this.rev}|${now.getTime()}|${workspaceTimezone()}|${Object.keys(this.lists).length}`;
+    const key = `${this.rev}|${now.getTime()}|${workspaceTimezone()}|${Object.keys(this.lists).length}|${[...this.referenceListIds()].join(',')}`;
     if (key === this.#tallyKey) return;
     this.#tallyKey = key;
     const today = workspaceDay(now);
@@ -156,6 +156,7 @@ export class BoardState {
     let due = 0;
     for (const i of this.#plain.values()) {
       if (i.archived_at || !isOpen(i)) continue;
+      if (this.lists[i.list_id]?.reference) continue; // reference lists are not counted as work
       if (!i.parent_id) open.set(i.list_id, (open.get(i.list_id) ?? 0) + 1);
       if (i.due_at && i.due_at < nowIso) overdue++; // isOverdue() without a Date per item
       // Everything's badge: open, in a live list, due by the end of today (workspace time). What waits
@@ -188,14 +189,19 @@ export class BoardState {
   #attn: Attention[] = [];
   #attnByList = new Map<string, { n: number; top: Need }>();
 
+  /** Ids of the reference lists (material, not work): their cards count nowhere as work. */
+  referenceListIds(): Set<string> {
+    return new Set(Object.values(this.lists).filter((l) => l.reference).map((l) => l.id));
+  }
+
   /** Open cards that wait on the viewer (lib/attention.ts): the "Needs you" badge and panels. */
   get needsMe(): Attention[] {
     void this.rev;
     const me = this.me?.account.id ?? '';
-    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}`;
+    const key = `${this.rev}|${me}|${Object.keys(this.accounts).length}|${[...this.referenceListIds()].join(',')}`;
     if (key !== this.#attnKey) {
       this.#attnKey = key;
-      this.#attn = attention([...this.#plain.values()], me, this.accounts);
+      this.#attn = attention([...this.#plain.values()], me, this.accounts, this.referenceListIds());
       this.#attnByList = byList(this.#attn);
     }
     return this.#attn;

@@ -63,6 +63,16 @@ export class BoardEditors extends BoardRun {
     return l;
   }
 
+  /** Save a list's settings fields (note, default owner, default tags, reference) in one patch. */
+  async updateListSettings(
+    id: string,
+    changes: Pick<List, 'note_md' | 'default_assignee_id' | 'default_tags' | 'reference'>,
+  ): Promise<boolean> {
+    const l = await this.attempt(() => patch<List>(`/lists/${id}`, changes));
+    if (l) this.lists[id] = l;
+    return !!l;
+  }
+
   async renameList(id: string, name: string) {
     const l = await this.attempt(() => patch<List>(`/lists/${id}`, { name }));
     if (l) this.lists[id] = l;

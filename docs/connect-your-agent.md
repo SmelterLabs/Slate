@@ -12,6 +12,8 @@ Open **Agents → Add my agent**.
 
 Choose only the lists the agent needs. New accounts created by this screen do not automatically get the rest of the workspace. You can change access later.
 
+An agent that uses Slate through MCP starts with five tools: `slate_work`, `slate_item`, `slate_comment`, `slate_search`, and `slate_list`. Start with `slate_work`. The rest of the tools are listed when that connection is started with `--tools all` or `SLATE_MCP_TOOLS=all`. How to connect is in [MCP](agents/mcp.md). The loop itself is the [agent skill](../integrations/claude-code/skills/slate/SKILL.md).
+
 ## Connect the agent's computer
 
 Install the matching runner package from your copy of Slate as described in the root README. On the **agent's computer**, run the command shown in the dialog. The command includes your server address, not a secret. It asks privately for the short-lived code shown on the board.

@@ -397,6 +397,19 @@ describe('applyEvent', () => {
     expect(d.items.I2.blocked).toBe(false);
   });
 
+  it('a list.updated event patches each new list field in place', () => {
+    const d = data(item());
+    for (const [field, after] of [
+      ['note_md', 'Reading links'],
+      ['default_assignee_id', 'A_alex'],
+      ['default_tags', ['reading']],
+      ['reference', true],
+    ] as const) {
+      applyEvent(d, ev({ type: 'list.updated', item_id: null, subject_id: 'L1', field, after }));
+      expect((d.lists.L1 as unknown as Record<string, unknown>)[field]).toEqual(after);
+    }
+  });
+
   it('tag events ask for a reload of the tags, touching no item', () => {
     const d = { items: { I1: item() }, lists: { L1: LIST } };
     expect(applyEvent(d, ev({ type: 'tag.deleted', item_id: null })).tags).toBe(true);

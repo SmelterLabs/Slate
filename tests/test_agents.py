@@ -249,7 +249,7 @@ async def test_a_refused_mcp_call_costs_no_access_computation(alex, counted_bind
     from test_mcp import call, http_mcp
 
     async with http_mcp(alex) as mcp:
-        answers = [await call(mcp, "slate_today") for _ in range(4)]
+        answers = [await call(mcp, "slate_list", "list") for _ in range(4)]
     refused = [a for a in answers if a.is_error and "rate limit" in a.content[0].text]
     assert len(refused) == 2
     assert counted_binds["n"] == 2

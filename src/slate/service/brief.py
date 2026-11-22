@@ -38,6 +38,7 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
+    List,
     Role,
 )
 from slate.service.items import get_item
@@ -197,6 +198,9 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
                 )
             )
             out.append("\n".join("> " + line for line in body.splitlines()))
+    lst = session.get(List, item.list_id)
+    if lst and lst.note_md and lst.note_md.strip():
+        out += ["", "This list:", lst.note_md.strip()]
     out += ["", RUN_RULE.format(ask=ask)]
     # The caller's own run is the one Slate started because the card stalled (the take bound
     # the poke to it: service/work.py `take`).
