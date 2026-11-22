@@ -21,7 +21,7 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
   await expect(page.locator('.card', { hasText: 'Needs-you review card' })).toBeVisible();
 
   // Live: reports arrive over the stream and the pill follows.
-  await api('POST', `/items/${review.id}/report`, { state: 'review', note: 'Draft is ready' }, agent);
+  await api('POST', `/items/${review.id}/report`, { state: 'review', status: 'Check the draft', note: 'Draft is ready' }, agent);
   await api('POST', `/items/${stuck.id}/report`, { state: 'blocked', waiting_on: 'alex', question: 'What is the VIN?' }, agent);
   const pill = page.locator('.nb-pill');
   await expect(pill).toBeVisible();

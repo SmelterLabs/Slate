@@ -328,7 +328,12 @@ def test_run_now_while_working_names_the_agent(client, alex, todo, make_account)
 
 
 async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    # The setup requests use a live server and can queue on a busy CI host.
+    # Keep the separate one-second deadline for the work notification.
+    async with (
+        httpx.AsyncClient(base_url=live.url, timeout=60) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         admin = _bearer(live.admin_token)
@@ -338,8 +343,12 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
             json={"list_id": todo["id"], "title": "Sign in", "assignees": ["agent"]},
             headers=admin,
         )
+        assert r.status_code == 201, r.text
         item = r.json()
-        r = await client.post(f"{API}/work/next", json={}, headers=_bearer(tok))
+        r = await client.post(
+            f"{API}/work/next", json={"item_id": item["id"]}, headers=_bearer(tok)
+        )
+        assert r.status_code == 200, r.text
         assert r.json()["item"]["id"] == item["id"]
         r = await client.post(
             f"{API}/work/{item['id']}/finish",
@@ -358,6 +367,7 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
         r = await client.post(
             f"{API}/items/{item['id']}/comments", json={"body_md": "done"}, headers=admin
         )
+        assert r.status_code == 201, r.text
         answer = r.json()
         hint = None
         for _ in range(6):

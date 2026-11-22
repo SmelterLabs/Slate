@@ -244,6 +244,9 @@ def test_work_schema_exposes_claim_and_only_mcp_finish_controls():
     item = Draft202012Validator(mcp_tools.input_schema(mcp_tools.TOOLS["slate_item"]))
     work.check_schema(work.schema)
     item.check_schema(item.schema)
+    finish_fields = _branches(work.schema)["finish"]["properties"]["params"]["properties"]
+    assert [name for name in finish_fields if "status" in name] == ["status"]
+    assert "Where the card stands" in finish_fields["status"]["description"]
     assert work.is_valid({"action": "next", "params": {"kinds": ["task"]}})
     assert not work.is_valid({"action": "next", "params": {"resume": False}})
     assert not work.is_valid({"action": "next", "params": {"outcome": "done"}})
