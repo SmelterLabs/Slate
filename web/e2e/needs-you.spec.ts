@@ -55,7 +55,8 @@ test('needs you: pill on any page, grouped on My Work, cleared by Mark reviewed'
   await expect(pop.locator(`[data-item="${stuck.id}"]`)).toHaveAttribute('data-need', 'waiting');
   const row = pop.locator(`[data-item="${review.id}"]`);
   await expect(row).toHaveAttribute('data-need', 'review');
-  await expect(row).toContainText('Draft is ready');
+  await expect(row).toContainText('Check the draft');
+  await expect(row).not.toContainText('Draft is ready');
   await page.keyboard.press('Escape');
   await expect(pop).toHaveCount(0);
 
