@@ -628,6 +628,19 @@ def _asked_only(session: Session, item_id: str, account_id: str) -> bool:
     )
 
 
+def asked_turn(session: Session, item: Item, account_id: str) -> bool:
+    """Is the account in a live turn on this card that it took only to answer an Ask, on a
+    card not assigned to it? Such a turn cannot close the card (lists.move_item_to_status)."""
+    row = session.get(WorkLease, item.id)
+    return (
+        row is not None
+        and row.account_id == account_id
+        and row.asked_only
+        and lease_state(row) != "expired"
+        and not _is_assigned(session, item.id, account_id)
+    )
+
+
 def _waits_on_asker(session: Session, asks: list[Any], waiting_on: str) -> bool:
     """Does `waiting_on` name the author of one of the Asks this turn took?"""
     target = resolve_account(session, waiting_on)

@@ -38,6 +38,7 @@ def _rule(db, actor, chores, now, **fields):
     fields.setdefault("title_template", "Bulk trash {date}")
     fields.setdefault("rrule", "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE")
     fields.setdefault("dtstart", "2026-11-11")
+    fields.setdefault("lead_days", 14)  # these tests exercise a two-week window
     return recurrences.create_recurrence(db, actor, list_id=chores.id, now=now, **fields)
 
 
@@ -95,9 +96,17 @@ def test_bad_fields_are_refused(db, actor, chores, field, value):
 
 
 def test_defaults(db, actor, chores):
-    rule = _rule(db, actor, chores, ct(2026, 11, 1))
+    rule = recurrences.create_recurrence(
+        db,
+        actor,
+        list_id=chores.id,
+        now=ct(2026, 11, 1),
+        title_template="Bulk trash {date}",
+        rrule="FREQ=WEEKLY;INTERVAL=2;BYDAY=WE",
+        dtstart="2026-11-11",
+    )
     assert rule.timezone == "America/Chicago"
-    assert rule.lead_days == 14
+    assert rule.lead_days == 0  # a card appears on the day it is due
     assert rule.missed_policy.value == "spawn_always"
     assert rule.dtstart == ct(2026, 11, 11)  # date-only dtstart = local midnight
     assert rule.next_run_at == ct(2026, 11, 11)

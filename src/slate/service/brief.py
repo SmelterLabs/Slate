@@ -6,7 +6,8 @@
 a chat product with no API), and what a runner adapter can send as its first turn: the title,
 due date, description, checklist, attached files and recent comments, then the run rule
 (RUN_RULE), and for the caller's own turn what it must know about it: the card stalled
-(STALLED_RULE), or its last run failed and why (FAILED_RULE). The rule
+(STALLED_RULE), its last run failed and why (FAILED_RULE), or it was only asked on a card
+that is not its own, which it cannot close and must say so (ASKED_RULE). The run rule
 tells the agent to look in its own memory for related work first and to save what it learns
 (a card runs in a fresh session, so memory is how one card's work reaches the next), and
 asks it to end its answer with a line Slate understands, or one ask line per question:
@@ -40,6 +41,7 @@ from slate.models import (
     Checklist,
     ChecklistItem,
     Comment,
+    ItemAssignee,
     List,
     Role,
 )
@@ -77,6 +79,16 @@ FAILED_RULE = (
     "instructions; do not end this run the same way:"
 )
 FAILURE_CHARS = 1200
+ASKED_RULE = (
+    "You were asked something on this card; it is not assigned to you (assigned to: {owners}). "
+    "You cannot close it: `SLATE: done` here only answers the question and leaves the card "
+    "open, and Slate refuses a move to done or cancelled from you. If whoever asked wants the "
+    "card closed or finished, do not try, do not assign it to yourself, and never write that "
+    "it is closed or that you are closing it. Make the first line of your answer say that you "
+    "cannot close it because it is assigned to {owners}. If a person asked, use one ask line "
+    "per question, up to four. Start with this question:\n"
+    "`SLATE: ask {asker}: Can you close this card or assign it to me?`"
+)
 
 _LINE = re.compile(
     r"^\s*SLATE:\s*(?:(done|review|later|answered)\s*(?::\s*(.+?)|\.?)"
@@ -238,7 +250,7 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
     # The caller's own run is the one Slate started because the card stalled (the take bound
     # the poke to it: service/work.py `take`).
     if account_id is not None:
-        from slate.service.work import _turn_start, last_failure
+        from slate.service.work import _turn_start, asked_turn, last_failure, turn_asks
 
         start = _turn_start(session, account_id, item.id)
         if start is not None and (start.after_json or {}).get("poke"):
@@ -249,4 +261,25 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
             if len(failed) > FAILURE_CHARS:
                 failed = failed[:FAILURE_CHARS] + "…"
             out += ["", FAILED_RULE, "\n".join("> " + line for line in failed.splitlines())]
+        # Asked, not assigned: it cannot close the card (lists.move_item_to_status).
+        if item.completed_at is None and asked_turn(session, item, account_id):
+            owners = session.scalars(
+                select(Account.handle)
+                .join(ItemAssignee, ItemAssignee.account_id == Account.id)
+                .where(ItemAssignee.item_id == item.id)
+                .order_by(Account.handle)
+            ).all()
+            asker = next(
+                (
+                    author.handle
+                    for comment in reversed(turn_asks(session, account_id, item.id))
+                    if (author := session.get(Account, comment.author_id)) is not None
+                    and author.kind == AccountKind.person
+                ),
+                ask,
+            )
+            out += [
+                "",
+                ASKED_RULE.format(owners=", ".join(owners) or "nobody", asker=asker),
+            ]
     return "\n".join(out)

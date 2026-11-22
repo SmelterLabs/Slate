@@ -113,6 +113,7 @@ def test_preview_carries_options(db):
 
 def _on_done_rule(db, actor, chores, **fields):
     fields.setdefault("rrule", "FREQ=DAILY;INTERVAL=3")
+    fields.setdefault("lead_days", 14)
     return recurrences.create_recurrence(
         db,
         actor,

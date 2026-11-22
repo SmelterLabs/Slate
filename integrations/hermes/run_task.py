@@ -81,6 +81,10 @@ ENDINGS = (
     "in the reply body alone are never shown as questions. Options are optional. "
     "A review line with nothing after it is recorded as done. An answer with no such "
     "line is answered and waits on nobody."
+    " If you are only answering an Ask on a card outside your assignments, "
+    "`SLATE: done` only answers the question and leaves the card open. Slate refuses a move "
+    "to done or cancelled. If a person asks you to close it, name the assignees in your reply "
+    "and use an ask line to ask them to close or reassign it."
 )
 CONTINUE = "Continue the task. Put the SLATE: line or ask lines last, as before."
 

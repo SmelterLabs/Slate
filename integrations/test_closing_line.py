@@ -81,6 +81,18 @@ CONTRACT = [
         "Ready.\nSLATE: ask alex: Start the import now? [Yes | No | Not yet]",
         ("ask", "alex", "Ready.", "Start the import now?", ["Yes", "No", "Not yet"], None),
     ),
+    (
+        "I can't close the card because it is assigned to other-agent.\n"
+        + brief.ASKED_RULE.format(owners="other-agent", asker="alex").splitlines()[-1],
+        (
+            "ask",
+            "alex",
+            "I can't close the card because it is assigned to other-agent.",
+            "Can you close this card or assign it to me?",
+            [],
+            None,
+        ),
+    ),
     ("Here.\nSLATE: review", ("review", None, "Here.", None, None, None)),
     ("Here.\nSLATE: review.", ("review", None, "Here.", None, None, None)),
     ("Here.\nSLATE: done", ("done", None, "Here.", None, None, None)),
@@ -112,6 +124,12 @@ def test_adapters_use_the_contract_pattern():
     for adapter in ADAPTERS:
         assert adapter.SLATE_LINE.pattern == CONTRACT_PATTERN
         assert adapter.SLATE_LINE.flags & re.IGNORECASE
+
+
+def test_adapters_explain_asked_only_closing_on_continued_turns():
+    for adapter in ADAPTERS:
+        assert "`SLATE: done` only answers the question and leaves the card open" in adapter.ENDINGS
+        assert "use an ask line to ask them to close or reassign it" in adapter.ENDINGS
 
 
 def test_example_copies_the_service_pattern_exactly():

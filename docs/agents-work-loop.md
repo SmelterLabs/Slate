@@ -298,8 +298,16 @@ Slate stays the doorbell: it never launches an agent.
   caller's own turn). The brief also tells a retried run what broke: when the caller's newest
   finish on the card was `failed`, it ends with `brief.FAILED_RULE` and that finish's note,
   quoted as information (`work.last_failure`), in `GET /items/{id}/brief` and in the brief of
-  `POST /work/next`. If that turn ends `answered` too, on a card still open, unparked,
-  on a work list and without a future start or due date, the finish sets
+  `POST /work/next`. A turn taken only to answer an Ask on an open card (lease `asked_only`)
+  ends with `brief.ASKED_RULE`: the agent cannot close the card. `done` answers and leaves it
+  open, and `lists.move_item_to_status` refuses (403) a move to a done or cancelled status
+  by an account in such a turn (`work.asked_turn`: a live `asked_only` lease it holds on a
+  card not assigned to it). The rule tells an agent asked to close the card to say it
+  cannot, name the assignees in its reply, and ask the person who requested the close to
+  close or reassign the card. Each question gets an ask line, up to four, and the card waits
+  on that person. Outside such a turn an agent closes cards as its access allows.
+  If a stalled turn ends `answered` too, on a card still open, unparked, on a work list and
+  without a future start or due date, the finish sets
   `items.stalled_at` (the item view's `stalled: true`) and records `item.stalled` (`after =
   {agent_id}`), the inbox and push reason `stalled` ("<Agent> stopped without finishing:
   <title>"), told to the card's enabled person assignees and watchers who can see it now, else

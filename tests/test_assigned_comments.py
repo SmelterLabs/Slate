@@ -184,6 +184,79 @@ def test_an_agent_asked_on_a_task_takes_it_without_being_assigned_and_done_answe
     assert view["assignees"] == []
 
 
+def test_an_asked_agent_cannot_close_the_card_and_is_told_to_say_so(
+    client, alex, todo, make_account, db
+):
+    from slate.models import Comment
+    from slate.service.brief import ASKED_RULE, closing_line
+
+    make_account("other-agent")
+    _, ch = make_account("my-agent")
+    mine = _item(client, alex, todo["id"], "Mine", assignees=["my-agent"])
+    got = client.post(f"{API}/work/next", json={}, headers=ch).json()
+    assert got["item"]["id"] == mine["id"] and "not assigned to you" not in got["brief"]
+    r = client.post(
+        f"{API}/work/{mine['id']}/finish",
+        json={"outcome": "done", "run_id": got["lease"]["run_id"]},
+        headers=ch,
+    )
+    assert r.json()["item"]["completed_at"] is not None  # its own card: done closes it
+
+    item = _item(client, alex, todo["id"], "Budget", assignees=["other-agent"])
+    _comment(client, alex, item["id"], "Close it.", assignee="my-agent")
+    got = client.post(f"{API}/work/next", json={}, headers=ch).json()
+    assert got["item"]["id"] == item["id"] and got["why"] == "asked"
+    rule = ASKED_RULE.format(owners="other-agent", asker="alex")
+    assert got["brief"].endswith(rule)
+    assert "other-agent" in rule
+    question = "Can you close this card or assign it to me?"
+    line = closing_line(rule)
+    assert line is not None and line.outcome == "ask" and line.waiting_on == "alex"
+    assert line.questions == [{"question": question, "options": []}]
+    _, other_person = make_account("alex-2", kind="person")
+    _comment(client, other_person, item["id"], "Also, check the total?", assignee="my-agent")
+    # A message the runner has yet to receive cannot change the Ask's recipient.
+    assert client.get(f"{API}/items/{item['id']}/brief", headers=ch).json()["text"].endswith(rule)
+    # Anyone else reading the brief is not in that turn.
+    theirs = client.get(f"{API}/items/{item['id']}/brief", headers=alex).json()["text"]
+    assert "not assigned to you" not in theirs
+
+    # Slate refuses the close itself, whichever way the agent tries it.
+    r = client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=ch)
+    assert r.status_code == 403 and "not assigned to you" in r.text, r.text
+    r = client.post(f"{API}/items/{item['id']}/report", json={"state": "done"}, headers=ch)
+    assert r.status_code == 409, r.text  # a report needs the run: finish is the door
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["completed_at"] is None
+
+    # It says so with an Ask to whoever asked: the card waits on that person.
+    r = client.post(
+        f"{API}/work/{item['id']}/finish",
+        json={
+            "outcome": "ask",
+            "waiting_on": line.waiting_on,
+            "questions": line.questions,
+            "reply": "I can't close this card because it is assigned to other-agent.",
+            "run_id": got["lease"]["run_id"],
+        },
+        headers=ch,
+    )
+    assert r.status_code == 200, r.text
+    view = r.json()["item"]
+    assert view["completed_at"] is None and view["standing"]["line"] == question
+    assert view["waiting_on_account_id"] == _me(client, alex)["id"]
+    thread = client.get(f"{API}/items/{item['id']}/comments", headers=alex).json()
+    [ask] = [comment for comment in thread if comment["ask"] is not None]
+    assert db.get(Comment, ask["id"]).ask_json == {"questions": line.questions}
+
+    # The person closes it; an agent outside such a turn closes cards as before.
+    assert client.patch(f"{API}/items/{item['id']}", json={"status": "done"}, headers=alex).json()[
+        "completed_at"
+    ]
+    free = _item(client, alex, todo["id"], "Loose end", assignees=["other-agent"])
+    r = client.patch(f"{API}/items/{free['id']}", json={"status": "done"}, headers=ch)
+    assert r.status_code == 200, r.text
+
+
 def test_ask_opens_the_due_gate(client, alex, todo, make_account):
     _, ch = make_account("agent")
     item = _item(client, alex, todo["id"], "Later", assignees=["agent"], due_at="2099-01-01")

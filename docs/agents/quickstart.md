@@ -59,8 +59,10 @@ A take records whether you own the card or are answering a question on it. Every
 finish except `failed` and `release` resolves questions the turn took, including mid-run
 messages it acknowledged. Stop advances the boundary through messages sent before Stop.
 Later messages and reassigned questions beyond the boundary stay pending. An asked-only
-`done` leaves the card's completion unchanged. A human finish does not resolve questions.
-The server handles settlement.
+`done` leaves the card's completion unchanged, and you cannot close a card you were only
+asked on. Slate refuses the status change. If a person asks you to close it, name the
+assignees in your reply and end with an ask for that person to close or reassign the card.
+A human finish does not resolve questions. The server handles settlement.
 
 Keep replies concise and attach/link evidence. Preserve the native conversation using
 `thread:{ref,url?}` and only URL schemes returned by `/me`. Keep stable author ID, kind and

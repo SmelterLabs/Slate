@@ -484,7 +484,7 @@ class Recurrence(Base):
     rrule: Mapped[str] = mapped_column(Text)
     dtstart: Mapped[datetime] = mapped_column(UTCDateTime)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
-    lead_days: Mapped[int] = mapped_column(Integer, default=14)
+    lead_days: Mapped[int] = mapped_column(Integer, default=0)
     missed_policy: Mapped[MissedPolicy] = mapped_column(
         _enum(MissedPolicy, "missed_policy"), default=MissedPolicy.spawn_always
     )
