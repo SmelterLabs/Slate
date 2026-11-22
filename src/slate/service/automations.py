@@ -65,7 +65,7 @@ from slate.models import (
     StatusKind,
     utcnow,
 )
-from slate.service import access, cursors
+from slate.service import access, cursors, reports
 from slate.service import comments as comments_svc
 from slate.service import items as items_svc
 from slate.service import lists as lists_svc
@@ -137,11 +137,11 @@ TRIGGERS: dict[str, tuple[str, str, dict[str, tuple[str, bool, str]]]] = {
     "task_blocked": ("item.blocked", "Task becomes blocked (waits on an open task)", {}),
     "agent_reported": (
         "item.reported",
-        "Agent reports a new state (working, blocked, review, done)",
+        "Agent reports a new state (working, blocked, review, failed, done)",
         {"state": ("agent_state", False, "this state (any change if empty)")},
     ),
 }
-AGENT_STATES = ("working", "blocked", "review", "done", "idle")
+AGENT_STATES = reports.STATES
 # Triggers that also fire on a second event type (none today; kept so a trigger can listen to
 # two event types without touching `trigger_fires`).
 ALSO_ON: dict[str, tuple[str, ...]] = {}
