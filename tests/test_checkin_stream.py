@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from slate.service import due
+from slate.service import due, work
+from slate.service.bus import bus
 from test_agent_stream import _agent, _item, _setup
 from test_api_events import _bearer, _open, live  # noqa: F401 (live is a fixture)
 
@@ -222,10 +223,10 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
     tmp_path,
     parallel,
     already_due,
+    monkeypatch,
 ):
     """Four scheduled tasks use all slots and drain after finish or block without another
     Run now click. Nothing starts early; wakes and startup both cover a due backlog."""
-    import json
     import sys
     import threading
     from pathlib import Path
@@ -234,23 +235,26 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
     from slate_runner import Runner
 
     gate = tmp_path / "release"
-    runs = tmp_path / "runs.jsonl"
+    runs = tmp_path / "runs"
+    runs.mkdir()
     script = tmp_path / "queued.py"
     script.write_text(
-        "import json, pathlib, sys, time\n"
+        "import json, os, pathlib, sys, time\n"
         "task = json.load(sys.stdin)\n"
         "item = task['item']\n"
-        "with open(sys.argv[2], 'a') as f: f.write(json.dumps(item['id']) + '\\n')\n"
+        "pathlib.Path(sys.argv[2], f\"{item['id']}.{os.getpid()}\").touch()\n"
         "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.05)\n"
         "out = {'outcome': 'done', 'reply': 'Verified by isolated queue test'}\n"
         "if item['title'] == 'Queue 0':\n"
         "    out.update(outcome='ask', question='Is this right?', reply='Test needs a person')\n"
         "print(json.dumps(out))\n"
     )
-    async with _client(live) as client:
+    async with _client(live) as client, bus.subscribe() as events:
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
-        when = datetime.now(UTC) + timedelta(seconds=2)
+        now = datetime.now(UTC)
+        when = now + timedelta(minutes=1)
+        monkeypatch.setattr(work, "utcnow", lambda: now)
         items = [
             await _item(
                 client,
@@ -263,9 +267,9 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
             for n in range(4)
         ]
         if already_due:
-            await asyncio.sleep(max(0, (when - datetime.now(UTC)).total_seconds()) + 0.05)
+            now = when
             with live.Session() as s:
-                due.emit_due_events(s, now=datetime.now(UTC))
+                due.emit_due_events(s, now=now)
         runner = Runner(
             live.url,
             tok,
@@ -275,43 +279,48 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
             state_path=tmp_path / "state.json",
             log=lambda msg: None,
         )
+        loop = asyncio.get_running_loop()
+        ready = asyncio.Event()
+        on_message = runner.on_message
+
+        def observe_message(message):
+            on_message(message)
+            if message["event"] == "ready":
+                loop.call_soon_threadsafe(ready.set)
+
+        monkeypatch.setattr(runner, "on_message", observe_message)
         thread = threading.Thread(target=runner.forever, daemon=True)
         thread.start()
         try:
             if not already_due:
-                await asyncio.sleep(0.3)
-                assert not runs.exists(), "future tasks must not start early"
-                await asyncio.sleep(max(0, (when - datetime.now(UTC)).total_seconds()) + 0.05)
+                await asyncio.wait_for(ready.wait(), 30)
+                early = await client.post(f"{API}/work/next", json={}, headers=_bearer(tok))
+                assert early.json()["item"] is None
+                assert not list(runs.iterdir()), "future tasks must not start early"
+                now = when
                 with live.Session() as s:
-                    due.emit_due_events(s, now=datetime.now(UTC))
-            for _ in range(100):
-                if runs.exists() and len(runs.read_text().splitlines()) >= parallel:
-                    break
-                await asyncio.sleep(0.1)
+                    due.emit_due_events(s, now=now)
+            async with asyncio.timeout(30):
+                while len(list(runs.iterdir())) < parallel:
+                    await asyncio.sleep(0.05)
             assert len(runner.running) == parallel
-            assert len(runs.read_text().splitlines()) == parallel
+            assert len(list(runs.iterdir())) == parallel
             gate.touch()
-            for _ in range(150):
-                views = [
-                    (
-                        await client.get(
-                            f"{API}/items/{item['id']}",
-                            headers=_bearer(live.admin_token),
-                        )
-                    ).json()
-                    for item in items
-                ]
-                settled = sum(
-                    bool(v.get("completed_at")) or (v.get("agent") or {}).get("state") == "blocked"
-                    for v in views
-                )
-                if settled == 4:
-                    break
-                await asyncio.sleep(0.1)
-            assert settled == 4, views
+            pending = {item["id"] for item in items}
+            async with asyncio.timeout(30):
+                while pending:
+                    event = await anext(events)
+                    if event["type"] == "item.work_finished":
+                        pending.discard(event["item_id"])
+            views = [
+                (
+                    await client.get(f"{API}/items/{item['id']}", headers=_bearer(live.admin_token))
+                ).json()
+                for item in items
+            ]
             assert views[0]["agent"]["state"] == "blocked"
             assert all(v["completed_at"] for v in views[1:])
-            seen = [json.loads(line) for line in runs.read_text().splitlines()]
+            seen = [marker.stem for marker in runs.iterdir()]
             assert len(seen) == 4 and set(seen) == {item["id"] for item in items}
         finally:
             gate.touch()
@@ -321,7 +330,7 @@ async def test_four_due_tasks_drain_automatically_after_a_busy_agent(
                 json={"body_md": "test cleanup"},
                 headers=_bearer(live.admin_token),
             )
-            await asyncio.to_thread(thread.join, 5)
+            await asyncio.to_thread(thread.join, 30)
             assert not thread.is_alive()
 
 
