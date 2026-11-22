@@ -43,6 +43,7 @@ from slate.models import (
     List,
     Role,
 )
+from slate.service.comments import ask_headline
 from slate.service.items import get_item
 
 RECENT_COMMENTS = 10
@@ -223,6 +224,8 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
             )
             lines = body.splitlines()
             if c.ask_json is not None:
+                if c.body_md == ask_headline(c.ask_json):
+                    lines = []
                 lines.extend(
                     f"{i}. {question['question']}"
                     for i, question in enumerate(c.ask_json["questions"], 1)

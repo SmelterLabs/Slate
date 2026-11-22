@@ -4,6 +4,7 @@ machine broke: no person is asked anything; Slate retries, then tells people onc
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -680,7 +681,10 @@ def test_closing_line_reads_the_new_endings():
 
 
 @pytest.mark.parametrize("via_comment", [True, False])
-def test_next_turn_brief_quotes_the_asks_questions(client, alex, todo, make_account, via_comment):
+@pytest.mark.parametrize("reply", ["Inventory is complete.", None])
+def test_next_turn_brief_quotes_the_asks_questions(
+    client, alex, todo, make_account, via_comment, reply
+):
     _, agent = make_account("my-agent")
     item = _item(client, alex, todo["id"], assignees=["my-agent"])
     path = f"{API}/items/{item['id']}"
@@ -688,7 +692,9 @@ def test_next_turn_brief_quotes_the_asks_questions(client, alex, todo, make_acco
     if via_comment:
         ending = "\n".join(f"SLATE: ask alex: {q}" for q in prompts)
         response = client.post(
-            f"{path}/comments", json={"body_md": f"Inventory is complete.\n{ending}"}, headers=agent
+            f"{path}/comments",
+            json={"body_md": f"{reply}\n{ending}" if reply else ending},
+            headers=agent,
         )
         assert response.status_code == 201, response.text
     else:
@@ -698,17 +704,25 @@ def test_next_turn_brief_quotes_the_asks_questions(client, alex, todo, make_acco
             agent,
             item["id"],
             outcome="ask",
-            reply="Inventory is complete.",
+            reply=reply,
             questions=[{"question": q} for q in prompts],
         )
         assert response.status_code == 200, response.text
+    [ask] = client.get(f"{path}/comments", headers=alex).json()
     response = client.post(
         f"{path}/comments", json={"body_md": "The first one, and yes."}, headers=alex
     )
     assert response.status_code == 201, response.text
     assert _next(client, agent, item_id=item["id"])["reply"]["body_md"] == "The first one, and yes."
     text = client.get(f"{path}/brief", headers=agent).json()["text"]
-    assert "> Inventory is complete.\n> 1. Which file first?\n> 2. Ship today?" in text
+    lines = iter(text.splitlines())
+    header = next(line for line in lines if line.startswith('{"comment_id":'))
+    assert json.loads(header)["comment_id"] == ask["id"]
+    if reply:
+        assert next(lines) == f"> {reply}"
+    assert next(lines) == "> 1. Which file first?"
+    assert next(lines) == "> 2. Ship today?"
+    assert all(text.count(prompt) == 1 for prompt in prompts)
 
 
 def test_an_agents_ask_line_asks_and_a_plain_comment_changes_nothing(
