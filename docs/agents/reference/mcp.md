@@ -2,28 +2,24 @@
 
 # MCP reference
 
-26 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
+25 tools at `/mcp` (streamable HTTP, `Authorization: Bearer <token>`) or over stdio (`slate-mcp` with `SLATE_URL` and `SLATE_TOKEN`). Each tool takes `{"action": ..., "params": {...}}` (single-action tools take only `params`) and an optional `session_ref` recorded on every event it writes. Null fields are dropped from results. Setup: [../mcp.md](../mcp.md).
 
 `*` marks a required param. **REST** is the call the action makes in stdio mode and the route that does the same over HTTP.
 
 ## `slate_item`
 
-Read and change items (tasks) on Slate, the workspace's task board: find, file, update, move, assign, tag, comment, report what you are doing (live badge), archive, split and read history. Use it whenever you file, look up or progress a piece of work.
+Read and change tasks: file one, update it, report progress, split or archive it.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
 | `get` | `read` | `id`\* | `GET /items/{item_id}` | the item with subtasks, comments and last 20 events |
 | `list` | `read` | `list_id`, `section_id`, `status`, `assignee`, `tag`, `external_ref`, `due_before`, `due_after`, `q`, `stale`, `include_archived`, `archived`, `trashed`, `closed`, `order`, `kind`, `blocked`, `changed_since`, `fields`, `limit`, `offset`, `ids`, `open_comment_for` | `GET /items` | items matching every filter given (AND); `fields` trims each item, `changed_since` returns only items changed after an event id, `limit`/`offset` page |
 | `create` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`\*, `list_id`, `parent_id` | `POST /items` | file ONE item in list_id (parent_id instead makes it one subtask) |
-| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; assignees/tags replace the set |
-| `set_status` | `write` | `id`\*, `status`\* | `PATCH /items/{item_id}` | move to a status of its list (done stamps completed_at) |
-| `assign` | `write` | `id`\*, `assignees`\* | `PATCH /items/{item_id}` | set who it is assigned to (replaces the set; to take an item yourself, `report` with assign_me) |
-| `tag` | `write` | `id`\*, `tags`\* | `PATCH /items/{item_id}` | set its tags |
-| `report` | `write` | `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `assign_me`, `url`, `claim`, `reply`, `thread`, `id`\* | `POST /items/{item_id}/report` | say what you are doing on it: state working / blocked / review shows a live badge on the card (with note and progress); done clears it and completes the item; idle clears it. The note is also posted as your comment |
+| `update` | `write` | `body_md`, `body_note`, `status`, `priority`, `start_at`, `due_at`, `waiting_on_account_id`, `acceptance_md`, `position`, `kind`, `external_ref`, `assignees`, `tags`, `title`, `id`\* | `PATCH /items/{item_id}` | change any fields; null clears; status, assignees and tags replace the set |
+| `report` | `write` | `run_id`, `state`\*, `note`, `progress`, `comment`, `complete`, `waiting_on`, `question`, `options`, `assign_me`, `url`, `claim`, `reply`, `thread`, `id`\* | `POST /items/{item_id}/report` | say what you are doing on it: working, blocked, review or failed sets a badge; done and idle clear it. Take a task with slate_work next |
 | `run` | `write` | `id`\* | `POST /items/{item_id}/run` | Run now: ask the item's agent assignees to start on it now (records item.run_requested; their runners take it at once). Refused when no agent is assigned or it is done, cancelled or archived |
 | `stop` | `write` | `id`\* | `POST /items/{item_id}/stop` | Stop: ask the agent working on the item to stop (records item.stop_requested; its runner ends the run, which finishes answered, saying where it stopped). Refused when no agent is working on it |
 | `brief` | `read` | `ask`, `id`\* | `GET /items/{item_id}/brief` | the task as one paste-ready prompt (title, due, description, checklists, recent comments) ending with the run rule: finish with a last line `SLATE: done`, `SLATE: review`, `SLATE: later`, `SLATE: answered` or `SLATE: ask <handle>: <question> [option | option]`; a comment ending so reports back |
-| `comment` | `write` | `id`\*, `body_md`\* | `POST /items/{item_id}/comments` | add a comment |
 | `bulk_update` | `write` | `ids`\*, `changes`\* | `POST /items/bulk` | apply one change to many items at once (all or nothing; up to 500) |
 | `archive` | `write` | `id`\* | `POST /items/{item_id}/archive` | hide it and its subtasks (soft; history stays) |
 | `unarchive` | `write` | `id`\* | `POST /items/{item_id}/unarchive` | bring it back |
@@ -49,7 +45,7 @@ Read and change items (tasks) on Slate, the workspace's task board: find, file, 
 
 ## `slate_comment`
 
-Comments are the conversation on an item; @handle mentions an account and reaches their inbox. Use it to ask someone something, answer, or react; for progress on work you hold, slate_item report shows it on the card.
+The conversation on a task. @handle mentions an account.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -66,7 +62,7 @@ Comments are the conversation on an item; @handle mentions an account and reache
 
 ## `slate_chat`
 
-Chat channels: General, one per section, one per list and one per agent (channel `general`, `list:<id>`, `section:<id>`, `agent:<id>`), with threads, reactions and @mentions. Use it to talk with people and other agents about a list's work, answer a mention or thread reply from check-in, or turn a message into a task. Your own chat (`agent:<your id>`) is where a person talks to you outside any card: every message they post there mentions you; answer there. A message's `files` are what was sent with it (a screenshot, a PDF): read one with GET /api/v1/message-files/<id>.
+Channels for general, a list, a section or an agent, with threads and mentions.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -86,7 +82,7 @@ Chat channels: General, one per section, one per list and one per agent (channel
 
 ## `slate_checklist`
 
-Checklists are small ticked to-dos inside one item, not subtasks. Use them for steps of a single piece of work; tick entries as you finish them.
+Ticked steps inside one task. They are not subtasks.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -100,7 +96,7 @@ Checklists are small ticked to-dos inside one item, not subtasks. Use them for s
 
 ## `slate_view`
 
-A view is a saved lens: layout (board, list or table), group_by (due, status, priority, assignee, tag, list, section, status_kind), sort, and a filter of {op, rules} where each rule is {field, cmp, value} or a nested group. Use it to build or adjust the lenses people look at. Example config: {layout: board, group_by: due, due_window_days: 6, sort: [{field: priority, dir: desc}, {field: due, dir: asc}], filter: {op: and, rules: [{field: status_kind, cmp: is, value: [open, active]}]}}.
+A saved lens: layout, grouping, sort and filter.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -113,7 +109,7 @@ A view is a saved lens: layout (board, list or table), group_by (due, status, pr
 
 ## `slate_favorite`
 
-Favorites are your own pinned lists, sections, saved views and items, shown as one-click chips across the top of the board. Use it to pin what you (or the account whose token you hold) will open often, or to reorder the bar.
+Your pinned lists, sections, views and tasks.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -124,7 +120,7 @@ Favorites are your own pinned lists, sections, saved views and items, shown as o
 
 ## `slate_automation`
 
-Automations are when-this-then-that rules on a list, section or everywhere: a trigger (status changes, assignee added, due date passes...), optional conditions and actions (set status, assign, tag, comment, move, call a webhook). Use it to set up routine handling once instead of doing it by hand; read catalog first.
+When-this-then-that rules. Read catalog before you create one.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -140,7 +136,7 @@ Automations are when-this-then-that rules on a list, section or everywhere: a tr
 
 ## `slate_reminder`
 
-Reminders tell an account about an item at a time, or a set time before its due date, through its inbox, check-in and phone and desktop notifications. Use it to follow up on something later; digest shows today's overdue and due work.
+Tell an account about a task at a time, or before it is due.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -152,7 +148,7 @@ Reminders tell an account about an item at a time, or a set time before its due 
 
 ## `slate_inbox`
 
-Your notifications as the board's Inbox shows them: who mentioned you, what you were assigned, and what changed on items you follow, with read state. Mark what you handled as read. To poll for work on a cursor, slate_checkin is quicker.
+Your notifications: mentions, assignments and changes on tasks you follow.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -163,7 +159,7 @@ Your notifications as the board's Inbox shows them: who mentioned you, what you 
 
 ## `slate_list`
 
-Lists live in a section and own their statuses, which are the board's columns. Use it to find a list_id before filing items, or to create, rename or re-column a list.
+A list lives in a section and owns its columns. Read its note before you file.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -174,7 +170,7 @@ Lists live in a section and own their statuses, which are the board's columns. U
 
 ## `slate_section`
 
-Sections are the top-level separations (for example Personal and Work). Use it to find a section, or to create or rename one when someone asks for a new audience or rhythm.
+The top-level groups. Find one, or create one.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -184,7 +180,7 @@ Sections are the top-level separations (for example Personal and Work). Use it t
 
 ## `slate_tag`
 
-Tags cut across every section and list. Use it to see the existing tags before inventing one, or to create, rename, recolor, merge or delete a tag.
+Tags cut across every list. See them before you invent one.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -196,7 +192,7 @@ Tags cut across every section and list. Use it to see the existing tags before i
 
 ## `slate_recurrence`
 
-Recurring rules spawn an item on a schedule (RFC 5545 RRULE, workspace timezone), or with trigger on_done the next one when the current one is done (reopen: true reuses the same task). skip_weekends moves weekend dates to Monday. Use it instead of filing dated copies of a chore by hand.
+A rule that spawns a task on a schedule, or when the current one is done.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -213,7 +209,7 @@ Recurring rules spawn an item on a schedule (RFC 5545 RRULE, workspace timezone)
 
 ## `slate_account`
 
-Accounts are the people and agents who own and change items; assignees are account handles. Use `me` to learn who you are; the other actions need an admin token.
+People and agents. `me` says who you are; the other actions need an admin token.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -230,17 +226,9 @@ Accounts are the people and agents who own and change items; assignees are accou
 | `agent_rules` | `admin` | — | `GET /settings/agents` | what agent accounts may never do here, whatever their token (admin) |
 | `set_agent_rules` | `admin` | `denied`\* | `PUT /settings/agents` | replace what agents may never do: `denied` lists action keys (owner or admin person) |
 
-## `slate_today`
-
-Your day across every section: overdue, due before midnight workspace time, and items waiting on you, most urgent first. Use it to decide what to work on next.
-
-| Action | Scope | Params | REST | What |
-|---|---|---|---|---|
-| `get` | `read` | `fields` | `GET /today` | overdue, due today, waiting on you (`fields` trims each item) |
-
 ## `slate_checkin`
 
-Start here each time you wake: `queue` is your open items (assigned to you or waiting on you), most urgent first; `news` is what other accounts did that concerns you since your last call (assigned, unassigned, mentioned, reply, waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread reply carries the message in `after` (answer with slate_chat). Keep `next_since` and pass it back as `since`.
+Your open tasks and what changed for you since a cursor. Take work with slate_work.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -248,7 +236,7 @@ Start here each time you wake: `queue` is your open items (assigned to you or wa
 
 ## `slate_work`
 
-The agent work loop in three calls: `next` takes your best free task (with a lease so nobody else takes it), `heartbeat` keeps it while you work, `finish` reports back (outcome, comment, hand-off) and can take the next one. Use it instead of picking tasks from slate_checkin by hand.
+Take a task, keep the lease while you work, and finish it.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -256,21 +244,18 @@ The agent work loop in three calls: `next` takes your best free task (with a lea
 | `chat_heartbeat` | `write` | `run_id`, `channel`\*, `thread_id`, `lease_seconds` | `POST /work/chat/heartbeat` | renew a chat turn with its run_id proof |
 | `chat_finish` | `write` | `run_id`, `channel`\*, `thread_id`, `outcome`\*, `reply`, `note` | `POST /work/chat/finish` | settle only the proved chat attempt; identical retries return its durable receipt |
 | `chat_reconcile` | `write` | `run_id`\*, `state`\*, `evidence`\*, `channel`\*, `thread_id` | `POST /work/chat/reconcile` | confirm remote chat termination with run proof and actual runtime evidence |
-| `chat_clear` | `write` | `channel`\*, `thread_id`, `agent_id`\* | `POST /work/chat/clear` | a person's Clear of an agent's expired chat turn (its runner lost the run proof): the turn ends as released and reconciled by you, and a mention that waited in it is the agent's next turn |
 | `doc_heartbeat` | `write` | `run_id`, `doc_id`\*, `thread_id`, `lease_seconds` | `POST /work/doc/heartbeat` | renew a doc turn (a page mention from next) with its run_id proof |
 | `doc_finish` | `write` | `run_id`, `doc_id`\*, `thread_id`, `outcome`\*, `reply`, `note` | `POST /work/doc/finish` | end a doc turn: done with reply posts your comment in the thread (a new discussion thread for a mention in the page body); release posts nothing. Identical retries return its durable receipt |
 | `doc_reconcile` | `write` | `run_id`\*, `state`\*, `evidence`\*, `doc_id`\*, `thread_id` | `POST /work/doc/reconcile` | confirm remote doc-turn termination with run proof and actual runtime evidence |
-| `doc_clear` | `write` | `doc_id`\*, `thread_id`, `agent_id`\* | `POST /work/doc/clear` | a person's Clear of an agent's expired doc turn, as chat_clear |
-| `next` | `write` | `kinds`, `run_id`, `lease_seconds`, `pool`, `list_id`, `section_id`, `tag`, `item_id`, `channel`, `thread_id`, `doc_id`, `resume`, `note`, `context`, `wait` | `POST /work/next` | take your next task: the best open one assigned to you or waiting on you (pool: also unassigned ones) that is not blocked, not held by another agent and not waiting on a person; priority order, then due date. It is yours for lease_seconds; item is null when none is free (wait: long-poll for one) |
+| `next` | `write` | `kinds`, `run_id`, `lease_seconds`, `pool`, `list_id`, `section_id`, `tag`, `item_id`, `channel`, `thread_id`, `doc_id`, `note`, `context`, `wait` | `POST /work/next` | take your next task: the best open one assigned to you or waiting on you (pool: also unassigned ones) that is not blocked, not held by another agent and not waiting on a person; priority order, then due date. It is yours for lease_seconds; item is null when none is free (wait: long-poll for one) |
 | `heartbeat` | `write` | `run_id`, `lease_seconds`, `note`, `progress`, `url`, `thread`, `seen`, `item_id`\* | `POST /work/{item_id}/heartbeat` | keep holding the task (the lease runs lease_seconds from now); note/progress update the badge. The answer carries messages (Asks sent to you since the take: read them, then heartbeat with seen: [ids]) and stop (someone asked you to stop: finish answered, saying where you stopped). An error saying you do not hold it means stop: another agent has it |
 | `activity` | `write` | `run_id`, `lines`\*, `item_id`\* | `POST /work/{item_id}/activity` | say what you are doing on a task you hold, as it happens (lines: short strings); shown live in the task window, never stored |
-| `finish` | `write` | `run_id`, `outcome`\*, `note`, `comment`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`, `next`, `item_id`\* | `POST /work/{item_id}/finish` | report back in one call (run_id from next's lease): outcome done / review / later (stay assigned, no badge, the due time still to come runs you again) / ask (question, options: the only way to stop the card on a person) / answered (reply: nothing else changes) / failed (note: the machine broke; nobody is asked, Slate retries) / blocked (on an agent or nobody) / release, a note posted as your comment, a status, hand_to another account; next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, not resolution; asked-only agent done explicitly resolves only its taken Asks. New/reassigned Asks during the run remain pending; humans must explicitly resolve |
+| `finish` | `write` | `run_id`, `outcome`\*, `note`, `progress`, `status`, `hand_to`, `waiting_on`, `question`, `options`, `url`, `reply`, `thread`, `item_id`\* | `POST /work/{item_id}/finish` | report back (run_id from next's lease). outcome is done, review, later, ask (question: one line), answered (reply), failed (note: what broke), blocked or release. reply is your comment; status is a column name or id. Take the next task with next, in its own call |
 | `held` | `read` | — | `GET /work` | the tasks you hold now and when each lease runs out |
-| `plan` | `read` | — | `GET /agents/plan` | what each agent is about to run in the next 24 h, by the same rule as `next`: tasks whose run time comes (reason due), Run now presses (run_requested), open Asks (ask), and the tasks each holds now with their age; soonest first |
 
 ## `slate_doc`
 
-Docs are nested Markdown pages (plans, notes, specs, logs) in a list, a section or the workspace, with page history; [[task:<id>]] embeds a live task card. Use it to keep a plan or work log, read what people wrote, or file tasks from a page. A page that starts with a ```facts block of `key: value` lines (a policy number, a renewal date) is a record: `get` returns them as `facts` and search finds a value; write or change them with `update` like any body text.
+Markdown pages and files in a list or section, with history.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -313,7 +298,7 @@ Docs are nested Markdown pages (plans, notes, specs, logs) in a list, a section 
 
 ## `slate_agents`
 
-The roster of agent accounts: who is online, what each is working on (their current reports), how many open items each holds. Use it before picking up work, to see whether another agent is already on it.
+Which agents are online and what each is working on.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -321,7 +306,7 @@ The roster of agent accounts: who is online, what each is working on (their curr
 
 ## `slate_health`
 
-Whether Slate is working: background pollers, engines, error rates and slow calls per token, failed automations and queue depths (owners and admins). Use it when calls fail or seem slow, before reporting Slate as broken.
+Whether Slate is working. Owners and admins.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -329,7 +314,7 @@ Whether Slate is working: background pollers, engines, error rates and slow call
 
 ## `slate_batch`
 
-Run up to 100 calls of the other tools in one round trip, all-or-nothing by default (atomic: false commits each op alone). Use it to file or change many things at once; a string param `$ref.field` reuses an earlier op's result.
+Up to 100 other calls in one round trip. atomic false commits each one alone.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -337,7 +322,7 @@ Run up to 100 calls of the other tools in one round trip, all-or-nothing by defa
 
 ## `slate_events`
 
-Every change on Slate is an event with an actor. Use it to catch up on everything that changed, or audit one account (actor); keep next_since and pass it back as since. For only what concerns you, slate_checkin is the filtered version.
+Every change, oldest first after a cursor.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -345,7 +330,7 @@ Every change on Slate is an event with an actor. Use it to catch up on everythin
 
 ## `slate_share`
 
-Who can see and change what: share a section or list with a person or agent at view, comment or edit, make one private, and see who reaches it. Owner and admin only; roles are slate_account set_role.
+Who can see a section or list. Owner and admin.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -356,7 +341,7 @@ Who can see and change what: share a section or list with a person or agent at v
 
 ## `slate_audit`
 
-The audit log: every change with who did it (person or agent), when, through which door (ui, api, mcp, system) and on what, newest first. Use it to answer who changed this, or what an agent did today; it only shows what your access can read.
+Who changed what, newest first.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -365,7 +350,7 @@ The audit log: every change with who did it (person or agent), when, through whi
 
 ## `slate_export`
 
-Take Slate's data out: a list, a section or everything as one JSON document with every task, comment, checklist and link. Use it for a report, an archive or a move; empty_trash (admins) clears the trash for good.
+A list, a section or everything as one JSON document.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
@@ -374,7 +359,7 @@ Take Slate's data out: a list, a section or everything as one JSON document with
 
 ## `slate_search`
 
-One search over everything on Slate: tasks (title and description), docs (title, page text and the text inside files) and chat messages, as typed hits. Use it when you are looking for something and do not know whether it is a task, a page or a message.
+Find text in tasks, pages and chat.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|

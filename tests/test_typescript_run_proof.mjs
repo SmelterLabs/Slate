@@ -14,7 +14,10 @@ for (const denied of [false, true]) {
       mutations.push({url, body});
       if (url.endsWith('/heartbeat') && denied) return Response.json({detail:'lost access'}, {status:403});
       if (url.endsWith('/heartbeat')) return Response.json({run_id:'attempt-proof'});
-      if (url.endsWith('/finish')) return Response.json({item:{id:'task'}, next:null});
+      if (url.endsWith('/finish')) {
+        assert.equal('next' in body, false);
+        return Response.json({item:{id:'task'}});
+      }
       throw new Error(`unexpected ${url}`);
     }});
     const run = sdk.workForever(() => 'answer', {once:true, wait:0});

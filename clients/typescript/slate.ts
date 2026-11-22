@@ -4,10 +4,11 @@
 //   import { Slate, SlateError } from './slate';
 //
 //   const slate = new Slate('https://slate.example.com', token, { sessionRef: 'nightly-42' });
-//   let task = await slate.next({ wait: 30 }); // your best free task (item null: none came)
-//   while (task?.item) {
+//   let task = await slate.next({ wait: 30, kinds: ['task'] });
+//   while (task?.item && task.lease?.run_id) {
 //     // ... do the work; slate.heartbeat(task.item.id) if it takes long
-//     task = (await slate.finish(task.item.id, 'done', 'Shipped: https://...', { next: { wait: 30 } })).next;
+//     await slate.finish(task.item.id, 'done', 'Shipped: https://...', { run_id: task.lease.run_id });
+//     task = await slate.next({ wait: 30, kinds: ['task'] });
 //   }
 //
 // Or let it run the loop: `await slate.workForever(handle)`. React instead of polling with
@@ -79,7 +80,6 @@ export type FinishOptions = {
   options?: string[];
   progress?: number;
   comment?: boolean;
-  next?: NextOptions;
 };
 export type StreamMessage = { event: 'news' | 'work'; id: string; data: Record<string, unknown> };
 export type BatchOp = { tool: string; action?: string; params?: Record<string, unknown>; ref?: string };
@@ -257,9 +257,9 @@ export class Slate {
   heartbeat(id: string, opts: { run_id?: string; lease_seconds?: number; note?: string; progress?: number; seen?: string[] } = {}) {
     return this.post<Lease & { stop?: { by: string | null; at: string } | null; messages?: Record<string, unknown>[] }>(`/work/${encodeURIComponent(id)}/heartbeat`, opts);
   }
-  /** Report back in one call (outcome, note as a comment, hand_to...); `next` also takes the next task. */
+  /** Report back (outcome, note as a comment, hand_to...). Take more work with a separate next(). */
   finish(id: string, outcome: Outcome = 'done', note?: string, opts: FinishOptions = {}) {
-    return this.post<{ item: Item; next: Task | null }>(`/work/${encodeURIComponent(id)}/finish`, {
+    return this.post<{ item: Item }>(`/work/${encodeURIComponent(id)}/finish`, {
       outcome,
       ...(note === undefined ? {} : { note }),
       ...opts,

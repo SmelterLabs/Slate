@@ -319,8 +319,9 @@
         </div>
       {/if}
       <p class="muted small">
-        Next: the agent checks in with <code>GET /api/v1/checkin</code> (MCP <code>slate_checkin</code>), claims an
-        item, reports while it works and reports done. The loop is in <code>docs/agents/quickstart.md</code>.
+        For the MCP work loop, start with <code>slate_work next</code> and set <code>kinds</code> to
+        <code>["task"]</code> for cards. An interactive session can claim a card with <code>slate_item report</code>.
+        For REST check-in, use <code>GET /api/v1/checkin</code>. See <code>docs/agents/quickstart.md</code>.
       </p>
       <div class="inline end"><button class="primary" onclick={onclose}>Done</button></div>
     </section>

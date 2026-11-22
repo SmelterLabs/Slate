@@ -29,7 +29,7 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, Response
 from mcp import types as mcp_types
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, model_validator
 from pydantic.fields import FieldInfo
 from sqlalchemy.orm import Session
 
@@ -147,6 +147,19 @@ def with_id(
 def strict(model: type[BaseModel]) -> type[BaseModel]:
     """A REST request model as MCP params: the same fields, unknown ones refused."""
     return with_id(model, None)
+
+
+def omit(model: type[BaseModel], *names: str) -> type[BaseModel]:
+    """A strict copy of `model` without `names`. The REST model keeps those fields."""
+    fields: dict[str, Any] = {}
+    for key, info in model.model_fields.items():
+        if key not in names:
+            fields[key] = (info.annotation, info)
+    return create_model(
+        f"{model.__name__}Sans{''.join(_camel(n) for n in names)}",
+        __config__=ConfigDict(extra="forbid"),
+        **fields,
+    )
 
 
 def _route_of(fn: Callable[..., Any]) -> Any:
@@ -342,23 +355,6 @@ ItemQuery = query_model(
 )
 
 
-# Narrow actions: one intent, one field, on the same PATCH route as `update`.
-class ItemStatus(ItemRef):
-    status: str = Field(description="Status id or name in the item's list")
-
-
-class ItemAssign(ItemRef):
-    assignees: list[str] = Field(description="Account handles or ids; replaces the whole set")
-
-
-class ItemTags(ItemRef):
-    tags: list[str] = Field(description="Tag names; replaces the whole set, new tags are created")
-
-
-class ItemComment(ItemRef):
-    body_md: str = Field(min_length=1, description="Markdown")
-
-
 class AttachmentRef(P):
     id: str = Field(description="Attachment id")
 
@@ -426,19 +422,45 @@ class CheckinQuery(P):
     )
 
 
-class WorkNext(NextIn):
+class WorkNext(omit(NextIn, "resume")):
     wait: int = Field(
         default=0, ge=0, le=MCP_WAIT, description="Seconds to wait for a task when none is free"
     )
 
 
-class WorkFinish(FinishIn):
-    item_id: str = Field(description="The task you hold")
-    # A plain object here: a nested model would put a $ref in the tool's input schema.
-    next: dict[str, Any] | None = Field(
-        default=None,
-        description="Also take your next task: the params of `next` (`{}` for the defaults)",
+class WorkFinish(omit(FinishIn, "comment")):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "if": {"properties": {"outcome": {"const": "failed"}}, "required": ["outcome"]},
+            "then": {
+                "required": ["note"],
+                "properties": {"note": {"type": "string", "pattern": r"\S"}},
+            },
+            "else": {
+                "if": {
+                    "properties": {"hand_to": {"type": "string", "minLength": 1}},
+                    "required": ["hand_to"],
+                },
+                "else": {"not": {"required": ["note"]}},
+            },
+        },
     )
+    item_id: str = Field(description="The task you hold")
+    note: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="With failed: what broke, never posted. With hand_to: the hand-off message.",
+    )
+
+    @model_validator(mode="after")
+    def failure_note(self):
+        if self.outcome == "failed":
+            if not (self.note or "").strip():
+                raise ValueError("failed needs a note: what broke")
+        elif not self.hand_to and "note" in self.model_fields_set:
+            raise ValueError("note is only for failed or hand_to; use reply to post a comment")
+        return self
 
 
 class RecurrenceRef(P):
@@ -675,24 +697,13 @@ ITEM_ACTIONS = {
     ),
     "update": bind(
         items_api.update_item,
-        "change any fields; null clears; assignees/tags replace the set",
+        "change any fields; null clears; status, assignees and tags replace the set",
         with_id(ItemPatch, "id", "Item id"),
     ),
-    "set_status": bind(
-        items_api.update_item, "move to a status of its list (done stamps completed_at)", ItemStatus
-    ),
-    "assign": bind(
-        items_api.update_item,
-        "set who it is assigned to (replaces the set; to take an item yourself, `report` with "
-        "assign_me)",
-        ItemAssign,
-    ),
-    "tag": bind(items_api.update_item, "set its tags", ItemTags),
     "report": bind(
         items_api.report,
-        "say what you are doing on it: state working / blocked / review shows a live badge on "
-        "the card (with note and progress); done clears it and completes the item; idle clears "
-        "it. The note is also posted as your comment",
+        "say what you are doing on it: working, blocked, review or failed sets a badge; "
+        "done and idle clear it. Take a task with slate_work next",
         with_id(ReportIn, "id", "Item id"),
         send="set",
     ),
@@ -718,7 +729,6 @@ ITEM_ACTIONS = {
         "[option | option]`; a comment ending so reports back",
         query_model(items_api.get_brief, id=ITEM_ID),
     ),
-    "comment": bind(comments_api.add_comment, "add a comment", ItemComment),
     "bulk_update": bind(
         items_api.bulk_update, "apply one change to many items at once (all or nothing; up to 500)"
     ),
@@ -1029,6 +1039,16 @@ TODAY_ACTIONS = {
     )
 }
 
+# Not a listed tool. `slate://today` still renders this. Agents use slate_work and slate_item.
+TODAY_SPEC = ToolSpec(
+    "slate_today",
+    "Slate today",
+    "Overdue, due today and waiting on you.",
+    {},
+    TODAY_ACTIONS,
+    read_only=True,
+)
+
 
 def _checkin(lc: Local, p: CheckinQuery) -> dict:
     try:
@@ -1059,22 +1079,17 @@ CHECKIN_ACTIONS = {
 }
 
 
-def _take_next(lc: Local, p: NextIn) -> dict:
+def _take_next(lc: Local, p: WorkNext) -> dict:
+    body = NextIn.model_validate(p.model_dump(exclude_unset=True))
     got = longpoll.wait_sync(
-        lambda: work_api.take_next(lc.session, lc.actor, p), p.wait, lc.session
+        lambda: work_api.take_next(lc.session, lc.actor, body), p.wait, lc.session
     )
     return got or work_api.nothing()
 
 
 def _work_finish(lc: Local, p: WorkFinish) -> dict:
-    item = work.finish(lc.session, lc.actor, p.item_id, **_fields(p, "item_id", "next"))
-    nxt = None
-    if p.next is not None and not lc.session.info.get("work_finish_replayed"):
-        try:
-            nxt = _take_next(lc, WorkNext.model_validate(p.next))
-        except ValidationError as exc:
-            raise ToolError(f"next: {exc}") from None
-    return _dump(FinishOut, {"item": items.views(lc.session, [item])[0], "next": nxt})
+    item = work.finish(lc.session, lc.actor, p.item_id, **_fields(p, "item_id"))
+    return _dump(FinishOut, {"item": items.views(lc.session, [item])[0]})
 
 
 WORK_ACTIONS = {
@@ -1093,12 +1108,6 @@ WORK_ACTIONS = {
         work_api.chat_reconcile,
         "confirm remote chat termination with run proof and actual runtime evidence",
     ),
-    "chat_clear": bind(
-        work_api.chat_clear,
-        "a person's Clear of an agent's expired chat turn (its runner lost the run proof): "
-        "the turn ends as released and reconciled by you, and a mention that waited in it is "
-        "the agent's next turn",
-    ),
     "doc_heartbeat": bind(
         work_api.doc_heartbeat, "renew a doc turn (a page mention from next) with its run_id proof"
     ),
@@ -1111,9 +1120,6 @@ WORK_ACTIONS = {
     "doc_reconcile": bind(
         work_api.doc_reconcile,
         "confirm remote doc-turn termination with run proof and actual runtime evidence",
-    ),
-    "doc_clear": bind(
-        work_api.doc_clear, "a person's Clear of an agent's expired doc turn, as chat_clear"
     ),
     "next": bind(
         work_api.next_task,
@@ -1141,25 +1147,14 @@ WORK_ACTIONS = {
     ),
     "finish": bind(
         work_api.finish,
-        "report back in one call (run_id from next's lease): outcome done / review / later "
-        "(stay assigned, no badge, the due time still to come runs you again) / ask (question, "
-        "options: the only way to stop the card on a person) / answered (reply: nothing else "
-        "changes) / failed (note: the machine broke; nobody is asked, Slate retries) / blocked "
-        "(on an agent or nobody) / release, a note posted as your comment, a status, hand_to "
-        "another account; "
-        "next: {} also takes your next task. Agent finishes consume only taken Ask dispatches, "
-        "not resolution; asked-only agent done explicitly resolves only its taken Asks. "
-        "New/reassigned Asks during the run remain pending; humans must explicitly resolve",
+        "report back (run_id from next's lease). outcome is done, review, later, ask "
+        "(question: one line), answered (reply), failed (note: what broke), blocked or "
+        "release. reply is your comment; status is a column name or id. Take the next "
+        "task with next, in its own call",
         WorkFinish,
         local=_work_finish,
     ),
     "held": bind(work_api.my_leases, "the tasks you hold now and when each lease runs out"),
-    "plan": bind(
-        agents_api.agents_plan,
-        "what each agent is about to run in the next 24 h, by the same rule as `next`: tasks "
-        "whose run time comes (reason due), Run now presses (run_requested), open Asks (ask), "
-        "and the tasks each holds now with their age; soonest first",
-    ),
 }
 
 HEALTH_ACTIONS = {
@@ -1704,10 +1699,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_item",
             "Slate items",
-            "Read and change items (tasks) on Slate, the workspace's task board: find, file, "
-            "update, move, assign, tag, comment, report what you are doing (live badge), "
-            "archive, split and read history. Use it whenever you file, look up or progress a "
-            "piece of work.",
+            "Read and change tasks: file one, update it, report progress, split or archive it.",
             {
                 "action": "create",
                 "params": {
@@ -1722,22 +1714,14 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_comment",
             "Slate comments",
-            "Comments are the conversation on an item; @handle mentions an account and reaches "
-            "their inbox. Use it to ask someone something, answer, or react; "
-            "for progress on work you hold, slate_item report shows it on the card.",
+            "The conversation on a task. @handle mentions an account.",
             {"action": "add", "params": {"id": "Ab12Cd34Ef56", "body_md": "Done, @alex"}},
             COMMENT_ACTIONS,
         ),
         ToolSpec(
             "slate_chat",
             "Slate chat",
-            "Chat channels: General, one per section, one per list and one per agent (channel "
-            "`general`, `list:<id>`, `section:<id>`, `agent:<id>`), with threads, reactions and "
-            "@mentions. Use it to talk with people and other agents about a list's work, answer a "
-            "mention or thread reply from check-in, or turn a message into a task. Your own chat "
-            "(`agent:<your id>`) is where a person talks to you outside any card: every message "
-            "they post there mentions you; answer there. A message's `files` are what was sent "
-            "with it (a screenshot, a PDF): read one with GET /api/v1/message-files/<id>.",
+            "Channels for general, a list, a section or an agent, with threads and mentions.",
             {"action": "post", "params": {"channel": "general", "body_md": "On it, @alex"}},
             CHAT_ACTIONS,
             destructive=True,
@@ -1745,8 +1729,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_checklist",
             "Slate checklists",
-            "Checklists are small ticked to-dos inside one item, not subtasks. Use them for steps "
-            "of a single piece of work; tick entries as you finish them.",
+            "Ticked steps inside one task. They are not subtasks.",
             {
                 "action": "create",
                 "params": {"item_id": "Ab12Cd34Ef56", "name": "Steps", "items": ["call", "pay"]},
@@ -1757,13 +1740,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_view",
             "Slate saved views",
-            "A view is a saved lens: layout (board, list or table), group_by (due, status, "
-            "priority, assignee, tag, list, section, status_kind), sort, and a filter of "
-            "{op, rules} where each rule is {field, cmp, value} or a nested group. Use it to "
-            "build or adjust the lenses people look at. Example config: "
-            "{layout: board, group_by: due, due_window_days: 6, "
-            "sort: [{field: priority, dir: desc}, {field: due, dir: asc}], "
-            "filter: {op: and, rules: [{field: status_kind, cmp: is, value: [open, active]}]}}.",
+            "A saved lens: layout, grouping, sort and filter.",
             {"action": "list", "params": {"scope": "everything"}},
             VIEW_ACTIONS,
             destructive=True,
@@ -1771,19 +1748,14 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_favorite",
             "Slate favorites",
-            "Favorites are your own pinned lists, sections, saved views and items, shown as "
-            "one-click chips across the top of the board. Use it to pin what you (or the "
-            "account whose token you hold) will open often, or to reorder the bar.",
+            "Your pinned lists, sections, views and tasks.",
             {"action": "add", "params": {"kind": "list", "target_id": "Ab12Cd34Ef56"}},
             FAVORITE_ACTIONS,
         ),
         ToolSpec(
             "slate_automation",
             "Slate automations",
-            "Automations are when-this-then-that rules on a list, section or everywhere: a "
-            "trigger (status changes, assignee added, due date passes...), optional conditions "
-            "and actions (set status, assign, tag, comment, move, call a webhook). Use it to "
-            "set up routine handling once instead of doing it by hand; read catalog first.",
+            "When-this-then-that rules. Read catalog before you create one.",
             {
                 "action": "create",
                 "params": {
@@ -1799,26 +1771,21 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_reminder",
             "Slate reminders",
-            "Reminders tell an account about an item at a time, or a set time before its due "
-            "date, through its inbox, check-in and phone and desktop notifications. Use it to "
-            "follow up on something later; digest shows today's overdue and due work.",
+            "Tell an account about a task at a time, or before it is due.",
             {"action": "add", "params": {"item_id": "Ab12Cd34Ef56", "before_minutes": 60}},
             REMINDER_ACTIONS,
         ),
         ToolSpec(
             "slate_inbox",
             "Slate inbox",
-            "Your notifications as the board's Inbox shows them: who mentioned you, what you "
-            "were assigned, and what changed on items you follow, with read state. Mark what "
-            "you handled as read. To poll for work on a cursor, slate_checkin is quicker.",
+            "Your notifications: mentions, assignments and changes on tasks you follow.",
             {"action": "list", "params": {"unread": True}},
             INBOX_ACTIONS,
         ),
         ToolSpec(
             "slate_list",
             "Slate lists",
-            "Lists live in a section and own their statuses, which are the board's columns. Use "
-            "it to find a list_id before filing items, or to create, rename or re-column a list.",
+            "A list lives in a section and owns its columns. Read its note before you file.",
             {"action": "list", "params": {"section_id": "Ab12Cd34Ef56"}},
             LIST_ACTIONS,
             destructive=True,
@@ -1826,9 +1793,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_section",
             "Slate sections",
-            "Sections are the top-level separations (for example Personal and Work). Use it to "
-            "find a section, or to create or rename one when someone asks for a new audience or "
-            "rhythm.",
+            "The top-level groups. Find one, or create one.",
             {"action": "list", "params": {}},
             SECTION_ACTIONS,
             destructive=True,
@@ -1836,8 +1801,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_tag",
             "Slate tags",
-            "Tags cut across every section and list. Use it to see the existing tags before "
-            "inventing one, or to create, rename, recolor, merge or delete a tag.",
+            "Tags cut across every list. See them before you invent one.",
             {"action": "rename", "params": {"tag": "ai project", "name": "ai-project"}},
             TAG_ACTIONS,
             destructive=True,
@@ -1845,10 +1809,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_recurrence",
             "Slate recurring rules",
-            "Recurring rules spawn an item on a schedule (RFC 5545 RRULE, workspace timezone), or "
-            "with trigger on_done the next one when the current one is done (reopen: true reuses "
-            "the same task). skip_weekends moves weekend dates to Monday. Use it instead of "
-            "filing dated copies of a chore by hand.",
+            "A rule that spawns a task on a schedule, or when the current one is done.",
             {
                 "action": "create",
                 "params": {
@@ -1862,29 +1823,14 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_account",
             "Slate accounts",
-            "Accounts are the people and agents who own and change items; assignees are account "
-            "handles. Use `me` to learn who you are; the other actions need an admin token.",
+            "People and agents. `me` says who you are; the other actions need an admin token.",
             {"action": "me"},
             ACCOUNT_ACTIONS,
         ),
         ToolSpec(
-            "slate_today",
-            "Slate today",
-            "Your day across every section: overdue, due before midnight workspace time, and "
-            "items waiting on you, most urgent first. Use it to decide what to work on next.",
-            {},
-            TODAY_ACTIONS,
-            read_only=True,
-        ),
-        ToolSpec(
             "slate_checkin",
             "Slate check-in",
-            "Start here each time you wake: `queue` is your open items (assigned to you or "
-            "waiting on you), most urgent first; `news` is what other accounts did that "
-            "concerns you since your last call (assigned, unassigned, mentioned, reply, "
-            "waiting_on_you, on_your_item, watching, reminder, digest); a chat mention or thread "
-            "reply carries the message in `after` (answer with slate_chat). Keep `next_since` "
-            "and pass it back as `since`.",
+            "Your open tasks and what changed for you since a cursor. Take work with slate_work.",
             {"params": {"since": "0001Ab2Cd3Ef"}},
             CHECKIN_ACTIONS,
             read_only=True,
@@ -1892,17 +1838,14 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_work",
             "Slate work loop",
-            "The agent work loop in three calls: `next` takes your best free task (with a lease "
-            "so nobody else takes it), `heartbeat` keeps it while you work, `finish` reports "
-            "back (outcome, comment, hand-off) and can take the next one. Use it instead "
-            "of picking tasks from slate_checkin by hand.",
+            "Take a task, keep the lease while you work, and finish it.",
             {
                 "action": "finish",
                 "params": {
                     "item_id": "Ab12Cd34Ef56",
                     "run_id": "the run_id from next's lease",
                     "outcome": "done",
-                    "note": "Sent the invoice",
+                    "reply": "Sent the invoice.",
                 },
             },
             WORK_ACTIONS,
@@ -1910,12 +1853,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_doc",
             "Slate docs",
-            "Docs are nested Markdown pages (plans, notes, specs, logs) in a list, a section or "
-            "the workspace, with page history; [[task:<id>]] embeds a live task card. Use it to "
-            "keep a plan or work log, read what people wrote, or file tasks from a page. A page "
-            "that starts with a ```facts block of `key: value` lines (a policy number, a "
-            "renewal date) is a record: `get` returns them as `facts` and search finds a "
-            "value; write or change them with `update` like any body text.",
+            "Markdown pages and files in a list or section, with history.",
             {
                 "action": "update",
                 "params": {"id": "Ab12Cd34Ef56", "append_md": "- 14:05 deployed the fix"},
@@ -1926,9 +1864,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_agents",
             "Slate agents",
-            "The roster of agent accounts: who is online, what each is working on (their "
-            "current reports), how many open items each holds. Use it before picking up work, "
-            "to see whether another agent is already on it.",
+            "Which agents are online and what each is working on.",
             {"params": {}},
             AGENT_ACTIONS,
             read_only=True,
@@ -1936,9 +1872,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_health",
             "Slate health",
-            "Whether Slate is working: background pollers, engines, error "
-            "rates and slow calls per token, failed automations and queue depths (owners and "
-            "admins). Use it when calls fail or seem slow, before reporting Slate as broken.",
+            "Whether Slate is working. Owners and admins.",
             {"params": {}},
             HEALTH_ACTIONS,
             read_only=True,
@@ -1946,9 +1880,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_batch",
             "Slate batch",
-            "Run up to 100 calls of the other tools in one round trip, all-or-nothing by "
-            "default (atomic: false commits each op alone). Use it to file or change many "
-            "things at once; a string param `$ref.field` reuses an earlier op's result.",
+            "Up to 100 other calls in one round trip. atomic false commits each one alone.",
             {
                 "params": {
                     "ops": [
@@ -1972,9 +1904,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_events",
             "Slate events",
-            "Every change on Slate is an event with an actor. Use it to catch up on everything "
-            "that changed, or audit one account (actor); keep next_since and pass it back as "
-            "since. For only what concerns you, slate_checkin is the filtered version.",
+            "Every change, oldest first after a cursor.",
             {"params": {"since": "0", "type": "item.assigned,item.commented"}},
             EVENT_ACTIONS,
             read_only=True,
@@ -1982,9 +1912,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_share",
             "Slate sharing",
-            "Who can see and change what: share a section or list with a person or agent at "
-            "view, comment or edit, make one private, and see who reaches it. Owner and admin "
-            "only; roles are slate_account set_role.",
+            "Who can see a section or list. Owner and admin.",
             {
                 "action": "set",
                 "params": {
@@ -1999,9 +1927,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_audit",
             "Slate audit log",
-            "The audit log: every change with who did it (person or agent), when, through which "
-            "door (ui, api, mcp, system) and on what, newest first. Use it to answer who changed "
-            "this, or what an agent did today; it only shows what your access can read.",
+            "Who changed what, newest first.",
             {"action": "list", "params": {"actor_kind": "agent", "limit": 50}},
             AUDIT_ACTIONS,
             read_only=True,
@@ -2009,9 +1935,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_export",
             "Slate export",
-            "Take Slate's data out: a list, a section or everything as one JSON document with "
-            "every task, comment, checklist and link. Use it for a report, an "
-            "archive or a move; empty_trash (admins) clears the trash for good.",
+            "A list, a section or everything as one JSON document.",
             {"action": "json", "params": {"list_id": "Ab12Cd34Ef56"}},
             EXPORT_ACTIONS,
             destructive=True,
@@ -2019,11 +1943,8 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "slate_search",
             "Slate search",
-            "One search over everything on Slate: tasks (title and description), docs (title, "
-            "page text and the text inside files) and chat messages, as typed hits. Use it when "
-            "you are looking for something and do not know whether it is a task, a page or a "
-            "message.",
-            {"action": "search", "params": {"q": "passport", "limit": 30}},
+            "Find text in tasks, pages and chat.",
+            {"params": {"q": "passport", "limit": 30}},
             SEARCH_ACTIONS,
             read_only=True,
         ),
@@ -2032,6 +1953,15 @@ TOOLS: dict[str, ToolSpec] = {
 
 
 # --- tool schemas and descriptions ----------------------------------------------------------
+
+# Listed when the server is started with no tool flag and no SLATE_MCP_TOOLS.
+CORE = ("slate_work", "slate_item", "slate_comment", "slate_search", "slate_list")
+
+_SESSION_REF = {
+    "type": "string",
+    "maxLength": 200,
+    "description": "Optional: your run or session id, recorded on every event written.",
+}
 
 
 def _strip_titles(node: Any) -> Any:
@@ -2051,118 +1981,121 @@ def single_action(spec: ToolSpec) -> bool:
     return len(spec.actions) == 1
 
 
-def _shape(prop: dict[str, Any]) -> str:
-    return json.dumps(
-        {k: v for k, v in prop.items() if k not in ("description", "default")}, sort_keys=True
-    )
+def _params_schema(
+    action: Action, *, strip_defaults: bool
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    schema = _strip_titles(action.params.model_json_schema())
+    props = schema.get("properties") or {}
+    if strip_defaults:
+        # A default on a shared params object is applied by some clients to every call.
+        # On a branch it would still reset an update when the client fills it in.
+        for prop in props.values():
+            if isinstance(prop, dict):
+                prop.pop("default", None)
+    params: dict[str, Any] = {
+        **{key: schema[key] for key in ("if", "then", "else") if key in schema},
+        "type": "object",
+        "additionalProperties": False,
+        "properties": props,
+    }
+    if schema.get("required"):
+        params["required"] = list(schema["required"])
+    return params, schema.get("$defs") or {}
 
 
-def _resolve(prop: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
-    """A `$ref` to a shared enum replaced by that enum's schema (one level)."""
-    ref = prop.get("$ref", "")
-    if ref.startswith("#/$defs/") and ref[len("#/$defs/") :] in defs:
-        return {**defs[ref[len("#/$defs/") :]], **{k: v for k, v in prop.items() if k != "$ref"}}
-    return prop
-
-
-def _merged_prop(shapes: list[dict[str, Any]], defs: dict[str, Any]) -> dict[str, Any]:
-    """Several actions' schemas for one param name as a single schema accepting all of them."""
-    resolved = [_resolve(p, defs) for p in shapes]
-    enums: list[str] = []
-    all_enums = True
-    for r in resolved:
-        for o in [_resolve(o, defs) for o in r.get("anyOf", [r])]:
-            if o.get("type") == "null":
-                continue
-            values = [o["const"]] if "const" in o else o.get("enum")  # Literal["x"] is a const
-            if isinstance(values, list) and all(isinstance(e, str) for e in values):
-                enums.extend(e for e in values if e not in enums)
-            else:
-                all_enums = False
-    if all_enums and enums:
-        return {"type": "string", "enum": enums}
-    out: list[dict[str, Any]] = []
-    for r in resolved:
-        for o in r.get("anyOf", [r]):
-            clean = {k: v for k, v in o.items() if k not in ("description", "default")}
-            if clean not in out:
-                out.append(clean)
-    return {"anyOf": out}
+def _branch(
+    name: str,
+    action: Action,
+    *,
+    with_action: bool,
+    session: bool,
+    strip_defaults: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    params, defs = _params_schema(action, strip_defaults=strip_defaults)
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    if with_action:
+        properties["action"] = {"type": "string", "const": name}
+        required.append("action")
+    properties["params"] = params
+    if params.get("required"):
+        required.append("params")
+    if session:
+        properties["session_ref"] = dict(_SESSION_REF)
+    branch: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+    }
+    if required:
+        branch["required"] = required
+    return branch, defs
 
 
 def input_schema(spec: ToolSpec) -> dict[str, Any]:
-    """`{action, params, session_ref}`; params merges every action's fields (shared $defs)."""
-    props: dict[str, Any] = {}
-    used: dict[str, list[str]] = {}
-    defs: dict[str, Any] = {}
-    variants: dict[str, list[dict[str, Any]]] = {}
-    for name, action in spec.actions.items():
-        schema = _strip_titles(action.params.model_json_schema())
-        defs.update(schema.get("$defs", {}))
-        for key, prop in schema.get("properties", {}).items():
-            props.setdefault(key, prop)
-            used.setdefault(key, []).append(name)
-            if _shape(prop) not in [_shape(v) for v in variants.setdefault(key, [])]:
-                variants[key].append(prop)
-    # One name, different shapes across actions (`kind` is the item kind for `list` and the
-    # link kind for `link`): a strict client validates against the merged schema, so the merged
-    # field must accept every action's values. Enums of strings fold into one enum; anything
-    # else becomes anyOf. Otherwise the first action's shape wins and `link` is unusable from
-    # clients that validate.
-    for key, shapes in variants.items():
-        if len(shapes) > 1:
-            props[key] = _merged_prop(shapes, defs)
-    if not single_action(spec):
-        for key, prop in props.items():
-            # A default from one action is not a default for the merged field. Clients
-            # that fill it in can inject invalid extras or turn a PATCH into a reset.
-            # Keep defaults in single-action schemas and nested objects/$defs intact.
-            prop.pop("default", None)
-            note = f"For: {', '.join(used[key])}."
-            prop["description"] = f"{prop['description']} {note}" if "description" in prop else note
+    """One object per action.
 
-    out: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
-    if not single_action(spec):
-        out["properties"]["action"] = {"type": "string", "enum": list(spec.actions)}
-        out["required"] = ["action"]
-    if props:
-        out["properties"]["params"] = {
-            "type": "object",
-            "description": "Fields for the chosen action; see the tool description.",
-            "properties": props,
-        }
-    if any(a.scope != "read" for a in spec.actions.values()):
-        out["properties"]["session_ref"] = {
-            "type": "string",
-            "maxLength": 200,
-            "description": "Optional: your run or session id, recorded on every event written.",
-        }
+    MCP requires ``type: object`` at the root of a tool schema, so a root that is only
+    ``oneOf`` is not safe. The root stays an object and ``oneOf`` sits beside it, each
+    branch carrying only that action's fields (discriminated by ``action``). ``$defs``
+    stay on the root: a ``#/$defs`` reference resolves against the document, not the branch.
+    """
+    session = any(action.scope != "read" for action in spec.actions.values())
+    if single_action(spec):
+        name, action = next(iter(spec.actions.items()))
+        branch, defs = _branch(
+            name, action, with_action=False, session=session, strip_defaults=False
+        )
+        if defs:
+            branch["$defs"] = defs
+        return branch
+
+    defs: dict[str, Any] = {}
+    branches: list[dict[str, Any]] = []
+    for name, action in spec.actions.items():
+        branch, action_defs = _branch(
+            name, action, with_action=True, session=session, strip_defaults=True
+        )
+        for key, value in action_defs.items():
+            if key in defs and defs[key] != value:
+                raise RuntimeError(f"{spec.name}: $defs '{key}' differs across actions")
+            defs[key] = value
+        branches.append(branch)
+    out: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "action": {"type": "string", "enum": list(spec.actions)},
+            "params": {"type": "object"},
+        },
+        "required": ["action"],
+        "oneOf": branches,
+    }
+    if session:
+        out["properties"]["session_ref"] = dict(_SESSION_REF)
     if defs:
         out["$defs"] = defs
     return out
 
 
-def _action_line(name: str, action: Action) -> str:
-    fields = action.params.model_fields
-    required = [k for k, f in fields.items() if f.is_required()]
-    optional = [k for k, f in fields.items() if not f.is_required()]
-    parts = [", ".join(required)] if required else []
-    if optional:
-        parts.append(f"optional {', '.join(optional)}")
-    return f"- {name}: {action.doc}." + (f" Params: {'; '.join(parts)}." if parts else "")
-
-
 def description(spec: ToolSpec) -> str:
-    lines = [spec.about, RULE]
-    if single_action(spec):
-        lines.append(f"Returns {spec.actions[next(iter(spec.actions))].doc}.")
-    else:
-        lines += ["Actions:", *(_action_line(n, a) for n, a in spec.actions.items())]
+    lines = [spec.about]
+    if spec.name == "slate_work":
+        lines.append("Start here.")
+        lines.append(RULE)
     lines.append(f"Example: {json.dumps(spec.example)}")
     return "\n".join(lines)
 
 
-def tool_list() -> list[mcp_types.Tool]:
+def tool_list(names: list[str] | tuple[str, ...] | None = None) -> list[mcp_types.Tool]:
+    """The tools `names` names, in that order. None lists every tool."""
+    if names is None:
+        specs = list(TOOLS.values())
+    else:
+        missing = [name for name in names if name not in TOOLS]
+        if missing:
+            raise ToolError(f"unknown tool '{missing[0]}'; tools: {', '.join(TOOLS)}")
+        specs = [TOOLS[name] for name in names]
     return [
         mcp_types.Tool(
             name=spec.name,
@@ -2176,5 +2109,5 @@ def tool_list() -> list[mcp_types.Tool]:
                 open_world_hint=False,
             ),
         )
-        for spec in TOOLS.values()
+        for spec in specs
     ]

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 
 import httpx
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import select
 
+from conftest import API
 from slate import mcp_server, mcp_tools
 from slate.app import create_app
 from slate.db import SessionLocal
@@ -34,7 +37,6 @@ TOOLS = {
     "slate_tag",
     "slate_recurrence",
     "slate_account",
-    "slate_today",
     "slate_events",
     "slate_batch",
     "slate_export",
@@ -49,9 +51,24 @@ TOOLS = {
 
 
 @asynccontextmanager
-async def http_mcp(headers: dict[str, str]):
-    """An MCP client talking streamable HTTP to a fresh app, in-process (no socket)."""
-    app = create_app()
+async def http_mcp(headers: dict[str, str], tools: str | None = "all"):
+    """An MCP client talking streamable HTTP to a fresh app, in-process (no socket).
+
+    `tools` is `SLATE_MCP_TOOLS` for that app. None leaves the variable unset (the core).
+    The suite passes `all` so tests can call tools outside the core.
+    """
+    previous = os.environ.get("SLATE_MCP_TOOLS")
+    if tools is None:
+        os.environ.pop("SLATE_MCP_TOOLS", None)
+    else:
+        os.environ["SLATE_MCP_TOOLS"] = tools
+    try:
+        app = create_app()
+    finally:
+        if previous is None:
+            os.environ.pop("SLATE_MCP_TOOLS", None)
+        else:
+            os.environ["SLATE_MCP_TOOLS"] = previous
     async with app.state.mcp_manager.run():
         transport = httpx2.ASGITransport(app=app)
         async with (
@@ -88,87 +105,273 @@ async def make_list(client: Client) -> dict:
 # --- tool list -------------------------------------------------------------------------------
 
 
+def _branches(schema: dict) -> dict[str, dict]:
+    if "oneOf" not in schema:
+        return {}
+    return {branch["properties"]["action"]["const"]: branch for branch in schema["oneOf"]}
+
+
 async def test_lists_one_tool_per_resource_with_hints_and_the_one_item_rule(alex):
     async with http_mcp(alex) as client:
         tools = {t.name: t for t in (await client.list_tools()).tools}
     assert set(tools) == TOOLS
     for tool in tools.values():
-        assert "exactly one item" in tool.description and "split" in tool.description
         assert "Example:" in tool.description
         assert tool.input_schema["type"] == "object"
-    assert tools["slate_today"].annotations.read_only_hint is True
+        if tool.name == "slate_work":
+            assert "Start here." in tool.description
+            assert "exactly one item" in tool.description and "split" in tool.description
+        else:
+            assert "start here" not in tool.description.lower()
+            assert mcp_tools.RULE not in tool.description
     assert tools["slate_events"].annotations.read_only_hint is True
+    assert tools["slate_search"].annotations.read_only_hint is True
     assert tools["slate_item"].annotations.read_only_hint is False
     assert tools["slate_item"].annotations.destructive_hint is True
     assert tools["slate_tag"].annotations.destructive_hint is True
     assert tools["slate_recurrence"].annotations.destructive_hint is False
     item_schema = tools["slate_item"].input_schema
     assert "split" in item_schema["properties"]["action"]["enum"]
-    assert {"title", "list_id", "children", "id"} <= set(
-        item_schema["properties"]["params"]["properties"]
+    create = _branches(item_schema)["create"]["properties"]["params"]["properties"]
+    assert {"title", "list_id"} <= set(create)
+    assert "children" not in create
+    assert "id" in _branches(item_schema)["get"]["properties"]["params"]["properties"]
+
+
+def test_each_action_keeps_its_own_kind():
+    """`kind` is the item kind on `list` and the link kind on `link`. Each branch has one."""
+    schema = mcp_tools.input_schema(mcp_tools.TOOLS["slate_item"])
+    branches = _branches(schema)
+    listing = branches["list"]["properties"]["params"]["properties"]["kind"]
+    linking = branches["link"]["properties"]["params"]["properties"]["kind"]
+    assert "task" in json.dumps(listing)
+    assert "blocks" in json.dumps(linking)
+    assert "blocks" not in json.dumps(listing)
+    assert "For:" not in json.dumps(schema)
+
+
+@pytest.mark.parametrize("spec", list(mcp_tools.TOOLS.values()), ids=lambda spec: spec.name)
+def test_each_action_validates_against_its_own_branch(spec):
+    schema = mcp_tools.input_schema(spec)
+    assert schema["type"] == "object"
+    if mcp_tools.single_action(spec):
+        assert "oneOf" not in schema
+        assert "action" not in schema["properties"]
+        _action_name, action = next(iter(spec.actions.items()))
+        params = schema["properties"]["params"]
+        assert set(params["properties"]) == set(action.params.model_fields)
+        return
+    assert [branch["properties"]["action"]["const"] for branch in schema["oneOf"]] == list(
+        spec.actions
+    )
+    for branch, (name, action) in zip(schema["oneOf"], spec.actions.items(), strict=True):
+        params = branch["properties"]["params"]
+        fields = set(action.params.model_fields)
+        assert set(params["properties"]) == fields
+        for prop in params["properties"].values():
+            assert "default" not in prop
+        # A field that exists only on another action is not on this branch.
+        for other, other_action in spec.actions.items():
+            if other == name:
+                continue
+            foreign = set(other_action.params.model_fields) - fields
+            assert not (foreign & set(params["properties"]))
+        payload = {"action": name, "params": {}}
+        if params.get("required"):
+            continue
+        mcp_server._parse_call(spec, payload)
+
+
+@pytest.mark.parametrize("spec", list(mcp_tools.TOOLS.values()), ids=lambda spec: spec.name)
+async def test_every_example_is_a_call_the_server_accepts(spec, client, alex, todo, make_account):
+    def seed(path, **body):
+        response = client.post(f"{API}{path}", headers=alex, json=body)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    headers = alex
+    async with http_mcp(alex) as admin:
+        tool = next(t for t in (await admin.list_tools()).tools if t.name == spec.name)
+        args = json.loads(tool.description.split("Example: ", 1)[1])
+        Draft202012Validator(tool.input_schema).validate(args)
+        params = args.get("params", {})
+        if spec.name in {"slate_item", "slate_automation", "slate_recurrence", "slate_export"}:
+            params["list_id"] = todo["id"]
+        elif spec.name in {"slate_comment", "slate_checklist", "slate_reminder", "slate_work"}:
+            if spec.name == "slate_work":
+                account, headers = make_account("my-agent")
+                card = seed(
+                    "/items", title="Example", list_id=todo["id"], assignees=[account["id"]]
+                )
+                async with http_mcp(headers) as worker:
+                    taken = ok(await call(worker, "slate_work", "next", item_id=card["id"]))
+                params["run_id"] = taken["lease"]["run_id"]
+            else:
+                fields = {"due_at": "2030-01-02"} if spec.name == "slate_reminder" else {}
+                card = seed("/items", title="Example", list_id=todo["id"], **fields)
+            params["id" if spec.name == "slate_comment" else "item_id"] = card["id"]
+        elif spec.name == "slate_doc":
+            params["id"] = seed("/docs", title="Example")["id"]
+        elif spec.name == "slate_favorite":
+            params["target_id"] = todo["id"]
+        elif spec.name == "slate_list":
+            params["section_id"] = todo["section_id"]
+        elif spec.name == "slate_share":
+            account, _ = make_account("my-agent")
+            params.update(account_id=account["id"], scope_id=todo["id"])
+        elif spec.name == "slate_tag":
+            seed("/tags", name=params["tag"])
+        elif spec.name == "slate_batch":
+            params["ops"][0]["params"]["list_id"] = todo["id"]
+        Draft202012Validator(tool.input_schema).validate(args)
+        if headers is alex:
+            ok(await admin.call_tool(spec.name, args))
+    if headers is not alex:
+        async with http_mcp(headers) as worker:
+            ok(await worker.call_tool(spec.name, args))
+
+
+def test_work_schema_exposes_claim_and_only_mcp_finish_controls():
+    work = Draft202012Validator(mcp_tools.input_schema(mcp_tools.TOOLS["slate_work"]))
+    item = Draft202012Validator(mcp_tools.input_schema(mcp_tools.TOOLS["slate_item"]))
+    work.check_schema(work.schema)
+    item.check_schema(item.schema)
+    assert work.is_valid({"action": "next", "params": {"kinds": ["task"]}})
+    assert not work.is_valid({"action": "next", "params": {"resume": False}})
+    assert not work.is_valid({"action": "next", "params": {"outcome": "done"}})
+    done = {"item_id": "Ab12Cd34Ef56", "outcome": "done", "reply": "Filed."}
+    assert work.is_valid({"action": "finish", "params": done})
+    assert not work.is_valid({"action": "finish", "params": {**done, "comment": False}})
+    assert not work.is_valid({"action": "finish", "params": {**done, "note": "Filed."}})
+    assert not work.is_valid({"action": "finish", "params": {**done, "outcome": "failed"}})
+    assert work.is_valid(
+        {
+            "action": "finish",
+            "params": {
+                "item_id": "Ab12Cd34Ef56",
+                "outcome": "review",
+                "hand_to": "alex",
+                "note": "Check the draft.",
+            },
+        }
+    )
+    assert item.is_valid(
+        {
+            "action": "report",
+            "params": {"id": "Ab12Cd34Ef56", "state": "working", "claim": True},
+        }
     )
 
 
-def test_a_param_shared_by_actions_with_different_values_accepts_all_of_them():
-    """`kind` is the item kind for `list` and the link kind for `link`; a client that validates
-    against the merged schema must be able to send either."""
-    schema = mcp_tools.input_schema(mcp_tools.TOOLS["slate_item"])
-    kind = schema["properties"]["params"]["properties"]["kind"]
-    assert {"task", "blocks", "blocked_by", "relates"} <= set(kind["enum"])
-    assert "For:" in kind["description"]
+async def test_interactive_claim_and_failed_finish_use_separate_workflows(alex, make_account):
+    account, agent = make_account("my-agent")
+    async with http_mcp(alex) as admin:
+        todo = await make_list(admin)
+        first = ok(await call(admin, "slate_item", "create", list_id=todo["id"], title="Draft"))
+        second = ok(
+            await call(
+                admin,
+                "slate_item",
+                "create",
+                list_id=todo["id"],
+                title="Publish",
+                assignees=[account["id"]],
+            )
+        )
+    async with http_mcp(agent, tools=None) as mcp:
+        claimed = ok(
+            await call(mcp, "slate_item", "report", id=first["id"], state="working", claim=True)
+        )
+        assert claimed["agent"]["state"] == "working"
+        assert not ok(await call(mcp, "slate_work", "held"))
+        assert "resume" in err(
+            await call(mcp, "slate_work", "next", item_id=second["id"], resume=False)
+        )
+        taken = ok(await call(mcp, "slate_work", "next", item_id=second["id"], kinds=["task"]))
+        proof = {"item_id": second["id"], "run_id": taken["lease"]["run_id"]}
+        assert "note" in err(
+            await call(mcp, "slate_work", "finish", **proof, outcome="done", note="Done")
+        )
+        finished = ok(
+            await call(mcp, "slate_work", "finish", **proof, outcome="failed", note="Disk full")
+        )
+        assert finished["item"]["agent"]["state"] == "failed"
+
+
+@pytest.mark.parametrize("atomic", [True, False])
+async def test_hidden_tools_cannot_run_inside_mcp_batch(alex, atomic):
+    async with http_mcp(alex, tools="core,slate_batch") as client:
+        hidden = err(
+            await call(
+                client,
+                "slate_batch",
+                atomic=atomic,
+                ops=[{"tool": "section", "action": "list"}],
+            )
+        )
+        assert "slate_section is not listed" in hidden
+        visible = ok(
+            await call(
+                client,
+                "slate_batch",
+                atomic=atomic,
+                ops=[{"tool": "slate_list", "action": "list"}],
+            )
+        )
+        assert visible["results"][0]["result"] == []
+
+
+async def test_the_default_list_is_the_core(alex):
+    async with http_mcp(alex, tools=None) as client:
+        names = [tool.name for tool in (await client.list_tools()).tools]
+    assert names == list(mcp_tools.CORE)
+
+
+async def test_tools_all_lists_every_tool(alex):
+    async with http_mcp(alex, tools="all") as client:
+        names = [tool.name for tool in (await client.list_tools()).tools]
+    assert names == list(mcp_tools.TOOLS)
+    assert "slate_today" not in names
+
+
+async def test_a_named_extra_is_added_to_the_core(alex):
+    async with http_mcp(alex, tools="core,slate_doc,slate_chat") as client:
+        names = [tool.name for tool in (await client.list_tools()).tools]
+    assert names == [*mcp_tools.CORE, "slate_doc", "slate_chat"]
+
+
+def test_tools_flag_overrides_the_environment(monkeypatch):
+    monkeypatch.setenv("SLATE_MCP_TOOLS", "all")
+    flag = mcp_server.tools_from_args(["--tools", "core,slate_doc"])
+    assert mcp_server.advertised_tools(flag) == [*mcp_tools.CORE, "slate_doc"]
+    assert mcp_server.advertised_tools(None) == list(mcp_tools.TOOLS)
+    with pytest.raises(SystemExit, match="unknown tool 'slate_nope'"):
+        mcp_server.advertised_tools("slate_nope")
+
+
+async def test_a_hidden_tool_names_the_flag_and_a_removed_name_is_unknown(alex):
+    async with http_mcp(alex, tools=None) as client:
+        hidden = err(await call(client, "slate_health"))
+        missing = err(await call(client, "slate_today"))
+    assert hidden == (
+        "slate_health is not listed; start slate-mcp with --tools all or set SLATE_MCP_TOOLS=all"
+    )
+    assert missing.startswith("unknown tool 'slate_today'")
 
 
 @pytest.mark.parametrize("tool_name", ["slate_item", "slate_list"])
-async def test_list_with_client_applied_schema_defaults(alex, tool_name):
+async def test_list_branches_carry_no_defaults_a_client_could_apply(alex, tool_name):
     async with http_mcp(alex) as client:
         todo = await make_list(client)
         item = ok(await call(client, "slate_item", "create", list_id=todo["id"], title="Keep me"))
         tools = {t.name: t for t in (await client.list_tools()).tools}
-        properties = tools[tool_name].input_schema["properties"]["params"]["properties"]
-        # Some clients fill omitted fields from tools/list before sending tools/call.
-        params = {key: prop["default"] for key, prop in properties.items() if "default" in prop}
-        if tool_name == "slate_item":
-            params["list_id"] = todo["id"]
+        branch = _branches(tools[tool_name].input_schema)["list"]
+        properties = branch["properties"]["params"]["properties"]
+        assert all("default" not in prop for prop in properties.values())
+        params = {"list_id": todo["id"]} if tool_name == "slate_item" else {}
         listed = ok(await call(client, tool_name, "list", **params))
         expected = item if tool_name == "slate_item" else todo
         assert [row["id"] for row in listed] == [expected["id"]]
-
-
-@pytest.mark.parametrize("spec", mcp_tools.TOOLS.values(), ids=lambda spec: spec.name)
-def test_schema_defaults_are_only_removed_from_merged_fields(spec):
-    before = {name: action.params.model_json_schema() for name, action in spec.actions.items()}
-    schema = mcp_tools.input_schema(spec)
-    properties = schema["properties"].get("params", {}).get("properties", {})
-    expected = {}
-    definitions = {}
-    shapes: dict[str, list[dict]] = {}
-    for action_schema in before.values():
-        stripped = mcp_tools._strip_titles(action_schema)
-        definitions.update(stripped.get("$defs", {}))
-        for key, prop in stripped.get("properties", {}).items():
-            expected.setdefault(key, prop)
-            if mcp_tools._shape(prop) not in [
-                mcp_tools._shape(v) for v in shapes.setdefault(key, [])
-            ]:
-                shapes[key].append(prop)
-    assert schema.get("$defs", {}) == definitions  # Nested defaults still describe real objects.
-    assert properties.keys() == expected.keys()
-    for key, prop in properties.items():
-        if mcp_tools.single_action(spec):
-            assert prop == expected[key]  # Single-action defaults remain meaningful.
-        else:
-            assert "default" not in prop
-            # One name, several shapes (`kind`): the merged field accepts every action's values.
-            want = (
-                mcp_tools._merged_prop(shapes[key], definitions)
-                if len(shapes[key]) > 1
-                else {k: v for k, v in expected[key].items() if k not in {"default", "description"}}
-            )
-            assert {k: v for k, v in prop.items() if k != "description"} == want
-            assert "For:" in prop["description"]
-    assert before == {
-        name: action.params.model_json_schema() for name, action in spec.actions.items()
-    }
 
 
 async def test_schema_defaults_do_not_turn_a_partial_update_into_a_reset(alex):
@@ -186,11 +389,13 @@ async def test_schema_defaults_do_not_turn_a_partial_update_into_a_reset(alex):
                 assignees=["alex"],
             )
         )
-        tools = {t.name: t for t in (await client.list_tools()).tools}
-        properties = tools["slate_item"].input_schema["properties"]["params"]["properties"]
-        params = {key: prop["default"] for key, prop in properties.items() if "default" in prop}
-        params.update(id=item["id"], title="After")
-        updated = ok(await call(client, "slate_item", "update", **params))
+        branch = _branches(
+            {t.name: t for t in (await client.list_tools()).tools}["slate_item"].input_schema
+        )["update"]
+        assert all(
+            "default" not in prop for prop in branch["properties"]["params"]["properties"].values()
+        )
+        updated = ok(await call(client, "slate_item", "update", id=item["id"], title="After"))
         assert updated["title"] == "After"
         for key in ("body_md", "due_at", "assignees"):
             assert updated[key] == item[key]
@@ -230,15 +435,15 @@ async def test_create_update_split_today_and_events_through_mcp(alex):
 
         updated = ok(await call(client, "slate_item", "update", id=item["id"], priority="high"))
         assert updated["priority"] == "high"
-        moved = ok(
-            await call(client, "slate_item", "set_status", id=item["id"], status="In progress")
-        )
+        moved = ok(await call(client, "slate_item", "update", id=item["id"], status="In progress"))
         assert moved["status"]["name"] == "In progress"
-        assigned = ok(await call(client, "slate_item", "assign", id=item["id"], assignees=["alex"]))
+        assigned = ok(await call(client, "slate_item", "update", id=item["id"], assignees=["alex"]))
         assert [a["handle"] for a in assigned["assignees"]] == ["alex"]
-        tagged = ok(await call(client, "slate_item", "tag", id=item["id"], tags=["home", "money"]))
+        tagged = ok(
+            await call(client, "slate_item", "update", id=item["id"], tags=["home", "money"])
+        )
         assert tagged["tags"] == ["home", "money"]
-        ok(await call(client, "slate_item", "comment", id=item["id"], body_md="called, on hold"))
+        ok(await call(client, "slate_comment", "add", id=item["id"], body_md="called, on hold"))
 
         children = ok(
             await call(
@@ -260,8 +465,8 @@ async def test_create_update_split_today_and_events_through_mcp(alex):
         versions = ok(await call(client, "slate_item", "versions", id=item["id"]))
         assert [v["version_no"] for v in versions] == [1]
 
-        today = ok(await call(client, "slate_today"))
-        assert [i["id"] for i in today["overdue"]] == [item["id"]]
+        today = (await client.read_resource("slate://today")).contents[0]
+        assert "Pay the water bill" in today.text
 
         page = ok(await call(client, "slate_events", since="0", item_id=item["id"]))
         assert page["events"][0]["type"] == "item.created"
@@ -680,7 +885,7 @@ async def exercise_work(mcp, todo: dict) -> None:
             "finish",
             item_id=first["id"],
             outcome="done",
-            note="ok",
+            reply="ok",
             run_id=got["lease"]["run_id"],
         )
     )
@@ -698,7 +903,7 @@ async def exercise_work(mcp, todo: dict) -> None:
         )
     )
     assert out.get("next") is None  # nulls are left out of tool results
-    empty = ok(await call(mcp, "slate_work", "next", resume=False, list_id=todo["id"], tag="x"))
+    empty = ok(await call(mcp, "slate_work", "next", list_id=todo["id"], tag="x"))
     assert empty.get("item") is None and empty["remaining"] == 0
     assert "hand_to" in err(
         await call(mcp, "slate_work", "finish", item_id=second["id"], outcome="done", hand_to=me)
@@ -974,7 +1179,9 @@ async def test_stdio_mode_calls_rest_with_the_token():
         ),
         token="slate_tok_secret",
     )
-    async with Client(mcp_server.build_server(lambda _ctx: backend)) as client:
+    async with Client(
+        mcp_server.build_server(lambda _ctx: backend, list(mcp_tools.TOOLS))
+    ) as client:
         made = ok(
             await client.call_tool(
                 "slate_item",
@@ -1021,13 +1228,13 @@ async def test_stdio_mode_end_to_end_against_the_rest_api(client, alex, todo):
         httpx.AsyncClient(transport=httpx.MockTransport(bridge), base_url="http://slate"),
         token=token,
     )
-    async with Client(mcp_server.build_server(lambda _ctx: backend)) as mcp:
+    async with Client(mcp_server.build_server(lambda _ctx: backend, list(mcp_tools.TOOLS))) as mcp:
         item = ok(await call(mcp, "slate_item", "create", list_id=todo["id"], title="Via REST"))
         ok(await call(mcp, "slate_item", "update", id=item["id"], title="Renamed"))
-        ok(await call(mcp, "slate_item", "set_status", id=item["id"], status="done"))
+        ok(await call(mcp, "slate_item", "update", id=item["id"], status="done"))
         kids = ok(await call(mcp, "slate_item", "split", id=item["id"], children=[{"title": "a"}]))
         assert kids[0]["parent_id"] == item["id"]
-        ok(await call(mcp, "slate_item", "comment", id=item["id"], body_md="hi"))
+        ok(await call(mcp, "slate_comment", "add", id=item["id"], body_md="hi"))
         ok(await call(mcp, "slate_item", "archive", id=item["id"]))
         ok(await call(mcp, "slate_item", "unarchive", id=item["id"]))
         assert ok(await call(mcp, "slate_item", "delete", id=kids[0]["id"])) == {
@@ -1040,8 +1247,8 @@ async def test_stdio_mode_end_to_end_against_the_rest_api(client, alex, todo):
         ]
         assert ok(await call(mcp, "slate_item", "history", id=item["id"]))
         assert ok(await call(mcp, "slate_item", "versions", id=item["id"])) == []
-        ok(await call(mcp, "slate_item", "assign", id=item["id"], assignees=["alex"]))
-        ok(await call(mcp, "slate_item", "tag", id=item["id"], tags=["x"]))
+        ok(await call(mcp, "slate_item", "update", id=item["id"], assignees=["alex"]))
+        ok(await call(mcp, "slate_item", "update", id=item["id"], tags=["x"]))
         ok(
             await call(
                 mcp,
@@ -1111,7 +1318,8 @@ async def test_stdio_mode_end_to_end_against_the_rest_api(client, alex, todo):
             )
         )
         ok(await call(mcp, "slate_account", "create_token", account_id=acct["id"], scopes=["read"]))
-        assert set(ok(await call(mcp, "slate_today"))) >= {"overdue", "today", "waiting"}
+        today = (await mcp.read_resource("slate://today")).contents[0]
+        assert "Today" in today.text
         assert ok(await call(mcp, "slate_events", since="0", limit=5))["has_more"] is True
         batched = ok(
             await call(
@@ -1277,7 +1485,7 @@ async def test_batch_through_mcp_is_atomic(alex):
                     },
                     {
                         "tool": "item",
-                        "action": "assign",
+                        "action": "update",
                         "params": {"id": "$a.id", "assignees": ["alex"]},
                     },
                 ],

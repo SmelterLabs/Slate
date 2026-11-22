@@ -266,7 +266,7 @@ def test_finish_does_everything_in_one_call_and_takes_the_next(client, alex, tod
 
     out = _finish(client, ch, one["id"], outcome="done", note="Shipped")
     assert out["item"]["status"]["kind"] == "done" and out["item"]["agent"] is None
-    assert out["next"] is None
+    assert "next" not in out
     assert _next(client, ch)["item"]["id"] == two["id"]
 
     comments = client.get(f"{API}/items/{one['id']}/comments", headers=alex).json()

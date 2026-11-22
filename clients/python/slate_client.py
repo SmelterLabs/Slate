@@ -3,12 +3,13 @@
     from slate_client import Slate, Conflict
 
     slate = Slate("https://slate.example.com", token, session_ref="nightly-42")
-    task = slate.next(wait=30)             # take your best free task (null: none came)
+    task = slate.next(wait=30, kinds=["task"])
     while task["item"]:
         item = task["item"]
         ...                                # do the work; slate.heartbeat(item["id"]) if long
-        task = slate.finish(item["id"], "done", note="Shipped: https://...",
-                            next={"wait": 30})["next"]
+        slate.finish(item["id"], "done", note="Shipped: https://...",
+                     run_id=task["lease"]["run_id"])
+        task = slate.next(wait=30, kinds=["task"])
 
 Or let it run the loop: `slate.work_forever(handle)` (see its docstring). React instead of
 polling with `slate.agent_stream()`: news that concerns you and hints that work is free.
@@ -267,8 +268,10 @@ class Slate:
         self, item_id: str, outcome: str = "done", note: str | None = None, **kw: Any
     ) -> dict[str, Any]:
         """Report back in one call: outcome done | review | later | ask | answered | failed |
-        blocked | release; kw: status, hand_to, waiting_on, question, options, progress, comment,
-        next={...} (take the next task too). Returns `{item, next}`."""
+        blocked | release; kw: status, hand_to, waiting_on, question, options, progress, comment.
+        Returns `{item}`. Take more work with a separate `next()` call."""
+        if "next" in kw:
+            raise TypeError("finish does not take next; call next separately")
         body = {"outcome": outcome, **kw}
         if note is not None:
             body["note"] = note
