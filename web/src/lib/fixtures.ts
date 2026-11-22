@@ -10,6 +10,10 @@ export const LIST: List = {
   default_status_id: 'st_open',
   created_at: '2026-10-01T00:00:00Z',
   archived_at: null,
+  note_md: null,
+  default_assignee_id: null,
+  default_tags: [],
+  reference: false,
   statuses: [
     { id: 'st_open', name: 'Open', kind: 'open', color: null, position: 0 },
     { id: 'st_ready', name: 'Ready', kind: 'active', color: null, position: 1 },

@@ -43,4 +43,16 @@ describe('myWork', () => {
     expect(w.waitingOnMe.map((i) => i.id)).toEqual(['g']);
     expect(w.openCount).toBe(3);
   });
+  it('reference list cards are not my work', () => {
+    const items = [
+      item({ id: 'a', list_id: 'L2', assignees: [ME], status: OPEN, due_at: '2026-10-22T22:00:00Z' }),
+      item({ id: 'g', list_id: 'L2', assignees: [OTHER], status: OPEN, waiting_on_account_id: 'me' }),
+      item({ id: 'n', assignees: [ME], status: OPEN }),
+    ];
+    const w = myWork(items, 'me', NOW, new Set(['L2']));
+    expect(w.buckets.today).toEqual([]);
+    expect(w.waitingOnMe).toEqual([]);
+    expect(w.buckets.none.map((i) => i.id)).toEqual(['n']);
+    expect(w.openCount).toBe(1);
+  });
 });

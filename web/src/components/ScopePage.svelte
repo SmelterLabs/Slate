@@ -98,6 +98,7 @@
       {title}
       {#if kiosk}<span class="muted view-name">· {active.name}</span>{/if}
     </h2>
+    {#if scope.kind === 'list' && !isDrawer && board.lists[scope.id]?.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
     {#if isPrivate}<span class="private-chip" title="Private: only owners, admins and people it is shared with"
         ><Icon name="lock" size={12} /> Private</span
       >{/if}

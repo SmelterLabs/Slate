@@ -2772,3 +2772,15 @@ a.nav-heading,
 .needs-mark.need-asked {
   --tone: var(--need-asked);
 }
+/* A reference list's mark in the sidebar: quiet, where its open count would sit. */
+.ref-mark {
+  margin-left: auto;
+  margin-right: 8px;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}

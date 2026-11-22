@@ -38,6 +38,14 @@ export interface List {
   private?: boolean;
   /** `tasks` (a board) or `drawer` (a list of documents). */
   kind?: 'tasks' | 'drawer';
+  /** What belongs in this list and how a card here is finished (Markdown). */
+  note_md?: string | null;
+  /** A card created here with no assignees gets this account. */
+  default_assignee_id?: string | null;
+  /** Tag names added to a card created here. */
+  default_tags?: string[];
+  /** Holds material, not work: its open cards count nowhere as open or overdue work. */
+  reference?: boolean;
   statuses: Status[];
 }
 
