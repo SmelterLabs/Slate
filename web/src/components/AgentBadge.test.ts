@@ -11,7 +11,6 @@ vi.mock('../lib/store.svelte', () => ({
     canRun: () => true,
     runRequested: {},
     pickup: () => null,
-    scheduledRun: () => null,
     runMode: () => 'run',
     runLabel: () => 'Run now',
     runAction: vi.fn(),

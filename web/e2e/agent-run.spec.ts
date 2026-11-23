@@ -1,9 +1,7 @@
 // Run now: a card with an agent assigned offers it; pressing shows "Requested…" (or "Agent has no runner connected") until the agent
 // reports working, then the badge carries an "Open ↗" link to where the agent works.
 import { expect, test } from '@playwright/test';
-import { addDays } from '../src/lib/when';
-import { today } from './seed';
-import { api, BASE_URL, calendarTest, seed, signIn } from './support';
+import { api, BASE_URL, seed, signIn } from './support';
 
 test('four due cards: work on one never makes the others wait their turn', async ({ page }) => {
   const { agent } = seed();
@@ -119,28 +117,4 @@ test('Run now: requested pill, then the working badge with an Open link', async 
   await page.keyboard.press('Escape');
 
   await api('PATCH', `/sections/${section.id}`, { archived: true });
-});
-
-calendarTest('scheduled due-gated card shows its run time on the card and beside Run now', async ({ page }) => {
-  const { listId } = seed();
-  const tomorrow = addDays(today(), 1);
-  const created = await api<{ id: string }>('POST', '/items', {
-    list_id: listId,
-    title: 'Check the nightly sync',
-    assignees: ['agent'],
-    due_at: tomorrow,
-  });
-
-  await signIn(page);
-  await page.goto(`/#/list/${listId}`);
-  const card = page.locator(`[data-item="${created.id}"]`);
-  await expect(card.locator('[data-run-state="scheduled"]')).toHaveText('Runs tomorrow at 6:00 AM');
-
-  await card.click();
-  const tw = page.locator('.tw');
-  await expect(tw.locator('[data-run-state="scheduled"]')).toHaveText('Runs tomorrow at 6:00 AM');
-  await tw.getByRole('button', { name: 'Run now', exact: true }).click();
-  await expect(tw.locator('[data-run-state="scheduled"]')).toHaveCount(0);
-  await expect(tw.locator('[data-run-state="no-runner"]')).toBeVisible();
-  await page.keyboard.press('Escape');
 });

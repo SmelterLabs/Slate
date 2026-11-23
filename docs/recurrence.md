@@ -161,7 +161,8 @@ the path is not read as an id.
 
 The scheduler runs `due.run_due_checks` after recurrence materialization. `service/due.py`
 emits `item.due_soon` 24 hours before the due time, `item.due` at that time and `item.overdue`
-one hour later. For cards assigned to agents, `item.run_requested` comes at the scheduled run
+at midnight at the end of the due day for a date-only due date, or one hour after the due time
+otherwise. For cards assigned to agents, `item.run_requested` comes at the scheduled run
 time (06:00 workspace time for a date-only due date). The actor is Slate's system account.
 
 The item records its last emitted stage so repeating a tick or restarting does not duplicate

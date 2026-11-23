@@ -7,7 +7,7 @@ Per item the stages, in time order, are:
                    else due_at), only when an agent is assigned: the agent's runner wakes and
                    the due gate in service/work.py opens. Actor `slate`, `after.reason` = `due`.
     item.due       at due_at
-    item.overdue   at due_at + 1 h
+    item.overdue   at midnight at the end of the due day for a date-only due date, else due_at + 1 h
 
 `items.last_due_event` holds the key of the last stage emitted (`soon:<hours>`, `due`,
 `overdue`). A tick emits every stage whose time has come and that lies after the stored one,
@@ -62,6 +62,8 @@ from slate.service.lists import WORK_LIST, on_work_list
 
 DUE_SOON_HOURS = 24
 OVERDUE_AFTER = timedelta(hours=1)
+# Date-only overdue falls at midnight after 17:00 local (7 h; 8 h on a DST fall-back day).
+_OVERDUE_LOOKBACK = timedelta(hours=8)
 
 
 @dataclass(frozen=True)
@@ -107,7 +109,7 @@ def _threshold(key: str, due_at: datetime, date_only: bool = False) -> datetime 
     if key == "run":
         return dates.run_at(due_at, date_only) - timedelta(microseconds=1)
     if key == "overdue":
-        return due_at + OVERDUE_AFTER
+        return dates.overdue_at(due_at, True) if date_only else due_at + OVERDUE_AFTER
     if key.startswith("soon:") and key[5:].isdigit():
         return due_at - timedelta(hours=int(key[5:]))
     return None
@@ -142,7 +144,8 @@ def pending_stages(
             )
         )
     stages.append(Stage(due_at, "due", "item.due", {"due_at": due_iso}))
-    stages.append(Stage(due_at + OVERDUE_AFTER, "overdue", "item.overdue", {"due_at": due_iso}))
+    overdue_at = dates.overdue_at(due_at, True) if date_only else due_at + OVERDUE_AFTER
+    stages.append(Stage(overdue_at, "overdue", "item.overdue", {"due_at": due_iso}))
     stages.sort(key=lambda s: s.at)
 
     done_until = _threshold(last, due_at, date_only) if last else None
@@ -207,7 +210,7 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
                 or_(
                     Item.last_due_event.is_(None),
                     Item.last_due_event != "overdue",
-                    Item.due_at > now - OVERDUE_AFTER,
+                    Item.due_at > now - _OVERDUE_LOOKBACK,
                 ),
             )
             .order_by(Item.due_at, Item.id)

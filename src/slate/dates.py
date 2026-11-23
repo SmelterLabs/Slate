@@ -90,6 +90,15 @@ def run_at(due_at: datetime, date_only: bool) -> datetime:
     return datetime.combine(day, AGENT_RUN_AT, tzinfo=LOCAL).astimezone(UTC)
 
 
+def overdue_at(due_at: datetime, date_only: bool) -> datetime:
+    """When a task becomes overdue: midnight at the end of the due day (start of the next
+    workspace day) for a date-only due date (`items.due_date_only`), else `due_at`."""
+    if not date_only:
+        return due_at
+    day = due_at.astimezone(LOCAL).date()
+    return datetime.combine(day + timedelta(days=1), time(0), tzinfo=LOCAL).astimezone(UTC)
+
+
 def early_date_only_due(now: datetime) -> datetime | None:
     """The one date-only due instant (17:00 workspace time) whose run time (06:00 the same day)
     has come although the due time has not: today's 17:00 between 06:00 and 17:00, else None.

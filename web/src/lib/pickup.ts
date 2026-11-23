@@ -1,18 +1,13 @@
 // Presentation evidence, not a runner queue: Slate exposes reports and presence, not receipt,
 // capacity, queue position or an ETA. A passed due gate alone never means a request was sent.
 import type { AgentEntry, Item } from './types';
-import { fullStamp, shortDate } from './format';
 import { workspaceDay } from './quickadd';
-import { workspaceFormatter } from './timezone';
 import { workspaceInstant, isClosed } from './views';
-import { addDays } from './when';
 
 export const PICKUP_WAIT_MS = 2 * 60_000;
 /** How long a `working` report counts as fresh; the agent badge dims one older than this. */
 export const WORK_FRESH_MS = 6 * 60 * 60_000;
 export type WorkingItems = Record<string, string[]>;
-
-const runTimeFmt = workspaceFormatter('en-US', { hour: 'numeric', minute: '2-digit' });
 
 /** Build once per board update, not one full-board scan per waiting card. */
 export function workingItems(items: Item[], now: Date): WorkingItems {
@@ -45,70 +40,6 @@ export function pickupSince(item: Item, requested: number | undefined, now: Date
     const created = Date.parse(item.created_at);
     return Math.max(at, Number.isFinite(created) ? created : at);
   }
-}
-
-export interface ScheduledRun {
-  at: number;
-  text: string;
-  title: string;
-}
-
-/** Human-readable scheduled run label: "Runs at 6:00 AM", "Runs tomorrow at 6:00 AM",
- * "Runs Nov 26 at 6:00 AM". Uses calendar arithmetic for tomorrow so DST days stay exact. */
-export function scheduledRunLabel(atMs: number, now: Date): string {
-  const d = new Date(atMs);
-  const time = runTimeFmt.format(d);
-  const day = workspaceDay(d);
-  const today = workspaceDay(now);
-  if (day === today) return `Runs at ${time}`;
-  if (day === addDays(today, 1)) return `Runs tomorrow at ${time}`;
-  return `Runs ${shortDate(d.toISOString(), now)} at ${time}`;
-}
-
-/** When an open, idle push-agent card is held by a future due gate or start date, return the
- * scheduled run instant and copy; null otherwise. Mirrors `work.eligible()`'s due and start gates. */
-export function scheduledRun(
-  item: Item,
-  requested: number | undefined,
-  now: Date,
-): ScheduledRun | null {
-  if (
-    isClosed(item) ||
-    item.archived_at ||
-    item.parked_until ||
-    item.agent ||
-    item.stalled ||
-    item.blocked ||
-    item.waiting_on_account_id
-  ) return null;
-  if (requested != null && Number.isFinite(requested)) return null;
-  const agentIds = new Set(item.assignees.filter((a) => a.kind === 'agent').map((a) => a.id));
-  const asked = (item.open_asks ?? []).some((id) => agentIds.has(id));
-  const nowMs = now.getTime();
-  let at: number | undefined;
-  let reason: 'start' | 'due_day' | 'due_time' | undefined;
-  if (!asked) {
-    const due = dueRunAt(item);
-    if (due != null && due > nowMs) {
-      at = due;
-      reason = item.due_date_only ? 'due_day' : 'due_time';
-    }
-  }
-  if (item.start_at) {
-    const start = Date.parse(item.start_at);
-    if (Number.isFinite(start) && start > nowMs && (at == null || start > at)) {
-      at = start;
-      reason = 'start';
-    }
-  }
-  if (at == null || !reason) return null;
-  const stamp = fullStamp(new Date(at).toISOString());
-  const title = reason === 'start'
-    ? `Waiting until its start date (${stamp}). Click Run now to start immediately.`
-    : reason === 'due_day'
-      ? `Date-only agent cards run at 6:00 AM on their due day (${stamp}). Click Run now to start immediately.`
-      : `Agent cards with a due time run at that time (${stamp}). Click Run now to start immediately.`;
-  return { at, text: scheduledRunLabel(at, now), title };
 }
 
 export interface PickupStatus {
