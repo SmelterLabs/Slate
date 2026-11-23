@@ -82,6 +82,8 @@
       ? { ...standing, line: ask.questions[0].question }
       : standing;
   });
+  // On a page that mixes sections: this card's section name and colour (BoardState.sectionMix).
+  const section = $derived(board.sectionMix?.[board.lists[item.list_id]?.section_id ?? '']);
   const counts = $derived(
     (show.has('description') && hasBody) ||
       (show.has('subtasks') && item.subtask_count > 0) ||
@@ -113,8 +115,10 @@
   class:compact={config.density === 'compact'}
   class:menu-open={menuOpen}
   class:needs-me={!!need}
+  class:section-tint={!!section?.color}
   data-need={need ?? undefined}
   style:--lines={config.title_lines || 'none'}
+  style:--section-color={section?.color || undefined}
   draggable="true"
   role="button"
   tabindex="0"
@@ -274,6 +278,11 @@
     {/if}
     {#if showList && show.has('list') && board.lists[item.list_id]}
       <span class="pill muted-pill list-chip" title="List"><Icon name="list" />{board.lists[item.list_id].name}</span>
+    {/if}
+    {#if section && (section.brought || (section.color && show.has('list')))}
+      <span class="pill muted-pill section-pill" title="Section" data-section-pill
+        >{#if section.color}<span class="section-dot"></span>{/if}{section.name}</span
+      >
     {/if}
     {#if show.has('waiting') && waitingFor && !waitingInBadge && !waitsOnMe}
       <span class="pill muted-pill" title="Waiting on {waitingFor.display_name}" data-waiting
