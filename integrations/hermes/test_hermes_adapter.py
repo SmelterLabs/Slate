@@ -499,7 +499,8 @@ def test_run_again_without_an_answer_resends_the_brief_in_the_same_session(state
 def test_an_approval_stays_pending_when_answered_on_the_card(state_file):
     gw = Gateway(events=[("approval.request", {"id": "ap1", "command": "FAKE_COMMAND"})])
     out, lines, _ = go(gw, env=env_with(state_file))
-    assert out["outcome"] == "failed" and "native" in out["note"] and "waiting_on" not in out
+    assert out["outcome"] == "ask" and "native" in out["reply"] and "waiting_on" not in out
+    assert "FAKE_COMMAND" not in str(out)
     assert any("Waiting on an approval" in ln.get("note", "") for ln in lines)
     pending = run_task.load_pending(env_with(state_file), "it1")
     task = {
@@ -509,7 +510,7 @@ def test_an_approval_stays_pending_when_answered_on_the_card(state_file):
     }
     out, _, _ = go(gw, task=task, env=env_with(state_file))
     assert not gw.settled and len(gw.turns) == 1
-    assert out["outcome"] == "failed" and "waiting_on" not in out
+    assert out["outcome"] == "ask" and "waiting_on" not in out
     assert run_task.load_pending(env_with(state_file), "it1") == pending
 
 
@@ -523,7 +524,7 @@ def test_legacy_approval_never_becomes_a_natural_language_authorization(state_fi
     }
     out, _, _ = go(gw, task=task, env=env_with(state_file))
     assert not gw.turns and not gw.settled
-    assert out["outcome"] == "failed" and "native" in out["note"] and "waiting_on" not in out
+    assert out["outcome"] == "ask" and "native" in out["reply"] and "waiting_on" not in out
 
 
 # --- The watchdog ------------------------------------------------------------------------------

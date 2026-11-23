@@ -48,8 +48,8 @@ def test_pending_approval_never_turns_card_words_into_authorization(tmp_path, ki
         },
     }
     out, _, _ = go(gw, task=task, env=settings)
-    assert out["outcome"] == "failed"
-    assert "native" in out["note"].lower()
+    assert out["outcome"] == "ask" and "waiting_on" not in out
+    assert "native" in out["reply"].lower() and "FAKE_COMMAND" not in str(out)
     assert gw.settled == [] and gw.turns == [] and gw.created == []
     assert out["thread"]["ref"] == "sess-old"
     assert run_task.load_pending(settings, "it1") == pending
@@ -61,7 +61,7 @@ def test_pending_approval_cannot_be_rebound_to_replacement_session(tmp_path):
     run_task.save_pending(settings, "it1", pending)
     gw = Gateway(events=complete())
     out, _, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-old"}}, env=settings)
-    assert out["outcome"] == "failed" and out["thread"]["ref"] == "retired-session"
+    assert out["outcome"] == "ask" and out["thread"]["ref"] == "retired-session"
     assert not gw.created and not gw.turns
     assert run_task.load_pending(settings, "it1") == pending
 
@@ -76,7 +76,7 @@ def test_approval_overrules_closing_line_and_keeps_control_identity(tmp_path):
     }
     gw = Gateway(events=[("approval.request", control), complete()[0]])
     out, _, _ = go(gw, env=settings)
-    assert out["outcome"] == "failed"
+    assert out["outcome"] == "ask"
     pending = run_task.load_pending(settings, "it1")
     assert pending["session_id"] == "sess-new"
     assert pending["request_id"] == "p1"
@@ -355,6 +355,38 @@ def _strand(tmp_path, gw):
     assert out["outcome"] == "failed"
     assert run_task.load_pending(settings, "it1")["state"] == "unconfirmed_turn"
     return settings
+
+
+def _approval(tmp_path, gw):
+    """A turn that stopped for a native approval nobody settled while it was watched."""
+    settings = env(tmp_path)
+    gw.events = [("approval.request", {"prompt_id": "p1", "command": "FAKE_COMMAND"})]
+    out, _, _ = go(gw, env=settings)
+    assert out["outcome"] == "ask" and len(out["question"]) <= 200
+    assert "FAKE_COMMAND" not in str(out) and "waiting_on" not in out
+    assert run_task.load_pending(settings, "it1")["gateway"] == gw.started
+    return settings
+
+
+def test_a_pending_approval_is_asked_again_while_the_runtime_proves_nothing(tmp_path):
+    gw = Detailed()
+    settings = _approval(tmp_path, gw)
+    pending = run_task.load_pending(settings, "it1")
+    gw.events = complete()  # same gateway, nothing in flight: no proof about this control
+    out, _, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-new"}}, env=settings)
+    assert out["outcome"] == "ask" and len(gw.turns) == 1
+    assert run_task.load_pending(settings, "it1") == pending
+
+
+def test_a_pending_approval_is_retired_after_a_gateway_restart(tmp_path):
+    gw = Detailed()
+    settings = _approval(tmp_path, gw)
+    gw.health = ["2026-11-08T22:00:00Z"]  # restarted: no control survives that
+    gw.events = complete()
+    out, lines, _ = go(gw, task={"item": ITEM, "thread": {"ref": "sess-new"}}, env=settings)
+    assert out["outcome"] == "done" and len(gw.turns) == 2
+    assert any("Previous turn is over" in (ln.get("note") or "") for ln in lines)
+    assert run_task.load_pending(settings, "it1") is None
 
 
 def test_unconfirmed_turn_is_cleared_when_the_runtime_has_nothing_running(tmp_path):

@@ -224,3 +224,44 @@ def test_asked_only_blocked_on_the_asker_still_waits(client, alex, todo, make_ac
     got = client.get(f"{API}/items/{item['id']}", headers=alex).json()
     assert got["agent"]["state"] == "blocked"
     assert got["waiting_on_account_id"] is not None
+
+
+@pytest.mark.parametrize("how", ["resolve", "delete"])
+def test_closing_an_agents_question_unanswered_stops_the_wait(
+    client, alex, todo, make_account, how
+):
+    _, ch = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    item_id = item["id"]
+    assert _next(client, ch)["item"]["id"] == item_id
+    _finish(client, ch, item_id, outcome="ask", waiting_on="alex", question="Which one?")
+    asked = next(c for c in _asks(client, alex, item).values() if c["ask"])
+    assert client.get(f"{API}/items/{item_id}", headers=alex).json()["waiting_on_account_id"]
+
+    if how == "resolve":
+        r = client.post(f"{API}/comments/{asked['id']}/resolve", headers=alex)
+    else:
+        r = client.delete(f"{API}/comments/{asked['id']}", headers=alex)
+    assert r.status_code in (200, 204), r.text
+
+    after = client.get(f"{API}/items/{item_id}", headers=alex).json()
+    assert after["waiting_on_account_id"] is None
+    assert after["ask"] is None
+    # The agent's blocked pause still holds; Run now hands the card straight back.
+    assert _next(client, ch)["item"] is None
+    assert client.post(f"{API}/items/{item_id}/run", headers=alex).status_code == 202
+    assert _next(client, ch)["item"]["id"] == item_id
+
+
+def test_an_answered_question_resolved_later_changes_no_wait(client, alex, todo, make_account):
+    _, ch = make_account("my-agent")
+    item = _item(client, alex, todo["id"], assignees=["my-agent"])
+    item_id = item["id"]
+    assert _next(client, ch)["item"]["id"] == item_id
+    _finish(client, ch, item_id, outcome="ask", waiting_on="alex", question="Which one?")
+    asked = next(c for c in _asks(client, alex, item).values() if c["ask"])
+    _comment(client, alex, item_id, "The blue one")
+    assert _asks(client, alex, item)[asked["id"]]["resolved_at"] is not None
+    events = len(item_events(client, alex, item_id))
+    assert client.post(f"{API}/comments/{asked['id']}/resolve", headers=alex).status_code == 200
+    assert len(item_events(client, alex, item_id)) == events

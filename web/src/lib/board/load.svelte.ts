@@ -19,6 +19,8 @@ import type {
 } from '../types';
 import { BoardViews } from './views.svelte';
 
+const REFETCH_RETRY_MS = 2000;
+
 export class BoardLoad extends BoardViews {
   /** `later` on every held item was computed with the old lead_days: fetch them again. */
   override async setPrefs(changes: Partial<Record<keyof Prefs, unknown>>) {
@@ -139,7 +141,7 @@ export class BoardLoad extends BoardViews {
 
   /** Several items in one `GET /items?ids=` per 200 (the item cache answers it); an id that
    * comes back missing was deleted or trashed, as a fresh load would leave it out. */
-  async refetchItems(ids: string[]) {
+  async refetchItems(ids: string[], retrying = false) {
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
       const q = new URLSearchParams({ ids: chunk.join(','), include_archived: 'true' });
@@ -153,10 +155,40 @@ export class BoardLoad extends BoardViews {
             this.sync(id);
           }
         }
+        this.#refetchRetryDelay = REFETCH_RETRY_MS;
       } catch (e) {
-        this.loadFailed('refresh tasks', e);
+        if (!retrying) this.loadFailed('refresh tasks', e);
+        // The event that called for this refetch is gone, so nothing else would correct these
+        // cards: ask again unless the server refused the request itself.
+        const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
+        if (!refused) this.#retryRefetch(chunk);
       }
     }
+  }
+
+  #refetchRetry = new Set<string>();
+  #refetchRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  #refetchRetryDelay = REFETCH_RETRY_MS;
+
+  /** Ask for these items again after a pause that doubles up to 30 s while it keeps failing. */
+  #retryRefetch(ids: string[]) {
+    for (const id of ids) this.#refetchRetry.add(id);
+    if (this.#refetchRetryTimer !== undefined) return;
+    this.#refetchRetryTimer = setTimeout(() => {
+      this.#refetchRetryTimer = undefined;
+      const again = [...this.#refetchRetry];
+      this.#refetchRetry.clear();
+      void this.refetchItems(again, true);
+    }, this.#refetchRetryDelay);
+    this.#refetchRetryDelay = Math.min(this.#refetchRetryDelay * 2, 30_000);
+  }
+
+  /** The stream stopped (sign-out, a restart): a full load follows, or nothing is shown. */
+  protected cancelRefetchRetry() {
+    clearTimeout(this.#refetchRetryTimer);
+    this.#refetchRetryTimer = undefined;
+    this.#refetchRetry.clear();
+    this.#refetchRetryDelay = REFETCH_RETRY_MS;
   }
 
   async refetchItem(id: string) {

@@ -16,6 +16,7 @@ import { liveActivity } from '../liveactivity.svelte';
 import type { Me, Prefs, SlateEvent } from '../types';
 import { COOKIE_SESSION, inviteSecretFrom } from '../collaboration';
 import { workspaceDay } from '../quickadd';
+import { DEFAULT_LEAD_DAYS, laterTimeCame } from '../format';
 import { withStorage } from '../storage';
 import { TOKEN_KEY } from './state.svelte';
 import { BoardLoad } from './load.svelte';
@@ -28,6 +29,9 @@ export class BoardStream extends BoardLoad {
   #backoff = 1000;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #refetchQueue = new Set<string>();
+  /** When each Later card was last asked about, so a clock ahead of the server's cannot ask
+   * every tick. */
+  #laterAsked = new Map<string, number>();
   #projectRefetch = new Set<string>();
   #refetchTimer: ReturnType<typeof setTimeout> | undefined;
   #clock: ReturnType<typeof setInterval> | undefined;
@@ -138,12 +142,19 @@ export class BoardStream extends BoardLoad {
       this.#clock = setInterval(() => {
         const day = workspaceDay(this.now);
         this.now = new Date();
-        // The day rolled over: a Later card's time may have arrived. The server recomputes
-        // `later` on the refetch; no timer per card.
-        if (workspaceDay(this.now) !== day) {
-          const ids = Object.values(this.items).filter((i) => i.later).map((i) => i.id);
-          if (ids.length) void this.refetchItems(ids);
-        }
+        // A Later card's time may have arrived: every one at the day's rollover, and through
+        // the day each card whose own time has come. The server recomputes `later` on the
+        // refetch; a card it still calls later is asked about again in five minutes.
+        const rolled = workspaceDay(this.now) !== day;
+        if (rolled) this.#laterAsked.clear();
+        const at = this.now.getTime();
+        const lead = this.prefs.lead_days ?? DEFAULT_LEAD_DAYS;
+        const ids = Object.values(this.items)
+          .filter((i) => i.later && (rolled || laterTimeCame(i, this.now, lead)))
+          .filter((i) => rolled || at - (this.#laterAsked.get(i.id) ?? 0) >= 300_000)
+          .map((i) => i.id);
+        for (const id of ids) this.#laterAsked.set(id, at);
+        if (ids.length) void this.refetchItems(ids);
       }, 30_000);
     } catch (e) {
       if (gen !== this.#startGen) return;
@@ -188,6 +199,8 @@ export class BoardStream extends BoardLoad {
     clearTimeout(this.#refetchTimer);
     this.#refetchQueue.clear();
     this.#projectRefetch.clear();
+    this.cancelRefetchRetry();
+    this.#laterAsked.clear();
     clearInterval(this.#clock);
     clearTimeout(this.#drainTimer);
     this.#drainTimer = undefined;

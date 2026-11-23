@@ -83,6 +83,12 @@ export type FinishOptions = AskOptions & {
   waiting_on?: string;
   progress?: number;
   comment?: boolean;
+  /** With review or blocked: a link to where the work is. */
+  url?: string;
+  /** What you say back to whoever asked; answered needs it. */
+  reply?: string;
+  /** The session this work ran in, in your runtime: `{ ref, url? }`. */
+  thread?: { ref: string; url?: string };
 };
 export type StreamMessage = { event: 'news' | 'work'; id: string; data: Record<string, unknown> };
 export type BatchOp = { tool: string; action?: string; params?: Record<string, unknown>; ref?: string };
@@ -237,11 +243,25 @@ export class Slate {
   progress(id: string, note: string, percent?: number) {
     return this.report(id, 'working', note, percent === undefined ? {} : { progress: percent });
   }
+  /** Blocked on an agent (`waitingOn`, its handle) or on nobody. A person is asked, not
+   * waited on: use `ask`. */
   block(id: string, note: string, waitingOn?: string) {
     return this.report(id, 'blocked', note, waitingOn ? { waiting_on: waitingOn } : {});
   }
-  review(id: string, note: string) {
-    return this.report(id, 'review', note);
+  /** Ask a person one question (one line, with 2 to 4 `options` to pick from if you like):
+   * the card waits on them. `waitingOn` is their handle; left out, it is whoever asked you,
+   * else the owner. Several questions: `report(id, 'blocked', note, { questions })`. */
+  ask(id: string, question: string, options?: string[], waitingOn?: string, note?: string) {
+    return this.report(id, 'blocked', note, {
+      question,
+      ...(options?.length ? { options } : {}),
+      ...(waitingOn ? { waiting_on: waitingOn } : {}),
+    });
+  }
+  /** Ready for review. `status` is the one line the reviewer reads: what to check, 1 to 140
+   * characters. Left out, the note's first line is used. */
+  review(id: string, note: string, status?: string) {
+    return this.report(id, 'review', note, { status: status ?? (note.trim().split('\n')[0] ?? '').slice(0, 140) });
   }
   /** Clear your badge and move the item to its list's done status. */
   done(id: string, note?: string, opts: ReportOptions = {}) {

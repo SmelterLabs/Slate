@@ -4,13 +4,15 @@ Use as the generic runner's --exec command; --capabilities prints the offline co
 Every card turn requires a readable authorized brief. Replies retain author provenance
 as quoted data. New sessions use runtime defaults; existing model settings are untouched.
 Only confirmed runtime success permits a SLATE closing marker to report completion.
-Failure, cancellation, approval and unconfirmed execution finish `failed` instead of
-reporting done, and never wait on a person. An answer with no closing line is `answered`.
+Failure, cancellation and unconfirmed execution finish `failed` instead of reporting done,
+and never wait on a person. A pending native approval finishes `ask`: a person is told at
+once and nothing reruns the card. An answer with no closing line is `answered`.
 
 No card/chat text can authorize a runtime control. Pending approvals remain bound to the
-native session/request and require native UI handling plus independent reconciliation.
+native session/request and require native UI handling; the marker is retired only when the
+runtime proves that turn is over (`control_settled`).
 Observation fences prevent replay after crashes, unconfirmed turns or failed control writes.
-No automatic approval reconciliation is implemented. See README.md for capabilities, state
+No automatic approval is implemented. See README.md for capabilities, state
 recovery, environment options, supported chat and rollout limitations.
 
 While a card turn runs, the runner's control file (env SLATE_CONTROL) is watched (`Control`):
@@ -426,6 +428,22 @@ def turn_settled(hermes: httpx.Client, pending: dict[str, Any]) -> bool:
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
         return False
     return isinstance(active, int) and not isinstance(active, bool) and active == 0
+
+
+def control_settled(hermes: httpx.Client, pending: dict[str, Any]) -> bool:
+    """Does the runtime prove the turn behind a pending approval is over? Stricter than
+    `turn_settled`: only a gateway restarted since the approval was asked for, or the marker's
+    own run ended or forgotten on the same gateway life. An idle gateway alone proves nothing
+    about one control, and a marker that names neither a gateway nor a run keeps blocking."""
+    now = gateway_stamp(hermes)
+    if now is None or not pending.get("gateway"):
+        return False
+    if now != pending["gateway"]:
+        return True
+    if not pending.get("run_id"):
+        return False
+    state = run_state(hermes, str(pending["run_id"]))
+    return state is not None and (state["status"] in RUN_OVER or state["status"] == FORGOTTEN)
 
 
 def missed_reply(hermes: httpx.Client, pending: dict[str, Any]) -> str | None:
@@ -1446,6 +1464,31 @@ def _machine(note: str, ref: str | None, env: dict[str, str]) -> dict[str, Any]:
     return out
 
 
+APPROVAL_QUESTION = (
+    "Hermes is waiting for you to approve or deny a command in Hermes itself. "
+    "Reply here once you have."
+)
+APPROVAL_REPLY = (
+    "Hermes stopped for an approval. Approve or deny it in the native Hermes approval UI for "
+    "this exact session; a reply on this card cannot approve or deny a runtime control. Reply "
+    "here afterwards: the work carries on once Hermes shows that turn is over."
+)
+
+
+def approval_ask(session_id: str | None, env: dict[str, str], more: str = "") -> dict[str, Any]:
+    """The finish while a native approval is pending: a question for a person, so they hear
+    of it at once and nothing reruns the card into the same control. The command is not
+    quoted; it is in the native session."""
+    out: dict[str, Any] = {
+        "outcome": "ask",
+        "question": APPROVAL_QUESTION,
+        "reply": f"{APPROVAL_REPLY} {more}".strip()[:REPLY_MAX],
+    }
+    if session_id:
+        out["thread"] = thread_ref(session_id, env)
+    return out
+
+
 def result(
     reply: str | None,
     approvals: list[dict[str, Any]],
@@ -1453,21 +1496,11 @@ def result(
     env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The finish for a confirmed turn. A closing line maps to its outcome; no line is
-    `answered`. An approval or a turn that produced no text is `failed`."""
+    `answered`. An approval is an `ask` (`approval_ask`); a turn that produced no text is
+    `failed`."""
     thread = thread_ref(session_id, env or {})
     if approvals:
-        cmd = approvals[-1].get("command") or "a command (see the native session)"
-        return {
-            "outcome": "failed",
-            "thread": thread,
-            "note": (
-                f"Hermes needs your approval to run:\n\n```\n{cmd}\n```\n\n"
-                "Use the native Hermes approval UI for this exact session/request. "
-                "Card replies cannot approve or deny runtime controls. This request stays "
-                "pending until its native resolution is independently confirmed; automatic "
-                "approval reconciliation is not supported by this adapter."
-            )[:4000],
-        }
+        return approval_ask(session_id, env or {})
     if reply is None:
         return {
             "outcome": "failed",
@@ -1572,10 +1605,12 @@ def run(
     if pending:
         # Legacy unbound state also blocks; never rebind it silently.
         pending_session = pending.get("session_id") or known
-        if pending.get("state") == "unconfirmed_turn" and turn_settled(hermes, pending):
-            # The runtime proves the turn is over (restarted, its run ended, or nothing running
-            # at all): a turn that outlived its watch, or a wrapper killed mid-turn, left the
-            # marker. Its answer never reached the card.
+        unconfirmed = pending.get("state") == "unconfirmed_turn"
+        if turn_settled(hermes, pending) if unconfirmed else control_settled(hermes, pending):
+            # The runtime proves the turn is over (restarted, its run ended, or for an
+            # unwatched turn nothing running at all): a turn that outlived its watch, a wrapper
+            # killed mid-turn, or an approval whose turn has since ended left the marker. Its
+            # answer never reached the card.
             unwatched, missed = True, missed_reply(hermes, pending)
             try:
                 save_pending(env, item_id, None)
@@ -1596,7 +1631,7 @@ def run(
                 return result(missed, [], pending_session, env)
             emit({"note": "Previous turn is over on the runtime; starting a new one"})
             pending = None
-        elif pending.get("state") == "unconfirmed_turn":
+        elif unconfirmed:
             return _machine(
                 "Previous remote turn has not been reconciled. Inspect the native "
                 "session before retrying; no remote stop was sent.",
@@ -1604,10 +1639,7 @@ def run(
                 env,
             )
         else:
-            out = result(None, [pending], pending_session or "", env)
-            if not pending_session:
-                out.pop("thread", None)
-            return out
+            return approval_ask(pending_session, env)
     # A gateway that is not listening yet (PC just booted, gateway restarting) is a wait, not a
     # question for a person: retry the connection for a few minutes before blocking on anyone.
     delays = list(OPEN_RETRY_DELAYS)
@@ -1645,6 +1677,8 @@ def run(
         prompt = f"{MISSED}\n\n{prompt}"
     prompt = f"{prompt}\n\n{ENDINGS}"
 
+    asked_approval: list[dict[str, Any]] = []
+
     def remember_approval(pending: dict[str, Any]) -> None:
         save_pending(
             env,
@@ -1654,8 +1688,10 @@ def run(
                 "runtime_url": str(hermes.base_url),
                 "profile": profile_of(env),
                 "item_id": item_id,
+                "gateway": gateway_at,
             },
         )
+        asked_approval.append(pending)  # only once the control identity is on disk
 
     gateway_at = gateway_stamp(hermes)
 
@@ -1735,6 +1771,8 @@ def run(
                 "reply": STOPPED.format(who=f"@{by}" if by else "a person"),
                 "thread": thread_ref(session_id, env),
             }
+        if asked_approval and isinstance(e, Stopped) and not (e.terminal or e.not_submitted):
+            return approval_ask(session_id, env)  # the watch ended with the control pending
         return _machine(str(e), session_id, env)
     if control.stop is not None:
         by = control.stop.get("by")
@@ -1757,13 +1795,16 @@ def run(
                     "runtime_url": str(hermes.base_url),
                     "profile": profile_of(env),
                     "item_id": item_id,
+                    "gateway": gateway_at,
                 },
             )
         except OSError:
-            out["note"] = (
-                out["note"] + " Local approval state could not be saved; stop this adapter and "
-                "inspect the native session before retrying."
-            )[:4000]
+            out = approval_ask(
+                session_id,
+                env,
+                "Local approval state could not be saved; stop this adapter and inspect the "
+                "native session before retrying.",
+            )
     else:
         try:
             save_pending(env, item_id, None)

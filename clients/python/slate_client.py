@@ -254,10 +254,38 @@ class Slate:
         return self.report(item_id, "working", note, progress=percent)
 
     def block(self, item_id: str, note: str, waiting_on: str | None = None) -> dict:
+        """Blocked on an agent (`waiting_on`, its handle) or on nobody. A person is asked,
+        not waited on: use `ask`."""
         return self.report(item_id, "blocked", note, waiting_on=waiting_on)
 
-    def review(self, item_id: str, note: str) -> dict[str, Any]:
-        return self.report(item_id, "review", note)
+    def ask(
+        self,
+        item_id: str,
+        question: str,
+        options: list[str] | None = None,
+        *,
+        waiting_on: str | None = None,
+        note: str | None = None,
+        **kw: Any,
+    ) -> dict[str, Any]:
+        """Ask a person one question (one line, with 2 to 4 `options` to pick from if you
+        like): the card waits on them. `waiting_on` is their handle; left out, it is whoever
+        asked you, else the owner. Several questions: `report(id, "blocked", questions=[...])`."""
+        kw["question"] = question
+        if options:
+            kw["options"] = options
+        if waiting_on:
+            kw["waiting_on"] = waiting_on
+        return self.report(item_id, "blocked", note, **kw)
+
+    def review(
+        self, item_id: str, note: str, status: str | None = None, **kw: Any
+    ) -> dict[str, Any]:
+        """Ready for review. `status` is the one line the reviewer reads: what to check, 1 to
+        140 characters. Left out, the note's first line is used."""
+        if status is None:
+            status = (note.strip().splitlines() or [""])[0][:140]
+        return self.report(item_id, "review", note, status, **kw)
 
     def done(self, item_id: str, note: str | None = None, **kw: Any) -> dict[str, Any]:
         """Clear your badge and move the item to its list's done status."""

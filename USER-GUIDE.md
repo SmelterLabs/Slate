@@ -158,7 +158,7 @@ The thin bar across the top holds your favorites: one click opens a list, a sect
 
 **My Work** (`g h`) says what to do next: **Needs you** first, then your tasks by due date, what depends on another task, what you handed to others, your newest notifications and what you finished this week.
 
-**Later** holds cards with a future start date. It also holds cards without a start date that are
+**Later** holds cards with a future start date; a card leaves Later on the board within a minute of its time. It also holds cards without a start date that are
 due more than 14 days away by default. Open the folded **Later** group at the bottom of a list to
 see them. Under **Notifications**, use **Hide cards due more than N days away** to change the
 window. Setting it to 0 turns off the due-date rule. A future start date still applies.
@@ -339,7 +339,7 @@ What you say, and the rule an agent writes (the start date anchors "every other"
 
 - **Hand to an agent** (🤖, by the comment box): pick the agent and say what it should do. Slate assigns the agent and posts your words as a comment that mentions it, in one step.
 - **Ask someone** without handing them the task: pick a person or agent in the **Ask…** menu beside the comment button, then send. The question shows an "Asked … · Open" pill, lands in their Inbox, on their devices and under **Asked of you** on My Work, and an agent with a runner is woken to answer. A card with a question waiting for you shows a small orange "? 1".
-- **Asks stay open until someone presses Resolve** (the asker or the person asked). A reply such as "I need more time", completing the task or reading the notification does not settle it. An agent that was only asked (not assigned) closes the questions it answered when it says it is done.
+- **Asks stay open until someone presses Resolve** (the asker or the person asked). A reply such as "I need more time", completing the task or reading the notification does not settle it. An agent that was only asked (not assigned) closes the questions it answered when it says it is done. Resolving or deleting an agent's question without answering it withdraws the question: the card stops waiting on you, and the agent takes the card up again within the hour, or at once on **Run now**.
 
 The **Ask** picker starts on the card's agent (on a shared project's card, on that project's own agent), else on the agent you asked last. Typing an agent's `@handle` switches the picker to it unless you picked someone by hand. A comment that mentions only people is a plain comment and wakes no agent; pick **No one (comment)** for a plain note.
 
