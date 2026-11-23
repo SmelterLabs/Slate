@@ -251,6 +251,53 @@ def doc_key(doc_id: str, thread_id: str | None) -> str:
     return f"{DOC_PREFIX}{doc_id}|{thread_id or ''}"
 
 
+def fit_ask(body: dict[str, Any]) -> dict[str, Any]:
+    """Fit an ask to what Slate accepts (one to four questions, each one line of at most 200
+    characters, with no options or two to four of at most 40 characters), so a long question
+    is asked instead of refused. Nothing is lost: a question cut short, options that do not
+    fit and questions past the fourth go into the reply, in full."""
+    if body.get("outcome") != "ask":
+        return body
+    raw = body.get("questions")
+    if not isinstance(raw, list):
+        raw = [{"question": body.get("question"), "options": body.get("options")}]
+    kept: list[dict[str, Any]] = []
+    extra: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        full = " ".join(str(entry.get("question") or "").split())
+        if not full:
+            continue
+        options = entry.get("options")
+        options = [str(o).strip() for o in options] if isinstance(options, list) else []
+        options = [o for o in options if o]
+        fits = 2 <= len(options) <= 4 and all(len(o) <= 40 and "\n" not in o for o in options)
+        if len(kept) == 4:
+            extra.append(full + (f" [{' | '.join(options)}]" if options else ""))
+            continue
+        if len(full) > 200:
+            extra.append(full)
+        if options and not fits:
+            extra.append(f"Options for “{full[:60]}”: {' | '.join(options)}")
+        question = full if len(full) <= 200 else full[:199] + "…"
+        kept.append({"question": question, "options": options if fits else []})
+    if not kept:
+        return body  # no question at all: Slate's refusal says so
+    for key in ("question", "options", "questions"):
+        body.pop(key, None)
+    if len(kept) == 1:
+        body["question"] = kept[0]["question"]
+        if kept[0]["options"]:
+            body["options"] = kept[0]["options"]
+    else:
+        body["questions"] = kept
+    if extra:
+        text = "\n\n".join([str(body.get("reply") or "").strip(), *extra]).strip()
+        body["reply"] = text if len(text) <= REPLY_MAX else text[: REPLY_MAX - 1] + "…"
+    return body
+
+
 def turn_ref(key: str) -> tuple[str, dict[str, Any]] | None:
     """A turn key's route kind and the fields naming it (`chat` -> channel, `doc` -> doc_id,
     both with thread_id); None for a task (an item id)."""
@@ -950,11 +997,17 @@ class Runner:
         """The `failed` finish for a task result Slate refused as malformed: the same run proof,
         Slate's reason first (the badge shows it), then what the agent said, so its words are
         kept on the card's history and the card is retried instead of waiting for the lease to
-        run out. None for a chat or doc turn, a reconcile, or a result that is `failed` already
-        (nothing simpler is left to send)."""
-        if turn_ref(key) is not None or "outcome" not in body or body["outcome"] == "failed":
+        run out. A chat or doc turn has no `failed`: its refused reply is sent once more as
+        `release`, which posts nothing and ends the turn. None for a reconcile, or a result
+        that is `failed` or `release` already (nothing simpler is left to send)."""
+        if "outcome" not in body or body["outcome"] in ("failed", "release"):
             return None
         why = detail if isinstance(detail, str) else json.dumps(detail, default=str)
+        ref = turn_ref(key)
+        if ref is not None:
+            out = {"run_id": body.get("run_id"), **ref[1]}  # the proof only, nothing it said
+            note = f"Slate refused this turn's reply ({body['outcome']}): {_tail(why, 300)}"
+            return {**out, "outcome": "release", "note": note[:NOTE_MAX]}
         asked = str(body.get("question") or "").strip()
         if isinstance(body.get("questions"), list):
             asked = "\n".join(
@@ -1102,7 +1155,7 @@ class Runner:
             body.pop("status", None)
         if body.get("outcome") == "review" and "status" not in body:
             body["outcome"] = "done"
-        return body
+        return fit_ask(body)
 
     def _chat_result(
         self, code: int, result: dict[str, Any] | None, out: str, err: str

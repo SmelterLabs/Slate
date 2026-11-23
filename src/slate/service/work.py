@@ -1607,10 +1607,12 @@ def _expire_lease(session: Session, actor: Actor, row: WorkLease, now: datetime)
         item = session.get(Item, row.item_id, populate_existing=True)
         if item is None:
             return 0
-        if _ended(session, item, row) == "closed":
-            # Also a lease quarantined while the card was open and closed since: nobody can
-            # Clear a badge the close already took off, so it would hold the card for ever.
-            _settle_closed(session, cx, item, row)
+        why = _taken_away(session, item, row)
+        if why is not None:
+            # Also a lease quarantined while the holder still had the card and taken away
+            # since: nobody can Clear a badge the close already took off, and a card handed
+            # to another agent could not be taken while the old lease held it.
+            _settle_ended(session, cx, item, row, why)
             return 1
         if row.quarantined:
             return 0
@@ -1635,12 +1637,27 @@ def _expire_lease(session: Session, actor: Actor, row: WorkLease, now: datetime)
     return 1
 
 
-def _settle_closed(session: Session, cx: Any, item: Item, row: WorkLease) -> None:
-    """A lease that ran out on a closed card is settled, not quarantined. The quarantine keeps a
-    card from being run twice at once; a closed card is not run again, every heartbeat since the
-    close told the holder to stop, and a "confirm the runtime stopped before retrying" badge on
-    a finished card asks a person for nothing they can act on. Records `item.work_finished`
-    (reconciled, `runtime_state` `unknown`), clears the holder's flag and drops the lease."""
+def _taken_away(session: Session, item: Item, row: WorkLease) -> str | None:
+    """Why the lease's holder no longer has this card, in words for the finish event: someone
+    else closed it, it was archived, or the holder was unassigned. None while it is theirs."""
+    ended = _ended(session, item, row)
+    if ended == "closed":
+        return "closed"
+    if ended == "archived":
+        return "archived"
+    if not row.asked_only and not _is_assigned(session, item.id, row.account_id):
+        return "unassigned"
+    return None
+
+
+def _settle_ended(session: Session, cx: Any, item: Item, row: WorkLease, why: str) -> None:
+    """A lease that ran out on a card its holder was taken off (closed, archived, unassigned)
+    is settled, not quarantined. The quarantine keeps a card from being run twice at once; here
+    every heartbeat since told the holder to stop, the holder will not be offered the card
+    again, and a "confirm the runtime stopped before retrying" badge would ask a person for
+    nothing they can act on while keeping the card from whoever has it now. Records
+    `item.work_finished` (reconciled, `runtime_state` `unknown`), clears the holder's flag and
+    drops the lease."""
     start = _turn_start(session, row.account_id, item.id)
     if item.agent_state_by == row.account_id:
         reports.clear_flag(cx, item)
@@ -1653,7 +1670,7 @@ def _settle_closed(session: Session, cx: Any, item: Item, row: WorkLease) -> Non
             "reconciled": True,
             "expired": True,
             "runtime_state": "unknown",
-            "evidence": "The card was closed and the lease ran out",
+            "evidence": f"The card was {why} and the lease ran out",
             "run_digest": _digest(row.run_id) if row.run_id else None,
         },
         covers=[item],

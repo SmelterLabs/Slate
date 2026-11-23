@@ -1254,7 +1254,8 @@ def save_chat_session(
                 # Which gateway life and run the turn belongs to, so it can settle itself.
                 state.update({k: v for k, v in (("gateway", gateway), ("run_id", run_id)) if v})
             if pending:
-                # Control identity only, not command text in shared-chat state.
+                # Control identity only, not command text in shared-chat state. The gateway
+                # life lets the marker retire once that turn is proven over.
                 state["pending_approval"] = {
                     key: pending.get(key)
                     for key in (
@@ -1264,7 +1265,7 @@ def save_chat_session(
                         "run_id",
                         "command_sha256",
                     )
-                }
+                } | {"gateway": pending.get("gateway") or gateway}
             stream.write(json.dumps(state))
         tmp.replace(path)
     finally:
@@ -1321,7 +1322,8 @@ def run_chat(
                     "Previous remote chat turn is unconfirmed; inspect the native "
                     "session before retrying. Remote stop is not supported."
                 )
-            if stored.get("pending_approval"):
+            control = stored.get("pending_approval")
+            if control and not (isinstance(control, dict) and control_settled(hermes, control)):
                 return release(
                     "Hermes chat requires native approval resolution and independent "
                     "confirmation. Card/chat replies cannot settle it."
@@ -1379,7 +1381,7 @@ def run_chat(
             on_run=remember_run,
         )
         if approvals:
-            save_chat_session(path, session_id, approvals[-1])
+            save_chat_session(path, session_id, approvals[-1], gateway=gateway_at)
         else:
             save_chat_session(path, session_id)
     except (httpx.HTTPError, RuntimeError, Stopped, OSError, ValueError, TypeError) as e:
