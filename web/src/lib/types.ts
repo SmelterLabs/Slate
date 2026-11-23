@@ -21,6 +21,7 @@ export interface Section {
   audience: 'personal' | 'ai' | 'work' | 'family';
   created_at: string;
   archived_at: string | null;
+  color?: string | null;
   /** Hidden from members unless shared with them (owners and admins still see it). */
   private?: boolean;
   /** Whether this section is tracked as a project with a computed next step. */
@@ -477,6 +478,7 @@ export interface Prefs {
   lead_days?: number;
   /** Weekly sweep day for old overdue cards (0 = Monday .. 6 = Sunday; default 4, Friday). */
   sweep_weekday?: number;
+  also_show?: Record<string, { sections: string[]; everyone?: boolean }>;
 }
 
 export interface Me {

@@ -2219,6 +2219,19 @@ html.touch-dragging .kanban {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A section's colour (Section.color, through safeColor): beside its name in the nav, in a
+   card's section pill and on its "Also show" switch. */
+.section-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--section-color);
+}
+.space-name + .section-dot {
+  margin-left: 6px;
+}
 .sheet {
   background: var(--raised);
   box-shadow: var(--shadow-modal);
