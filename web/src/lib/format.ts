@@ -76,6 +76,21 @@ export function isParked(item: Pick<Item, 'parked_until' | 'parked_note'>): bool
   return !!item.parked_until;
 }
 
+/** The server's default lead: a card due further out than this many days stays in Later. */
+export const DEFAULT_LEAD_DAYS = 14;
+
+/** Whether a Later card's time has come by this clock: its start, or with no start its due
+ * time less the viewer's lead days. The server decides `later`; this says when to ask it. */
+export function laterTimeCame(
+  item: Pick<Item, 'later' | 'start_at' | 'due_at'>,
+  now: Date,
+  leadDays: number,
+): boolean {
+  if (!item.later) return false;
+  if (item.start_at) return new Date(item.start_at) <= now;
+  return !!item.due_at && new Date(item.due_at).getTime() - leadDays * 86_400_000 <= now.getTime();
+}
+
 export function isOverdue(item: Item, now: Date = new Date()): boolean {
   return (
     isOpen(item) && !item.archived_at && !isParked(item) && !!item.due_at && new Date(item.due_at) < now

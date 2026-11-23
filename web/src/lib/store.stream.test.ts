@@ -128,6 +128,42 @@ describe('applying events', () => {
     expect(board.items.I1.assignees.map((a) => a.handle)).toEqual(['alex']);
   });
 
+  it('a refetch that fails is asked again until it answers', async () => {
+    let down = true;
+    routes.set('/items', () => (down ? { status: 503, body: { detail: 'busy' } } : [item({ title: 'Fresh' })]));
+    await emit(ev({ type: 'item.assigned' }));
+    await vi.advanceTimersByTimeAsync(50);
+    await settle();
+    expect(board.items.I1.title).not.toBe('Fresh');
+    down = false;
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(board.items.I1.title).toBe('Fresh');
+  });
+
+  it('a refetch the server refuses is not asked again', async () => {
+    routes.set('/items', () => ({ status: 422, body: { detail: 'bad ids' } }));
+    await emit(ev({ type: 'item.assigned' }));
+    await vi.advanceTimersByTimeAsync(50);
+    await settle();
+    const asked = requests.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(requests.filter((r) => r.path === '/items').length).toBe(requests.slice(0, asked).filter((r) => r.path === '/items').length);
+  });
+
+  it('a Later card is asked about when its start time comes, not only at midnight', async () => {
+    const start = new Date(Date.now() + 45_000).toISOString();
+    board.items.I1.later = true;
+    board.items.I1.start_at = start;
+    routes.set('/items', () => [item({ later: false, start_at: start })]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await settle();
+    expect(board.items.I1.later).toBe(true);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await settle();
+    expect(board.items.I1.later).toBe(false);
+  });
+
   it('a column change shows on the card and in the plain copy the views read', async () => {
     await emit(ev({ field: 'priority', before: null, after: 'urgent' }));
     expect(board.items.I1.priority).toBe('urgent');

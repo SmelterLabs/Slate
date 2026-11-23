@@ -4,6 +4,7 @@
 //   asked    - an open Ask (assigned comment) is addressed to me
 //   blocked  - an agent on my card reported blocked without naming anyone (not once answered)
 //   review   - an agent on my card reported "Ready for review"
+// A card whose agent run failed counts only when it waits on me or holds an Ask for me.
 // Not counted: agents still working, dependency blocks (they clear themselves), overdue dates
 // (the Overdue column and Today count already say so), and anything waiting on someone else.
 
@@ -38,10 +39,13 @@ const RANK: Record<Need, number> = { waiting: 0, blocked: 1, asked: 2, review: 3
 
 /** Why this item needs `me`, or null. */
 export function needOf(item: Item, me: string, accounts: Record<string, Account>): Need | null {
-  if (item.archived_at || item.trashed_at || !isOpen(item) || item.agent?.state === 'failed') return null;
+  if (item.archived_at || item.trashed_at || !isOpen(item)) return null;
   // Set aside on purpose (parked, or not yet started): the server's Today leaves these out too.
   if (item.later || isParked(item)) return null;
   if (item.waiting_on_account_id === me) return 'waiting';
+  // A run that failed is Slate's to retry, not the viewer's to chase; what was asked of the
+  // viewer in so many words (a wait above, an Ask here) still stands, as on the server's Today.
+  if (item.agent?.state === 'failed') return item.open_asks?.includes(me) ? 'asked' : null;
   // On my card: I filed it, I'm on it, or an agent filed it for nobody in particular.
   const mine =
     item.created_by === me ||

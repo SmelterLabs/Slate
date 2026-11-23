@@ -48,11 +48,14 @@ describe('needOf', () => {
     const ask = { ...q, questions: [q], comment_id: 'C1', by_id: 'sc', at: '2026-10-29T10:00:00Z' };
     expect(needOf(item({ created_by: 'guest', waiting_on_account_id: ME, agent: flag('blocked'), ask }), ME, accounts)).toBe('waiting');
   });
-  it('a failed agent is not a need, whoever filed the card or what wait/ask was left on it', () => {
+  it('a failed agent is not a need of its own, whoever filed the card', () => {
     expect(needOf(item({ created_by: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
     expect(needOf(item({ created_by: 'sc', agent: flag('failed') }), ME, accounts)).toBeNull();
-    expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, agent: flag('failed') }), ME, accounts)).toBeNull();
-    expect(needOf(item({ created_by: ME, open_asks: [ME], agent: flag('failed') }), ME, accounts)).toBeNull();
+    expect(needOf(item({ created_by: ME, stalled: true, agent: flag('failed') }), ME, accounts)).toBeNull();
+  });
+  it('a card waiting on me or asked of me still needs me after its agent failed', () => {
+    expect(needOf(item({ created_by: ME, waiting_on_account_id: ME, agent: flag('failed') }), ME, accounts)).toBe('waiting');
+    expect(needOf(item({ created_by: ME, open_asks: [ME], agent: flag('failed') }), ME, accounts)).toBe('asked');
   });
   it('a parked or later card needs nobody, even with an Ask or a wait on it', () => {
     expect(needOf(item({ created_by: ME, open_asks: [ME], parked_until: '2026-12-01T00:00:00Z' }), ME, accounts)).toBeNull();
