@@ -372,12 +372,10 @@ STATUS_FIELD = Field(
 )
 OPTIONS_FIELD = Field(
     default=None,
-    # Empty is an omitted set. Advertise the bounds without taking validation away from
-    # check_ask, which is shared with the closing-line path.
-    json_schema_extra={
-        "maxItems": reports.OPTIONS_MAX,
-        "not": {"type": "array", "minItems": 1, "maxItems": reports.OPTIONS_MIN - 1},
-    },
+    # Empty is an omitted set, so the lower bound stays in the description: check_ask, shared
+    # with the closing-line path, refuses a single option. No `not` here: MCP clients that
+    # convert a tool's schema refuse the whole tool on one.
+    json_schema_extra={"maxItems": reports.OPTIONS_MAX},
     description="ask: 2 to 4 short answers (1 to 40 characters each) the person can pick with "
     "one button; a typed reply is always possible",
     examples=[["Yes", "No", "Not yet"]],

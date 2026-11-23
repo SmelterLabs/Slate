@@ -253,7 +253,9 @@ def test_work_schema_exposes_claim_and_only_mcp_finish_controls():
     done = {"item_id": "Ab12Cd34Ef56", "outcome": "done", "reply": "Filed."}
     assert work.is_valid({"action": "finish", "params": done})
     assert not work.is_valid({"action": "finish", "params": {**done, "comment": False}})
-    assert not work.is_valid({"action": "finish", "params": {**done, "note": "Filed."}})
+    # The note rule is the server's: no schema keyword a converting client refuses.
+    with pytest.raises(ValueError, match="note is only for failed or hand_to"):
+        mcp_tools.WorkFinish(**done, note="Filed.")
     assert not work.is_valid({"action": "finish", "params": {**done, "outcome": "failed"}})
     assert work.is_valid(
         {

@@ -437,13 +437,6 @@ class WorkFinish(omit(FinishIn, "comment")):
                 "required": ["note"],
                 "properties": {"note": {"type": "string", "pattern": r"\S"}},
             },
-            "else": {
-                "if": {
-                    "properties": {"hand_to": {"type": "string", "minLength": 1}},
-                    "required": ["hand_to"],
-                },
-                "else": {"not": {"required": ["note"]}},
-            },
         },
     )
     item_id: str = Field(description="The task you hold")

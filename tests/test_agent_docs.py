@@ -120,3 +120,20 @@ def test_route_mention_checker_catches_a_typo():
     assert unknown_route_mentions("call `GET /itemz/{id}` then `GET /items/<id>`") == [
         "GET /itemz/{id}"
     ]
+
+
+def test_no_tool_schema_uses_not():
+    """Common MCP clients convert a tool's schema and refuse the whole tool on a `not`."""
+    from slate.mcp_tools import TOOLS, input_schema
+
+    def keywords(node):
+        if isinstance(node, dict):
+            yield from node
+            for value in node.values():
+                yield from keywords(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from keywords(value)
+
+    refused = [name for name, spec in TOOLS.items() if "not" in set(keywords(input_schema(spec)))]
+    assert not refused
