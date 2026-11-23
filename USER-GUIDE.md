@@ -41,6 +41,12 @@ Nothing is hard-coded:
 - **Drag a list** onto another list to put it just above, or onto a section's name to put it at the end of that section.
 - **Archive** asks first, then hides the section or list and its items. Nothing is deleted: **Archived** at the bottom of the menu lists them, with **Restore** next to each.
 
+**Colour…** in a section's ⋯ menu gives the section a colour: pick one of twelve, or **No colour**
+to clear it. The colour shows as a dot beside the section's name in the left menu and on its
+switch in **Also show**. On a page that brings sections together (**Everything**, or a list page
+with **Also show** switched on), each card from a coloured section carries a soft wash of its
+colour and a small pill naming the section.
+
 **List settings** edits a list's name and its columns (statuses): rename, add, reorder with ▲▼, pick a colour from the dot, choose the **default** (where new items start) and the **kind**, which tells Slate what the column means: *Open* (not started), *Active* (in progress), *Done* (what **Complete** uses) or *Cancelled*. Removing a column that still has items asks where to move them. **Kind** at the top turns an empty list into a drawer (see *Docs & Files*).
 
 Use the filing note in **List settings** to say what belongs here and what finished work looks
