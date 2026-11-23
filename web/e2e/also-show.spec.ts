@@ -65,7 +65,6 @@ test('brings in cards by section, saves the switches and drags within the source
     expect((await savedOff).ok()).toBe(true);
   } finally {
     await api('PATCH', '/me/prefs', { also_show: prefs.also_show ?? null });
-    if (itemIds.length) await api('POST', '/items/bulk', { ids: itemIds, changes: { archive: true } });
     if (sourceId) await api('PATCH', `/lists/${sourceId}`, { archived: true });
     await api('PATCH', `/sections/${section.id}`, { archived: true });
   }
