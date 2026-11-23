@@ -193,7 +193,8 @@ def test_ai_and_recurrence_creation_use_defaults(client, alex, todo, make_accoun
             },
         )
         assert response.status_code == 201, response.text
-    recurrences.materialize(db, utcnow())
+    # A day ahead: the daily rule's next occurrence is always inside that, whatever the clock.
+    recurrences.materialize(db, utcnow() + timedelta(days=1))
     rows = client.get(f"{API}/items", headers=alex).json()
     for prefix, handle in (("Inherited", "my-agent"), ("Explicit", "alex")):
         matching = [row for row in rows if row["title"].startswith(prefix)]

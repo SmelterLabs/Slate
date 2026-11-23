@@ -196,7 +196,7 @@
       { label: 'New doc here', disabled: !canEditSection(section.id), onselect: () => newDoc(`s:${section.id}`) },
       favEntry('section', section.id),
       { label: 'Rename', onselect: () => start(`section:${section.id}`, section.name) },
-      { label: 'Colour…', onselect: () => (colouring = section.id) },
+      { label: 'Colour…', disabled: !canEditSection(section.id), onselect: () => (colouring = section.id) },
       {
         label: section.project ? '✓ This is a project' : 'This is a project',
         disabled: !canEditSection(section.id),
