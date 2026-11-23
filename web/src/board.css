@@ -1199,3 +1199,19 @@ input[type='checkbox'][role='switch']:checked::after {
   }
 }
 
+/* --- section colour: on a page that mixes sections (BoardState.sectionMix) --- */
+/* A soft wash of the card's section colour from the left, gone by two thirds of the width.
+   The second, empty layer keeps the background colour painted under the border while the wash
+   stops at the padding, so the 3px left edge (priority, overdue) stays exactly as it is.
+   Longhands, so hover's background colour still applies under the wash. */
+.card.cu.section-tint,
+.row.section-tint {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--section-color) 14%, transparent), transparent 66%),
+    none;
+  background-clip: padding-box, border-box;
+}
+/* The section pill: a dot of the colour and the section's name. */
+.section-pill {
+  gap: 5px;
+}

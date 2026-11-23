@@ -14,6 +14,8 @@
   import { atLeast, canCreateSections, sectionLevel } from '../lib/permissions';
   import ListSettings from './ListSettings.svelte';
   import Menu from './Menu.svelte';
+  import SectionColour from './SectionColour.svelte';
+  import { safeColor } from '../lib/mdcore';
   import Icon from './Icon.svelte';
 
   /** A chat link on a wide screen opens the chat panel on `key` and stays on this page; a
@@ -80,6 +82,14 @@
   let showArchived = $state(false);
   /** Which ⋯ menu is open ("section:<id>" / "list:<id>"); right-click opens it too. */
   let menuFor = $state<string | null>(null);
+  /** The section whose colour swatches are open under its heading. */
+  let colouring = $state<string | null>(null);
+
+  /** Close the swatches and give focus back to that section's ⋯ button. */
+  function closeColour(id: string) {
+    colouring = null;
+    document.querySelector<HTMLElement>(`.nav-section[data-section-id="${id}"] .nav-heading .menu-button`)?.focus();
+  }
 
   // Drag a list onto another list (lands before it) or onto a section heading (lands last).
   const LIST_DRAG = 'application/x-slate-list';
@@ -186,6 +196,7 @@
       { label: 'New doc here', disabled: !canEditSection(section.id), onselect: () => newDoc(`s:${section.id}`) },
       favEntry('section', section.id),
       { label: 'Rename', onselect: () => start(`section:${section.id}`, section.name) },
+      { label: 'Colour…', onselect: () => (colouring = section.id) },
       {
         label: section.project ? '✓ This is a project' : 'This is a project',
         disabled: !canEditSection(section.id),
@@ -421,7 +432,8 @@
   </div>
   {#each board.sections as section, si (section.id)}
     {@const lists = board.listsOf(section.id)}
-    <div class="nav-section" data-section={section.name}>
+    {@const colour = safeColor(section.color)}
+    <div class="nav-section" data-section={section.name} data-section-id={section.id}>
       {#if editing === `section:${section.id}`}
         <input
           class="nav-input"
@@ -462,7 +474,8 @@
             ><span class="space-mark aud-{section.audience}" aria-hidden="true"
               >{section.name.trim().charAt(0).toUpperCase()}</span
             ><span class="space-name">{section.name}</span
-            >{#if section.private}<span class="nav-lock" title="Private: only people it is shared with"
+            >{#if colour}<span class="section-dot" style:--section-color={colour} data-section-color={colour} aria-hidden="true"
+              ></span>{/if}{#if section.private}<span class="nav-lock" title="Private: only people it is shared with"
                 ><Icon name="lock" size={11} /></span
               >{/if}</a
           >
@@ -490,6 +503,9 @@
       {/if}
       {#if confirming === `section:${section.id}`}
         {@render confirmRow(`section:${section.id}`, `section ${section.name}`)}
+      {/if}
+      {#if colouring === section.id}
+        <SectionColour {section} onclose={() => closeColour(section.id)} />
       {/if}
       {#if section.project}
         {@const step = section.next_step}
