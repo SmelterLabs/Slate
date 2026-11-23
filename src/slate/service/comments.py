@@ -252,8 +252,10 @@ def _answered(session: Session, cx: Any, item: Any, person_id: str) -> None:
 
 def _withdrawn(session: Session, cx: Any, comment: Comment) -> None:
     """An agent's open ask is being closed without an answer (resolved or deleted): when it
-    was the last one the card waited on that person for, the card stops waiting on them, so
-    it goes back to the agent as ordinary work. Inside the caller's change."""
+    was the last one the card waited on that person for, the card stops waiting on them and
+    the asking agent's blocked badge clears, so the card goes straight back to the agent as
+    ordinary work (its brief says the question was closed: brief.WITHDRAWN_RULE). Inside the
+    caller's change."""
     if comment.ask_json is None or comment.resolved_at is not None:
         return
     item = get_item(session, comment.item_id)
@@ -271,9 +273,13 @@ def _withdrawn(session: Session, cx: Any, comment: Comment) -> None:
         .limit(1)
     )
     if other is None:
+        from slate.service import reports
         from slate.service.items import update_item
 
         update_item(session, cx.actor, item.id, {"waiting_on_account_id": None})
+        blocked = getattr(item.agent_state, "value", item.agent_state) == "blocked"
+        if blocked and item.agent_state_by == comment.author_id:
+            reports.clear_flag(cx, item)
 
 
 def reply_target(session: Session, item: Any, author_id: str) -> Account | None:

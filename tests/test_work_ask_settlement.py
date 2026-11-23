@@ -247,10 +247,12 @@ def test_closing_an_agents_question_unanswered_stops_the_wait(
     after = client.get(f"{API}/items/{item_id}", headers=alex).json()
     assert after["waiting_on_account_id"] is None
     assert after["ask"] is None
-    # The agent's blocked pause still holds; Run now hands the card straight back.
-    assert _next(client, ch)["item"] is None
-    assert client.post(f"{API}/items/{item_id}/run", headers=alex).status_code == 202
+    assert after["agent"] is None  # no "agent blocked" left for the person to deal with
+    # The card goes straight back to the agent, which is told its question was closed.
+    brief = client.get(f"{API}/items/{item_id}/brief", headers=ch).json()["text"]
+    assert "closed without an answer" in brief
     assert _next(client, ch)["item"]["id"] == item_id
+    _finish(client, ch, item_id, outcome="done", reply="Booked the blue one")
 
 
 def test_an_answered_question_resolved_later_changes_no_wait(client, alex, todo, make_account):
@@ -262,6 +264,8 @@ def test_an_answered_question_resolved_later_changes_no_wait(client, alex, todo,
     asked = next(c for c in _asks(client, alex, item).values() if c["ask"])
     _comment(client, alex, item_id, "The blue one")
     assert _asks(client, alex, item)[asked["id"]]["resolved_at"] is not None
+    brief = client.get(f"{API}/items/{item_id}/brief", headers=ch).json()["text"]
+    assert "closed without an answer" not in brief
     events = len(item_events(client, alex, item_id))
     assert client.post(f"{API}/comments/{asked['id']}/resolve", headers=alex).status_code == 200
     assert len(item_events(client, alex, item_id)) == events

@@ -1270,6 +1270,44 @@ def finish(
     return item
 
 
+def unanswered_ask(session: Session, account_id: str, item_id: str) -> bool:
+    """Whether the account's newest finish on the item was an `ask` whose question was then
+    closed without an answer: resolved by hand, or deleted. The next run is told so."""
+    after = session.scalar(
+        select(Event.after_json)
+        .where(
+            Event.item_id == item_id,
+            Event.type == "item.work_finished",
+            Event.actor_id == account_id,
+        )
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    if not isinstance(after, dict) or after.get("outcome") != "ask":
+        return False
+    ask = session.execute(
+        select(Comment.id, Comment.resolved_at)
+        .where(
+            Comment.item_id == item_id,
+            Comment.author_id == account_id,
+            Comment.ask_json.is_not(None),
+        )
+        .order_by(Comment.created_at.desc(), Comment.id.desc())
+        .limit(1)
+    ).first()
+    if ask is None:
+        return True
+    if ask.resolved_at is None:
+        return False
+    closed = session.scalar(
+        select(Event.after_json)
+        .where(Event.type == "comment.resolved", Event.subject_id == ask.id)
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    return not isinstance(closed, dict) or closed.get("reason") != "answered"
+
+
 def last_failure(session: Session, account_id: str, item_id: str) -> str | None:
     """The note of the account's newest finish on the item when that finish was `failed`
     (what broke, in the machine's words), else None. The brief quotes it to the retried run."""

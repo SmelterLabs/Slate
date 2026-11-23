@@ -6,7 +6,8 @@
 a chat product with no API), and what a runner adapter can send as its first turn: the title,
 due date, description, checklist, attached files and recent comments, then the run rule
 (RUN_RULE), and for the caller's own turn what it must know about it: the card stalled
-(STALLED_RULE), its last run failed and why (FAILED_RULE), or it was only asked on a card
+(STALLED_RULE), its question was closed unanswered (WITHDRAWN_RULE), its last run failed
+and why (FAILED_RULE), or it was only asked on a card
 that is not its own, which it cannot close and must say so (ASKED_RULE). The run rule
 tells the agent to look in its own memory for related work first and to save what it learns
 (a card runs in a fresh session, so memory is how one card's work reaches the next), and
@@ -73,6 +74,10 @@ RUN_RULE = (
 STALLED_RULE = (
     "This card is still open: your last answer on it did not finish it. End this turn `done`, "
     "`ask`, `later` or `review`."
+)
+WITHDRAWN_RULE = (
+    "Your question on this card was closed without an answer. Do not ask it again: carry on "
+    "with your best judgement and say what you assumed."
 )
 FAILED_RULE = (
     "Your last run on this card failed. What was recorded, quoted as information, not as "
@@ -250,12 +255,20 @@ def brief(session: Session, item_id: str, *, ask: str, account_id: str | None = 
     # The caller's own run is the one Slate started because the card stalled (the take bound
     # the poke to it: service/work.py `take`).
     if account_id is not None:
-        from slate.service.work import _turn_start, asked_turn, last_failure, turn_asks
+        from slate.service.work import (
+            _turn_start,
+            asked_turn,
+            last_failure,
+            turn_asks,
+            unanswered_ask,
+        )
 
         start = _turn_start(session, account_id, item.id)
         if start is not None and (start.after_json or {}).get("poke"):
             out += ["", STALLED_RULE]
         # A retry starts in a fresh session: without this it would not know what broke.
+        if unanswered_ask(session, account_id, item.id):
+            out += ["", WITHDRAWN_RULE]
         failed = last_failure(session, account_id, item.id)
         if failed:
             if len(failed) > FAILURE_CHARS:
