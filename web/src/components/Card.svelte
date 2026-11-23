@@ -47,6 +47,7 @@
   let menuOpen = $state(false);
   const closed = $derived(isClosed(item));
   const pickup = $derived(board.pickup(item));
+  const scheduled = $derived(board.scheduledRun?.(item) ?? null);
   const show = $derived(new Set(config.card_fields));
   const selected = $derived(board.selected.has(item.id));
   const parked = $derived(isParked(item));
@@ -188,8 +189,8 @@
 
   {#if item.agent}<span class="card-agent"><AgentBadge flag={item.agent} {item} /></span>{/if}
   {#if item.stalled}<span class="card-agent"><StalledBadge {item} /></span>{/if}
-  {#if (pickup || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed' && !item.stalled}<span class="card-agent"
-      ><RunNow {item} /></span
+  {#if (pickup || scheduled || item.id in board.runRequested) && item.agent?.state !== 'working' && item.agent?.state !== 'failed' && !item.stalled}<span class="card-agent"
+      ><RunNow {item} statusOnly /></span
     >{/if}
 
   {#if itemHasDraft(item.id)}<span class="card-draft" title="You started typing on this card and didn't send it"

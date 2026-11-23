@@ -11,6 +11,7 @@
   import CardMenu from './CardMenu.svelte';
   import Icon from './Icon.svelte';
   import QuickActions from './QuickActions.svelte';
+  import RunNow from './RunNow.svelte';
   import StalledBadge from './StalledBadge.svelte';
   import StandingLine from './StandingLine.svelte';
   import TagPill from './TagPill.svelte';
@@ -26,6 +27,7 @@
   const overdue = $derived(isOverdue(item, board.now));
   const late = $derived(daysLate(item, board.now));
   const closed = $derived(isClosed(item));
+  const scheduled = $derived(board.scheduledRun?.(item) ?? null);
   const show = $derived(new Set(config.card_fields));
   const selected = $derived(board.selected.has(item.id));
   // Quick actions mount on first hover or focus: hundreds of cards stay cheap to render.
@@ -80,6 +82,7 @@
         {#if item.subtask_count && show.has('subtasks')}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
         {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}
         {#if item.stalled}<StalledBadge {item} />{/if}
+        {#if scheduled}<RunNow {item} statusOnly />{/if}
       </span>
     {#if item.parked_until && item.parked_note}<span class="muted small" data-parked>Waiting on {item.parked_note} until {shortDate(item.parked_until, board.now)}</span>{/if}
       {#if item.standing}<StandingLine standing={item.standing} />{/if}
