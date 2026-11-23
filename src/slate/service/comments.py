@@ -147,12 +147,14 @@ def ask_headline(ask: dict[str, Any]) -> str:
 
 def ask_view(ask: dict[str, Any], answered: bool | None = None) -> dict[str, Any]:
     questions = ask["questions"]
-    return {
+    out = {
         "questions": questions,
         "question": ask_headline(ask),
         "options": questions[0]["options"] if len(questions) == 1 else [],
-        "answered": answered,
     }
+    if answered is not None:  # a resolved ask on a comment: was it answered, or just closed
+        out["answered"] = answered
+    return out
 
 
 def answered_of(session: Session, comments: Sequence[Comment]) -> dict[str, bool]:

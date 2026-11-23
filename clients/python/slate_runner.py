@@ -281,14 +281,14 @@ def fit_ask(body: dict[str, Any]) -> dict[str, Any]:
         if options and not fits:
             extra.append(f"Options for “{full[:60]}”: {' | '.join(options)}")
         question = full if len(full) <= 200 else full[:199] + "…"
-        kept.append({"question": question, "options": options if fits else []})
+        kept.append({"question": question, **({"options": options} if fits else {})})
     if not kept:
         return body  # no question at all: Slate's refusal says so
     for key in ("question", "options", "questions"):
         body.pop(key, None)
     if len(kept) == 1:
         body["question"] = kept[0]["question"]
-        if kept[0]["options"]:
+        if kept[0].get("options"):
             body["options"] = kept[0]["options"]
     else:
         body["questions"] = kept

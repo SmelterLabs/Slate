@@ -78,7 +78,7 @@ def test_ask_posts_the_question_as_an_ask_and_waits_on_the_person(client, alex, 
     assert last["body_md"] == "Start the import now?"
     assert last["assignee_id"] == me["id"]
     q = {"question": "Start the import now?", "options": ["Yes", "No", "Not yet"]}
-    assert last["ask"] == {**q, "questions": [q]}
+    assert last["ask"] == {**q, "questions": [q], "answered": None}
     assert view["ask"]["comment_id"] == last["id"]
     assert view["ask"]["question"] == "Start the import now?"
     assert view["ask"]["options"] == ["Yes", "No", "Not yet"]
@@ -108,7 +108,7 @@ def test_ask_with_a_reply_posts_the_reply_and_keeps_the_question_on_the_comment(
     last = _comments(client, alex, item["id"])[-1]
     assert last["body_md"].startswith("The file has two price lists")
     q = {"question": "Which list?", "options": []}
-    assert last["ask"] == {**q, "questions": [q]}
+    assert last["ask"] == {**q, "questions": [q], "answered": None}
     assert _view(client, alex, item["id"])["agent"]["note"] == "Which list?"
 
 
@@ -525,7 +525,7 @@ def test_question_and_questions_have_one_storage_and_view_shape(
         comment = _comments(client, alex, item["id"])[-1]
         db.expire_all()
         assert db.get(Comment, comment["id"]).ask_json == {"questions": [q]}
-        assert comment["ask"] == {**q, "questions": [q]}
+        assert comment["ask"] == {**q, "questions": [q], "answered": None}
         assert response.json()["ask"]["questions"] == [q]
 
 
@@ -575,7 +575,12 @@ def test_multiple_questions_share_a_headline_and_one_typed_answer(
     view = _view(client, alex, item["id"])
     headline = "4 questions: Pick a date?"
     comment = _comments(client, alex, item["id"])[-1]
-    assert comment["ask"] == {"questions": questions, "question": headline, "options": []}
+    assert comment["ask"] == {
+        "questions": questions,
+        "question": headline,
+        "options": [],
+        "answered": None,
+    }
     assert view["ask"]["questions"] == questions and view["ask"]["options"] == []
     assert view["agent"]["note"] == view["standing"]["line"] == headline
     event = _events(client, alex, item["id"], "item.reported")[-1]["after"]
