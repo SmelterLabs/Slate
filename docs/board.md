@@ -34,7 +34,7 @@ Due columns: Overdue (open, due before today) · Today · `due_window_days` name
 
 | Grouped by | Dropping a card | Write |
 |---|---|---|
-| status (list scope) | that status | `PATCH status` |
+| status (list scope) | that status for cards from this list. Cards from **Also show** use the first status of the column's kind in their own list, keep an existing status of that kind, and show a note if the list has no match | `PATCH status` when changed |
 | status kind | the item's list's first status of that kind; refused with a note if it has none | `PATCH status` |
 | due | that day, keeping the workspace time of day (17:00 if none); No due date clears; Future = day after the window; Overdue refuses drops | `PATCH due_at` |
 | priority | that priority, or none | `PATCH priority` |
@@ -42,7 +42,22 @@ Due columns: Overdue (open, due before today) · Today · `due_window_days` name
 | list | moves it (the server maps the status by kind) | `POST /items/bulk {list_id}` |
 | tag, section, none | not a drop target | |
 
-All drops are optimistic through `#optimistic()` and roll back on refusal. Bulk edits use `POST /items/bulk` in chunks of 500; status kind across lists is one bulk call per list. Saved views: `GET /views` at load; `view.*` events reload them (debounced 50 ms). Tags likewise: any `tag.*` event reloads `GET /tags` (debounced 50 ms) whether or not the tag manager is open, because a pill whose tag the board has not loaded falls back to the name-hash palette colour (`tagColor`). Unsaved changes live in `board.drafts[viewKey]`; a scope with no saved view shows `default:<scope>` (`defaultConfig()`), and saving it creates a view.
+All drops are optimistic through `#optimistic()` and roll back on refusal. Bulk edits use `POST /items/bulk` in chunks of 500. On a list page the status picker applies the exact status to local cards and the matching kind to cards from **Also show**. Saved views: `GET /views` at load; `view.*` events reload them (debounced 50 ms). Tags likewise: any `tag.*` event reloads `GET /tags` (debounced 50 ms) whether or not the tag manager is open, because a pill whose tag the board has not loaded falls back to the name-hash palette colour (`tagColor`). Unsaved changes live in `board.drafts[viewKey]`; a scope with no saved view shows `default:<scope>` (`defaultConfig()`), and saving it creates a view.
+
+### Also show
+
+`board/prefs.svelte.ts` saves `also_show` through `PATCH /me/prefs` as a map from list IDs to
+`{ sections, everyone }`. Turning off the last section removes the list's entry. An empty map
+is sent as `null`. **Mine** includes open cards assigned to the viewer or waiting on the viewer
+in the switch counts. **Everyone** counts all open cards from eligible lists. Counts precede
+view filters.
+
+`board.ctx` passes the current list's setting to `runView` in `views.ts`. Scope includes eligible
+cards from the selected sections before ordinary filtering and grouping. In status grouping, a
+card from another list maps to the first column of its status kind, with statusless cards treated
+as open. A missing kind goes to **No status**. Status drops use the card's source list as shown
+above. Reordering from a list page only writes positions in that page's list. Kiosk mode reads
+the saved setting and hides the controls.
 
 **Plain mirror.** `board.items` is the `$state` map components read; `board.plainItems` is a plain copy (`#sync(id)` after every write; `#syncAll()` after a load keeps the loaded objects themselves as the mirror and hands `board.items` a `structuredClone`, since snapshotting 20,000 proxies takes 1.9 s) that the engine, nav counts and the overdue count read. Reading a proxied property costs ~1.6 µs, which at 3,000 items × a dozen fields is 60–130 ms per regroup. **Every new write to `board.items` must call `#sync(id)`.**
 

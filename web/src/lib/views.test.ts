@@ -69,6 +69,58 @@ function titles(groups: ReturnType<typeof runView>): Record<string, string[]> {
 
 const f = (rules: FilterGroup['rules'], op: 'and' | 'or' = 'and'): FilterGroup => ({ op, rules });
 
+describe('Also show', () => {
+  const scope = { kind: 'list', id: LIST.id } as const;
+  const view = defaultConfig(scope);
+
+  it('adds only eligible cards, with Mine matching assignee or waiting on', () => {
+    const lists = {
+      L1: LIST, L2: OTHER,
+      ref: { ...OTHER, reference: true },
+      drawer: { ...OTHER, kind: 'drawer' as const },
+      archived: { ...OTHER, archived_at: FRI.toISOString() },
+      sibling: { ...LIST },
+    };
+    const cards = [
+      item({ title: 'Local' }),
+      item({ title: 'Assigned', list_id: 'L2', assignees: [ALEX] }),
+      item({ title: 'Waiting', list_id: 'L2', waiting_on_account_id: ALEX.id }),
+      item({ title: 'Unassigned', list_id: 'L2' }),
+      ...['ref', 'drawer', 'archived', 'sibling'].map((id) => item({ title: id, list_id: id, assignees: [ALEX] })),
+    ];
+    const shown = (sections: string[], everyone = false) => runView(cards, scope, view,
+      ctx(FRI, { lists, alsoShow: { sections, everyone } }),
+    ).flatMap((g) => g.items.map((i) => i.title)).sort();
+    expect(shown(['S1', 'S2', 'missing'])).toEqual(['Assigned', 'Local', 'Waiting']);
+    expect(shown(['S2'], true)).toEqual(['Assigned', 'Local', 'Unassigned', 'Waiting']);
+    expect(shown([])).toEqual(['Local']);
+  });
+
+  it('maps to the first status of the same kind and keeps ordinary view filters', () => {
+    const firstDone = { ...done, id: 'first_done', position: -1 };
+    const lists = { L1: { ...LIST, statuses: [...LIST.statuses, firstDone] }, L2: OTHER };
+    const cards = [
+      item({ title: 'Show open', list_id: 'L2', status: OTHER.statuses[0] }),
+      item({ title: 'Show statusless', list_id: 'L2', status: null }),
+      item({ title: 'Show cancelled', list_id: 'L2', status: { ...done, kind: 'cancelled' }, completed_at: FRI.toISOString() }),
+      item({ title: 'Show done', list_id: 'L2', status: OTHER.statuses[1], completed_at: FRI.toISOString() }),
+      item({ title: 'Show old done', list_id: 'L2', status: OTHER.statuses[1], completed_at: '2026-10-22T15:00:00Z' }),
+      item({ title: 'Show later', list_id: 'L2', later: true }),
+      item({ title: 'Show child', list_id: 'L2', parent_id: 'parent' }),
+      item({ title: 'Hide by search', list_id: 'L2' }),
+      item({ title: 'Show but filter out', list_id: 'L2', priority: 'low' }),
+    ];
+    const groups = titles(runView(cards, scope, {
+      ...view, filter: f([{ field: 'priority', cmp: 'is_not', value: ['low'] }]),
+    }, ctx(FRI, { lists, q: 'Show', alsoShow: { sections: ['S2'], everyone: true } })));
+    expect(groups[LIST.statuses[0].id]).toEqual(['Show open', 'Show statusless']);
+    expect(groups.nostatus).toEqual(['Show cancelled']);
+    expect(groups.first_done).toEqual(['Show done']);
+    expect(groups.later).toEqual(['Show later']);
+    expect(Object.values(groups).flat()).toHaveLength(5);
+  });
+});
+
 describe('Chicago dates', () => {
   it('turns a wall-clock time into the right instant on both sides of the DST change', () => {
     expect(workspaceInstant('2026-10-31', 17).toISOString()).toBe('2026-10-31T22:00:00.000Z');

@@ -3,6 +3,7 @@
   // add, then the board or list layout. The engine runs once here per change, never per card.
   import { board } from '../lib/store.svelte';
   import { runView, type Scope, type ViewConfig } from '../lib/views';
+  import AlsoShow from './AlsoShow.svelte';
   import BoardView from './BoardView.svelte';
   import BulkBar from './BulkBar.svelte';
   import ListLayout from './ListLayout.svelte';
@@ -143,6 +144,15 @@
   {#if !kiosk}
     <ViewTabs />
     <Toolbar />
+    {#if scope.kind === 'list' && board.lists[scope.id]}
+      {@const listId = scope.id}
+      <AlsoShow
+        options={board.alsoShowOptions(listId)}
+        setting={board.alsoShowFor(listId)}
+        saving={board.alsoShowSaving}
+        onchange={(setting) => board.setAlsoShow(listId, setting)}
+      />
+    {/if}
     {#if canAdd}<QuickAddBar {scope} viewKey={active.key} />{/if}
     <BulkBar />
   {/if}

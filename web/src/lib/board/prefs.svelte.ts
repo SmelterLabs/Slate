@@ -6,7 +6,7 @@ import { patch } from '../api';
 import { withStorage } from '../storage';
 import { applyTheme, asTheme, type Theme } from '../theme';
 import type { Prefs } from '../types';
-import type { Scope } from '../views';
+import { alsoShowLists, alsoShowMatches, isClosed, type AlsoShowSetting, type Scope } from '../views';
 import { BoardState } from './state.svelte';
 
 const QA_KEY = 'slate.quickadd.';
@@ -20,6 +20,8 @@ function readAiAdd(): boolean {
 const LEGACY_COLLAPSE_KEY = 'slate.collapsed.';
 
 export abstract class BoardPrefs extends BoardState {
+  alsoShowSaving = $state(false);
+
   /** Prefs from the server, keeping this device's view changes that are not saved yet
    * (the views layer, which owns the unsent drafts). */
   protected abstract takePrefs(incoming: Prefs): Prefs;
@@ -65,6 +67,49 @@ export abstract class BoardPrefs extends BoardState {
     if (Object.keys(state).length) all[viewKey] = state;
     else delete all[viewKey];
     void this.setPrefs({ collapsed: Object.keys(all).length ? all : null });
+  }
+
+  alsoShowFor(listId: string): AlsoShowSetting {
+    const saved = this.prefs.also_show?.[listId];
+    if (!saved?.sections.length) return { sections: [], everyone: false };
+    const eligible = new Set(alsoShowLists(listId, this.lists, this.sections).values());
+    const sections = saved.sections.filter((id) => eligible.has(id));
+    return { sections, everyone: sections.length > 0 && saved.everyone === true };
+  }
+
+  alsoShowOptions(listId: string) {
+    const lists = alsoShowLists(listId, this.lists, this.sections);
+    if (!lists.size) return [];
+    const counts = new Map([...lists.values()].map((id) => [id, 0]));
+    const me = this.me?.account ?? null;
+    const saved = this.prefs.also_show?.[listId];
+    const everyone = saved?.everyone === true && saved.sections.some((id) => counts.has(id));
+    for (const item of this.plainItems) {
+      const section = lists.get(item.list_id);
+      if (section !== undefined && !item.archived_at && !isClosed(item) && alsoShowMatches(item, everyone, me)) {
+        counts.set(section, counts.get(section)! + 1);
+      }
+    }
+    return this.sections.flatMap((section) => {
+      const count = counts.get(section.id);
+      return count === undefined ? [] : [{ section, count }];
+    });
+  }
+
+  async setAlsoShow(listId: string, setting: AlsoShowSetting) {
+    if (!this.me || this.alsoShowSaving) return;
+    const me = this.me;
+    const before = me.prefs.also_show;
+    const all = { ...before };
+    if (setting.sections.length) all[listId] = setting;
+    else delete all[listId];
+    this.alsoShowSaving = true;
+    const saved = await this.setPrefs({ also_show: Object.keys(all).length ? all : null });
+    this.alsoShowSaving = false;
+    if (!saved && this.me === me) {
+      if (before) me.prefs.also_show = before;
+      else delete me.prefs.also_show;
+    }
   }
 
   /** Before prefs lived on the account, each browser kept its own theme and folds. Hand any it

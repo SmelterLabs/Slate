@@ -132,7 +132,9 @@ batch (422 naming the lists). The bulk bar leaves those items out client-side fi
 which lists were skipped. `changes` is checked by `schemas.BulkChanges` (the PATCH fields and
 types plus `add_tags`, `remove_tags`, `archive`, `trash`, `list_id`, `status_kind`; unknown fields
 and wrong types are a 422 before anything runs); it stays a plain object in the schema so the MCP
-tool's input schema has no `$ref`.
+tool's input schema has no `$ref`. For a mixed selection on an **Also show** list page, the bulk
+bar sends the page's exact status for local cards and a separate status-kind change for the
+brought-in cards.
 
 ## View polish
 
