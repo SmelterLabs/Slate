@@ -91,10 +91,10 @@ def test_approval_read_timeout_keeps_identity_and_blocks_retry(tmp_path):
 
     gw.handle = handle
     first, _, _ = go(gw, env=settings)
-    assert "unconfirmed" in first["note"]
+    assert first["outcome"] == "ask" and "native" in first["reply"]
     assert run_task.load_pending(settings, "it1")["request_id"] == "p1"
     second, _, _ = go(gw, env=settings)
-    assert second["outcome"] == "failed" and len(gw.turns) == 1
+    assert second["outcome"] == "ask" and len(gw.turns) == 1
 
 
 def test_completed_approval_before_nudge_gets_fresh_observation_fence(tmp_path):
@@ -187,7 +187,13 @@ def test_native_approval_keeps_observing_until_terminal(tmp_path, chat, terminal
     assert any("approval" in line.get("note", "").lower() for line in lines)
     assert "PRIVATE_FAKE_COMMAND" not in json.dumps(lines)
     assert out["outcome"] == (
-        "done" if terminal == "run.completed" else "release" if chat else "failed"
+        "done"
+        if terminal == "run.completed"
+        else "release"
+        if chat
+        else "failed"
+        if terminal
+        else "ask"
     )
     if terminal:
         assert (stored() == {"session_id": "sess-new"}) if chat else stored() is None
