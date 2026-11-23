@@ -230,6 +230,8 @@ export interface CommentAsk {
   question: string;
   options: string[];
   questions: AskQuestion[];
+  /** A resolved ask: false when it was closed without an answer. Null while it is open. */
+  answered?: boolean | null;
 }
 
 /** An item's open structured ask: the comment, its question, who asked and when. */

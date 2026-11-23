@@ -5,7 +5,8 @@ import { workspaceDay } from './quickadd';
 import { workspaceInstant, isClosed } from './views';
 
 export const PICKUP_WAIT_MS = 2 * 60_000;
-const WORK_FRESH_MS = 6 * 60 * 60_000; // same freshness window as the agent badge
+/** How long a `working` report counts as fresh; the agent badge dims one older than this. */
+export const WORK_FRESH_MS = 6 * 60 * 60_000;
 export type WorkingItems = Record<string, string[]>;
 
 /** Build once per board update, not one full-board scan per waiting card. */

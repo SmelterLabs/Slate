@@ -404,9 +404,8 @@ it. A grant for a key the runner is still busy with (an undelivered result, say)
 at once with a `stopped` reconcile, never left to expire into a new quarantine.
 
 **A card closed during a run.** When someone else closes, cancels, archives or unassigns the
-card, the next heartbeat is refused and the runner stops the command; the server settles the
-lease of a closed card when it runs out, with no badge, and the record is then forgotten as
-below. When the agent closes its own card through the API or MCP, the run goes on and its
+card, the next heartbeat is refused and the runner stops the command; the server settles that
+lease when it runs out, with no badge, and the record is then forgotten as below. When the agent closes its own card through the API or MCP, the run goes on and its
 result line is delivered as usual.
 
 **A settled attempt is forgotten.** Once a minute the live loop asks `GET /work` which tasks the
@@ -425,13 +424,19 @@ prevent a drained receipt. Stop only after all runners are proven drained, insta
 files/server, and remove the drain files before starting fresh processes. Timeout means wait
 or abort, not kill active work.
 
-**A result Slate refuses as malformed ends the run `failed`.** A 422 on the finish (a question
-over 200 characters, options that are not two to four short choices, a `waiting_on` that is
-not a person, a field the server does not take) will never be accepted, so the runner does not
-resend it. It sends one `failed` finish under the same run proof: the note opens with Slate's
+**An ask is fitted before it is sent.** Slate takes one to four questions, each one line of
+at most 200 characters, with no options or two to four of at most 40 characters. The runner
+fits a result to that (`fit_ask`): a longer question is cut and sent in full in the reply,
+options that do not fit and questions past the fourth move to the reply too.
+
+**A result Slate refuses as malformed ends the run `failed`.** A 422 on the finish (a
+`waiting_on` that is not a person, a field the server does not take) will never be accepted,
+so the runner does not resend it. It sends one `failed` finish under the same run proof: the note opens with Slate's
 reason (the badge shows it) and carries what the agent asked and said, which stay on the
 card's history. The card is then retried like any failed run. A 409 (the run no longer holds
-the card) is never turned into anything else, and a chat or doc turn is left as it is.
+the card) is never turned into anything else. A chat or doc turn has no `failed`: its
+refused reply is sent once more as `release` with Slate's reason as the note, which posts
+nothing and ends the turn.
 
 **An undelivered result is resent on its own.** When a finish cannot be delivered (the server
 restarting, the network down), the result is saved in the state file and the live loop resends

@@ -471,9 +471,9 @@ class Slate:
         """Check in every `interval` seconds; claim each queue item and call `handle(item)`.
 
         `handle` returns an optional result comment; when it returns, the item is reported
-        `done`. If it raises, the item is finished `failed` with the error and skipped for the
-        rest of this run. Items another agent holds are skipped. `on_news` sees each news
-        entry. `once=True` does a single pass (for cron jobs and tests).
+        `done`. If it raises, the item is finished `failed` with the error; Slate offers it
+        again after 5 and 30 minutes. Items another agent holds are skipped. `on_news` sees
+        each news entry. `once=True` does a single pass (for cron jobs and tests).
         """
 
         def handler(task):

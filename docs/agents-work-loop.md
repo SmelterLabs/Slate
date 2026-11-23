@@ -184,11 +184,12 @@ direct reads. Work offers, queue counts and the daily digest omit them.
   its run keeps its lease and its finish posts the answer and gives the lease up; a `review`,
   `ask` or `blocked` outcome then leaves no flag and no waiting-on, because a closed card needs
   nobody (an ask's question is posted as a plain comment).
-  A lease that runs out on a closed card (done or cancelled; not an Ask turn taken on a card
-  that was done already) is settled by the scheduler instead of quarantined
-  (`work._settle_closed`): `item.work_finished` by `system` (reconciled, expired,
-  `runtime_state` `unknown`), the holder's flag cleared, the lease dropped. An archived or
-  unassigned card can be run again, so its lease is still quarantined.
+  A lease that runs out on a card its holder no longer has (`work._taken_away`: closed, done
+  or cancelled, unless it is an Ask turn taken on a card that was done already; archived; or
+  the holder unassigned) is settled by the scheduler instead of quarantined
+  (`work._settle_ended`): `item.work_finished` by `system` (reconciled, expired,
+  `runtime_state` `unknown`, `evidence` naming which), the holder's flag cleared, the lease
+  dropped, so a card handed to another agent is free for it.
 - **Long-poll** (`api/longpoll.py`): `wait_async` (REST: subscribe to the bus first, attempt, on
   nothing roll the session back so the next attempt reads a fresh WAL snapshot, wait for any bus
   message, drain the burst, attempt again) and `wait_sync` (MCP local calls run in a worker thread:

@@ -99,3 +99,16 @@ def test_an_automation_can_trigger_on_every_report_state():
     from slate.service import automations
 
     assert set(automations.AGENT_STATES) == set(reports.STATES)
+
+
+def test_every_copy_of_the_inbox_reasons_stays_inside_the_inbox_vocabulary():
+    """The push settings, the push defaults and the loudness table each list inbox reasons:
+    none may name a reason the inbox never gives."""
+    from slate.service import accounts, attention, push
+
+    reasons = set(inbox.REASONS)
+    assert set(accounts.PUSH_REASONS) <= reasons, set(accounts.PUSH_REASONS) - reasons
+    assert set(push.DEFAULT_REASONS) <= set(accounts.PUSH_REASONS)
+    # A reason with no loudness is level 0 on purpose (the inbox only); the table must not
+    # give a loudness to a word the inbox never uses.
+    assert set(attention.BASE) <= reasons, set(attention.BASE) - reasons

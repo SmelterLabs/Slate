@@ -13,6 +13,8 @@
 
   const questions = $derived(comment.ask?.questions ?? []);
   const open = $derived(!comment.resolved_at);
+  // Closed by hand with no answer (resolved or withdrawn) is not "Answered".
+  const state = $derived(open ? 'Open' : comment.ask?.answered === false ? 'Closed' : 'Answered');
   const forMe = $derived(!!comment.assignee_id && comment.assignee_id === task.me);
   const live = $derived(open && forMe && questions.length === 1);
   const forWhom = $derived(
@@ -25,12 +27,12 @@
     class="aq"
     class:answered={!open}
     data-ask-box
-    data-ask-state={open ? 'open' : 'answered'}
+    data-ask-state={state.toLowerCase()}
     data-open-ask-for-me={open && forMe ? comment.id : undefined}
   >
     <header class="aq-head">
       <span>{questions.length > 1 ? 'Questions' : 'Question'} for {forWhom}</span>
-      <span class="aq-state">{open ? 'Open' : 'Answered'}</span>
+      <span class="aq-state">{state}</span>
     </header>
     <ol class="aq-list">
       {#each questions as q, i}

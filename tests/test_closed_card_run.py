@@ -137,9 +137,7 @@ def test_a_lease_that_runs_out_after_the_holder_was_unassigned_frees_the_card(
     _, h, item = setup_task(client, alex, todo, make_account)
     run_id = _next(client, h)["lease"]["run_id"]
     _, other = make_account("other-agent")
-    r = client.patch(
-        f"{API}/items/{item['id']}", json={"assignees": ["other-agent"]}, headers=alex
-    )
+    r = client.patch(f"{API}/items/{item['id']}", json={"assignees": ["other-agent"]}, headers=alex)
     assert r.status_code == 200, r.text
     assert _beat(client, h, item["id"], run_id).status_code == 409
     assert _next(client, other)["item"] is None  # the first run may still be going
@@ -154,9 +152,7 @@ def test_a_lease_that_runs_out_after_the_holder_was_unassigned_frees_the_card(
     assert _next(client, other)["item"]["id"] == item["id"]
 
 
-def test_a_lease_that_runs_out_on_an_archived_card_is_settled(
-    client, alex, todo, make_account, db
-):
+def test_a_lease_that_runs_out_on_an_archived_card_is_settled(client, alex, todo, make_account, db):
     _, h, item = setup_task(client, alex, todo, make_account)
     _next(client, h)
     r = client.post(f"{API}/items/{item['id']}/archive", headers=alex)
