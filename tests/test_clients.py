@@ -43,6 +43,28 @@ def test_finish_and_report_send_the_standing_line():
     )
 
 
+def test_the_review_ask_and_block_helpers_are_accepted(client, alex, todo, make_account):
+    _, h = make_account("agent")
+    make_account("other-agent")
+    slate = Slate("http://testserver", _token(h), session_ref="run-1", client=client)
+
+    def card(title):
+        body = {"list_id": todo["id"], "title": title, "assignees": ["agent"]}
+        return client.post(f"{API}/items", json=body, headers=alex).json()["id"]
+
+    reviewed = slate.review(card("Draft the letter"), "The draft is attached.\nTwo pages.")
+    assert reviewed["agent"]["state"] == "review"
+    assert "The draft is attached." in str(reviewed["standing"])
+    assert "Two pages" not in str(reviewed["standing"])
+
+    asked = slate.ask(card("Book the room"), "Which room?", ["Blue", "Green"], waiting_on="alex")
+    assert asked["waiting_on_account_id"] is not None
+    assert asked["ask"]["question"] == "Which room?"
+
+    blocked = slate.block(card("Send the invoice"), "Needs the totals first", "other-agent")
+    assert blocked["agent"]["state"] == "blocked"
+
+
 @pytest.fixture
 def agent(client, make_account):
     _, h = make_account("agent")
