@@ -43,6 +43,7 @@
   let dragFrom = $state<string | null>(null);
   let slot = $state<{ group: string; before: string | null } | null>(null);
   const manualOrder = $derived(!kiosk && isManual(config.sort));
+  const pageListId = $derived(scope.kind === 'list' ? scope.id : null);
   // A column that cannot take the card still accepts the drop, so letting go there says why
   // instead of the card silently snapping back.
   const accepts = (g: Group) =>
@@ -52,9 +53,10 @@
     if (!accepts(g)) return;
     e.preventDefault();
     dragOver = g.key;
-    if (!manualOrder || !dragId) return;
+    if (!manualOrder || !dragId || (pageListId && board.items[dragId]?.list_id !== pageListId)) return;
     const cards = [...col.querySelectorAll<HTMLElement>('.cards > .card[data-item]')]
       .filter((c) => c.dataset.item !== dragId)
+      .filter((c) => !pageListId || board.items[c.dataset.item!]?.list_id === pageListId)
       .map((c) => {
         const r = c.getBoundingClientRect();
         return { id: c.dataset.item!, top: r.top, bottom: r.bottom };
@@ -72,7 +74,9 @@
     const from = dragFrom ?? undefined;
     if (!id) return;
     if (!g.drop && g.key !== from) return board.flash(refusal(g));
-    const ordered = g.items.map((i) => ({ id: i.id, position: i.position }));
+    const ordered = at ? g.items
+      .filter((i) => !pageListId || i.list_id === pageListId)
+      .map((i) => ({ id: i.id, position: i.position })) : [];
     const item = board.items[id];
     if (g.drop) await board.applyDrop(id, g.drop, from);
     if (at && item) await board.reposition(slotFor(ordered, id, at.before, { id, position: item.position }));

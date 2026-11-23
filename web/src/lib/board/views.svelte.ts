@@ -24,6 +24,7 @@ export class BoardViews extends BoardPrefs {
       accounts: this.accounts,
       me: this.me?.account ?? null,
       q: this.q,
+      alsoShow: this.selection.kind === 'list' ? this.alsoShowFor(this.selection.id) : undefined,
     }) as Ctx;
   }
 

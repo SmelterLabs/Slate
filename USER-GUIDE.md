@@ -134,6 +134,8 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 
 **Moving a task to another list.** Pick **Move to…** in a card's ⋯, press **Move** in the task window, or click its **List** field. Type part of a list or section name, use the arrow keys and press Enter. The task lands in the new list's column of the same kind, its subtasks move with it, and **Undo** puts it back.
 
+On a list page, use **Also show** below the toolbar to bring in tasks from other sections. **Mine** shows tasks assigned to you or waiting on you. **Everyone** shows all tasks from the selected sections, subject to the view's filters. Slate remembers the switches for each list on your account. Drag a brought-in card to a status column to set the matching status in its own list.
+
 **Selecting many.** Tick a card's box (or press `x` over it); shift-click selects a run; on a phone, hold a card and pick **Select**. A bar appears with **Status** (each task gets its own list's column of that kind, all or nothing), **Due**, **Priority**, **Tags**, **Assign**, **Move**, **Put away** and **Trash**; the last two ask once. **Undo** brings a trashed selection straight back. `Esc` or **×** clears the selection.
 
 **Monitor mode.** Add `?kiosk=1` before the `#` (`https://slate.example.com/?kiosk=1#/everything`) for a wall screen: no menu or toolbar, bigger type, every column fitting the screen, a clock and a live dot. The pointer hides after three seconds still.
