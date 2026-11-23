@@ -86,7 +86,8 @@ export abstract class BoardPrefs extends BoardState {
     const everyone = saved?.everyone === true && saved.sections.some((id) => counts.has(id));
     for (const item of this.plainItems) {
       const section = lists.get(item.list_id);
-      if (section !== undefined && !item.archived_at && !isClosed(item) && alsoShowMatches(item, everyone, me)) {
+      // Top-level cards only: the board hides subtasks unless the view asks for them.
+      if (section !== undefined && !item.archived_at && !item.parent_id && !isClosed(item) && alsoShowMatches(item, everyone, me)) {
         counts.set(section, counts.get(section)! + 1);
       }
     }
