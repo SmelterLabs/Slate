@@ -778,11 +778,7 @@ actual pickup writes a working report and the adapter binds a separate thread to
 dependent work ordered with dependencies rather than relying on incidental serial execution.
 
 `web/src/lib/pickup.ts` derives waiting text from visible working reports, passed due gates and
-a recent agent roster, and `scheduledRun()` computes the neutral scheduled-run pill ("Runs at
-6:00 AM", "Runs tomorrow at 6:00 AM", "Runs Nov 26 at 6:00 AM") when an open, idle push-agent
-card is held by a future due gate or `start_at` (`data-run-state="scheduled"`, shown on cards,
-list rows and beside Run now in the task window; cleared once the run time arrives or Run now
-is pressed). The card and task window share this helper, including after reload;
+a recent agent roster. The card and task window share this helper, including after reload;
 no polling is introduced. Roster refreshes occur at load, SSE reconnect and relevant events,
 with generations preventing stale responses from overwriting new data or a signed-out scope.
 The text confirms the request only. The item view

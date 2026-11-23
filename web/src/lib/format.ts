@@ -92,9 +92,9 @@ export function laterTimeCame(
 }
 
 export function isOverdue(item: Item, now: Date = new Date()): boolean {
-  return (
-    isOpen(item) && !item.archived_at && !isParked(item) && !!item.due_at && new Date(item.due_at) < now
-  );
+  if (!isOpen(item) || item.archived_at || isParked(item) || !item.due_at) return false;
+  if (item.due_date_only) return workspaceDay(new Date(item.due_at)) < workspaceDay(now);
+  return new Date(item.due_at) < now;
 }
 
 /** Done items leave the board at workspace midnight after they were finished. */

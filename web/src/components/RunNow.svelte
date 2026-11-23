@@ -12,12 +12,11 @@
   import Icon from './Icon.svelte';
   import { RUN_TITLE } from '../lib/runmode';
 
-  let { item, compact = false, statusOnly = false }: { item: Item; compact?: boolean; statusOnly?: boolean } = $props();
+  let { item, compact = false }: { item: Item; compact?: boolean } = $props();
 
   const asked = $derived(board.runRequested[item.id]);
   const working = $derived(item.agent?.state === 'working');
   const pickup = $derived(board.pickup(item));
-  const scheduled = $derived(board.scheduledRun?.(item) ?? null);
   const mode = $derived(board.runMode(item));
 </script>
 
@@ -30,22 +29,15 @@
     <a class="run-pill" class:late={pickup.warning} data-run-state={pickup.state}
       href="#/agents" title={pickup.title} onclick={(e) => e.stopPropagation()}>{pickup.text}</a>
   {:else}
-    {#if scheduled}
-      <span class="run-pill scheduled" data-run-state="scheduled" title={scheduled.title}
-        ><Icon name="clock" size={12} /> {scheduled.text}</span
-      >
-    {/if}
-    {#if !statusOnly}
-      <button
-        class="run-now"
-        class:compact
-        title={RUN_TITLE[mode ?? 'run']}
-        onclick={(e) => {
-          e.stopPropagation();
-          void board.runAction(item);
-        }}><Icon name="robot" size={12} /> {board.runLabel(item)}</button
-      >
-    {/if}
+    <button
+      class="run-now"
+      class:compact
+      title={RUN_TITLE[mode ?? 'run']}
+      onclick={(e) => {
+        e.stopPropagation();
+        void board.runAction(item);
+      }}><Icon name="robot" size={12} /> {board.runLabel(item)}</button
+    >
   {/if}
 {/if}
 
@@ -79,10 +71,5 @@
     background: color-mix(in srgb, var(--danger) 10%, transparent);
     text-decoration: none;
     white-space: normal;
-  }
-  .run-pill.scheduled {
-    border-color: color-mix(in srgb, var(--muted) 45%, transparent);
-    background: color-mix(in srgb, var(--muted) 10%, transparent);
-    color: var(--muted);
   }
 </style>

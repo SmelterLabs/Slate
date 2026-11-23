@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { item } from './fixtures';
-import { pickupSince, pickupStatus, scheduledRun, scheduledRunLabel, workingItems } from './pickup';
+import { pickupSince, pickupStatus, workingItems } from './pickup';
 import type { AgentEntry, AgentFlag } from './types';
 
 const now = new Date('2026-10-28T15:20:00Z');
@@ -117,82 +117,5 @@ describe('initial-load due gate', () => {
 
   it('does not infer due-gate pickup for a parked card', () => {
     expect(pickupSince({ ...waiting, parked_until: '2026-11-10', parked_note: 'Vendor' }, undefined, now)).toBeUndefined();
-  });
-});
-
-describe('scheduled run indicator', () => {
-  // 2026-11-23 00:05 CST (06:05 UTC).
-  const afterMidnight = new Date('2026-11-23T06:05:00Z');
-  // 2026-11-22 19:39 CST (2026-11-23 01:39 UTC).
-  const eveningBefore = new Date('2026-11-23T01:39:00Z');
-  // Date-only Mon, Nov 23 (stored as 17:00 CST = 23:00 UTC); run gate is 06:00 CST (12:00 UTC).
-  const dueToday = item({
-    id: 'due-today',
-    due_at: '2026-11-23T23:00:00Z',
-    due_date_only: true,
-    assignees: [agent2],
-  });
-
-  it('shows 6:00 AM today when a date-only card is due today before 06:00', () => {
-    const res = scheduledRun(dueToday, undefined, afterMidnight);
-    expect(res).not.toBeNull();
-    expect(res?.at).toBe(Date.parse('2026-11-23T12:00:00Z'));
-    expect(res?.text).toBe('Runs at 6:00 AM');
-    expect(res?.title).toContain('6:00 AM');
-  });
-
-  it('shows tomorrow at 6:00 AM the evening before and a calendar date further out', () => {
-    expect(scheduledRun(dueToday, undefined, eveningBefore)?.text).toBe('Runs tomorrow at 6:00 AM');
-    const nextWeek = { ...dueToday, due_at: '2026-11-26T23:00:00Z' };
-    expect(scheduledRun(nextWeek, undefined, afterMidnight)?.text).toBe('Runs Nov 26 at 6:00 AM');
-  });
-
-  it('formats tomorrow accurately across a 25-hour DST fall-back day', () => {
-    // 2026-11-01 00:30 CDT (05:30 UTC): fall-back day in Chicago. Next day 06:00 CST = 2026-11-02T12:00:00Z.
-    const dstMidnight = new Date('2026-11-01T05:30:00Z');
-    expect(scheduledRunLabel(Date.parse('2026-11-02T12:00:00Z'), dstMidnight)).toBe('Runs tomorrow at 6:00 AM');
-  });
-
-  it('uses the exact due time for timed due dates and the later of due gate and start_at', () => {
-    const timed = item({
-      due_at: '2026-11-23T21:30:00Z', // 3:30 PM CST
-      due_date_only: false,
-      assignees: [agent2],
-    });
-    expect(scheduledRun(timed, undefined, afterMidnight)?.text).toBe('Runs at 3:30 PM');
-
-    const withStart = { ...dueToday, start_at: '2026-11-23T16:00:00Z' }; // 10:00 AM CST > 6:00 AM CST
-    const res = scheduledRun(withStart, undefined, afterMidnight);
-    expect(res?.text).toBe('Runs at 10:00 AM');
-    expect(res?.title).toContain('start date');
-
-    const startOnly = item({ due_at: null, start_at: '2026-11-24T15:00:00Z', assignees: [agent2] }); // 9:00 AM CST tomorrow
-    expect(scheduledRun(startOnly, undefined, afterMidnight)?.text).toBe('Runs tomorrow at 9:00 AM');
-  });
-
-  it('returns null once the run time has passed, on undated cards, or when overridden or inactive', () => {
-    const atSix = new Date('2026-11-23T12:00:00Z');
-    expect(scheduledRun(dueToday, undefined, atSix)).toBeNull();
-    expect(scheduledRun({ ...dueToday, due_at: null }, undefined, afterMidnight)).toBeNull();
-    expect(scheduledRun(dueToday, afterMidnight.getTime(), afterMidnight)).toBeNull();
-    for (const card of [
-      { ...dueToday, parked_until: '2026-11-25', parked_note: 'Vendor' },
-      { ...dueToday, blocked: true },
-      { ...dueToday, waiting_on_account_id: 'me' },
-      { ...dueToday, stalled: true },
-      { ...dueToday, archived_at: at },
-      { ...dueToday, status: { ...dueToday.status!, kind: 'done' as const } },
-      { ...dueToday, agent: flag },
-      { ...dueToday, open_asks: ['P'] }, // open Ask to the assigned agent bypasses the due gate
-    ]) expect(scheduledRun(card, undefined, afterMidnight)).toBeNull();
-  });
-
-  it('still respects a future start_at even when an assigned agent has an open Ask', () => {
-    const startWithAsk = {
-      ...dueToday,
-      start_at: '2026-11-23T16:00:00Z',
-      open_asks: ['P'],
-    };
-    expect(scheduledRun(startWithAsk, undefined, afterMidnight)?.text).toBe('Runs at 10:00 AM');
   });
 });
