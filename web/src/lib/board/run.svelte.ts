@@ -4,7 +4,7 @@
 import type { RunMode, Item } from '../types';
 import { ApiError, get, post } from '../api';
 import { agents } from '../agents.svelte';
-import { pickupSince, pickupStatus } from '../pickup';
+import { pickupSince, pickupStatus, scheduledRun } from '../pickup';
 import { isClosed } from '../views';
 import { BoardItems } from './items.svelte';
 
@@ -43,6 +43,13 @@ export class BoardRun extends BoardItems {
       .filter((a) => a.kind === 'agent' && (this.accounts[a.id]?.wake ?? 'push') === 'push')
       .map((a) => a.id);
     return pickupStatus(item, since, ids, this.workingByAgent, agents.roster, agents.rosterAt, this.now);
+  }
+
+  /** When a push-agent card is held until a future due gate or start date, its scheduled run copy. */
+  scheduledRun(item: Item) {
+    if (this.runMode(item) !== 'run' || this.lists[item.list_id]?.reference) return null;
+    const stamp = item.run_requested_at ? Date.parse(item.run_requested_at) : undefined;
+    return scheduledRun(item, this.runRequested[item.id] ?? stamp, this.now);
   }
 
   /** The names of the task's agents that no runner wakes (for the Nudge and brief text). */
