@@ -87,9 +87,10 @@ existing model/provider settings.
    same person. A question written only in your reply is not shown to anyone as a question.
    The adapter sends `questions` for several and `question` for one.
    `assistant.completed`, a transcript closing line and transport `done`
-   do not prove execution success. Failure, cancellation, interruption, incomplete status,
-   approval and step/budget limits finish `failed` (the machine text is `note`) and wait on
-   nobody. An answer with no closing line is `answered`. An old `SLATE: blocked waiting_on`
+   do not prove execution success. Failure, cancellation, interruption, incomplete status
+   and step/budget limits finish `failed` (the machine text is `note`) and wait on nobody. A
+   native approval still pending when the watch ends finishes `ask`: the card waits on a
+   person, who is told to settle it in the native UI; the command is not quoted on the card. An answer with no closing line is `answered`. An old `SLATE: blocked waiting_on`
    line is not recognized, so that turn is `answered` too. A step or budget limit is `failed`
    with the limit in `note`; Run now continues in the same session.
 5. The generic runner writes the final reply/outcome to Slate and settles only the take's
@@ -142,7 +143,16 @@ Current authoritative API reference:
 Its native control contract requires exact request/generation identity. This adapter has no
 verified Slate-person-to-native-owner control transaction and **does not implement automatic
 approval or detached approval-resolution readback**. A native click alone does not clear local
-state; an authoritative terminal event on the still-observed turn retires its controls.
+state; an authoritative terminal event on the still-observed turn retires its controls, and so
+does later proof that the turn is over (below).
+
+While a control is pending, every run of that card finishes `ask` with the same question, so
+Slate tells the person once and reruns nothing on a timer. A reply on the card starts the next
+run; it is never read as approval. That run retires the marker only on runtime evidence that
+the turn behind the control is over (`control_settled`): the gateway restarted since the
+approval was asked for, or the marker's own run ended or was forgotten on the same gateway.
+An idle gateway alone proves nothing about one control, and a marker that names neither a
+gateway nor a run keeps blocking until an operator reconciles it.
 
 Before remote work, the adapter atomically persists an observation marker. Confirmed normal
 return clears that marker; an approval replaces it with pending control identity. A crash,
@@ -186,8 +196,8 @@ marker names a run and `GET /v1/runs/{run_id}` says it ended, or answers `run_no
 gateway forgets a run only some time after it ended); or, for a marker with no run or a
 gateway without that route, when `/health/detailed` reports `active_api_runs == 0`. While the
 marker's own run is still going, nothing else clears it. Otherwise, or when the gateway
-cannot say, the marker keeps blocking. Chat markers settle the same way; pending approvals
-are unchanged.
+cannot say, the marker keeps blocking. Chat markers settle the same way; a card's pending
+approval settles on the stricter evidence above; a chat's pending approval is unchanged.
 
 The answer of a card turn that ended unwatched is not lost. When the gateway still holds the
 run's `output`, a Run now with no new message reports that answer as the run's result without

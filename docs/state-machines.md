@@ -147,6 +147,10 @@ moves later.
 ## Asks and review threads
 
 - An Ask (`comments.assignee_id` set) is open until `resolved_at` is set, and can be reopened.
+  Resolving or deleting an agent's ask (`ask_json`) that nobody answered withdraws it: when it
+  was the last open one the card waited on that person for, `waiting_on_account_id` clears
+  (`comments._withdrawn`). The agent's `blocked` badge stays, so the card is offered to it
+  again after the blocked pause or on Run now.
   "Seen" is not a state of the Ask: it is a `comment.seen` event from a run that read it.
 - A doc review thread is open until resolved; `accepted_at` records that its suggested
   replacement was applied, which also resolves it.

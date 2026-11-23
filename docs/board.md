@@ -73,7 +73,7 @@ Accounts: `GET /accounts` needs `admin`; with a lower-scoped token the store kno
 | `item.commented` | bump `comment_count` (only this type; mentions and watches do not) | |
 | `section.*`, `list.*` | | reload nav; `list.statuses_changed` reloads everything |
 
-A refetch is `board.refetchItems(ids)`: `GET /items?ids=…&include_archived=true` in chunks of 200, batched 50 ms; an id missing from the answer is removed locally. Any item event also refreshes the open task window if it is about that item or one of its subtasks.
+A refetch is `board.refetchItems(ids)`: `GET /items?ids=…&include_archived=true` in chunks of 200, batched 50 ms; an id missing from the answer is removed locally. A refetch that gets no answer, a 5xx or a 429 is asked again after 2 s, doubling to 30 s, until it answers (the event that called for it is gone, so nothing else would correct the card); a request the server refuses (4xx) is not. Every 30 s the board also refetches each Later card whose start, or due time less the viewer's lead days, has come (`format.laterTimeCame`; a card the server still calls later is asked about again five minutes on), and every Later card at the workspace day's rollover. Any item event also refreshes the open task window if it is about that item or one of its subtasks.
 
 **Batched drain.** Stream events go into a queue. A lone event is applied at once; while they keep coming, the board applies the queue in one batch (`flushSync` so the cost is measured), then waits as long as that batch took, so at most half the page's time goes to catching up (each re-run of the views costs ~100 ms at 20,000 items).
 

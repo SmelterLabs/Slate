@@ -612,7 +612,7 @@ Slate holds only generic pieces; everything runtime-specific is in `integrations
   at most one request per `HERMES_ACTIVITY_EVERY` (1 s) with late lines flushed by a timer
   (`Activity`), for card turns only. Hermes
   uses one `api_server` session per card, a watchdog (`/health` start time, session 404, gateway
-  silent for `HERMES_DOWN_GRACE`) and approvals as Asks; facts and unverified points in
+  silent for `HERMES_DOWN_GRACE`) and a pending native approval as an `ask` for a person; facts and unverified points in
   `integrations/hermes/README.md`. The runner example sends the answer on the card as the next turn
   and reports the agent's page as the thread.
 - **No `SLATE:` line is never `review`**: `review` means the agent says the work is finished, so
