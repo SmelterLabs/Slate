@@ -852,7 +852,7 @@ SECTION_ACTIONS = {
     ),
     "update": bind(
         sections_api.update_section,
-        "rename, reorder, change audience, or archived true/false",
+        "rename, reorder, change audience or colour, or archived true/false",
         with_id(SectionPatch, "id", "Section id"),
     ),
 }

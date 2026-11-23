@@ -45,7 +45,11 @@ def _ok(r, *codes):
 @pytest.fixture
 def world(client, alex):
     sec = _ok(
-        client.post(f"{API}/sections", json={"name": "Project", "audience": "work"}, headers=alex)
+        client.post(
+            f"{API}/sections",
+            json={"name": "Project", "audience": "work", "color": "red"},
+            headers=alex,
+        )
     )
     _ok(client.patch(f"{API}/sections/{sec['id']}", json={"private": True}, headers=alex))
     todo = _ok(
@@ -69,7 +73,11 @@ def world(client, alex):
         )
     # A tag that lives only on a list the guest cannot see.
     elsewhere = _ok(
-        client.post(f"{API}/sections", json={"name": "Elsewhere", "audience": "work"}, headers=alex)
+        client.post(
+            f"{API}/sections",
+            json={"name": "Elsewhere", "audience": "work", "color": "blue"},
+            headers=alex,
+        )
     )
     hidden = _ok(
         client.post(
@@ -256,6 +264,10 @@ def test_added_view_fields_follow_the_shared_project(client, alex, world, who):
     assert shared["reference"] is False
     [project] = _ok(client.get(f"{API}/projects", headers=headers))
     assert project["id"] == section_id and project["project"] is True
+    assert project["color"] == "red"
+    assert [(s["id"], s["color"]) for s in _ok(client.get(f"{API}/sections", headers=headers))] == [
+        (section_id, "red")
+    ]
     assert project["next_step"]["item_id"] == card_id
     assert world["agent"]["id"] not in project["next_step"]["assignee_ids"]
     views = {

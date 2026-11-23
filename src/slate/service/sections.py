@@ -25,6 +25,7 @@ from slate.models import (
     utcnow,
 )
 from slate.service import today as today_svc
+from slate.service.colors import clean_color
 from slate.service.core import Actor, apply_change
 from slate.service.errors import Conflict, Invalid, NotFound
 
@@ -176,6 +177,7 @@ def section_views(
             "audience": s.audience,
             "created_at": s.created_at,
             "archived_at": s.archived_at,
+            "color": s.color,
             "private": bool(s.private),
             "project": bool(s.project),
             "next_step": steps.get(s.id) if s.project else None,
@@ -207,16 +209,25 @@ def list_projects(
 
 
 def create_section(
-    session: Session, actor: Actor, *, name: str, audience: str, position: int | None = None
+    session: Session,
+    actor: Actor,
+    *,
+    name: str,
+    audience: str,
+    position: int | None = None,
+    color: str | None = None,
 ) -> Section:
     name = _name(name)
+    color = clean_color(color)
     slug = slugify(name)
     _check_slug_free(session, slug)
     if position is None:
         position = len(list_sections(session, include_archived=True))
     with apply_change(session, actor) as cx:
         return cx.create(
-            Section(name=name, slug=slug, audience=_audience(audience), position=position),
+            Section(
+                name=name, slug=slug, audience=_audience(audience), position=position, color=color
+            ),
             "section.created",
         )
 
@@ -232,10 +243,11 @@ def update_section(
     archived: bool | None = None,
     whiteboard_url: str | None = None,
     project: bool | None = None,
+    color: str | None = None,
 ) -> Section:
-    """Change name (slug follows), position, audience, archive, project flag or whiteboard link.
+    """Change the name, position, audience, archive, project flag, whiteboard link or colour.
 
-    Unchanged fields record nothing.
+    The slug follows the name. An empty colour clears it. Unchanged fields record nothing.
     """
     section = get_section(session, section_id)
     with apply_change(session, actor) as cx:
@@ -255,6 +267,8 @@ def update_section(
             cx.set(section, "audience", _audience(audience), "section.updated")
         if project is not None:
             cx.set(section, "project", bool(project), "section.updated")
+        if color is not None:
+            cx.set(section, "color", clean_color(color), "section.updated")
         if archived is not None:
             stamp = utcnow() if archived else None
             if (section.archived_at is None) == archived:

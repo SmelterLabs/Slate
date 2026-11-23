@@ -49,6 +49,7 @@ class SectionIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     audience: Audience
     position: int | None = None
+    color: str | None = Field(default=None, max_length=16)
 
 
 class SectionPatch(BaseModel):
@@ -57,6 +58,7 @@ class SectionPatch(BaseModel):
     position: int | None = None
     audience: Audience | None = None
     archived: bool | None = None
+    color: str | None = Field(default=None, max_length=16, description="Null or empty clears it")
     private: bool | None = Field(
         default=None, description="Owner/admin: hide it from members unless shared with them"
     )
@@ -80,6 +82,7 @@ class SectionOut(_Out):
     audience: Audience
     created_at: datetime
     archived_at: datetime | None
+    color: str | None
     private: bool = False
     project: bool = False
     next_step: NextStepOut | None = None

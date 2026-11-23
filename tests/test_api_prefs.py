@@ -1,5 +1,7 @@
 """Board prefs live on the account, so every device shows the same board."""
 
+import pytest
+
 API = "/api/v1"
 
 
@@ -76,3 +78,39 @@ def test_bad_remembered_views_are_refused(client, alex):
         {"view_drafts": {"view1": "table"}},
     ):
         assert client.patch(f"{API}/me/prefs", json=bad, headers=alex).status_code == 422
+
+
+def test_also_show_round_trips_and_null_removes_it(client, alex):
+    settings = {
+        "list-a": {"sections": ["section-a"] * 100, "everyone": True},
+        "list-b": {"sections": ["section-b"], "everyone": False},
+        "list-c": {"sections": ["section-c"]},
+    }
+    prefs = {"also_show": settings}
+    r = client.patch(f"{API}/me/prefs", json=prefs, headers=alex)
+    assert r.status_code == 200, r.text
+    assert r.json() == prefs
+    assert client.get(f"{API}/me", headers=alex).json()["prefs"] == prefs
+    assert client.patch(f"{API}/me/prefs", json={"also_show": None}, headers=alex).json() == {}
+    assert client.get(f"{API}/me", headers=alex).json()["prefs"] == {}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [],
+        {"list-a": []},
+        {"list-a": {}},
+        {"list-a": {"sections": "section-a"}},
+        {"list-a": {"sections": [1]}},
+        {"list-a": {"sections": ["section-a"] * 101}},
+        {"list-a": {"sections": ["section-a"], "everyone": 1}},
+        {"list-a": {"sections": ["section-a"], "everyone": None}},
+        {"list-a": {"sections": ["section-a"], "extra": False}},
+    ],
+)
+def test_bad_also_show_is_refused(client, alex, bad):
+    r = client.patch(f"{API}/me/prefs", json={"also_show": bad}, headers=alex)
+    assert r.status_code == 422, r.text
+    assert "also_show" in r.json()["detail"]
+    assert client.get(f"{API}/me", headers=alex).json()["prefs"] == {}

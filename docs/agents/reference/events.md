@@ -228,7 +228,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `section.created` | A section was created. |
 | `section.participants_changed` | Refetch section participants; payload has no member details. |
 | `section.unarchived` | A section was restored. |
-| `section.updated` | A section changed (`field` = the column: name, position, audience, private, project, whiteboard_url). |
+| `section.updated` | A section changed (`field` = the column: name, position, audience, private, project, whiteboard_url, color). |
 
 ## session
 

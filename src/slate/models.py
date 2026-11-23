@@ -254,6 +254,7 @@ class Section(Base):
     audience: Mapped[Audience] = mapped_column(_enum(Audience, "audience"))
     created_at: Mapped[datetime] = _created()
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    color: Mapped[str | None] = mapped_column(String(16))
     whiteboard_url: Mapped[str | None] = mapped_column(String(2048))
     # Private: members no longer see it by default; only owners, admins and `shares`.
     private: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))

@@ -563,6 +563,24 @@ def _validate_prefs(prefs: dict[str, Any]) -> None:
         isinstance(view_drafts, dict) and all(isinstance(v, dict) for v in view_drafts.values())
     ):
         raise Invalid("view_drafts must map a view key to the changed view settings")
+    also_show = prefs.get("also_show")
+    if also_show is not None and not (
+        isinstance(also_show, dict)
+        and all(
+            isinstance(list_id, str)
+            and isinstance(entry, dict)
+            and entry.keys() <= {"sections", "everyone"}
+            and isinstance(section_ids := entry.get("sections"), list)
+            and len(section_ids) <= 100
+            and all(isinstance(section_id, str) for section_id in section_ids)
+            and isinstance(entry.get("everyone", False), bool)
+            for list_id, entry in also_show.items()
+        )
+    ):
+        raise Invalid(
+            "also_show must map list ids to objects with sections (up to 100 string ids) "
+            "and optional everyone (true or false)"
+        )
     lead_days = prefs.get("lead_days")
     if lead_days is not None and (
         isinstance(lead_days, bool) or not isinstance(lead_days, int) or not 0 <= lead_days <= 365

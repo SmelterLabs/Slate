@@ -120,6 +120,10 @@ already maps `.webmanifest` to `application/manifest+json`).
   theme. Rule for new board settings: they go in a saved view (shared) or in prefs (per account),
   never in localStorage. A browser that still holds a theme or folds in localStorage hands them to
   the account on its next load (`#adoptLocalPrefs`).
+  The list page's Also show switches use the `also_show` pref. It maps list ids to objects with
+  `sections` (up to 100 string section ids) and optional `everyone` (false for Mine, true for
+  Everyone). An omitted `everyone` means Mine. The board omits a list entry when all its switches
+  are off and sends `also_show: null` to remove the map when it is empty.
 - `index.html`: `viewport-fit=cover`, theme-color per colour scheme, Apple web-app metas and the
   apple-touch-icon. iOS status bar style is `default`, so content never sits under the clock.
 - Layout: the `/* --- phone and installed app (PWA) --- */` block at the end of `app.css` holds the
