@@ -110,6 +110,11 @@ describe('the question block on a comment', () => {
     close!();
     el = show(AskQuestions, { comment: askComment({ resolved_at: '2026-10-29T11:00:00Z' }) });
     expect(text(el.querySelector('.aq-head'))).toBe('Question for you Answered');
+    close!();
+    const withdrawn = askComment({ resolved_at: '2026-10-29T11:00:00Z' });
+    withdrawn.ask!.answered = false;
+    el = show(AskQuestions, { comment: withdrawn });
+    expect(text(el.querySelector('.aq-head'))).toBe('Question for you Closed');
     expect(el.querySelectorAll('button')).toHaveLength(0);
     expect([...el.querySelectorAll('[data-ask-option]')].map(text)).toEqual(['Yes', 'No']);
   });

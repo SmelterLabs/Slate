@@ -9,6 +9,7 @@
   import { agents, STATE_LABEL } from '../lib/agents.svelte';
   import { badgeLabel, safeAgentUrl, shortAge, shownProgress } from '../lib/conversation';
   import { ago } from '../lib/format';
+  import { WORK_FRESH_MS } from '../lib/pickup';
   import { board } from '../lib/store.svelte';
   import { task } from '../lib/task.svelte';
   import type { AgentFlag, Item } from '../lib/types';
@@ -23,7 +24,7 @@
   const when = $derived(ago(flag.at, board.now));
   // A "working" report nobody has refreshed for six hours is probably abandoned: dim it.
   const stale = $derived(
-    flag.state === 'working' && board.now.getTime() - new Date(flag.at).getTime() > 6 * 3600_000,
+    flag.state === 'working' && board.now.getTime() - new Date(flag.at).getTime() > WORK_FRESH_MS,
   );
   const pct = $derived(shownProgress(flag.progress));
   const label = $derived(badgeLabel(flag, item, (id) => board.accountName(id), STATE_LABEL));

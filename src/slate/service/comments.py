@@ -145,12 +145,32 @@ def ask_headline(ask: dict[str, Any]) -> str:
     return first if len(questions) == 1 else f"{len(questions)} questions: {first}"
 
 
-def ask_view(ask: dict[str, Any]) -> dict[str, Any]:
+def ask_view(ask: dict[str, Any], answered: bool | None = None) -> dict[str, Any]:
     questions = ask["questions"]
-    return {
+    out = {
         "questions": questions,
         "question": ask_headline(ask),
         "options": questions[0]["options"] if len(questions) == 1 else [],
+    }
+    if answered is not None:  # a resolved ask on a comment: was it answered, or just closed
+        out["answered"] = answered
+    return out
+
+
+def answered_of(session: Session, comments: Sequence[Comment]) -> dict[str, bool]:
+    """`{comment id: was it answered}` for the resolved agent asks among `comments`: False
+    when the ask was closed without an answer (resolved by hand: `reason` is not `answered`)."""
+    ids = [c.id for c in comments if c.ask_json is not None and c.resolved_at is not None]
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(Event.subject_id, Event.after_json)
+        .where(Event.type == "comment.resolved", Event.subject_id.in_(ids))
+        .order_by(Event.id)
+    )
+    return {
+        subject: isinstance(after, dict) and after.get("reason") == "answered"
+        for subject, after in rows
     }
 
 
@@ -160,6 +180,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
     authors = authors_of(session, [c.author_id for c in comments])
     seen = seen_of(session, [c.id for c in comments if c.assignee_id])
     steps = run_steps_of(session, [c.id for c in comments])
+    answered = answered_of(session, comments)
     return [
         {
             **snapshot(c),
@@ -168,7 +189,7 @@ def comment_views(session: Session, comments: Sequence[Comment]) -> list[dict[st
             "seen_at": seen.get(c.id, (None, None))[0],
             "seen_by_id": seen.get(c.id, (None, None))[1],
             "run_steps": steps.get(c.id),
-            "ask": ask_view(c.ask_json) if c.ask_json is not None else None,
+            "ask": ask_view(c.ask_json, answered.get(c.id)) if c.ask_json is not None else None,
             "reactions": reactions.get(c.id, []),
             "mentions": mentions_in(session, c.body_md),
             "author_handle": authors.get(c.author_id, (None, None))[0],

@@ -134,6 +134,7 @@ READS = {
         "priority_sort_key",
     },
     "slate.service.comments": {
+        "answered_of",
         "ask_headline",
         "ask_view",
         "get_comment",

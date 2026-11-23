@@ -197,7 +197,7 @@ gateway forgets a run only some time after it ended); or, for a marker with no r
 gateway without that route, when `/health/detailed` reports `active_api_runs == 0`. While the
 marker's own run is still going, nothing else clears it. Otherwise, or when the gateway
 cannot say, the marker keeps blocking. Chat markers settle the same way; a card's pending
-approval settles on the stricter evidence above; a chat's pending approval is unchanged.
+approval, and a chat's, settle on the stricter evidence above.
 
 The answer of a card turn that ended unwatched is not lost. When the gateway still holds the
 run's `output`, a Run now with no new message reports that answer as the run's result without
@@ -234,9 +234,8 @@ handle. These prompt rules are not a sandbox.
 A nonempty answer with `SLATE: done` **and runtime success** yields `done`/`reply`; the generic
 runner posts it to the supplied channel/thread. All failure/approval/unconfirmed paths yield
 `release` with no publishable reply. No task brief, card nudges or task mutation occurs.
-Progress is bounded and does not disclose commands. Pending chat approvals block later
-mentions until independently reconciled in the native runtime; an unconfirmed chat turn
-blocks them until the gateway proves it over (above).
+Progress is bounded and does not disclose commands. Pending chat approvals and unconfirmed chat
+turns block later mentions until the gateway proves that turn over (above).
 
 ## CLI adapter
 

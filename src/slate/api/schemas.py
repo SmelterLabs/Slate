@@ -454,6 +454,11 @@ class AskOut(BaseModel):
     questions: list[AskQuestionOut]
     question: str = Field(description="The question, or the question count and first question")
     options: list[str] = Field(description="Options when there is exactly one question")
+    answered: bool | None = Field(
+        default=None,
+        description="On a comment's resolved ask: true when it was answered, false when it "
+        "was closed without an answer. Null while it is open, and on an item's open ask",
+    )
 
 
 class StandingOut(BaseModel):

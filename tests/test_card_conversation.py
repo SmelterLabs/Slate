@@ -383,7 +383,10 @@ async def test_a_reply_wakes_the_agent_with_the_comment_id(live):  # noqa: F811
 async def test_run_now_by_the_agents_own_account_wakes_its_runner(live):  # noqa: F811
     # Another session of the agent (a desktop chat on the same account) files a card for it
     # and presses Run now: the runner, on the same account, must still hear it.
-    async with httpx.AsyncClient(base_url=live.url) as client, AsyncExitStack() as stack:
+    async with (
+        httpx.AsyncClient(base_url=live.url, timeout=60) as client,
+        AsyncExitStack() as stack,
+    ):
         todo = await _setup(client, live.admin_token)
         _, tok = await _agent(client, live.admin_token, "agent")
         r = await client.post(

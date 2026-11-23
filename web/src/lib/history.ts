@@ -128,9 +128,13 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
     case 'item.work_started':
       return 'started working on this';
     case 'item.work_finished': {
-      const steps = Number((ev.after as { steps?: number } | null)?.steps ?? 0);
-      return steps ? `ended the run (${steps} step${steps === 1 ? '' : 's'})` : 'ended the run';
+      const end = (ev.after ?? {}) as { steps?: number; outcome?: string; expired?: boolean };
+      const steps = Number(end.steps ?? 0);
+      const how = end.expired ? 'ended the run: it stopped reporting' : (RUN_ENDS[end.outcome ?? ''] ?? 'ended the run');
+      return steps ? `${how} (${steps} step${steps === 1 ? '' : 's'})` : how;
     }
+    case 'item.run_requested':
+      return obj(ev.after).reason === 'retry' ? 'ran this again after a failed run' : 'pressed Run now';
     case 'comment.assigned': {
       const to = obj(ev.after).assignee_id;
       return to ? `asked ${ctx.name(to) ?? 'someone'}` : 'took an Ask off a comment';
@@ -281,6 +285,10 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return ev.after ? `set priority to ${typeof ev.after === 'string' && ['urgent', 'high', 'normal', 'low'].includes(ev.after) ? priorityLabel(ev.after as Priority) : String(ev.after)}` : 'cleared the priority';
     case 'completed_at':
       return ev.after ? 'marked this complete' : 'reopened this';
+    case 'parked_until':
+      return ev.after ? `parked this until ${shortDate(String(ev.after), ctx.now)}` : 'took this out of parked';
+    case 'parked_note':
+      return ev.after ? `noted what this waits on: ${String(ev.after)}` : 'cleared what this waits on';
     case 'waiting_on_account_id': {
       if (!ev.after) return 'stopped waiting on anyone';
       return `marked this waiting on ${ctx.name(String(ev.after)) ?? 'someone'}`;
@@ -302,6 +310,18 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return `changed ${String(ev.field ?? 'this').replace(/_/g, ' ')}`;
   }
 }
+
+/** How a run ended, by its outcome; anything else reads "ended the run". */
+const RUN_ENDS: Record<string, string> = {
+  done: 'ended the run: done',
+  review: 'ended the run: ready for review',
+  later: 'ended the run until the card is due',
+  ask: 'ended the run with a question',
+  answered: 'ended the run with an answer',
+  failed: 'ended the run: it failed',
+  blocked: 'ended the run: blocked',
+  release: 'gave this up',
+};
 
 export function describe(ev: SlateEvent, ctx: HistoryContext): string {
   const who = ctx.name(ev.actor_id) ?? 'Someone';

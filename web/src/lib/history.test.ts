@@ -25,6 +25,13 @@ describe('verb', () => {
   it('a run and an Ask read as words', () => {
     expect(verb(ev({ type: 'item.work_started' }), ctx)).toBe('started working on this');
     expect(verb(ev({ type: 'item.work_finished', after: { steps: 6 } }), ctx)).toBe('ended the run (6 steps)');
+    expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'ask', steps: 1 } }), ctx)).toBe('ended the run with a question (1 step)');
+    expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'later' } }), ctx)).toBe('ended the run until the card is due');
+    expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'release', expired: true } }), ctx)).toBe('ended the run: it stopped reporting');
+    expect(verb(ev({ type: 'item.run_requested', after: { reason: 'now' } }), ctx)).toBe('pressed Run now');
+    expect(verb(ev({ type: 'item.run_requested', after: { reason: 'retry' } }), ctx)).toBe('ran this again after a failed run');
+    expect(verb(ev({ type: 'item.updated', field: 'parked_until', after: null }), ctx)).toBe('took this out of parked');
+    expect(verb(ev({ type: 'item.updated', field: 'parked_note', after: 'the supplier' }), ctx)).toBe('noted what this waits on: the supplier');
     expect(verb(ev({ type: 'item.stalled', after: { agent_id: 'c' } }), ctx)).toBe('stopped without finishing');
     expect(verb(ev({ type: 'comment.assigned', after: { assignee_id: 'c' } }), ctx)).toBe('asked Alex');
     expect(verb(ev({ type: 'comment.resolved' }), ctx)).toBe('resolved an Ask');

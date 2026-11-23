@@ -129,3 +129,37 @@ def test_closing_a_card_whose_lease_already_ran_out_settles_that_lease(
     assert db.get(WorkLease, item["id"]) is None
     assert client.get(f"{API}/work", headers=h).json() == []
     assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["agent"] is None
+
+
+def test_a_lease_that_runs_out_after_the_holder_was_unassigned_frees_the_card(
+    client, alex, todo, make_account, db
+):
+    _, h, item = setup_task(client, alex, todo, make_account)
+    run_id = _next(client, h)["lease"]["run_id"]
+    _, other = make_account("other-agent")
+    r = client.patch(f"{API}/items/{item['id']}", json={"assignees": ["other-agent"]}, headers=alex)
+    assert r.status_code == 200, r.text
+    assert _beat(client, h, item["id"], run_id).status_code == 409
+    assert _next(client, other)["item"] is None  # the first run may still be going
+
+    work.expire_leases(db, utcnow() + timedelta(hours=1))
+    db.expire_all()
+
+    assert db.get(WorkLease, item["id"]) is None
+    ev = db.query(Event).filter_by(item_id=item["id"], type="item.work_finished").one()
+    assert ev.after_json["reconciled"] is True and "unassigned" in ev.after_json["evidence"]
+    assert client.get(f"{API}/items/{item['id']}", headers=alex).json()["agent"] is None
+    assert _next(client, other)["item"]["id"] == item["id"]
+
+
+def test_a_lease_that_runs_out_on_an_archived_card_is_settled(client, alex, todo, make_account, db):
+    _, h, item = setup_task(client, alex, todo, make_account)
+    _next(client, h)
+    r = client.post(f"{API}/items/{item['id']}/archive", headers=alex)
+    assert r.status_code in (200, 204), r.text
+
+    work.expire_leases(db, utcnow() + timedelta(hours=1))
+    db.expire_all()
+
+    assert db.get(WorkLease, item["id"]) is None
+    assert client.get(f"{API}/work", headers=h).json() == []

@@ -67,7 +67,7 @@ for (const view of [
     await expect(banner.locator('.wq-heading')).toHaveText('Agent needs 3 answers from you');
     const [posted] = await api<{ id: string; author_id: string; created_at: string; ask: CommentAsk }[]>('GET', `${path}/comments`);
     const headline = `3 questions: ${questions[0].question}`;
-    expect(posted.ask).toEqual({ question: headline, options: [], questions });
+    expect(posted.ask).toEqual({ question: headline, options: [], questions, answered: null });
     expect((await api<{ ask: ItemAsk }>('GET', path)).ask).toEqual({
       ...posted.ask, comment_id: posted.id, by_id: posted.author_id, at: posted.created_at,
     });

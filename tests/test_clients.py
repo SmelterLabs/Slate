@@ -325,8 +325,11 @@ def test_runner_reports_a_refused_finish_as_failed_with_the_reason(
 
 
 def test_runner_an_ask_slate_refuses_keeps_the_agents_words(
-    client, alex, todo, make_account, tmp_path
+    client, alex, todo, make_account, tmp_path, monkeypatch
 ):
+    import slate_runner
+
+    monkeypatch.setattr(slate_runner, "fit_ask", lambda body: body)  # as an older runner sent it
     _, h = make_account("agent")
     item = _assign(client, alex, todo, title="Pick a venue")
     long_question = "Which venue? " + "x" * 300
@@ -347,6 +350,70 @@ def test_runner_an_ask_slate_refuses_keeps_the_agents_words(
     assert "I compared three venues." in done["after"]["note"]
     assert "Which venue?" in done["after"]["note"]
     assert runner.retry_due(now=0.0) == [] and runner.retry_due(now=1e9) == []
+
+
+def test_runner_fits_a_long_question_instead_of_having_it_refused(
+    client, alex, todo, make_account, tmp_path
+):
+    _, h = make_account("agent")
+    item = _assign(client, alex, todo, title="Pick a venue")
+    long_question = "Which venue should I book for the offsite? " + "Detail. " * 40
+    out = {
+        "outcome": "ask",
+        "waiting_on": "alex",
+        "question": long_question,
+        "options": ["The hall", "The barn", "The loft", "The pier", "The roof"],
+        "reply": "I compared five venues.",
+    }
+    cmd = f'"{sys.executable}" -c "import json; print(json.dumps({out!r}))"'
+    runner = _runner(client, h, tmp_path, cmd)
+
+    runner.once(item["id"])
+    view = client.get(f"{API}/items/{item['id']}", headers=alex).json()
+    assert view["waiting_on_account_id"] is not None
+    assert len(view["ask"]["question"]) == 200 and view["ask"]["question"].endswith("…")
+    assert view["ask"]["options"] == []  # five do not fit: they are in the comment instead
+    said = "\n".join(
+        c["body_md"] for c in client.get(f"{API}/items/{item['id']}/comments", headers=alex).json()
+    )
+    assert "I compared five venues." in said
+    assert " ".join(long_question.split()) in said and "The roof" in said
+
+
+def test_fit_ask_leaves_a_fitting_ask_alone_and_moves_the_overflow_to_the_reply():
+    from slate_runner import fit_ask
+
+    fine = {"outcome": "ask", "question": "Blue or green?", "options": ["Blue", "Green"]}
+    assert fit_ask(dict(fine)) == fine
+    assert fit_ask({"outcome": "done", "question": "x" * 500})["question"] == "x" * 500
+    many = fit_ask({"outcome": "ask", "questions": [{"question": f"Q{i}?"} for i in range(6)]})
+    assert [q["question"] for q in many["questions"]] == ["Q0?", "Q1?", "Q2?", "Q3?"]
+    assert "Q4?" in many["reply"] and "Q5?" in many["reply"]
+    lines = fit_ask({"outcome": "ask", "question": "One\nline?", "options": ["Only one"]})
+    assert lines["question"] == "One line?" and "options" not in lines
+    assert "Only one" in lines["reply"]
+
+
+def test_runner_a_chat_reply_slate_refuses_is_released_not_resent(
+    client, alex, todo, make_account, tmp_path
+):
+    _, h = make_account("agent")
+    key = f"list:{todo['id']}"
+    _mention(client, alex, key, "@agent ping")
+    script = tmp_path / "answer.py"
+    script.write_text(ANSWER)
+    runner = _runner(client, h, tmp_path, f'"{sys.executable}" "{script}"')
+    real = runner._result
+    runner._result = lambda *a: {**real(*a), "minutes": 3}  # a field the API does not take
+
+    runner.once()
+    saved = json.loads(runner.state_path.read_text())["runs"]
+    assert [r["state"] for r in saved.values()] == ["delivered"]
+    page = client.get(f"{API}/channels/{key}/messages", headers=alex).json()
+    assert len(page) == 1  # nothing posted
+    turns = client.get(f"{API}/events", params={"type": "message.agent_turn"}, headers=alex)
+    last = turns.json()["events"][-1]["after"]
+    assert last["state"] == "released" and "refused" in last["note"]
 
 
 def test_runner_a_finish_refused_for_a_lost_lease_is_never_reported_as_failed(

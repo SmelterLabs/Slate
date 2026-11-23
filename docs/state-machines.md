@@ -44,7 +44,7 @@ from `POST /work/next`, `GET /work` and `GET /agents/plan`; the Agents page's "h
 | State | Means | Leaves by |
 |---|---|---|
 | (no row) | nobody holds the task | `POST /work/next` takes it: `working` |
-| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); the holder's finish (row deleted; a plain report never ends a run that has a run proof); `until` passes: `expired`, or the row is deleted when the card is closed (done or cancelled) |
+| `working` | a run holds it; `until` is ahead | heartbeat (stays `working`); the holder's finish (row deleted; a plain report never ends a run that has a run proof); `until` passes: `expired`, or the row is deleted when the holder no longer has the card (it was closed, archived, or the holder unassigned: `work._taken_away`) |
 | `expired` | the lease ran out; the run may still be going, so the task stays held | the agent's reconcile with the run's proof, or a person's Clear on the badge (row deleted) |
 
 A lease is `expired` from the moment `until` passes. The scheduler then marks the row
@@ -147,6 +147,8 @@ moves later.
 ## Asks and review threads
 
 - An Ask (`comments.assignee_id` set) is open until `resolved_at` is set, and can be reopened.
+  A resolved agent ask's view says how it ended (`ask.answered`: false when it was closed
+  without an answer), which the task window shows as Answered or Closed.
   Resolving or deleting an agent's ask (`ask_json`) that nobody answered withdraws it: when it
   was the last open one the card waited on that person for, `waiting_on_account_id` clears
   and the asking agent's `blocked` badge clears with it (`comments._withdrawn`), so the card
@@ -164,11 +166,32 @@ moves later.
   page `conflict`. Text in `pending`, `saving` or `error` is never replaced by the server's.
 - **A chat turn** follows the server's three states (`web/src/lib/chat.ts`).
 
+## Attention alerts (what makes a phone buzz)
+
+Declared: the `attention_alerts` table, one row per account and event. A row has no state
+column: `cursor IS NULL` is "held", a cursor is "released". Written only by
+`attention.release` on the scheduler's tick; read by `attention.released` (`GET
+/inbox/alerts`), push, email and the alert bridge.
+
+| State | Means | Leaves by |
+|---|---|---|
+| (no row) | the event is not an alert for this account, or it is level 0 | the tick collects it: held |
+| held (`cursor` null) | waiting for its moment | released when nothing holds it; deleted when it stops being an alert, the account can no longer see the event, or it is a day old (`ALERT_WINDOW`) |
+| released (`cursor` set) | readable after that cursor, with its reason and loudness | deleted 30 days after its event (`inbox.WINDOW`) |
+
+What holds a row: the card's agent run is still going (the row waits for the run's last
+event, and the rows of one run release as one alert, the loudest winning and the rest
+deleted), or the account's quiet hours (rows release together at the end as one summary that
+lists them; level 4 is never held). A row held for a whole day is deleted unreleased: for a
+run that long, the finish is its own fresh alert, so the person still hears once.
+
 ## Inbox reasons
 
 Not a state, but a vocabulary kept the same way: `inbox.REASONS` is every reason
 `inbox.reason_for()` can give, and the API's `Reason` repeats it, so an entry is never one the
-route cannot serve.
+route cannot serve. Three more lists name inbox reasons and are pinned to it by
+`tests/test_state_vocabularies.py`: `accounts.PUSH_REASONS`, `push.DEFAULT_REASONS` and the
+loudness table `attention.BASE` (a reason with no entry there is level 0: the inbox only).
 
 ## Recurrence rules, invitations and tokens
 

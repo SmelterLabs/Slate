@@ -203,3 +203,10 @@ def test_native_approval_keeps_observing_until_terminal(tmp_path, chat, terminal
         gw.events = SUCCESS
         again, _, _ = go(gw, task=payload, env=settings, slate=Slate().client() if chat else None)
         assert again["outcome"] != "done" and len(gw.turns) == 1
+        # The gateway restarted: no control survives that, so the marker retires and the
+        # next turn runs, on a card and in a chat alike.
+        assert pending["gateway"] == gw.started
+        gw.health = ["2026-11-08T22:00:00Z"]
+        gw.handle = original
+        third, _, _ = go(gw, task=payload, env=settings, slate=Slate().client() if chat else None)
+        assert third["outcome"] == "done" and len(gw.turns) == 2
