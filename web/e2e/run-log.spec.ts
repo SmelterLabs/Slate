@@ -45,6 +45,6 @@ test('an agent answer opens its steps, and the run reads quietly in All', async 
   // History keeps every line, with how the agent reached Slate.
   await tw.getByRole('tab', { name: 'History' }).click();
   await expect(lines.filter({ hasText: 'is working on this' })).not.toHaveCount(0);
-  await expect(lines.filter({ hasText: 'Agent ended the run (3 steps)' })).toContainText('via API');
+  await expect(lines.filter({ hasText: 'Agent ended the run: done (3 steps)' })).toContainText('via API');
   await api('POST', `/items/${item.id}/trash`);
 });
