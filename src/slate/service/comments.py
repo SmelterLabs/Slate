@@ -250,6 +250,32 @@ def _answered(session: Session, cx: Any, item: Any, person_id: str) -> None:
         update_item(session, cx.actor, item.id, {"waiting_on_account_id": None})
 
 
+def _withdrawn(session: Session, cx: Any, comment: Comment) -> None:
+    """An agent's open ask is being closed without an answer (resolved or deleted): when it
+    was the last one the card waited on that person for, the card stops waiting on them, so
+    it goes back to the agent as ordinary work. Inside the caller's change."""
+    if comment.ask_json is None or comment.resolved_at is not None:
+        return
+    item = get_item(session, comment.item_id)
+    if item.waiting_on_account_id != comment.assignee_id:
+        return
+    other = session.scalar(
+        select(Comment.id)
+        .where(
+            Comment.item_id == item.id,
+            Comment.id != comment.id,
+            Comment.assignee_id == comment.assignee_id,
+            Comment.ask_json.is_not(None),
+            Comment.resolved_at.is_(None),
+        )
+        .limit(1)
+    )
+    if other is None:
+        from slate.service.items import update_item
+
+        update_item(session, cx.actor, item.id, {"waiting_on_account_id": None})
+
+
 def reply_target(session: Session, item: Any, author_id: str) -> Account | None:
     """The agent a comment by `author_id` answers (module doc, Replies), or None. The agent is
     the one whose blocked report names the author; once that flag is cleared (the person stopped
@@ -509,7 +535,8 @@ def resolve_comment(
     session: Session, actor: Actor, comment_id: str, *, reason: str = "resolved"
 ) -> Comment:
     """Close an Ask: for its assignee, its author or an admin. Already resolved: no change.
-    `reason` is `answered` when an agent's finish answered it."""
+    `reason` is `answered` when an agent's finish answered it. Closing an agent's question
+    this way withdraws it: the card stops waiting on the person asked."""
     comment = get_comment(session, comment_id)
     if comment.assignee_id is None:
         raise Invalid("this comment is not addressed to anyone")
@@ -519,6 +546,7 @@ def resolve_comment(
     if not mine and not access.is_admin(session, actor.account_id):
         raise Forbidden("only the assignee, the author or an admin can resolve it")
     with apply_change(session, actor) as cx:
+        _withdrawn(session, cx, comment)
         _resolve(cx, comment, actor.account_id, reason)
     return comment
 
@@ -572,7 +600,8 @@ def edit_comment(session: Session, actor: Actor, comment_id: str, *, body_md: st
 
 def delete_comment(session: Session, actor: Actor, comment_id: str) -> None:
     """Delete a comment for good: its author may delete their own, an owner or admin anyone's.
-    Its reactions go with it, and an open Ask it carried closes with it. One `comment.deleted`
+    Its reactions go with it, and an open Ask it carried closes with it (an agent's question:
+    the card stops waiting on the person asked). One `comment.deleted`
     event keeps what it said (`before` = the comment and its reactions), so the history and the
     audit log still hold it; inboxes and check-in news drop every entry about it."""
     comment = get_comment(session, comment_id)
@@ -582,6 +611,7 @@ def delete_comment(session: Session, actor: Actor, comment_id: str) -> None:
         session.scalars(select(CommentReaction).where(CommentReaction.comment_id == comment.id))
     )
     with apply_change(session, actor) as cx:
+        _withdrawn(session, cx, comment)
         cx.record(
             "comment.deleted",
             item_id=comment.item_id,
