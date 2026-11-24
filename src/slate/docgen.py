@@ -190,7 +190,8 @@ EVENT_DOCS: dict[str, str] = {
     "blocked on them; `ask` true when it is an agent's question to a person, told to them as "
     "`waiting`, not a mention). Check-in news `asked`, Today `asked`, and a `work` hint for an "
     "agent (with `comment_id`, and `reply`).",
-    "comment.resolved": "An Ask was closed (`after.comment_id`, `by`, `reason`: `resolved`, or "
+    "comment.resolved": "An Ask was closed (`after.comment_id`, `by`, `ask` true when it was an "
+    "agent's question to a person, `reason`: `resolved`, or "
     "`answered` when the person answered an agent's question or an agent's `answered` finish "
     "settled it). A plain reply resolves only an agent's question to its author.",
     "comment.seen": "An Ask sent while its agent was already working on the card was handed "

@@ -50,7 +50,7 @@ test('Ask Agent, Agent asks back, only explicit Resolve closes the human Ask', a
   const resolved = '[data-ask="resolved"]';
   await expect(firstAsk).toHaveAttribute('data-chat-collapsed', '');
   await expect(firstAsk.locator(resolved)).toHaveCount(1);
-  await expect(firstAsk.locator(resolved)).toHaveText(/Asked Agent · Resolved$/);
+  await expect(firstAsk.locator(resolved)).toHaveText(/Sent to Agent · Handled$/);
   await expect(followupAsk.locator(resolved)).toHaveCount(1);
   await expect(followupAsk.locator(resolved)).toHaveText(/Asked Alex · Resolved$/);
   await expect(tw.locator(resolved)).toHaveCount(2);

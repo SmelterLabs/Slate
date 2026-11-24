@@ -13,6 +13,8 @@ export interface HistoryContext {
   status: (statusId: string) => string | undefined;
   /** An item's title by id, for dependencies. */
   title?: (itemId: string) => string | undefined;
+  /** Display name for an account handle, if known (assignee changes name handles). */
+  byHandle?: (handle: string) => string | undefined;
   now?: Date;
 }
 
@@ -64,7 +66,7 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       return name ? `moved this to ${name}` : 'changed the status';
     }
     case 'item.assigned': {
-      const [added, removed] = diff(ev.before, ev.after);
+      const [added, removed] = diff(ev.before, ev.after).map((handles) => handles.map((h) => ctx.byHandle?.(h) ?? h));
       const bits = [];
       if (added.length) bits.push(`assigned ${list(added)}`);
       if (removed.length) bits.push(`unassigned ${list(removed)}`);
@@ -143,8 +145,11 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
       const to = obj(ev.after).assignee_id;
       return to ? `asked ${ctx.name(to) ?? 'someone'}` : 'took an Ask off a comment';
     }
-    case 'comment.resolved':
-      return 'resolved an Ask';
+    case 'comment.resolved': {
+      const how = obj(ev.after) as { reason?: string; ask?: unknown };
+      if (how.reason === 'answered') return 'answered an Ask';
+      return how.ask ? 'closed a question without answering it' : 'resolved an Ask';
+    }
     case 'item.attachment_added':
       return `attached ${obj(ev.after).filename ?? 'a file'}`;
     case 'item.attachment_removed':

@@ -200,6 +200,7 @@
     name: (id: string) => board.accountName(id),
     status: (id: string) => statusName(id),
     title: (id: string) => board.items[id]?.title,
+    byHandle: (handle: string) => Object.values(board.accounts).find((a) => a.handle === handle)?.display_name,
   };
 
   const authorName = (c: Comment) => board.accountName(c.author_id) ?? (c.author_handle ? '@' + c.author_handle : undefined);
@@ -377,7 +378,12 @@
             {#if c.assignee_id && !c.ask}
               <span class="ask-pill" class:resolved={!!c.resolved_at} data-ask={c.resolved_at ? 'resolved' : 'open'}>
                 <Avatars people={person(c.assignee_id)} />
-                Asked {board.accountName(c.assignee_id) ?? 'someone'} · {c.resolved_at ? 'Resolved' : 'Open'}
+                {#if board.accounts[c.assignee_id]?.kind === 'agent'}
+                  <!-- For an agent this is its next turn (an ask, or a reply to its question). -->
+                  Sent to {board.accountName(c.assignee_id) ?? 'the agent'} · {c.resolved_at ? 'Handled' : 'Not handled yet'}
+                {:else}
+                  Asked {board.accountName(c.assignee_id) ?? 'someone'} · {c.resolved_at ? 'Resolved' : 'Open'}
+                {/if}
               </span>
             {/if}
             {#if c.seen_at}
