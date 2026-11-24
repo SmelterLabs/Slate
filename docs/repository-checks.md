@@ -17,7 +17,8 @@ maintainer's denylist of SHA-256 hashes.
 
 - **Where the list lives.** The file named by `SLATE_PRIVATE_TERMS_FILE`, otherwise
   `private_terms.sha256` in the clone's common Git directory (`git rev-parse --git-common-dir`), so
-  every worktree of a clone shares one list. The list is never tracked. Without a list every mode
+  every worktree of a clone shares one list. The list is never tracked: a hash of one word is
+  recovered by hashing guesses, so a committed list would publish its words. Without a list every mode
   exits 0; the default mode prints "nothing to check", `--staged` and `--message` stay silent. A
   list that exists but is empty, or holds a line that is not 64 hex characters, is an error.
 - **What counts as a term.** Text is lowercased and, when not ASCII, NFKD-folded with its accents
