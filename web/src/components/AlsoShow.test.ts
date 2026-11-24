@@ -37,6 +37,9 @@ it('shows section toggles and shows Mine / Everyone only when a section is on', 
     expect(mine.getAttribute('aria-pressed')).toBe('true');
     everyone.click();
     expect(onchange).toHaveBeenLastCalledWith({ sections: ['S2'], everyone: true });
+    const hideAll = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Hide all')!;
+    hideAll.click();
+    expect(onchange).toHaveBeenLastCalledWith({ sections: [], everyone: false });
   } finally {
     await unmount(enabled);
   }
