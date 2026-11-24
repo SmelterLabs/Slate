@@ -48,9 +48,10 @@ All drops are optimistic through `#optimistic()` and roll back on refusal. Bulk 
 
 `board/prefs.svelte.ts` saves `also_show` through `PATCH /me/prefs` as a map from list IDs to
 `{ sections, everyone }`. Turning off the last section removes the list's entry. An empty map
-is sent as `null`. **Mine** includes open cards assigned to the viewer or waiting on the viewer
-in the switch counts. **Everyone** counts all open cards from eligible lists. Counts precede
-view filters.
+is sent as `null`. A switch's count is what switching it on brings to the board: top-level cards that are open
+or were finished today, assigned to the viewer or waiting on the viewer under **Mine**, all of
+them under **Everyone**. Counts precede view filters. `board.reposition` writes nothing when a
+batch names a card of another list, so a manual reorder never renumbers across two lists.
 
 `board.ctx` passes the current list's setting to `runView` in `views.ts`. Scope includes eligible
 cards from the selected sections before ordinary filtering and grouping. In status grouping, a

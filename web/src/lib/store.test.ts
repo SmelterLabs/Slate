@@ -42,6 +42,7 @@ describe('Also show', () => {
     routes.set('/items', () => [
       item(), item({ id: 'foreign', list_id: other.id, status: other.statuses[0], assignees: [ME.account] }),
       item({ id: 'unassigned', list_id: other.id }), item({ id: 'closed', list_id: other.id, status: other.statuses[2] }),
+      item({ id: 'done-today', list_id: other.id, status: other.statuses[2], completed_at: new Date().toISOString() }),
     ]);
     await startLive();
     board.selection = { kind: 'list', id: LIST.id };
@@ -54,7 +55,8 @@ describe('Also show', () => {
     expect(board.ctx.alsoShow).toEqual({ sections: ['S2'], everyone: false });
     expect(board.alsoShowOptions(LIST.id).map(({ section, count }) => [section.id, count])).toEqual([['S2', 1]]);
     await board.setAlsoShow(LIST.id, { sections: ['S2'], everyone: true });
-    expect(board.alsoShowOptions(LIST.id)[0].count).toBe(2);
+    // Everyone: both open cards and the one finished today (still on the board), not the older one.
+    expect(board.alsoShowOptions(LIST.id)[0].count).toBe(3);
     await board.setAlsoShow(LIST.id, { sections: [], everyone: true });
     expect(writes().at(-1)?.body).toEqual({ also_show: { L2: keep } });
     await board.setAlsoShow('L2', { sections: [], everyone: true });
@@ -92,8 +94,17 @@ describe('Also show', () => {
   });
 
   it('never writes another list’s positions from the list page', async () => {
-    routes.set('PATCH /items/I1', () => item({ position: 1024 }));
+    await board.reposition([{ id: 'foreign', position: 2048 }]);
+    expect(writes()).toEqual([]);
+  });
+
+  it('writes no positions at all when a reorder names a brought-in card', async () => {
+    // A renumbering worked out over a group that mixes two lists (a brought-in card dragged
+    // under manual order) must not move the page list's own cards either.
     await board.reposition([{ id: 'I1', position: 1024 }, { id: 'foreign', position: 2048 }]);
+    expect(writes()).toEqual([]);
+    routes.set('PATCH /items/I1', () => item({ position: 1024 }));
+    await board.reposition([{ id: 'I1', position: 1024 }]);
     expect(writes()).toEqual([{ method: 'PATCH', path: '/items/I1', body: { position: 1024 } }]);
   });
 });
