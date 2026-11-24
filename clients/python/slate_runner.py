@@ -251,6 +251,19 @@ def doc_key(doc_id: str, thread_id: str | None) -> str:
     return f"{DOC_PREFIX}{doc_id}|{thread_id or ''}"
 
 
+def swap(tmp: Path, path: Path) -> None:
+    """Move `tmp` over `path` in one step. On Windows the move is refused while another
+    process has `path` open (someone reading the file), so it is tried again for a second."""
+    for attempt in range(20):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
 def fit_ask(body: dict[str, Any]) -> dict[str, Any]:
     """Fit an ask to what Slate accepts (one to four questions, each one line of at most 200
     characters, with no options or two to four of at most 40 characters), so a long question
@@ -444,7 +457,7 @@ class Runner:
             tmp.write_text(
                 json.dumps({"cursor": self._cursor, "runs": self._records}), encoding="utf-8"
             )
-            tmp.replace(self.state_path)
+            swap(tmp, self.state_path)
 
     def _record(self, key: str, **values: Any) -> None:
         with self._state_lock:
@@ -469,7 +482,12 @@ class Runner:
                 self.status_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self.status_path.with_suffix(".tmp")
                 tmp.write_text(json.dumps({**result, "pid": os.getpid(), "at": time.time()}))
-                tmp.replace(self.status_path)
+                try:
+                    swap(tmp, self.status_path)
+                except PermissionError:
+                    # Something is still reading the receipt. It is rewritten every second,
+                    # and this thread also resends results: it must not die for a receipt.
+                    self.log("drain receipt is held open by a reader; written on the next pass")
             return result
 
     # --- one task ---------------------------------------------------------------------------

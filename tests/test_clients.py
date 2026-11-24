@@ -380,6 +380,34 @@ def test_runner_fits_a_long_question_instead_of_having_it_refused(
     assert " ".join(long_question.split()) in said and "The roof" in said
 
 
+def test_runner_files_survive_a_reader_holding_them_open(
+    client, alex, todo, make_account, tmp_path, monkeypatch
+):
+    """On Windows a file someone has open cannot be replaced. The state file is tried again;
+    the drain receipt, rewritten every second, is skipped instead of killing its thread."""
+    import slate_runner
+
+    _, h = make_account("agent")
+    runner = _runner(client, h, tmp_path)
+    real = Path.replace
+    refusals = {"left": 2}
+
+    def held(self, target):
+        if refusals["left"]:
+            refusals["left"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", held)
+    monkeypatch.setattr(slate_runner.time, "sleep", lambda _s: None)
+    runner._record("it1", state="delivered")
+    assert json.loads(runner.state_path.read_text())["runs"]["it1"]["state"] == "delivered"
+
+    refusals["left"] = 10**6  # the receipt's reader never lets go
+    assert runner.drain_status() == {"admission_closed": False, "drained": False}
+    assert not runner.status_path.exists()
+
+
 def test_fit_ask_leaves_a_fitting_ask_alone_and_moves_the_overflow_to_the_reply():
     from slate_runner import fit_ask
 
