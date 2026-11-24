@@ -536,7 +536,12 @@ def _resolve(cx: Any, comment: Comment, by: str, reason: str) -> None:
         item_id=comment.item_id,
         subject_id=comment.id,
         field="resolved_at",
-        after={"comment_id": comment.id, "by": by, "reason": reason},
+        after={
+            "comment_id": comment.id,
+            "by": by,
+            "reason": reason,
+            **({"ask": True} if comment.ask_json is not None else {}),
+        },
         covers=[comment],
     )
 

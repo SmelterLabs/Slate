@@ -67,7 +67,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 | `comment.deleted` | A comment was deleted for good, by its author or an admin (`before` = the comment, with `reactions`). Inboxes and check-in news drop every entry about it. |
 | `comment.edited` | A comment's text changed. |
 | `comment.reacted` | An emoji reaction was added to a comment. |
-| `comment.resolved` | An Ask was closed (`after.comment_id`, `by`, `reason`: `resolved`, or `answered` when the person answered an agent's question or an agent's `answered` finish settled it). A plain reply resolves only an agent's question to its author. |
+| `comment.resolved` | An Ask was closed (`after.comment_id`, `by`, `ask` true when it was an agent's question to a person, `reason`: `resolved`, or `answered` when the person answered an agent's question or an agent's `answered` finish settled it). A plain reply resolves only an agent's question to its author. |
 | `comment.seen` | An Ask sent while its agent was already working on the card was handed to the running agent (`after.comment_id`, `by`; recorded by the run's heartbeat with `seen`). The comment carries `seen_at`; that run's finish settles it. |
 | `comment.unreacted` | An emoji reaction was removed. |
 
