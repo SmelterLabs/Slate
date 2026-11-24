@@ -84,6 +84,8 @@
   });
   // On a page that mixes sections: this card's section name and colour (BoardState.sectionMix).
   const section = $derived(board.sectionMix?.[board.lists[item.list_id]?.section_id ?? '']);
+  // Its section's colour, worn on every page.
+  const tint = $derived(board.sectionColours[board.lists[item.list_id]?.section_id ?? '']);
   const counts = $derived(
     (show.has('description') && hasBody) ||
       (show.has('subtasks') && item.subtask_count > 0) ||
@@ -115,10 +117,10 @@
   class:compact={config.density === 'compact'}
   class:menu-open={menuOpen}
   class:needs-me={!!need}
-  class:section-tint={!!section?.color}
+  class:section-tint={!!tint}
   data-need={need ?? undefined}
   style:--lines={config.title_lines || 'none'}
-  style:--section-color={section?.color || undefined}
+  style:--section-color={tint}
   draggable="true"
   role="button"
   tabindex="0"

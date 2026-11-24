@@ -22,7 +22,7 @@ test('give a section a colour from its menu, see it in the sidebar and on Everyt
   await picker.getByRole('button', { name: 'Blue' }).click();
   await expect(picker).toHaveCount(0);
 
-  await expect(section.locator('.nav-heading .section-dot')).toHaveAttribute('data-section-color', '#0090ff');
+  await expect(section.locator('.nav-heading .space-mark')).toHaveAttribute('data-section-color', '#0090ff');
   await expect(card).toHaveClass(/section-tint/);
   await expect(card.locator('[data-section-pill]')).toContainText('Personal');
   const saved = await api<{ id: string; color?: string | null }[]>('GET', '/sections');
@@ -33,7 +33,7 @@ test('give a section a colour from its menu, see it in the sidebar and on Everyt
   await expect(picker.getByRole('button', { name: 'Blue' })).toHaveAttribute('aria-pressed', 'true');
   await picker.getByRole('button', { name: 'No colour' }).click();
 
-  await expect(section.locator('.section-dot')).toHaveCount(0);
+  await expect(section.locator('.nav-heading .space-mark')).not.toHaveAttribute('data-section-color');
   await expect(card).not.toHaveClass(/section-tint/);
   await expect(card.locator('[data-section-pill]')).toHaveCount(0);
 });
