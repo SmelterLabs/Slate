@@ -66,11 +66,12 @@ A finish names one of `work.OUTCOMES`: `done`, `review`, `later`, `ask`, `answer
 | `later` | cleared | unchanged | needs a run time still to come |
 | `ask` | `blocked`, note = the question headline | the person asked | the questions are one Ask to them |
 | `answered` | cleared | unchanged | the turn's Asks resolve (`answered`); not offered again until a new Ask or Run now |
-| `failed` | `failed`, note = what broke | unchanged | retried at 5 and 30 minutes; the third failure is `item.run_failed` |
+| `failed` | `failed`, note = what broke | unchanged | retried at 5 and 30 minutes, then hourly; the third failure is `item.run_failed`, told once |
 | `blocked` | `blocked` | sets an agent if named; otherwise preserves the existing field | use `ask` to wait on a person |
 | `release` | cleared | unchanged | un-assigns the agent |
 
-A failed run is offered again after the scheduler requests a retry (`work.RETRY_AFTER`,
+A failed run is offered again after the scheduler requests a retry (`work.RETRY_AFTER`, then
+`work.SLOW_RETRY`;
 `item.run_requested` with `reason: "retry"`), a new Ask wakes it, or someone presses Run now,
 which also starts the count over (`work._failures`).
 

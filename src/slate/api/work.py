@@ -294,9 +294,9 @@ class FinishIn(BaseModel):
         "keeps it yours with no badge until its due time (which must still be to come) runs "
         "you again; ask carries every question a person must answer or decide; answered "
         "(with reply) posts your reply and changes nothing else; failed (with note) says the "
-        "machine broke: nobody is asked, Slate retries after 5 and 30 minutes, then tells the "
-        "card's people; blocked waits on an agent or on nobody; release gives it up "
-        "(un-assigns you)"
+        "machine broke: nobody is asked, Slate retries after 5 and 30 minutes, then hourly, "
+        "and after the third failure tells the card's people; blocked waits on an agent or "
+        "on nobody; release gives it up (un-assigns you)"
     )
     note: str | None = Field(
         default=None,

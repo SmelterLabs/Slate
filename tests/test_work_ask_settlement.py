@@ -50,20 +50,18 @@ def test_retry_takes_the_original_asks(client, alex, todo, make_account, db, ass
     assert _next(client, ch)["item"] is None
 
 
-def test_third_failure_gives_up_once_and_keeps_the_ask_pending(
+def test_third_failure_tells_people_once_and_keeps_the_ask_pending(
     client, alex, todo, make_account, db
 ):
     agent, ch = make_account("my-agent")
     item = _item(client, alex, todo["id"], assignees=["my-agent"])
     item_id = item["id"]
     ask = _comment(client, alex, item_id, "Check the report", assignee="my-agent")
-    for attempt, delay in enumerate((6, 31, 60), start=1):
+    for delay in (6, 31, 59):
         assert _next(client, ch)["item"]["id"] == item_id
         _finish(client, ch, item_id, outcome="failed", note="Connection refused")
         assert _next(client, ch)["item"] is None
-        assert due.retry_failed_runs(db, now=utcnow() + timedelta(minutes=delay)) == int(
-            attempt < 3
-        )
+        assert due.retry_failed_runs(db, now=utcnow() + timedelta(minutes=delay)) == int(delay < 59)
 
     assert len(item_events(client, alex, item_id, "item.run_failed")) == 1
     assert _asks(client, alex, item)[ask["id"]]["resolved_at"] is None

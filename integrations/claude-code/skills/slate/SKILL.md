@@ -43,7 +43,7 @@ Finish with `slate_work` `finish`: `item_id`, `run_id`, `outcome`, and `reply` (
 | `later` | You did what you can. The rest waits for a due time still to come. You stay assigned. Nobody is waited on. |
 | `ask` | A person must answer or decide something, even after the work is finished. Send one to four `questions` with one-line `question` and optional `options`. For one question, the fields can go directly on the finish. `waiting_on` is their handle. |
 | `answered` | You only replied. Send `reply`. The badge clears, and the server settles the questions the turn took. |
-| `failed` | The machine broke. Send `note` in the machine's words. Slate retries twice and alerts the card's people if the third run fails. |
+| `failed` | The machine broke. Send `note` in the machine's words. Slate retries twice, alerts the card's people if the third run fails, then retries hourly. |
 | `blocked` | You wait on an agent (`waiting_on`) or on nobody. |
 | `release` | You give the card up. |
 

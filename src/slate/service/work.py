@@ -107,10 +107,12 @@ CONTEXT_ENTRIES = 10
 # so a failing task is not retried at once; one waiting on someone else stays out until then.
 BLOCKED_PAUSE = timedelta(hours=1)
 # A `failed` finish is offered to the same agent again this long after its first and second
-# consecutive failure (the scheduler's `due.retry_failed_runs`); the third gives up
-# (`item.run_failed`, told to people once). Run now starts the count over.
+# consecutive failure (the scheduler's `due.retry_failed_runs`). The third tells people once
+# (`item.run_failed`); from then on the card is tried again every `SLOW_RETRY`, so a card that
+# failed through a long outage runs once the outage is over. Run now starts the count over.
 RETRY_AFTER = (timedelta(minutes=5), timedelta(minutes=30))
-GIVE_UP_AFTER = len(RETRY_AFTER) + 1
+TELL_AFTER = len(RETRY_AFTER) + 1
+SLOW_RETRY = timedelta(hours=1)
 # A `working` badge with no lease and no report for this long is cleared (`due.clear_stale_badges`).
 STALE_AFTER = timedelta(minutes=30)
 # An open card its agent last finished `answered` this long ago is poked once
@@ -1077,7 +1079,8 @@ def finish(
     badge is cleared, nothing else changes, and the Asks this turn took are resolved),
     `failed` (the machine broke: `note` is stored on `item.work_finished`, never posted; the
     badge is `failed`, nobody is told, and the card is retried, `RETRY_AFTER`; the third
-    consecutive failure records `item.run_failed` instead), `blocked` (waiting on an agent or
+    consecutive failure also records `item.run_failed`, which tells the card's people once, and
+    later retries are an hour apart), `blocked` (waiting on an agent or
     on nobody), `release` (give it
     up: you are un-assigned, so it goes back to its other assignees or the pool). `note` is
     posted as a comment (unless `comment=false`); `status` is where the card stands in one line
@@ -1251,7 +1254,7 @@ def finish(
             )
             if newly_stalled:
                 cx.record("item.stalled", item_id=item.id, after={"agent_id": actor.account_id})
-            if failed.get("failures", 0) >= GIVE_UP_AFTER:
+            if failed.get("failures") == TELL_AFTER:
                 from slate.service.inbox import person_recipients
 
                 cx.record(

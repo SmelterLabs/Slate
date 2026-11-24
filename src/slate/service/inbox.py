@@ -270,7 +270,7 @@ def reason_for(ev: Event, account: Account, f: Follows) -> str | None:
         if after.get("waiting_on") == account.id and after.get("again"):
             return "waiting"
         if "failed" in (after.get("state"), (ev.before_json or {}).get("state")):
-            return None  # a failed run and its retry are quiet until Slate gives up
+            return None  # a failed run and its retry are quiet; `item.run_failed` tells people
         if after.get("reason") == "stale":
             return None  # Slate clearing a badge nothing was running behind
         # Otherwise only a watcher hears about it (below, a change of state).
