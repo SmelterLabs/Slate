@@ -31,14 +31,14 @@ One look across every screen, ClickUp-style, with a violet brand.
   name that button by it).
 - **Section colour** (`Section.color`, optional; one of twelve presets picked from the section's
   ⋯ → **Colour…**, `components/SectionColour.svelte`, an inline panel under the section heading
-  that reuses the global `.swatch`). It shows as a `.section-dot` (app.css: an 8 px circle in
-  `--section-color`) beside the section's name in the nav on every page and on its "Also show"
-  switch. On a page that mixes sections (Everything, or a list page with another section switched
-  on in "Also show"), a card or list row whose section has a colour gets `.section-tint` and
-  `--section-color`: a wash of the colour from the left, 30% `color-mix` into transparent and gone
-  by 80% of the width, painted to the padding box only, so the 3px left edge keeps its priority or
-  overdue colour (board.css, end of file). Its `.section-pill` (a `.pill.muted-pill` holding the
-  dot and the section's name) shows when the `list` card field is on, and always on a card a list
+  that reuses the global `.swatch`). It fills the section's letter mark in the nav
+  (`.space-mark`, `--space`) in place of the audience colour, and its "Also show" switch. On every
+  page, a card or list row whose section has a colour (`BoardState.sectionColours`) gets
+  `.section-tint` and `--section-color`: a wash of the colour from the left, 18% `color-mix` into
+  transparent and gone by 80% of the width, painted to the padding box only, so the 3px left edge keeps its priority or
+  overdue colour (board.css, end of file). On a page that mixes sections (Everything, or a list
+  page with another section switched on in "Also show"), its `.section-pill` (a `.pill.muted-pill`
+  holding a `.section-dot` and the section's name) shows when the `list` card field is on, and always on a card a list
   page brings in from another section, colour or not. Whether the page mixes, and each section's
   checked colour, is worked out once per page in `BoardState.sectionMix`; every stored colour goes
   through `safeColor` (`lib/mdcore.ts`) before it reaches a `style`. The Table layout does not

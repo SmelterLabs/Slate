@@ -30,6 +30,8 @@
   const selected = $derived(board.selected.has(item.id));
   // On a page that mixes sections: this row's section name and colour (BoardState.sectionMix).
   const section = $derived(board.sectionMix?.[board.lists[item.list_id]?.section_id ?? '']);
+  // Its section's colour, worn on every page.
+  const tint = $derived(board.sectionColours[board.lists[item.list_id]?.section_id ?? '']);
   // Quick actions mount on first hover or focus: hundreds of cards stay cheap to render.
   let armed = $state(false);
   let menuOpen = $state(false);
@@ -43,8 +45,8 @@
   class:compact={config.density === 'compact'}
   class:wide={showList}
   class:no-status={noStatus}
-  class:section-tint={!!section?.color}
-  style:--section-color={section?.color || undefined}
+  class:section-tint={!!tint}
+  style:--section-color={tint}
   draggable="true"
   use:swipe={{
     right: { label: closed ? 'Reopen' : 'Complete', tone: 'done', run: () => void board.toggleComplete(item.id) },

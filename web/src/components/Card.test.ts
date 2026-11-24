@@ -85,11 +85,17 @@ describe('a card on a page that mixes sections', () => {
     }
   });
 
-  it('shows neither on a section page, and no pill when the list field is off', async () => {
+  it('keeps the colour but drops the pill on a section page, and shows no pill when the list field is off', async () => {
     board.selection = { kind: 'section', id: 'S1' };
     let card = show(Card);
-    expect(card.el.classList.contains('section-tint')).toBe(false);
-    expect(card.el.style.getPropertyValue('--section-color')).toBe('');
+    expect(card.el.classList.contains('section-tint')).toBe(true);
+    expect(card.el.style.getPropertyValue('--section-color')).toBe('#e5484d');
+    expect(card.pill).toBeNull();
+    await card.done();
+    // A plain list page, nothing switched on: the colour still shows.
+    board.selection = { kind: 'list', id: 'L1' };
+    card = show(Card, defaultConfig({ kind: 'list', id: 'L1' }));
+    expect(card.el.classList.contains('section-tint')).toBe(true);
     expect(card.pill).toBeNull();
     await card.done();
     board.selection = { kind: 'everything' };

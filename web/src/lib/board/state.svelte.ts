@@ -316,6 +316,10 @@ export class BoardState {
   /** Tags by name, for pill colours. */
   tagMap: Record<string, Tag> = $derived(Object.fromEntries(this.tags.map((t) => [t.name, t])));
 
+  /** Each coloured section's checked colour, by section id. A card wears it on every page. */
+  sectionColours: Record<string, string> = $derived.by(() =>
+    Object.fromEntries(this.sections.flatMap((s) => (safeColor(s.color) ? [[s.id, safeColor(s.color)]] : []))),
+  );
   /** On a page that mixes sections (Everything, or a list page with another section the store
    * holds switched on in prefs `also_show`): each section's name, checked colour ('' for none)
    * and whether its cards are brought in from outside the list page's own section. Null on any

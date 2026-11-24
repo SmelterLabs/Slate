@@ -2229,9 +2229,6 @@ html.touch-dragging .kanban {
   border-radius: 50%;
   background: var(--section-color);
 }
-.space-name + .section-dot {
-  margin-left: 6px;
-}
 .sheet {
   background: var(--raised);
   box-shadow: var(--shadow-modal);

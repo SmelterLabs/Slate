@@ -471,11 +471,10 @@
             draggable="false"
             onclick={onpick}
             class:active={!page && board.selection.kind === 'section' && board.selection.id === section.id}
-            ><span class="space-mark aud-{section.audience}" aria-hidden="true"
+            ><span class="space-mark aud-{section.audience}" style:--space={colour || undefined} data-section-color={colour || undefined} aria-hidden="true"
               >{section.name.trim().charAt(0).toUpperCase()}</span
             ><span class="space-name">{section.name}</span
-            >{#if colour}<span class="section-dot" style:--section-color={colour} data-section-color={colour} aria-hidden="true"
-              ></span>{/if}{#if section.private}<span class="nav-lock" title="Private: only people it is shared with"
+            >{#if section.private}<span class="nav-lock" title="Private: only people it is shared with"
                 ><Icon name="lock" size={11} /></span
               >{/if}</a
           >
