@@ -1207,11 +1207,14 @@ input[type='checkbox'][role='switch']:checked::after {
 .card.cu.section-tint,
 .row.section-tint {
   background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--section-color) 14%, transparent), transparent 66%),
+    linear-gradient(to right, color-mix(in srgb, var(--section-color) 30%, transparent), transparent 80%),
     none;
   background-clip: padding-box, border-box;
 }
 /* The section pill: a dot of the colour and the section's name. */
 .section-pill {
   gap: 5px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 600;
 }
