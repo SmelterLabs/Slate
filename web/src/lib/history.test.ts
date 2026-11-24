@@ -29,6 +29,10 @@ describe('verb', () => {
     expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'later' } }), ctx)).toBe('ended the run until the card is due');
     expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'release', expired: true } }), ctx)).toBe('ended the run: it stopped reporting');
     expect(verb(ev({ type: 'item.run_requested', after: { reason: 'now' } }), ctx)).toBe('pressed Run now');
+    expect(verb(ev({ type: 'item.reported', after: { state: 'failed', note: 'Connection refused' } }), ctx)).toBe('could not run: Connection refused');
+    expect(verb(ev({ type: 'item.reported', after: { state: 'failed' } }), ctx)).toBe('could not run');
+    expect(verb(ev({ type: 'item.run_failed', after: { failures: 3, note: 'Connection\nrefused' } }), ctx)).toBe('could not run after 3 tries: Connection refused');
+    expect(verb(ev({ type: 'item.work_finished', after: { outcome: 'failed', note: 'Slate refused this.\n\nIt said: hello', steps: 2 } }), ctx)).toBe('ended the run: it failed: Slate refused this. It said: hello (2 steps)');
     expect(verb(ev({ type: 'item.run_requested', after: { reason: 'retry' } }), ctx)).toBe('ran this again after a failed run');
     expect(verb(ev({ type: 'item.updated', field: 'parked_until', after: null }), ctx)).toBe('took this out of parked');
     expect(verb(ev({ type: 'item.updated', field: 'parked_note', after: 'the supplier' }), ctx)).toBe('noted what this waits on: the supplier');

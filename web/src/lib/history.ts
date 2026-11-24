@@ -121,16 +121,20 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
     }
     case 'comment.seen':
       return 'read a message while working';
-    case 'item.run_failed':
-      return 'could not run';
+    case 'item.run_failed': {
+      const gave = obj(ev.after) as { failures?: unknown; note?: string };
+      const tries = Number(gave.failures ?? 0);
+      return `could not run${tries > 1 ? ` after ${tries} tries` : ''}${why(gave.note)}`;
+    }
     case 'item.stalled':
       return 'stopped without finishing';
     case 'item.work_started':
       return 'started working on this';
     case 'item.work_finished': {
-      const end = (ev.after ?? {}) as { steps?: number; outcome?: string; expired?: boolean };
+      const end = (ev.after ?? {}) as { steps?: number; outcome?: string; expired?: boolean; note?: string };
       const steps = Number(end.steps ?? 0);
-      const how = end.expired ? 'ended the run: it stopped reporting' : (RUN_ENDS[end.outcome ?? ''] ?? 'ended the run');
+      const base = end.expired ? 'ended the run: it stopped reporting' : (RUN_ENDS[end.outcome ?? ''] ?? 'ended the run');
+      const how = end.outcome === 'failed' ? base + why(end.note, 600) : base;
       return steps ? `${how} (${steps} step${steps === 1 ? '' : 's'})` : how;
     }
     case 'item.run_requested':
@@ -203,7 +207,7 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
         case 'review':
           return `marked this ready for review${pct}`;
         case 'failed':
-          return 'could not run';
+          return `could not run${why((r as { note?: string }).note)}`;
         case 'done':
           return 'finished this';
         default:
@@ -309,6 +313,14 @@ export function verb(ev: SlateEvent, ctx: HistoryContext): string {
     default:
       return `changed ${String(ev.field ?? 'this').replace(/_/g, ' ')}`;
   }
+}
+
+/** The reason a run failed, as the tail of a line: ": Connection refused", or nothing. The
+ * machine's words on one line, cut at `limit`. */
+function why(note: unknown, limit = 280): string {
+  const text = typeof note === 'string' ? note.split(/\s+/).filter(Boolean).join(' ') : '';
+  if (!text) return '';
+  return `: ${text.length > limit ? text.slice(0, limit - 1) + '…' : text}`;
 }
 
 /** How a run ended, by its outcome; anything else reads "ended the run". */
