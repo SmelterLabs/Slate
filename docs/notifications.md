@@ -125,8 +125,8 @@ and `tests/test_push_retry.py`.
   entry on a card with an open ask (`comments.asks_of`) has its question headline as the
   title and as `question` on the released alert and the Web Push payload. The headline is the question, or the count
   and first question. The body says "<Agent> asks on: <title>"; any other `waiting` entry reads "<Agent> is waiting on
-  you". A `failed` entry (`item.run_failed`, sent once when Slate gives up a run after three
-  failures in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
+  you". A `failed` entry (`item.run_failed`, sent once when a run has failed three
+  times in a row) reads "<Agent> could not run: <title>" with the last failure's first line.
   A failed run before that, and the take that retries it, push nothing. A `stalled` entry
   (`item.stalled`) reads "<Agent> stopped without finishing: <title>". A badge Slate clears as
   stale pushes nothing.

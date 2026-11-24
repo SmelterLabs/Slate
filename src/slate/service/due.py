@@ -22,7 +22,8 @@ Retries (`retry_failed_runs`, on the same tick): a card whose agent's run ended 
 offered to that agent again at its retry time (service/work.py `RETRY_AFTER`, from the
 failed finish), by the same event: `item.run_requested` with `after.reason` = `retry`, which
 also sets `run_requested_at` (Run now's mark) so the work loop hands the card out. Once per
-failure: a card already asked again since its badge is not asked twice.
+failure: a card already asked again since its badge is not asked twice. After the failure that
+told people, the wait is `SLOW_RETRY` each time, for as long as the card stays open.
 
 Actor: the `slate` system agent (source `system`), created on first need. The event's `field`
 is `due_at`; `after` is `{"due_at": ..., "lead_hours": 24}` for due_soon, `{"due_at": ...}`
@@ -287,7 +288,7 @@ def emit_due_events(session: Session, *, now: datetime) -> int:
 def retry_failed_runs(session: Session, *, now: datetime) -> int:
     """Ask the agent of each failed run whose retry time has come to run the card again (module
     docstring). Returns how many were asked."""
-    from slate.service.work import RETRY_AFTER, nudge_fields
+    from slate.service.work import RETRY_AFTER, SLOW_RETRY, nudge_fields
 
     failed = session.scalars(
         select(Item)
@@ -318,9 +319,10 @@ def retry_failed_runs(session: Session, *, now: datetime) -> int:
             .limit(1)
         )
         failures = (last or {}).get("failures") if (last or {}).get("outcome") == "failed" else 0
-        if not isinstance(failures, int) or not 1 <= failures <= len(RETRY_AFTER):
-            continue  # gave up, or a failed badge no finish set: Run now starts it over
-        if item.agent_state_at + RETRY_AFTER[failures - 1] > now:
+        if not isinstance(failures, int) or failures < 1:
+            continue  # a failed badge no finish set: Run now starts it over
+        wait = RETRY_AFTER[failures - 1] if failures <= len(RETRY_AFTER) else SLOW_RETRY
+        if item.agent_state_at + wait > now:
             continue
         agent = item.agent_state_by
         actor = actor or system_actor(session)

@@ -415,7 +415,7 @@ def test_failed_leaves_who_the_card_waits_on(client, alex, todo, make_account):
     assert _view(client, alex, item["id"])["waiting_on_account_id"] == other["id"]
 
 
-def test_failed_retries_after_5_then_30_minutes_then_gives_up_once(
+def test_failed_retries_after_5_then_30_minutes_then_hourly_and_tells_people_once(
     client, alex, todo, make_account, db
 ):
     agent, ch = make_account("agent")
@@ -439,7 +439,7 @@ def test_failed_retries_after_5_then_30_minutes_then_gives_up_once(
 
     assert _next(client, ch)["item"]["id"] == item["id"]
     _fail(client, ch, item["id"], note="runner: out of memory")
-    assert _retry(db, utcnow() + timedelta(hours=5)) == 0  # no third retry
+    t3 = utcnow()
     gave_up = _events(client, alex, item["id"], "item.run_failed")
     assert [e["after"]["agent_id"] for e in gave_up] == [agent["id"]]
     assert gave_up[0]["after"]["failures"] == 3
@@ -452,13 +452,23 @@ def test_failed_retries_after_5_then_30_minutes_then_gives_up_once(
     note = push.notification_for(db, ev, "failed")
     assert note["title"] == f"{agent['display_name']} could not run: {item['title']}"
 
+    # After that the card is tried again every hour, and nobody is told a second time.
+    assert _retry(db, t3 + timedelta(minutes=59)) == 0
+    assert _retry(db, t3 + timedelta(hours=1, seconds=1)) == 1
+    assert _next(client, ch)["item"]["id"] == item["id"]
+    _fail(client, ch, item["id"])
+    finished = _events(client, alex, item["id"], "item.work_finished")[-1]["after"]
+    assert finished["failures"] == 4
+    assert len(_events(client, alex, item["id"], "item.run_failed")) == 1
+    assert _retry(db, utcnow() + timedelta(hours=1, seconds=1)) == 1
+
 
 def test_run_now_starts_the_retry_count_over(client, alex, todo, make_account, db):
     _, ch = make_account("agent")
     item = _taken(client, alex, ch, todo)
     for _ in range(3):
         _fail(client, ch, item["id"])
-        _retry(db, utcnow() + timedelta(hours=1))
+        _retry(db, utcnow() + timedelta(minutes=31))
         _next(client, ch)
     assert len(_events(client, alex, item["id"], "item.run_failed")) == 1
     assert _next(client, ch)["item"] is None

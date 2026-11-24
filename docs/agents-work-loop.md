@@ -276,10 +276,13 @@ Slate stays the doorbell: it never launches an agent.
   the scheduler's due tick runs `due.retry_failed_runs`, which records `item.run_requested` by
   `slate` (`after = {for: [the agent], reason: "retry"}`) and sets `run_requested_at`, once per
   failure, so the work loop and the agent stream hand the card out as for Run now. The third
-  consecutive failure (`work.GIVE_UP_AFTER`) records `item.run_failed` (`after = {agent_id,
-  failures, note, notify}`) in the same change and nothing retries it; `notify` is the card's
+  consecutive failure (`work.TELL_AFTER`) records `item.run_failed` (`after = {agent_id,
+  failures, note, notify}`) in the same change; `notify` is the card's
   person assignees and watchers, else the workspace owners, told as inbox and push reason
-  `failed` ("<Agent> could not run: <title>"). Run now starts the count over.
+  `failed` ("<Agent> could not run: <title>"), once. From that failure on the card is retried
+  every `work.SLOW_RETRY` (one hour) while it stays open and unparked, so a card that failed
+  through a long outage runs again when the outage ends; later failures tell nobody. Run now
+  starts the count over.
 - **Stale badges** (`due.clear_stale_badges`, on the due tick): a `working` badge with no lease
   and no report for `work.STALE_AFTER` (30 minutes) is cleared, an `idle` report by `slate`
   with `after.reason: "stale"`, after the same test passes again under the write lock (a take
