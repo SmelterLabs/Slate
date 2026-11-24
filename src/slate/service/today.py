@@ -105,9 +105,13 @@ def today(
     from slate.service.lists import WORK_LIST
 
     now = now or utcnow()
-    _, end = local_day_bounds(now)
+    start, end = local_day_bounds(now)
     lead_days = lead_days_for(session.get(Account, account_id))
-    cols = (Item.id, Item.priority, Item.due_at, Item.start_at) if keys_only else (Item,)
+    cols = (
+        (Item.id, Item.priority, Item.due_at, Item.start_at, Item.due_date_only)
+        if keys_only
+        else (Item,)
+    )
     open_where = (
         Item.archived_at.is_(None),
         Item.parked_until.is_(None),
@@ -127,7 +131,9 @@ def today(
     for item in rows if keys_only else (r[0] for r in rows):
         if is_later(item, now=now, lead_days=lead_days):
             continue
-        if item.due_at is not None and item.due_at < now:
+        if item.due_at is not None and (
+            item.due_at < start if item.due_date_only else item.due_at < now
+        ):
             groups["overdue"].append(item)
         elif item.due_at is not None and item.due_at < end:
             groups["today"].append(item)

@@ -211,7 +211,8 @@ test('drawer editors: due date quick pick and time, tags with autocomplete, assi
   const tomorrow = addDays(today(), 1);
   await expect.poll(async () => (await got()).due_at && workspaceDay(new Date((await got()).due_at!))).toBe(tomorrow);
   await drawer.getByRole('button', { name: /^Due:/ }).click();
-  await drawer.getByRole('button', { name: '+ time' }).click();
+  await drawer.getByRole('button', { name: '9 AM', exact: true }).click();
+  await expect(drawer.getByRole('button', { name: /^Due:/ })).toContainText('9:00 AM');
   await drawer.getByLabel('Due time').fill('09:30');
   await drawer.getByLabel('Due time').dispatchEvent('change');
   await expect

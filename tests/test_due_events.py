@@ -235,8 +235,11 @@ def test_date_only_agent_task_gets_a_run_event_at_six_chicago(db, world):
     assert runs[0].after_json["for"] == [agent.id]
     assert runs[0].after_json["reason"] == "due"
     assert runs[0].source == Source.system
-    # Later ticks never repeat it; due and overdue still follow at 17:00 and 18:00.
+    # Later ticks never repeat it; due follows at 17:00 and overdue waits until midnight.
     _walk(db, six, six + timedelta(hours=13), timedelta(minutes=30))
+    assert len(_runs(db, item.id)) == 1
+    assert [e.type for e in _due_events(db, item.id)][-1] == "item.due"
+    _walk(db, six + timedelta(hours=13), six + timedelta(hours=18), timedelta(minutes=30))
     assert len(_runs(db, item.id)) == 1
     assert [e.type for e in _due_events(db, item.id)][-2:] == ["item.due", "item.overdue"]
 
@@ -325,3 +328,41 @@ def test_the_system_account_cannot_be_renamed_or_disabled(db, world):
             accounts.update_account(
                 db, world["actor"], account_id=system.id, by=world["by"], **change
             )
+
+
+def test_date_only_runs_at_6am_and_is_not_overdue_until_midnight(db, world):
+    from slate.service import today as today_svc
+
+    accounts.create_account(db, world["actor"], handle="agent", display_name="Agent", kind="agent")
+    item = items.create_item(
+        db,
+        world["actor"],
+        list_id=world["todo"].id,
+        title="Nightly check",
+        due_at="2026-11-02",
+        assignees=["agent"],
+    )
+    assert item.due_date_only is True
+    six_am = datetime(2026, 11, 2, 6, 0, tzinfo=LOCAL).astimezone(UTC)
+    seven_pm = datetime(2026, 11, 2, 19, 0, tzinfo=LOCAL).astimezone(UTC)
+    late_night = datetime(2026, 11, 2, 23, 59, tzinfo=LOCAL).astimezone(UTC)
+    midnight = datetime(2026, 11, 3, 0, 0, tzinfo=LOCAL).astimezone(UTC)
+
+    # At 6:00 AM the agent run stage fires.
+    due.emit_due_events(db, now=six_am)
+    assert len(_runs(db, item.id)) == 1
+
+    # At 7:00 PM and 11:59 PM on the due day: still in Today, not overdue yet.
+    for when in (seven_pm, late_night):
+        due.emit_due_events(db, now=when)
+        assert "item.overdue" not in [e.type for e in _due_events(db, item.id)]
+        day = today_svc.today(db, world["actor"].account_id, now=when)
+        assert [i.id for i in day["today"]] == [item.id]
+        assert day["overdue"] == []
+
+    # At midnight (start of the next day): item.overdue fires and /today moves it to overdue.
+    due.emit_due_events(db, now=midnight)
+    assert "item.overdue" in [e.type for e in _due_events(db, item.id)]
+    day = today_svc.today(db, world["actor"].account_id, now=midnight)
+    assert [i.id for i in day["overdue"]] == [item.id]
+    assert day["today"] == []

@@ -114,4 +114,8 @@ describe('initial-load due gate', () => {
     expect(pickupSince({ ...waiting, agent: { ...flag, state: 'review' } }, now.getTime(), now)).toBe(now.getTime());
     expect(pickupSince(working, now.getTime(), now)).toBeUndefined();
   });
+
+  it('does not infer due-gate pickup for a parked card', () => {
+    expect(pickupSince({ ...waiting, parked_until: '2026-11-10', parked_note: 'Vendor' }, undefined, now)).toBeUndefined();
+  });
 });

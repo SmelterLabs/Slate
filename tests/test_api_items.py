@@ -528,14 +528,22 @@ def test_today_groups_and_sorts(client, alex, todo, make_account):
 
 def test_today_after_the_due_hour_moves_to_overdue(client, alex, todo):
     with freeze_time("2026-12-01T12:00:00Z") as frozen:  # 06:00 CST
-        item = _item(client, alex, todo["id"], due_at="2026-12-01")  # 17:00 CST = 23:00Z
-        assert [i["id"] for i in client.get(f"{API}/today", headers=alex).json()["today"]] == [
-            item["id"]
-        ]
+        timed = _item(client, alex, todo["id"], due_at="2026-12-01T17:00:00-06:00")
+        date_only = _item(client, alex, todo["id"], due_at="2026-12-01")
+        assert {i["id"] for i in client.get(f"{API}/today", headers=alex).json()["today"]} == {
+            timed["id"],
+            date_only["id"],
+        }
+        # At 17:30 CST: timed card is overdue, date-only card stays in Today until midnight.
         frozen.move_to("2026-12-01T23:30:00Z")
-        view = client.get(f"{API}/today", headers=alex).json()
-    assert [i["id"] for i in view["overdue"]] == [item["id"]]
-    assert view["today"] == []
+        evening = client.get(f"{API}/today", headers=alex).json()
+        assert [i["id"] for i in evening["overdue"]] == [timed["id"]]
+        assert [i["id"] for i in evening["today"]] == [date_only["id"]]
+        # At midnight CST (06:00Z Dec 2): date-only card moves to overdue too.
+        frozen.move_to("2026-12-02T06:00:00Z")
+        midnight = client.get(f"{API}/today", headers=alex).json()
+    assert {i["id"] for i in midnight["overdue"]} == {timed["id"], date_only["id"]}
+    assert midnight["today"] == []
 
 
 def test_items_carry_comment_count_for_board_cards(client, alex, todo):

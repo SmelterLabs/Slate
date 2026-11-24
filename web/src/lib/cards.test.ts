@@ -10,8 +10,11 @@ describe('cardDue', () => {
     expect(cardDue('2026-10-23T22:00:00Z', FRI)).toEqual({ text: 'Today', tone: 'today' });
   });
 
-  it('earlier today is overdue', () => {
+  it('earlier today is overdue, except date-only stays today until midnight', () => {
     expect(cardDue('2026-10-23T13:00:00Z', FRI)).toEqual({ text: 'Today, 8:00 am', tone: 'overdue' });
+    const evening = new Date('2026-10-24T01:00:00Z'); // Fri 20:00 CDT
+    expect(cardDue('2026-10-23T22:00:00Z', evening, false, true)).toEqual({ text: 'Today', tone: 'today' });
+    expect(cardDue('2026-10-23T22:00:00Z', evening, false, false)).toEqual({ text: 'Today, 5:00 pm', tone: 'overdue' });
   });
 
   it('tomorrow, then weekday names for the rest of the week, then dates', () => {

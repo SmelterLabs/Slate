@@ -21,6 +21,14 @@ describe('bucketOf', () => {
   ])('%s -> %s', (due, want) => {
     expect(bucketOf(item({ due_at: due }), NOW)).toBe(want);
   });
+
+  it('keeps date-only cards in today after 5 pm until midnight', () => {
+    const evening = new Date('2026-10-23T01:00:00Z'); // Thu 20:00 CDT
+    const midnight = new Date('2026-10-23T05:00:00Z'); // Fri 00:00 CDT
+    const dateOnly = item({ due_at: '2026-10-22T22:00:00Z', due_date_only: true });
+    expect(bucketOf(dateOnly, evening)).toBe('today');
+    expect(bucketOf(dateOnly, midnight)).toBe('overdue');
+  });
 });
 
 describe('myWork', () => {
