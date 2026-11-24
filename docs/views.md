@@ -49,6 +49,10 @@ Details in `docs/board.md`.
   reorder()`/`place()`). Lists drag in the nav (drop on a list = before it, on a section heading =
   last) and have "Move to <section>" in their ⋯ menu; right-click opens a row's ⋯ menu. New lists
   get the API default statuses, To do (open) / In progress (active) / Done (done).
+  Section create and PATCH accept `color` as a hex colour or a plain colour name (up to 16
+  characters). On PATCH, omit it to keep the current colour, or send null or an empty string for
+  No colour. Setting the colour requires the same permission as renaming the section. A colour
+  change records `section.updated` with `field: "color"`.
 - **List settings** (`ListSettings.svelte`, opened by `board.openListSettings(listId)`; mounted by
   Nav, outside the `.nav` element because the phone nav is CSS-transformed and would trap a fixed
   panel): one `PUT /lists/{id}/statuses` with `fallback` when removed statuses still hold items
@@ -128,7 +132,9 @@ batch (422 naming the lists). The bulk bar leaves those items out client-side fi
 which lists were skipped. `changes` is checked by `schemas.BulkChanges` (the PATCH fields and
 types plus `add_tags`, `remove_tags`, `archive`, `trash`, `list_id`, `status_kind`; unknown fields
 and wrong types are a 422 before anything runs); it stays a plain object in the schema so the MCP
-tool's input schema has no `$ref`.
+tool's input schema has no `$ref`. For a mixed selection on an **Also show** list page, the bulk
+bar sends the page's exact status for local cards and a separate status-kind change for the
+brought-in cards.
 
 ## View polish
 

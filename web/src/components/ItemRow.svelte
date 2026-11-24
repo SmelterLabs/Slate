@@ -28,6 +28,8 @@
   const closed = $derived(isClosed(item));
   const show = $derived(new Set(config.card_fields));
   const selected = $derived(board.selected.has(item.id));
+  // On a page that mixes sections: this row's section name and colour (BoardState.sectionMix).
+  const section = $derived(board.sectionMix?.[board.lists[item.list_id]?.section_id ?? '']);
   // Quick actions mount on first hover or focus: hundreds of cards stay cheap to render.
   let armed = $state(false);
   let menuOpen = $state(false);
@@ -41,6 +43,8 @@
   class:compact={config.density === 'compact'}
   class:wide={showList}
   class:no-status={noStatus}
+  class:section-tint={!!section?.color}
+  style:--section-color={section?.color || undefined}
   draggable="true"
   use:swipe={{
     right: { label: closed ? 'Reopen' : 'Complete', tone: 'done', run: () => void board.toggleComplete(item.id) },
@@ -76,6 +80,12 @@
     <span class="row-title-col">
       <span class="row-title-top">
         <span class="row-title">{item.title}</span>
+        {#if section && (section.brought || (section.color && show.has('list')))}<span
+            class="pill muted-pill section-pill"
+            title="Section"
+            data-section-pill
+            >{#if section.color}<span class="section-dot"></span>{/if}{section.name}</span
+          >{/if}
         {#if item.recurrence_id && show.has('recurrence')}<span class="badge" title="Recurring"><Icon name="repeat" size={12} /></span>{/if}
         {#if item.subtask_count && show.has('subtasks')}<span class="badge" title="Subtasks"><Icon name="subtask" size={12} /> {item.subtask_count}</span>{/if}
         {#if item.agent}<AgentBadge flag={item.agent} {item} />{/if}

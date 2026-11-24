@@ -106,6 +106,11 @@ export type Scope =
   | { kind: 'section'; id: string }
   | { kind: 'list'; id: string };
 
+export interface AlsoShowSetting {
+  sections: string[];
+  everyone: boolean;
+}
+
 export interface Ctx {
   now: Date;
   lists: Record<string, List>;
@@ -114,6 +119,7 @@ export interface Ctx {
   me: Account | null;
   /** Free-text search from the toolbar: not part of the saved view. */
   q?: string;
+  alsoShow?: AlsoShowSetting;
 }
 
 /** What dropping a card on a group does. `null` means the group is not a drop target. */
@@ -362,6 +368,24 @@ export function inScope(item: Item, scope: Scope, lists: Record<string, List>): 
   if (scope.kind === 'everything') return !!lists[item.list_id];
   if (scope.kind === 'list') return item.list_id === scope.id;
   return lists[item.list_id]?.section_id === scope.id;
+}
+
+/** Eligible source lists, keyed by list id with their section id as the value. */
+export function alsoShowLists(listId: string, lists: Record<string, List>, sections: Section[]): Map<string, string> {
+  const page = lists[listId];
+  const eligible = new Map<string, string>();
+  if (!page || page.kind === 'drawer') return eligible;
+  const visible = new Set(sections.filter((s) => !s.archived_at && s.id !== page.section_id).map((s) => s.id));
+  for (const [id, list] of Object.entries(lists)) {
+    if (visible.has(list.section_id) && list.kind !== 'drawer' && !list.reference && !list.archived_at) {
+      eligible.set(id, list.section_id);
+    }
+  }
+  return eligible;
+}
+
+export function alsoShowMatches(item: Item, everyone: boolean, me: Account | null): boolean {
+  return everyone || (!!me && (item.waiting_on_account_id === me.id || item.assignees.some((a) => a.id === me.id)));
 }
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]);
@@ -797,11 +821,21 @@ export function refusal(g: Group): string {
 export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, ctx: Ctx): Group[] {
   const today = workspaceDay(ctx.now);
   const q = ctx.q?.trim().toLowerCase() ?? '';
+  const setting = ctx.alsoShow;
+  const everyone = setting?.everyone ?? false;
+  const sourceLists = scope.kind === 'list' && setting?.sections.length
+    ? alsoShowLists(scope.id, ctx.lists, ctx.sections)
+    : null;
+  if (sourceLists && setting) {
+    const on = new Set(setting.sections);
+    for (const [id, section] of sourceLists) if (!on.has(section)) sourceLists.delete(id);
+  }
   const shown: Item[] = [];
   for (const item of all) {
     if (item.archived_at) continue;
     if (item.parent_id && !config.show_subtasks) continue;
-    if (!inScope(item, scope, ctx.lists)) continue;
+    if (!inScope(item, scope, ctx.lists) &&
+        !(sourceLists?.has(item.list_id) && alsoShowMatches(item, everyone, ctx.me))) continue;
     if (!config.show_closed && isClosed(item) && finishedBefore(item, today)) continue;
     if (q && !item.title.toLowerCase().includes(q) && !item.body_md.toLowerCase().includes(q)) continue;
     if (!matchFilter(item, config.filter, ctx, today)) continue;
@@ -810,6 +844,11 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
   const sorted = sortItems(shown, config.sort, ctx);
 
   const groups = skeleton(config, scope, ctx, today);
+  const mapped = sourceLists?.size && config.group_by === 'status'
+    ? Object.fromEntries(KINDS.map((kind) => [
+      kind, groups.find((g) => g.drop?.kind === 'status' && g.drop.status.kind === kind)?.key ?? 'nostatus',
+    ]))
+    : null;
   const done = hasDoneColumn(config) ? DONE_GROUP() : null;
   const byKey = new Map(groups.map((g) => [g.key, g]));
   if (done) byKey.set('done', done);
@@ -820,7 +859,10 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
       laterItems.push(item);
       continue;
     }
-    for (const key of keysOf(item, config, ctx, today)) {
+    const keys = mapped && sourceLists?.has(item.list_id)
+      ? [mapped[item.status?.kind ?? 'open']]
+      : keysOf(item, config, ctx, today);
+    for (const key of keys) {
       let g = byKey.get(key);
       if (!g) {
         g = dynamicGroup(key, config, ctx);

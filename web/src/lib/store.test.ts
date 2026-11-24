@@ -4,7 +4,7 @@
 // `fetch` and `EventSource` are the only things faked (board/testkit.ts); the api layer and the
 // reducer are real.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ev, item } from './fixtures';
+import { LIST, ev, item } from './fixtures';
 import type { Item, SlateEvent } from './types';
 import {
   FakeEventSource,
@@ -16,6 +16,7 @@ import {
   settle,
   startLive as live,
   tearDown,
+  writes,
   type Answer,
   type Board,
   type Failure,
@@ -29,6 +30,73 @@ beforeEach(async () => {
 afterEach(() => tearDown(board));
 
 const startLive = () => live(board);
+
+describe('Also show', () => {
+  const other = {
+    ...LIST, id: 'L2', section_id: 'S2', name: 'Other',
+    statuses: LIST.statuses.map((s) => ({ ...s, id: `other-${s.id}` })),
+  };
+  beforeEach(async () => {
+    routes.set('/sections', () => ['S1', 'S2', 'S3'].map((id) => ({ id, name: id, archived_at: null })));
+    routes.set('/lists', () => [LIST, other, { ...other, id: 'ref', section_id: 'S3', reference: true }]);
+    routes.set('/items', () => [
+      item(), item({ id: 'foreign', list_id: other.id, status: other.statuses[0], assignees: [ME.account] }),
+      item({ id: 'unassigned', list_id: other.id }), item({ id: 'closed', list_id: other.id, status: other.statuses[2] }),
+    ]);
+    await startLive();
+    board.selection = { kind: 'list', id: LIST.id };
+  });
+
+  it('counts eligible open cards and removes empty entries without removing other lists', async () => {
+    const keep = { sections: ['S3'], everyone: true };
+    board.me!.prefs = { also_show: { L1: { sections: ['S2', 'missing'] }, L2: keep } };
+    routes.set('PATCH /me/prefs', (body) => body);
+    expect(board.ctx.alsoShow).toEqual({ sections: ['S2'], everyone: false });
+    expect(board.alsoShowOptions(LIST.id).map(({ section, count }) => [section.id, count])).toEqual([['S2', 1]]);
+    await board.setAlsoShow(LIST.id, { sections: ['S2'], everyone: true });
+    expect(board.alsoShowOptions(LIST.id)[0].count).toBe(2);
+    await board.setAlsoShow(LIST.id, { sections: [], everyone: true });
+    expect(writes().at(-1)?.body).toEqual({ also_show: { L2: keep } });
+    await board.setAlsoShow('L2', { sections: [], everyone: true });
+    expect(writes().at(-1)?.body).toEqual({ also_show: null });
+  });
+
+  it('maps a status drop to the card’s own list and refuses missing kinds', async () => {
+    await board.applyDrop('foreign', { kind: 'status', status: LIST.statuses[0] });
+    expect(writes()).toEqual([]);
+    const active = other.statuses[1];
+    routes.set('PATCH /items/foreign', () => item({ id: 'foreign', list_id: other.id, status: active }));
+    await board.applyDrop('foreign', { kind: 'status', status: LIST.statuses[1] });
+    expect(writes()).toEqual([{ method: 'PATCH', path: '/items/foreign', body: { status: active.id } }]);
+    await board.applyDrop('foreign', { kind: 'status', status: { ...LIST.statuses[0], kind: 'cancelled' } });
+    expect(board.toast).toContain('Other has no cancelled status');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('restores the saved switches when the server refuses the change', async () => {
+    board.me!.prefs = { also_show: { L1: { sections: ['S2'] } } };
+    routes.set('PATCH /me/prefs', () => ({ status: 422, body: { detail: 'Could not save' } }));
+    await board.setAlsoShow(LIST.id, { sections: [], everyone: false });
+    expect(board.alsoShowFor(LIST.id)).toEqual({ sections: ['S2'], everyone: false });
+    expect(board.toast).toContain('Could not save');
+  });
+
+  it('keeps the exact bulk status for local cards and uses its kind for brought-in cards', async () => {
+    routes.set('POST /items/bulk', () => []);
+    const status = LIST.statuses[1];
+    await board.bulkStatus(['I1', 'foreign'], status);
+    expect(writes().map(({ body }) => body)).toEqual([
+      { ids: ['I1'], changes: { status: status.id } },
+      { ids: ['foreign'], changes: { status_kind: status.kind } },
+    ]);
+  });
+
+  it('never writes another list’s positions from the list page', async () => {
+    routes.set('PATCH /items/I1', () => item({ position: 1024 }));
+    await board.reposition([{ id: 'I1', position: 1024 }, { id: 'foreign', position: 2048 }]);
+    expect(writes()).toEqual([{ method: 'PATCH', path: '/items/I1', body: { position: 1024 } }]);
+  });
+});
 
 describe('start', () => {
   it('waits for the stream to open before reading anything over REST', async () => {

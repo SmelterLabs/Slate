@@ -79,7 +79,7 @@ EVENT_DOCS: dict[str, str] = {
     "section.created": "A section was created.",
     "section.participants_changed": "Refetch section participants; payload has no member details.",
     "section.updated": "A section changed (`field` = the column: name, position, audience, "
-    "private, project, whiteboard_url).",
+    "private, project, whiteboard_url, color).",
     "section.archived": "A section was archived.",
     "section.unarchived": "A section was restored.",
     "list.created": "A list was created (with its statuses).",

@@ -84,7 +84,7 @@
         <div class="menu card-menu" role="menu">
           {#if list}
             {#each list.statuses as s (s.id)}
-              <button role="menuitem" onclick={() => run({ status: s.id })}
+              <button role="menuitem" onclick={() => { closeAll(); void board.bulkStatus(ids, s); }}
                 ><span class="bb-dot" style:background={s.color}></span>{s.name}</button
               >
             {/each}

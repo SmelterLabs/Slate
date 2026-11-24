@@ -361,16 +361,16 @@ Scope: `write` · MCP: `slate_section create`
 
 Create Section
 
-- Body: `SectionIn`: `name`\*, `audience`\*, `position`
+- Body: `SectionIn`: `name`\*, `audience`\*, `position`, `color`
 - Returns: `201` [SectionOut](#sectionout)
 
 ### `PATCH /sections/{section_id}`
 
 Scope: `write` · MCP: `slate_section update`
 
-Rename, reorder, change audience, toggle `project`, archive (`archived: true`) / restore a section, or make it private (owner/admin; `private: true`).
+Rename, reorder, change audience or colour, toggle `project`, archive or restore a section, or make it private (owner/admin).
 
-- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`
+- Body: `SectionPatch`: `whiteboard_url`, `name`, `position`, `audience`, `archived`, `color`, `private`, `project`
 - Returns: `200` [SectionOut](#sectionout)
 
 ## lists
@@ -2185,7 +2185,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### SectionOut
 
-`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `private`: boolean, `project`: boolean, `next_step`: NextStepOut?
+`id`: string, `name`: string, `slug`: string, `position`: integer, `audience`: `personal` \| `ai` \| `work` \| `family`, `created_at`: date-time, `archived_at`: date-time?, `color`: string?, `private`: boolean, `project`: boolean, `next_step`: NextStepOut?
 
 ### ListOut
 

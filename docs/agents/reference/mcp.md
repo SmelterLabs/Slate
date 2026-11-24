@@ -175,8 +175,8 @@ The top-level groups. Find one, or create one.
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
 | `list` | `read` | `include_archived` | `GET /sections` | all sections |
-| `create` | `write` | `name`\*, `audience`\*, `position` | `POST /sections` | a section (one per audience or rhythm, never per topic) |
-| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `private`, `project`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience, or archived true/false |
+| `create` | `write` | `name`\*, `audience`\*, `position`, `color` | `POST /sections` | a section (one per audience or rhythm, never per topic) |
+| `update` | `write` | `whiteboard_url`, `name`, `position`, `audience`, `archived`, `color`, `private`, `project`, `id`\* | `PATCH /sections/{section_id}` | rename, reorder, change audience or colour, or archived true/false |
 
 ## `slate_tag`
 

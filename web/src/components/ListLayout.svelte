@@ -48,13 +48,16 @@
   let dragId = $state<string | null>(null);
   let slot = $state<{ group: string; before: string | null } | null>(null);
   const manualOrder = $derived(isManual(config.sort));
+  // On a list page, cards brought in from other sections keep their own list's order.
+  const pageListId = $derived(board.selection.kind === 'list' ? board.selection.id : null);
+  const ownRow = (id: string) => !pageListId || board.items[id]?.list_id === pageListId;
 
   function overRows(e: DragEvent, g: Group) {
     if ((e.target as Element).closest('.group-head')) return; // the header means the group
-    if (!manualOrder || !dragId || (!g.drop && !g.items.some((i) => i.id === dragId))) return;
+    if (!manualOrder || !dragId || !ownRow(dragId) || (!g.drop && !g.items.some((i) => i.id === dragId))) return;
     e.preventDefault();
     const rows = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('.row[data-item]')]
-      .filter((r) => r.dataset.item !== dragId)
+      .filter((r) => r.dataset.item !== dragId && ownRow(r.dataset.item!))
       .map((r) => {
         const b = r.getBoundingClientRect();
         return { id: r.dataset.item!, top: b.top, bottom: b.bottom };
@@ -71,7 +74,7 @@
     const id = e.dataTransfer?.getData('text/plain');
     const item = id ? board.items[id] : null;
     if (!id || !item) return;
-    const ordered = g.items.map((i) => ({ id: i.id, position: i.position }));
+    const ordered = g.items.filter((i) => ownRow(i.id)).map((i) => ({ id: i.id, position: i.position }));
     if (g.drop) await board.applyDrop(id, g.drop, e.dataTransfer?.getData(GROUP_TYPE) || undefined);
     await board.reposition(slotFor(ordered, id, at.before, { id, position: item.position }));
   }

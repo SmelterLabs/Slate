@@ -39,6 +39,61 @@ def test_patch_section_renames_and_archives(client, alex):
     assert r.json()["archived_at"] is None
 
 
+def test_create_section_with_color(client, alex):
+    body = {"name": "Work", "audience": "work", "color": "red"}
+    r = client.post(f"{API}/sections", json=body, headers=alex)
+    assert r.status_code == 201, r.text
+    assert r.json()["color"] == "red"
+    assert client.get(f"{API}/sections", headers=alex).json()[0]["color"] == "red"
+
+    bad = {**body, "name": "Other", "color": "url(x)"}
+    assert client.post(f"{API}/sections", json=bad, headers=alex).status_code == 422
+    assert len(client.get(f"{API}/sections", headers=alex).json()) == 1
+
+
+def test_patch_section_color_records_only_changes(client, alex):
+    sid = _section(client, alex).json()["id"]
+    path = f"{API}/sections/{sid}"
+    for payload, expected in (
+        ({"color": "#123"}, "#123"),
+        ({"color": "#123"}, "#123"),
+        ({"color": "red"}, "red"),
+        ({"name": "Renamed"}, "red"),
+        ({"color": None}, None),
+        ({"color": "blue"}, "blue"),
+        ({"color": ""}, None),
+    ):
+        r = client.patch(path, json=payload, headers=alex)
+        assert r.status_code == 200, r.text
+        assert r.json()["color"] == expected
+
+    me = client.get(f"{API}/me", headers=alex).json()["account"]["id"]
+    events = client.get(f"{API}/events", params={"type": "section.updated"}, headers=alex).json()[
+        "events"
+    ]
+    color_events = [e for e in events if e["field"] == "color"]
+    assert all(
+        (e["subject_id"], e["actor_id"], e["source"]) == (sid, me, "api") for e in color_events
+    )
+    assert [(e["before"], e["after"]) for e in color_events] == [
+        (None, "#123"),
+        ("#123", "red"),
+        ("red", None),
+        (None, "blue"),
+        ("blue", None),
+    ]
+
+
+def test_bad_section_color_refuses_the_entire_patch(client, alex):
+    sid = _section(client, alex).json()["id"]
+    path = f"{API}/sections/{sid}"
+    assert client.patch(path, json={"color": "blue"}, headers=alex).status_code == 200
+    r = client.patch(path, json={"color": "url(x)", "name": "Other", "private": True}, headers=alex)
+    assert r.status_code == 422, r.text
+    [section] = client.get(f"{API}/sections", headers=alex).json()
+    assert (section["color"], section["name"], section["private"]) == ("blue", "Personal", False)
+
+
 def test_unknown_section_is_404(client, alex):
     assert client.patch(f"{API}/sections/nope", json={"name": "x"}, headers=alex).status_code == 404
 

@@ -113,6 +113,14 @@ def test_guest_cannot_write_outside_shares(client, alex, world):
     )
 
 
+def test_a_guest_with_list_edit_cannot_rename_or_color_its_section(client, alex, world):
+    guest, gh = world["account"]("guest", "guest")
+    share(client, alex, guest["id"], "list", world["clients"]["id"], "edit")
+    path = f"{API}/sections/{world['work']['id']}"
+    assert client.patch(path, json={"name": "Renamed"}, headers=gh).status_code == 403
+    assert client.patch(path, json={"color": "red"}, headers=gh).status_code == 403
+
+
 def test_view_and_comment_levels(client, alex, world):
     guest, gh = world["account"]("guest", "guest")
     renewal = world["renewal"]["id"]

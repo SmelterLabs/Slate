@@ -289,6 +289,10 @@ export class BoardItems extends BoardStream {
   /** Manual order after a drag (lib/slots.ts): one PATCH for one write, else one atomic batch.
    * Shown at once; put back if Slate refuses. */
   async reposition(moves: { id: string; position: number }[]) {
+    if (this.selection.kind === 'list') {
+      const listId = this.selection.id;
+      moves = moves.filter(({ id }) => this.items[id]?.list_id === listId);
+    }
     if (!moves.length) return true;
     if (moves.length === 1) {
       const [m] = moves;
@@ -328,6 +332,10 @@ export class BoardItems extends BoardStream {
     if (!item || !drop) return;
     switch (drop.kind) {
       case 'status':
+        if (this.selection.kind === 'list' && item.list_id !== this.selection.id) {
+          if ((item.status?.kind ?? 'open') === drop.status.kind) return;
+          return this.applyDrop(id, { kind: 'status_kind', value: drop.status.kind });
+        }
         return this.moveToStatus(id, drop.status);
       case 'status_kind': {
         if (item.status?.kind === drop.value) return;
@@ -493,6 +501,20 @@ export class BoardItems extends BoardStream {
       this.flash(e instanceof Error ? e.message : String(e));
       return false;
     }
+  }
+
+  /** List columns name an exact status for local cards and a kind for cards from other lists. */
+  async bulkStatus(ids: string[], status: Status) {
+    const scope = this.selection;
+    if (scope.kind !== 'list') return;
+    const own: string[] = [];
+    const other: string[] = [];
+    for (const id of ids) {
+      const item = this.items[id];
+      if (item) (item.list_id === scope.id ? own : other).push(id);
+    }
+    if (own.length && !(await this.bulk(own, { status: status.id }))) return;
+    if (other.length) await this.bulkKind(other, status.kind);
   }
 
   /** Status kind across lists: one bulk call; the server gives each item its own list's status

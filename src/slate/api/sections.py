@@ -7,6 +7,7 @@ from fastapi import APIRouter, status
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.schemas import SectionIn, SectionOut, SectionPatch
 from slate.service import permissions, sections, today
+from slate.service.core import apply_change
 
 router = APIRouter(tags=["sections"])
 
@@ -25,9 +26,7 @@ def list_projects(auth: ReadAuth, session: DbSession) -> list[dict]:
 
 @router.post("/sections", status_code=status.HTTP_201_CREATED, response_model=SectionOut)
 def create_section(body: SectionIn, auth: WriteAuth, session: DbSession) -> dict:
-    section = sections.create_section(
-        session, auth.actor, name=body.name, audience=body.audience, position=body.position
-    )
+    section = sections.create_section(session, auth.actor, **body.model_dump())
     return sections.section_views(session, [section], lead_days=today.lead_days_for(auth.account))[
         0
     ]
@@ -37,24 +36,24 @@ def create_section(body: SectionIn, auth: WriteAuth, session: DbSession) -> dict
 def update_section(
     section_id: str, body: SectionPatch, auth: WriteAuth, session: DbSession
 ) -> dict:
-    """Rename, reorder, change audience, toggle `project`, archive (`archived: true`) / restore
-    a section, or make it private (owner/admin; `private: true`)."""
+    """Rename, reorder, change audience or colour, toggle `project`, archive or restore a section,
+    or make it private (owner/admin)."""
     changes = body.model_dump(exclude_unset=True)
     private = changes.pop("private", None)
-    if private is not None:
-        section = permissions.set_private(
-            session,
-            auth.actor,
-            by=auth.principal,
-            scope_kind="section",
-            scope_id=section_id,
-            private=private,
-        )
-        if not changes:
-            return sections.section_views(
-                session, [section], lead_days=today.lead_days_for(auth.account)
-            )[0]
-    section = sections.update_section(session, auth.actor, section_id, **changes)
+    if "color" in changes and changes["color"] is None:
+        changes["color"] = ""
+    with apply_change(session, auth.actor):
+        if private is not None:
+            section = permissions.set_private(
+                session,
+                auth.actor,
+                by=auth.principal,
+                scope_kind="section",
+                scope_id=section_id,
+                private=private,
+            )
+        if changes or private is None:
+            section = sections.update_section(session, auth.actor, section_id, **changes)
     return sections.section_views(session, [section], lead_days=today.lead_days_for(auth.account))[
         0
     ]

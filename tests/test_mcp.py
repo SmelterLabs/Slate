@@ -102,6 +102,18 @@ async def make_list(client: Client) -> dict:
     return ok(await call(client, "slate_list", "create", section_id=section["id"], name="Todo"))
 
 
+async def test_section_color_through_mcp(alex):
+    async with http_mcp(alex) as client:
+        section = ok(
+            await call(client, "slate_section", "create", name="Work", audience="work", color="red")
+        )
+        assert section["color"] == "red"
+        section = ok(await call(client, "slate_section", "update", id=section["id"], color="blue"))
+        assert section["color"] == "blue"
+        section = ok(await call(client, "slate_section", "update", id=section["id"], color=None))
+        assert "color" not in section  # MCP omits null response fields.
+
+
 # --- tool list -------------------------------------------------------------------------------
 
 

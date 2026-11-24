@@ -16,6 +16,7 @@ import { attention, byList, projectAttention, type Attention, type Need, type Pr
 import { workspaceDay } from '../quickadd';
 import { workingItems } from '../pickup';
 import { listLevel } from '../permissions';
+import { safeColor } from '../mdcore';
 import type { CommentDot } from '../commentdots';
 import type {
   Level,
@@ -314,6 +315,23 @@ export class BoardState {
   tags = $state<Tag[]>([]);
   /** Tags by name, for pill colours. */
   tagMap: Record<string, Tag> = $derived(Object.fromEntries(this.tags.map((t) => [t.name, t])));
+
+  /** On a page that mixes sections (Everything, or a list page with another section the store
+   * holds switched on in prefs `also_show`): each section's name, checked colour ('' for none)
+   * and whether its cards are brought in from outside the list page's own section. Null on any
+   * other page. Worked out once per page for every card on it. */
+  sectionMix: Record<string, { name: string; color: string; brought: boolean }> | null = $derived.by(() => {
+    const page = this.selection;
+    if (page.kind === 'section') return null;
+    const own = page.kind === 'list' ? this.lists[page.id]?.section_id : undefined;
+    if (page.kind === 'list') {
+      const on = this.me?.prefs.also_show?.[page.id]?.sections ?? [];
+      if (!on.some((id) => id !== own && this.sections.some((s) => s.id === id))) return null;
+    }
+    return Object.fromEntries(
+      this.sections.map((s) => [s.id, { name: s.name, color: safeColor(s.color), brought: page.kind === 'list' && s.id !== own }]),
+    );
+  });
   archivedSections = $state<Section[]>([]);
   archivedLists = $state<List[]>([]);
   listSettingsId = $state<string | null>(null);

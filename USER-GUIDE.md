@@ -41,6 +41,12 @@ Nothing is hard-coded:
 - **Drag a list** onto another list to put it just above, or onto a section's name to put it at the end of that section.
 - **Archive** asks first, then hides the section or list and its items. Nothing is deleted: **Archived** at the bottom of the menu lists them, with **Restore** next to each.
 
+**Colour…** in a section's ⋯ menu gives the section a colour: pick one of twelve, or **No colour**
+to clear it. The colour shows as a dot beside the section's name in the left menu and on its
+switch in **Also show**. On a page that brings sections together (**Everything**, or a list page
+with **Also show** switched on), each card from a coloured section carries a soft wash of its
+colour and a small pill naming the section.
+
 **List settings** edits a list's name and its columns (statuses): rename, add, reorder with ▲▼, pick a colour from the dot, choose the **default** (where new items start) and the **kind**, which tells Slate what the column means: *Open* (not started), *Active* (in progress), *Done* (what **Complete** uses) or *Cancelled*. Removing a column that still has items asks where to move them. **Kind** at the top turns an empty list into a drawer (see *Docs & Files*).
 
 Use the filing note in **List settings** to say what belongs here and what finished work looks
@@ -133,6 +139,8 @@ Click a card to open it in a large window (full screen on a phone): the task on 
 - **Search** (`/`) narrows the view; it is not saved with it.
 
 **Moving a task to another list.** Pick **Move to…** in a card's ⋯, press **Move** in the task window, or click its **List** field. Type part of a list or section name, use the arrow keys and press Enter. The task lands in the new list's column of the same kind, its subtasks move with it, and **Undo** puts it back.
+
+On a list page, use **Also show** below the toolbar to bring in tasks from other sections. **Mine** shows tasks assigned to you or waiting on you. **Everyone** shows all tasks from the selected sections, subject to the view's filters. Slate remembers the switches for each list on your account. Drag a brought-in card to a status column to set the matching status in its own list.
 
 **Selecting many.** Tick a card's box (or press `x` over it); shift-click selects a run; on a phone, hold a card and pick **Select**. A bar appears with **Status** (each task gets its own list's column of that kind, all or nothing), **Due**, **Priority**, **Tags**, **Assign**, **Move**, **Put away** and **Trash**; the last two ask once. **Undo** brings a trashed selection straight back. `Esc` or **×** clears the selection.
 
