@@ -6,7 +6,8 @@ import { patch } from '../api';
 import { withStorage } from '../storage';
 import { applyTheme, asTheme, type Theme } from '../theme';
 import type { Prefs } from '../types';
-import { alsoShowLists, alsoShowMatches, isClosed, type AlsoShowSetting, type Scope } from '../views';
+import { hiddenAsFinished } from '../format';
+import { alsoShowLists, alsoShowMatches, type AlsoShowSetting, type Scope } from '../views';
 import { BoardState } from './state.svelte';
 
 const QA_KEY = 'slate.quickadd.';
@@ -86,8 +87,9 @@ export abstract class BoardPrefs extends BoardState {
     const everyone = saved?.everyone === true && saved.sections.some((id) => counts.has(id));
     for (const item of this.plainItems) {
       const section = lists.get(item.list_id);
-      // Top-level cards only: the board hides subtasks unless the view asks for them.
-      if (section !== undefined && !item.archived_at && !item.parent_id && !isClosed(item) && alsoShowMatches(item, everyone, me)) {
+      // What the board would bring in: top-level cards, open or finished today (the board hides
+      // subtasks and earlier finished work unless the view asks for them).
+      if (section !== undefined && !item.archived_at && !item.parent_id && !hiddenAsFinished(item, this.now) && alsoShowMatches(item, everyone, me)) {
         counts.set(section, counts.get(section)! + 1);
       }
     }

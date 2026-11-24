@@ -291,7 +291,9 @@ export class BoardItems extends BoardStream {
   async reposition(moves: { id: string; position: number }[]) {
     if (this.selection.kind === 'list') {
       const listId = this.selection.id;
-      moves = moves.filter(({ id }) => this.items[id]?.list_id === listId);
+      // A batch that names a card brought in from another list was worked out across two lists'
+      // orders: write none of it.
+      if (moves.some(({ id }) => this.items[id]?.list_id !== listId)) return true;
     }
     if (!moves.length) return true;
     if (moves.length === 1) {
