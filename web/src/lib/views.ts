@@ -399,7 +399,10 @@ function dateRule(iso: string | null, cmp: string, value: unknown, item: Item, c
   const v = asArray(value).map(String);
   switch (cmp) {
     case 'overdue':
-      return !isClosed(item) && Date.parse(iso) < ctx.now.getTime();
+      return (
+        !isClosed(item) &&
+        (item.due_date_only && iso === item.due_at ? day < today : Date.parse(iso) < ctx.now.getTime())
+      );
     case 'today':
       return day === today;
     case 'today_or_earlier':

@@ -7,7 +7,7 @@ import { type QuickAdd, workspaceDay } from '../quickadd';
 import { changeLabel, groupReverts, revertPatch } from '../undo';
 import { LEAVES } from '../words';
 import type { Item, LinkKind, List, Status } from '../types';
-import { dayOf, onDay, quickDays, reopenStatus, statusOfKind, type Drop } from '../views';
+import { dayOf, onDay, quickDays, reopenStatus, statusOfKind, workspaceInstant, type Drop } from '../views';
 import { BoardStream } from './stream.svelte';
 
 export class BoardItems extends BoardStream {
@@ -422,6 +422,24 @@ export class BoardItems extends BoardStream {
     const wire = day && dateOnly ? day : due; // a bare date stays date-only on the server
     await this.#optimistic(id, { due_at: due, due_date_only: !!day && dateOnly }, () =>
       this.update(id, { due_at: wire }),
+    );
+  }
+
+  /** Set or clear a card's due date + optional time ("YYYY-MM-DD", "YYYY-MM-DDTHH:MM", or null). */
+  async setDue(id: string, when: string | null) {
+    const item = this.items[id];
+    if (!item) return;
+    if (!when) return this.reschedule(id, null);
+    const match = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(when);
+    if (!match) return;
+    const [, day, hh, mm] = match;
+    const dateOnly = hh === undefined;
+    const due = dateOnly
+      ? workspaceInstant(day).toISOString()
+      : workspaceInstant(day, Number(hh), Number(mm)).toISOString();
+    if (due === item.due_at && dateOnly === !!item.due_date_only) return;
+    await this.#optimistic(id, { due_at: due, due_date_only: dateOnly }, () =>
+      this.update(id, { due_at: when }),
     );
   }
 

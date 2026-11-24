@@ -52,7 +52,7 @@ mounted in the order of `api.MODULES`; `api/events.py` and `api/recurrences.py` 
 | `db.py` | Engine, `SessionLocal`, `get_session`, the write-guard hooks on every `Session`, `SerialCursor` (`docs/fast-lane.md`), `SharedConnection` (the tests' one in-memory connection, used by one thread at a time: `docs/PERFORMANCE.md`). |
 | `models.py` | Every table, SQLAlchemy 2 `Mapped` style, `UTCDateTime`, enums, the SQLite triggers (`TRIGGERS`). |
 | `ids.py` | `new_id()` 12-char base62 keys; `new_event_id()` time-ordered ids for events and messages. |
-| `dates.py` | `parse_when()` (the date rule), `local_day_bounds()`, `run_at()`, `is_date_only_input()`. |
+| `dates.py` | `parse_when()` (the date rule), `local_day_bounds()`, `run_at()`, `overdue_at()`, `is_date_only_input()`. |
 | `crypto.py` | AES-GCM for automation signing secrets under `SLATE_SECRET_KEY`. |
 | `rrule_text.py` | One RRULE in plain English (`describe`). |
 | `scheduler.py` | The asyncio tick loop, its hooks, and registration of the automations, push and email engines (`docs/recurrence.md`). |
@@ -345,7 +345,8 @@ is stored as null. Recurrences never copy `external_ref`.
 
 **Today (`GET /today`, `service/today.py`):** open items the caller can see (not done/cancelled,
 not archived, not in an archived list or section) in three groups, each item in the first that
-fits: `overdue` (due before now), `today` (due before midnight workspace time), `waiting`
+fits: `overdue` (due before midnight at the start of today for date-only due dates, else due before
+now), `today` (due before midnight workspace time), `waiting`
 (`waiting_on_account_id` is the caller). Each sorted by priority (urgent, high, normal, low,
 none), then soonest due. A fourth group, `asked`, holds open items with an open Ask addressed to
 the caller, oldest Ask first; an item can be in `asked` and in one of the three. Also returns

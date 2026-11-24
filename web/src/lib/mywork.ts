@@ -36,9 +36,9 @@ export interface MyWork {
 export function bucketOf(item: Item, now: Date): Bucket {
   if (!item.due_at) return 'none';
   const due = new Date(item.due_at);
-  if (due < now) return 'overdue';
   const today = workspaceDay(now);
   const day = workspaceDay(due);
+  if (day < today || (!item.due_date_only && due < now)) return 'overdue';
   if (day === today) return 'today';
   if (day === addDays(today, 1)) return 'tomorrow';
   if (day <= addDays(today, 7)) return 'week';

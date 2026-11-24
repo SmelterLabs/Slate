@@ -23,12 +23,17 @@ describe('dates', () => {
     expect(ago('2026-10-01T20:00:00Z', NOW)).toBe('Oct 1');
   });
 
-  it('overdue only when open and past due', () => {
+  it('overdue only when open and past due; date-only items stay due today until midnight', () => {
     expect(isOverdue(item({ due_at: '2026-10-22T19:00:00Z' }), NOW)).toBe(true);
     expect(isOverdue(item({ due_at: '2026-10-22T21:00:00Z' }), NOW)).toBe(false);
     expect(isOverdue(item({ due_at: '2026-10-22T19:00:00Z', status: LIST.statuses[2] }), NOW)).toBe(
       false,
     );
+    const evening = new Date('2026-10-23T01:00:00Z'); // Thu 20:00 CDT
+    const midnight = new Date('2026-10-23T05:00:00Z'); // Fri 00:00 CDT
+    const dateOnly = item({ due_at: '2026-10-22T22:00:00Z', due_date_only: true });
+    expect(isOverdue(dateOnly, evening)).toBe(false);
+    expect(isOverdue(dateOnly, midnight)).toBe(true);
   });
 
   it('finished items leave the board at Chicago midnight', () => {

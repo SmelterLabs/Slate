@@ -163,7 +163,7 @@ export class BoardState {
       if (list?.reference || i.later) continue;
       if (!i.parent_id) open.set(i.list_id, (open.get(i.list_id) ?? 0) + 1);
       if (isParked(i)) continue;
-      if (i.due_at && i.due_at < nowIso) overdue++; // isOverdue() without a Date per item
+      if (i.due_at && (i.due_date_only ? dayOf(i.due_at) < today : i.due_at < nowIso)) overdue++;
       // Everything's badge: open, in a live list, due by the end of today (workspace time). What waits
       // on me is Needs you's count (My Work's tile, the pill, the title and the app icon), not this.
       const live = list && !list.archived_at;

@@ -193,7 +193,7 @@ def test_ai_and_recurrence_creation_use_defaults(client, alex, todo, make_accoun
             },
         )
         assert response.status_code == 201, response.text
-    # A day ahead: the daily rule's next occurrence is always inside that, whatever the clock.
+    # Advance past the next 12:00 UTC occurrence so lead_days=0 materializes at any hour of the day.
     recurrences.materialize(db, utcnow() + timedelta(days=1))
     rows = client.get(f"{API}/items", headers=alex).json()
     for prefix, handle in (("Inherited", "my-agent"), ("Explicit", "alex")):

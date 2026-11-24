@@ -21,16 +21,22 @@ export function workingItems(items: Item[], now: Date): WorkingItems {
   return out;
 }
 
+/** When an item's due gate opens (ms): 06:00 workspace time for date-only due dates, else due_at. */
+export function dueRunAt(item: Pick<Item, 'due_at' | 'due_date_only'>): number | undefined {
+  if (!item.due_at) return;
+  const due = new Date(item.due_at);
+  if (!Number.isFinite(due.getTime())) return;
+  return item.due_date_only ? workspaceInstant(workspaceDay(due), 6).getTime() : due.getTime();
+}
+
 /** Explicit requests, or a due task with no report yet (also works on a fresh page). */
 export function pickupSince(item: Item, requested: number | undefined, now: Date): number | undefined {
   if (isClosed(item) || item.archived_at || item.agent?.state === 'working') return;
   if (requested != null && Number.isFinite(requested) && (!item.agent || requested > Date.parse(item.agent.at))) return requested;
-  if (item.agent || item.stalled || item.blocked || item.waiting_on_account_id || !item.due_at) return;
+  if (item.agent || item.stalled || item.blocked || item.waiting_on_account_id || item.parked_until || !item.due_at) return;
   if (item.start_at && Date.parse(item.start_at) > now.getTime()) return;
-  const due = new Date(item.due_at);
-  if (!Number.isFinite(due.getTime())) return;
-  const at = item.due_date_only ? workspaceInstant(workspaceDay(due), 6).getTime() : due.getTime();
-  if (at <= now.getTime()) {
+  const at = dueRunAt(item);
+  if (at != null && at <= now.getTime()) {
     const created = Date.parse(item.created_at);
     return Math.max(at, Number.isFinite(created) ? created : at);
   }

@@ -17,26 +17,32 @@ const monthDayYear = workspaceFormatter('en-US', {
   year: 'numeric',
 });
 
-/** "4:00 pm", or '' for 5:00 pm: Slate's stand-in for "no time" (a date-only due). */
-function clock(d: Date): string {
+/** "4:00 pm", or '' for 5:00 pm when date-only status is unknown (Slate's stand-in for "no time"). */
+function clock(d: Date, dateOnly?: boolean): string {
+  if (dateOnly === true) return '';
   const t = time.format(d).replace(' AM', ' am').replace(' PM', ' pm');
-  return t === '5:00 pm' ? '' : t;
+  return dateOnly === false ? t : t === '5:00 pm' ? '' : t;
 }
 
 /**
  * The due pill on a card, as ClickUp writes it: "Today, 4:00 pm", "Tomorrow", "Sun, 4:00 am"
  * within the week, "Nov 1" later, "Yesterday" / "4 days ago" just past, "Aug 2 · 82d late" long past
- * ("Aug 2" once closed).
+ * ("Aug 2" once closed). Date-only cards stay "Today" until midnight.
  */
-export function cardDue(iso: string, now: Date, closed = false): { text: string; tone: DueTone } {
+export function cardDue(
+  iso: string,
+  now: Date,
+  closed = false,
+  dateOnly?: boolean,
+): { text: string; tone: DueTone } {
   const d = new Date(iso);
   const day = workspaceDay(d);
   const today = workspaceDay(now);
-  const t = clock(d);
+  const t = clock(d, dateOnly);
   const withTime = (s: string) => (t ? `${s}, ${t}` : s);
   const tone = (open: DueTone): DueTone => (closed ? 'done' : open);
   if (day === today) {
-    const past = d.getTime() < now.getTime();
+    const past = !dateOnly && d.getTime() < now.getTime();
     return { text: withTime('Today'), tone: tone(past ? 'overdue' : 'today') };
   }
   if (day < today) {

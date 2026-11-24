@@ -50,7 +50,7 @@
   const show = $derived(new Set(config.card_fields));
   const selected = $derived(board.selected.has(item.id));
   const parked = $derived(isParked(item));
-  const due = $derived(item.due_at ? cardDue(item.due_at, board.now, closed || parked) : null);
+  const due = $derived(item.due_at ? cardDue(item.due_at, board.now, closed || parked, item.due_date_only) : null);
   const waitingFor = $derived(item.waiting_on_account_id ? board.accounts[item.waiting_on_account_id] : null);
   // An agent's blocked badge already says "Waiting on Alex": the pill would say it twice.
   const waitingInBadge = $derived(item.agent?.state === 'blocked' && !!item.waiting_on_account_id);
