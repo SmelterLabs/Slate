@@ -78,6 +78,7 @@ READS = {
         "refresh_chatgpt_token",
         "resolve",
         "secret_key_ready",
+        "slot_active",
         "view",
     },
     "slate.service.connections": {"view", "list_connections"},

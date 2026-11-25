@@ -44,6 +44,15 @@ class InboxListSetting(BaseModel):
     )
 
 
+class AiBackupOut(BaseModel):
+    enabled: bool
+    active: bool
+    provider: AiProviderKey | None
+    model: str
+    url: str
+    has_api_key: bool
+
+
 class AiSettingsOut(BaseModel):
     enabled: bool
     active: bool = Field(description="True when enabled and the provider has credentials/endpoint")
@@ -57,6 +66,18 @@ class AiSettingsOut(BaseModel):
     cli_detected: dict[str, bool]
     secret_key_ready: bool
     defaults: dict[str, str]
+    backup: AiBackupOut
+
+
+class AiBackupIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    provider: AiProviderKey | None = None
+    model: str | None = Field(default=None, max_length=200)
+    url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=500)
+    clear_api_key: bool | None = None
 
 
 class AiSettingsIn(BaseModel):
@@ -68,6 +89,7 @@ class AiSettingsIn(BaseModel):
     url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=500)
     clear_api_key: bool | None = None
+    backup: AiBackupIn | None = None
 
 
 class AiModelsIn(BaseModel):
@@ -76,6 +98,7 @@ class AiModelsIn(BaseModel):
     provider: AiProviderKey | None = None
     url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=500)
+    slot: Literal["primary", "backup"] = "primary"
 
 
 class AiModelOption(BaseModel):
@@ -95,6 +118,7 @@ class AiTestIn(BaseModel):
     model: str | None = Field(default=None, max_length=200)
     url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=500)
+    slot: Literal["primary", "backup"] = "primary"
 
 
 class AiTestOut(BaseModel):
@@ -170,6 +194,7 @@ async def list_ai_models(body: AiModelsIn, _: AdminAuth, session: DbSession) -> 
         provider=body.provider,
         api_key=body.api_key,
         url=body.url,
+        slot=body.slot,
     )
 
 
@@ -184,6 +209,7 @@ async def test_ai_settings(body: AiTestIn, _: AdminAuth, session: DbSession) -> 
         model=body.model,
         url=body.url,
         api_key=body.api_key,
+        slot=body.slot,
     )
 
 

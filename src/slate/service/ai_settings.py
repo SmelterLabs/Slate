@@ -58,7 +58,7 @@ ProviderName = Literal[
 ]
 
 DEFAULT_MODELS: dict[str, str] = {
-    "claude-cli": "sonnet",
+    "claude-cli": "claude-sonnet-5-5",
     "codex-cli": "",
     "chatgpt-oauth": "gpt-5.4",
     "anthropic": "claude-sonnet-5-5",
@@ -91,6 +91,7 @@ class ResolvedAI:
     oauth: dict[str, Any] | None
     source: Literal["db", "env", "none"]
     host_id: str = ""
+    backup: ResolvedAI | None = None
 
 
 def secret_key_ready() -> bool:
@@ -123,11 +124,11 @@ def _env_provider() -> ProviderName | None:
     return None
 
 
-def _decrypt_optional(blob: Any) -> str:
+def _decrypt_optional(blob: Any, *, aad: str = KEY) -> str:
     if not isinstance(blob, str) or not blob:
         return ""
     try:
-        return crypto.decrypt(blob, aad=KEY)
+        return crypto.decrypt(blob, aad=aad)
     except crypto.SecretKeyError:
         return ""
 
@@ -143,6 +144,28 @@ def _decrypt_json(blob: Any) -> dict[str, Any] | None:
         return None
 
 
+def _backup_from_raw(raw: Any, oauth: dict[str, Any] | None) -> ResolvedAI | None:
+    if not isinstance(raw, dict):
+        return None
+    prov = raw.get("provider")
+    provider: ProviderName | None = prov if prov in PROVIDERS else None
+    enabled = bool(raw.get("enabled", bool(provider)))
+    model = str(raw.get("model") or "").strip()
+    if not model and provider:
+        model = DEFAULT_MODELS.get(provider, "")
+    url = str(raw.get("url") or "").strip()
+    api_key = _decrypt_optional(raw.get("api_key_enc"), aad=f"{KEY}:backup")
+    return ResolvedAI(
+        enabled=enabled,
+        provider=provider,
+        model=model,
+        url=url,
+        api_key=api_key,
+        oauth=oauth if provider == "chatgpt-oauth" else None,
+        source="db",
+    )
+
+
 def _from_raw(data: dict[str, Any]) -> ResolvedAI:
     prov = data.get("provider")
     provider: ProviderName | None = prov if prov in PROVIDERS else None
@@ -154,6 +177,7 @@ def _from_raw(data: dict[str, Any]) -> ResolvedAI:
     api_key = _decrypt_optional(data.get("api_key_enc"))
     oauth = _decrypt_json(data.get("oauth_enc"))
     host_id = str(data.get("host_id") or "")
+    backup = _backup_from_raw(data.get("backup"), oauth)
     return ResolvedAI(
         enabled=enabled,
         provider=provider,
@@ -163,6 +187,7 @@ def _from_raw(data: dict[str, Any]) -> ResolvedAI:
         oauth=oauth,
         source="db",
         host_id=host_id,
+        backup=backup,
     )
 
 
@@ -194,9 +219,9 @@ def resolve(session: Session | None = None) -> ResolvedAI:
     )
 
 
-def is_active(cfg: ResolvedAI) -> bool:
-    """Whether `cfg` is enabled and has the credentials/endpoint required to run."""
-    if not cfg.enabled or cfg.provider is None:
+def slot_active(cfg: ResolvedAI | None) -> bool:
+    """Whether one provider slot is enabled and has the credentials/endpoint required to run."""
+    if cfg is None or not cfg.enabled or cfg.provider is None:
         return False
     if cfg.provider in ("anthropic", "openai", "gemini"):
         return bool(cfg.api_key)
@@ -211,6 +236,33 @@ def is_active(cfg: ResolvedAI) -> bool:
     return False
 
 
+def is_active(cfg: ResolvedAI) -> bool:
+    """Whether AI add is enabled and has at least a primary or backup slot ready."""
+    if not cfg.enabled:
+        return False
+    return slot_active(cfg) or slot_active(cfg.backup)
+
+
+def _redacted_backup(cfg: ResolvedAI | None) -> dict[str, Any]:
+    if cfg is None:
+        return {
+            "enabled": False,
+            "active": False,
+            "provider": None,
+            "model": "",
+            "url": "",
+            "has_api_key": False,
+        }
+    return {
+        "enabled": cfg.enabled,
+        "active": slot_active(cfg),
+        "provider": cfg.provider,
+        "model": cfg.model,
+        "url": cfg.url,
+        "has_api_key": bool(cfg.api_key),
+    }
+
+
 def _redacted(cfg: ResolvedAI) -> dict[str, Any]:
     oauth = cfg.oauth or {}
     return {
@@ -222,6 +274,7 @@ def _redacted(cfg: ResolvedAI) -> dict[str, Any]:
         "has_api_key": bool(cfg.api_key),
         "oauth_connected": bool(oauth.get("access_token") or oauth.get("refresh_token")),
         "oauth_account": oauth.get("email") or None,
+        "backup": _redacted_backup(cfg.backup),
     }
 
 
@@ -295,6 +348,41 @@ def save(session: Session, actor: Actor, changes: dict[str, Any]) -> dict[str, A
             raise Invalid(
                 "SLATE_SECRET_KEY must be set on the server to save encrypted API keys in Settings"
             ) from exc
+
+    if "backup" in changes:
+        b_in = changes["backup"]
+        if b_in is None:
+            raw.pop("backup", None)
+        elif isinstance(b_in, dict):
+            b_raw = dict(raw.get("backup") or {}) if isinstance(raw.get("backup"), dict) else {}
+            if "enabled" in b_in and b_in["enabled"] is not None:
+                b_raw["enabled"] = bool(b_in["enabled"])
+            if "provider" in b_in:
+                b_prov = b_in["provider"]
+                if b_prov is not None and b_prov not in PROVIDERS:
+                    raise Invalid(f"backup provider must be one of {', '.join(PROVIDERS)}")
+                b_raw["provider"] = b_prov
+                if b_prov is None:
+                    b_raw["enabled"] = False
+            if "model" in b_in and b_in["model"] is not None:
+                b_raw["model"] = str(b_in["model"]).strip()[:200]
+            if "url" in b_in and b_in["url"] is not None:
+                b_url = str(b_in["url"]).strip()[:500]
+                if b_url and not re.match(r"^https?://", b_url, re.I):
+                    raise Invalid("backup url must start with http:// or https://")
+                b_raw["url"] = b_url
+            if b_in.get("clear_api_key"):
+                b_raw.pop("api_key_enc", None)
+            elif "api_key" in b_in and b_in["api_key"]:
+                try:
+                    b_raw["api_key_enc"] = crypto.encrypt(
+                        str(b_in["api_key"]).strip(), aad=f"{KEY}:backup"
+                    )
+                except crypto.SecretKeyError as exc:
+                    raise Invalid(
+                        "SLATE_SECRET_KEY must be set on the server to save encrypted API keys"
+                    ) from exc
+            raw["backup"] = b_raw
 
     with apply_change(session, actor) as cx:
         row = session.get(WorkspaceSetting, KEY)
@@ -510,25 +598,55 @@ def refresh_chatgpt_token(oauth: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_claude_cli_models() -> list[dict[str, str]]:
-    """Read available Claude CLI model tiers from ~/.claude.json."""
-    tiers: dict[str, tuple[int, int] | None] = {"sonnet": None, "haiku": None, "opus": None}
+    """Read real versioned Claude models from ~/.claude.json (picker cache + model catalog)."""
     cfg = Path.home() / ".claude.json"
-    if cfg.is_file():
-        try:
-            raw = cfg.read_text(encoding="utf-8", errors="ignore")
-            for m in re.finditer(r"claude-(sonnet|haiku|opus)-(\d+)-(\d+)", raw, re.I):
-                tier = m.group(1).lower()
-                ver = (int(m.group(2)), int(m.group(3)))
-                prev = tiers[tier]
-                if prev is None or ver > prev:
-                    tiers[tier] = ver
-        except OSError:
-            pass
-    out = []
-    for tier in ("sonnet", "opus", "haiku"):
-        ver = tiers[tier]
-        label = f"{tier.title()} ({ver[0]}.{ver[1]})" if ver else tier.title()
-        out.append({"id": tier, "label": label})
+    if not cfg.is_file():
+        return []
+    try:
+        raw = cfg.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    # 1. Exact versioned models referenced in ~/.claude.json (newest first per family).
+    found: dict[str, tuple[int, int, int, str]] = {}
+    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2}
+    for m in re.finditer(
+        r"\b(claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
+    ):
+        mid = m.group(1).lower()
+        # Skip dated snapshots when the clean alias exists; keep clean versioned IDs first.
+        if re.search(r"-\d{8}$", mid):
+            continue
+        fam = m.group(2).lower()
+        major = int(m.group(3))
+        minor = int(m.group(4) or 0)
+        ver_label = f"{major}.{minor}" if m.group(4) else str(major)
+        label = f"Claude {fam.title()} {ver_label} ({mid})"
+        found[mid] = (major, minor, -fam_rank[fam], label)
+
+    for mid, info in sorted(found.items(), key=lambda kv: kv[1][:3], reverse=True):
+        seen.add(mid)
+        out.append({"id": mid, "label": info[3]})
+
+    # 2. Additional picker options from Claude's own `additionalModelOptionsCache`.
+    try:
+        data = json.loads(raw)
+        for opt in data.get("additionalModelOptionsCache") or []:
+            if not isinstance(opt, dict):
+                continue
+            val = str(opt.get("value") or "").strip()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            desc = str(opt.get("description") or "").split("·")[0].strip()
+            lbl = desc or str(opt.get("label") or val).strip()
+            out.append({"id": val, "label": f"{lbl} ({val})"})
+    except ValueError:
+        pass
+
     return out
 
 
@@ -557,9 +675,11 @@ def discover_models(
     provider: str | None = None,
     api_key: str | None = None,
     url: str | None = None,
+    slot: Literal["primary", "backup"] = "primary",
 ) -> dict[str, Any]:
     """Query the selected provider for its live model list."""
-    cfg = resolve(session)
+    saved = resolve(session)
+    cfg = saved.backup if slot == "backup" and saved.backup is not None else saved
     prov = (provider or cfg.provider or "").strip()
     key = (api_key or "").strip() or (cfg.api_key if prov == cfg.provider else "")
     base = (url or "").strip() or (cfg.url if prov == cfg.provider else "")
@@ -615,7 +735,7 @@ def discover_models(
         if prov in ("openai", "chatgpt-oauth"):
             token = key
             if prov == "chatgpt-oauth":
-                oauth = cfg.oauth
+                oauth = saved.oauth
                 if not oauth:
                     return {"models": [], "error": "Sign in with ChatGPT first to load models."}
                 oauth = refresh_chatgpt_token(oauth)

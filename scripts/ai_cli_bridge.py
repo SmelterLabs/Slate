@@ -17,13 +17,77 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 MAX_BODY = 256 * 1024
 TOKEN = os.environ.get("SLATE_BRIDGE_TOKEN", "").strip()
+
+
+def _claude_models() -> list[dict[str, str]]:
+    cfg = Path.home() / ".claude.json"
+    if not cfg.is_file():
+        return []
+    try:
+        raw = cfg.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    found: dict[str, tuple[int, int, int, str]] = {}
+    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2}
+    for m in re.finditer(
+        r"\b(claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
+    ):
+        mid = m.group(1).lower()
+        if re.search(r"-\d{8}$", mid):
+            continue
+        fam = m.group(2).lower()
+        major = int(m.group(3))
+        minor = int(m.group(4) or 0)
+        ver_label = f"{major}.{minor}" if m.group(4) else str(major)
+        found[mid] = (major, minor, -fam_rank[fam], f"Claude {fam.title()} {ver_label} ({mid})")
+    for mid, info in sorted(found.items(), key=lambda kv: kv[1][:3], reverse=True):
+        seen.add(mid)
+        out.append({"id": mid, "label": info[3]})
+    try:
+        data = json.loads(raw)
+        for opt in data.get("additionalModelOptionsCache") or []:
+            if not isinstance(opt, dict):
+                continue
+            val = str(opt.get("value") or "").strip()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            desc = str(opt.get("description") or "").split("·")[0].strip()
+            lbl = desc or str(opt.get("label") or val).strip()
+            out.append({"id": val, "label": f"{lbl} ({val})"})
+    except ValueError:
+        pass
+    return out
+
+
+def _codex_models() -> list[dict[str, str]]:
+    cache = Path.home() / ".codex" / "models_cache.json"
+    if not cache.is_file():
+        return [{"id": "", "label": "Default (codex)"}]
+    try:
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        out = [{"id": "", "label": "Default (codex)"}]
+        seen: set[str] = set()
+        for m in data.get("models") or []:
+            slug = str(m.get("slug") or "").strip()
+            if not slug or slug in seen or m.get("visibility") == "hide":
+                continue
+            seen.add(slug)
+            out.append({"id": slug, "label": str(m.get("display_name") or slug).strip()})
+        return out
+    except Exception:  # noqa: BLE001
+        return [{"id": "", "label": "Default (codex)"}]
 
 
 def _run_cli(cli: str, model: str, system: str, prompt: str, timeout: float) -> str:
@@ -85,14 +149,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if parsed.path == "/models":
             cli = (urllib.parse.parse_qs(parsed.query).get("cli") or ["claude"])[0]
-            if cli == "claude":
-                models = [
-                    {"id": "sonnet", "label": "Sonnet"},
-                    {"id": "opus", "label": "Opus"},
-                    {"id": "haiku", "label": "Haiku"},
-                ]
-            else:
-                models = [{"id": "", "label": "Default (Codex CLI)"}]
+            models = _claude_models() if cli == "claude" else _codex_models()
             return self._send(200, {"models": models})
         return self._send(404, {"error": "not found"})
 
