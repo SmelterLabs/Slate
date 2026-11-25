@@ -165,27 +165,31 @@ def eligible(
     its own `working` badge)."""
     now = now or utcnow()
     lease = aliased(WorkLease)
-    # Reuse one access-filtered Ask query across the eligibility checks. Inlining it in
-    # every branch repeats the visibility binds and can exceed SQLite's parameter limit.
-    asks = (
-        _pending_asks(account_id)
-        .with_only_columns(Comment.item_id, _assignment_id().label("assigned"))
-        .cte()
-    )
-    asked_ids = select(asks.c.item_id)
+    # Materialize the account's pending Ask item ids (and their newest assignment event id)
+    # up front on this session so access.read_criteria still filters them, without nesting
+    # the guest Event visibility filter multiple times inside the main Item query.
+    ask_rows = session.execute(
+        _pending_asks(account_id).with_only_columns(Comment.item_id, _assignment_id())
+    ).all()
+    asked_latest: dict[str, str] = {}
+    asked_set: set[str] = set()
+    for iid, eid in ask_rows:
+        asked_set.add(iid)
+        if eid is not None and (iid not in asked_latest or eid > asked_latest[iid]):
+            asked_latest[iid] = eid
+    asked_all = sorted(asked_set)
+    # An open Ask for this account (a question on the card): it is answered now, even on a
+    # card that is ready for review, waiting on someone or already done (card chat).
+    asked = Item.id.in_(asked_all) if asked_all else false()
     mine = (
         select(ItemAssignee.item_id.label("id"))
         .where(ItemAssignee.account_id == account_id)
-        .union(
-            select(Item.id).where(Item.waiting_on_account_id == account_id),
-            asked_ids,
-        )
+        .union(select(Item.id).where(Item.waiting_on_account_id == account_id))
         .subquery()
     )
-    is_mine = Item.id.in_(select(mine.c.id))
-    # An open Ask for this account (a question on the card): it is answered now, even on a
-    # card that is ready for review, waiting on someone or already done (card chat).
-    asked = Item.id.in_(asked_ids)
+    is_mine = (
+        or_(Item.id.in_(select(mine.c.id)), asked) if asked_all else Item.id.in_(select(mine.c.id))
+    )
     q = (
         select(Item)
         .join(List, List.id == Item.list_id)
@@ -262,21 +266,27 @@ def eligible(
     )
     # Asks kept by a failed finish still belong to the next turn, but only a newer Ask
     # can wake this agent ahead of its scheduled retry.
-    failed_finish = (
-        select(case((Event.after_json["outcome"].as_string() == "failed", Event.id)))
-        .where(
-            Event.type == "item.work_finished",
-            Event.item_id == Item.id,
-            Event.actor_id == account_id,
-            Event.actor_id == Item.agent_state_by,
-        )
-        .order_by(Event.id.desc())
-        .limit(1)
-        .correlate(Item)
-        .scalar_subquery()
-    )
-    asked_after_failure = Item.id.in_(
-        asked_ids.where(asks.c.assigned > func.coalesce(failed_finish, ""))
+    asked_after_failure_ids: list[str] = []
+    if asked_latest:
+        newest_finish: dict[str, tuple[str, str | None]] = {}
+        for ev_item_id, ev_id, ev_after in session.execute(
+            select(Event.item_id, Event.id, Event.after_json)
+            .where(
+                Event.type == "item.work_finished",
+                Event.item_id.in_(list(asked_latest)),
+                Event.actor_id == account_id,
+            )
+            .order_by(Event.id.desc())
+        ):
+            if ev_item_id and ev_item_id not in newest_finish:
+                outcome = ev_after.get("outcome") if isinstance(ev_after, dict) else None
+                newest_finish[ev_item_id] = (ev_id, outcome)
+        for iid, assigned_id in asked_latest.items():
+            fin = newest_finish.get(iid)
+            if fin is None or fin[1] != "failed" or assigned_id > fin[0]:
+                asked_after_failure_ids.append(iid)
+    asked_after_failure = (
+        Item.id.in_(asked_after_failure_ids) if asked_after_failure_ids else false()
     )
     # Only an explicit Run now can override the start date. A scheduled retry also sets
     # run_requested_at, so check the reason on the request still waiting to be taken.
@@ -310,7 +320,12 @@ def eligible(
             pressed,
             asked_after_failure,
         ),
-        or_(_last_outcome(account_id) != "answered", pressed, asked, _stall_poke(account_id)),
+        or_(
+            _last_outcome(account_id) != "answered",
+            pressed,
+            asked,
+            _stall_poke(session, account_id),
+        ),
         pressed
         | not_(
             and_(
@@ -359,32 +374,42 @@ def _last_outcome(account_id: str) -> Any:
     )
 
 
-def _stall_poke(account_id: str) -> Any:
-    """SQL: Slate's stalled poke for this account on the item (`due.poke_stalled`), newer than
-    the account's newest finish there: the card is offered to it, and only it, once."""
-    targets = func.json_each(Event.after_json, "$.for").table_valued("value")
-    finished = (
-        select(func.max(Event.id))
-        .where(
-            Event.type == "item.work_finished",
-            Event.item_id == Item.id,
-            Event.actor_id == account_id,
-        )
-        .correlate(Item)
-        .scalar_subquery()
-    )
-    return (
-        select(Event.id)
+def _stall_poke(session: Session, account_id: str) -> Any:
+    """SQL condition: Slate's stalled poke for this account on the item (`due.poke_stalled`),
+    newer than the account's newest finish there: the card is offered to it, and only it, once.
+
+    Materialized up front on `session` so guest `Event` visibility criteria are not nested
+    Event-inside-Event inside `eligible()`."""
+    poked: dict[str, str] = {}
+    for ev_item_id, ev_id, ev_after in session.execute(
+        select(Event.item_id, Event.id, Event.after_json)
         .where(
             Event.type == "item.run_requested",
-            Event.item_id == Item.id,
+            Event.item_id.is_not(None),
             Event.after_json["reason"].as_string() == "stalled",
-            select(targets.c.value).where(targets.c.value == account_id).exists(),
-            or_(finished.is_(None), Event.id > finished),
         )
-        .correlate(Item)
-        .exists()
+        .order_by(Event.id.desc())
+    ):
+        if not ev_item_id or ev_item_id in poked:
+            continue
+        targets = ev_after.get("for") if isinstance(ev_after, dict) else None
+        if isinstance(targets, list) and account_id in targets:
+            poked[ev_item_id] = ev_id
+    if not poked:
+        return false()
+    finished = dict(
+        session.execute(
+            select(Event.item_id, func.max(Event.id))
+            .where(
+                Event.type == "item.work_finished",
+                Event.item_id.in_(list(poked)),
+                Event.actor_id == account_id,
+            )
+            .group_by(Event.item_id)
+        ).all()
     )
+    ids = [iid for iid, pid in poked.items() if finished.get(iid) is None or pid > finished[iid]]
+    return Item.id.in_(ids) if ids else false()
 
 
 def _is_agent(session: Session, account_id: str) -> bool:
