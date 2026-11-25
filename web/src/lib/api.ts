@@ -54,12 +54,12 @@ function detailOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function api<T>(
+export async function apiMeta<T>(
   method: string,
   path: string,
   body?: unknown,
   token: string | null = config.token(),
-): Promise<T> {
+): Promise<{ data: T; headers: Headers }> {
   const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders(token) };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -77,10 +77,19 @@ export async function api<T>(
     config.onUnauthorized();
     throw new ApiError(401, 'Signed out: the token was refused');
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return { data: undefined as T, headers: res.headers };
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, detailOf(data, `${res.status} ${res.statusText}`));
-  return data as T;
+  return { data: data as T, headers: res.headers };
+}
+
+export async function api<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  token: string | null = config.token(),
+): Promise<T> {
+  return (await apiMeta<T>(method, path, body, token)).data;
 }
 
 export const get = <T>(path: string) => api<T>('GET', path);

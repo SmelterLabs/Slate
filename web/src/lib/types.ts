@@ -494,6 +494,8 @@ export interface Me {
   link_schemes?: string[];
   /** AI add is set up on the server (POST /items/ai). */
   ai_add?: boolean;
+  /** Workspace default filing list when this caller can file in it, else null. */
+  inbox_list_id?: string | null;
   /** Email notifications are set up on the server (SLATE_SMTP_HOST). */
   email?: boolean;
   /** When this browser session (an accepted invitation) ends; null for a bearer token. */

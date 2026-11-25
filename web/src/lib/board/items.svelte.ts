@@ -1,7 +1,7 @@
 // Item writes. Each one is a REST call; most show at once and put the old values back if
 // Slate refuses (optimistic), and each successful one can be undone from this board.
 
-import { api, patch, post } from '../api';
+import { api, apiMeta, patch, post } from '../api';
 import { describeRrule } from '../format';
 import { type QuickAdd, workspaceDay } from '../quickadd';
 import { changeLabel, groupReverts, revertPatch } from '../undo';
@@ -81,20 +81,55 @@ export class BoardItems extends BoardStream {
   }
 
   /**
-   * AI add (src/slate/service/aiadd.py): one POST /items/ai with the words as typed and what the column
-   * implies. The card arrives via the stream at once; the model fills in its fields a
-   * moment later, also via the stream.
+   * AI add (src/slate/service/aiadd.py): parse plain words with the configured model (Claude or
+   * Ollama), route to the right list when `route` is on, create the item (and recurrence if
+   * repeating), and float a confirmation bubble showing where it landed.
    */
-  async aiAdd(listId: string, text: string, extra: Record<string, unknown> = {}): Promise<boolean> {
+  async aiAdd(
+    listId: string | null,
+    text: string,
+    extra: Record<string, unknown> = {},
+    opts: { route?: boolean } = {},
+  ): Promise<boolean> {
     if (!this.aiReady || !text.trim()) return false;
+    const payload: Record<string, unknown> = { text: text.trim(), defaults: extra };
+    if (listId) payload.list_id = listId;
+    if (opts.route !== undefined) payload.route = opts.route;
     try {
-      const made = await post<Item>('/items/ai', { list_id: listId, text: text.trim(), defaults: extra });
+      const { data: made, headers } = await apiMeta<Item>('POST', '/items/ai', payload);
+      this.storeItem(made);
+      if (made.recurrence_id) void this.loadRule(made.recurrence_id);
+      const fallback = headers.get('x-slate-ai-fallback') === '1';
       this.#remember(`Added “${made.title}”`, async () => {
         await api('DELETE', `/items/${made.id}`);
         delete this.items[made.id];
         this.sync(made.id);
+        if (this.aiReceipt?.itemId === made.id) this.dismissAiReceipt();
       });
-      this.flash('Added. Filling in the details…');
+      this.showAiReceipt({
+        itemId: made.id,
+        title: made.title,
+        listId: made.list_id,
+        fallback,
+      });
+      return true;
+    } catch (e) {
+      this.flash(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }
+
+  /** Move one item to another list (used by the AI routing bubble's inline list picker). */
+  async moveItemToList(itemId: string, listId: string): Promise<boolean> {
+    const item = this.items[itemId];
+    if (!item || item.list_id === listId) return true;
+    try {
+      const out = await post<Item[]>('/items/bulk', { ids: [itemId], changes: { list_id: listId } });
+      for (const updated of out) this.storeItem(updated);
+      if (this.aiReceipt?.itemId === itemId) {
+        this.showAiReceipt({ ...this.aiReceipt, listId }, 5000);
+      }
+      if (this.openId === itemId) void this.refreshDetail();
       return true;
     } catch (e) {
       this.flash(e instanceof Error ? e.message : String(e));

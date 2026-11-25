@@ -443,9 +443,9 @@ Create exactly one item; never children. `parent_id` makes it a subtask; subtask
 
 Scope: `write`
 
-AI add: file exactly one item from plain words (title = the first sentence, description = all of it, plus `defaults`) and return it at once; then the configured Ollama model (`SLATE_AI_URL`, `SLATE_AI_MODEL`) fills in the title, description, assignees, dates, priority, status and tags the words decide, written as Slate's own account (`session_ref` `ai-add`) and seen through the stream. Fields changed before the model answers are left alone. 409 when AI add is off (`GET /me` `ai_add`).
+AI add: parse plain words with the configured AI model (Anthropic Claude or Ollama) into one task — choosing the list (when routing is enabled), title, description, assignees, dates, recurrence, priority, status and tags — and file it once. Falls back to local parsing in the default list if the model is unreachable or times out (`X-Slate-AI-Fallback: 1`). 409 when AI add is off (`GET /me` `ai_add`).
 
-- Body: `AiItemIn`: `list_id`\*, `text`\*, `defaults`
+- Body: `AiItemIn`: `list_id`, `text`\*, `defaults`, `route`
 - Returns: `201` [ItemOut](#itemout)
 
 ### `GET /items/{item_id}`
@@ -2141,7 +2141,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### MeOut
 
-`account`: AccountOut, `scopes`: [`read` \| `write` \| `admin`], `token_id`: string, `prefs`: object, `access`: MyAccess?, `ai_add`: boolean, `email`: boolean, `timezone`: string, `link_schemes`: [string], `session_expires_at`: date-time?
+`account`: AccountOut, `scopes`: [`read` \| `write` \| `admin`], `token_id`: string, `prefs`: object, `access`: MyAccess?, `ai_add`: boolean, `inbox_list_id`: string?, `email`: boolean, `timezone`: string, `link_schemes`: [string], `session_expires_at`: date-time?
 
 ### AccountOut
 

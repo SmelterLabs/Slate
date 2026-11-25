@@ -257,10 +257,14 @@
     if (href) go(href);
   }
 
-  // "Create task" from what was typed: always offered last, parsed like quick add.
+  const aiOn = $derived(board.aiAddOn && board.aiReady);
+  const inboxName = $derived(board.lists[board.workspaceInboxList() ?? '']?.name ?? 'Todo');
+
+  // "Create task" from what was typed: always offered last; uses AI add when enabled.
   const create = $derived.by(() => {
     const q = query.trim();
     if (!q || q.startsWith('>')) return null;
+    if (aiOn) return { title: q, tags: [] as string[], assignees: [] as string[], priority: null, due: null, start: null, list: null, rrule: null };
     const parsed = parseQuickAdd(q);
     return parsed.title ? parsed : null;
   });
@@ -280,8 +284,13 @@
 
   function run(i: number) {
     if (i === createAt && create) {
-      const listId = targetList();
+      const q = query.trim();
       onclose();
+      if (aiOn) {
+        void board.aiAdd(null, q, {}, { route: true });
+        return;
+      }
+      const listId = targetList();
       if (!listId) return board.flash('Pick a list to add to first');
       void board.quickAdd(listId, create);
       return;
@@ -399,12 +408,16 @@
         onmouseenter={() => (cursor = createAt)}
         onclick={() => run(createAt)}
       >
-        <span class="palette-kind kind-create">+ Create</span>
+        <span class="palette-kind kind-create">{aiOn ? '✨ AI Create' : '+ Create'}</span>
         <span class="palette-label">{create.title}</span>
         <span class="palette-hint">
-          {[create.due && `due ${create.due.replace('T', ' ')}`, create.priority && priorityLabel(create.priority), ...create.tags.map((t) => `#${t}`)]
-            .filter(Boolean)
-            .join(' · ') || (board.lists[targetList() ?? '']?.name ?? '')}
+          {#if aiOn}
+            Auto · {inboxName}
+          {:else}
+            {[create.due && `due ${create.due.replace('T', ' ')}`, create.priority && priorityLabel(create.priority), ...create.tags.map((t) => `#${t}`)]
+              .filter(Boolean)
+              .join(' · ') || (board.lists[targetList() ?? '']?.name ?? '')}
+          {/if}
         </span>
       </button>
     {/if}

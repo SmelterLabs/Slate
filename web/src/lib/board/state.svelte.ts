@@ -53,6 +53,13 @@ export function scopeKey(s: Scope): string {
   return s.kind === 'everything' ? 'everything' : `${s.kind}:${s.id}`;
 }
 
+export interface AiReceipt {
+  itemId: string;
+  title: string;
+  listId: string;
+  fallback: boolean;
+}
+
 export class BoardState {
   token = $state<string | null>(withStorage((storage) => storage.getItem(TOKEN_KEY)));
   me = $state<Me | null>(null);
@@ -90,11 +97,39 @@ export class BoardState {
   workingByAgent = $derived(workingItems(this.plainItems, this.now));
   toast = $state<string | null>(null);
   toastAction = $state<{ label: string; run: () => void } | null>(null);
+  aiReceipt = $state<AiReceipt | null>(null);
 
   // A plain (non-proxy) copy of every item, kept in step with `items` by #sync. The views engine
   // and the cards read these: reading 3,000 items through Svelte proxies costs ~10x more.
   #plain = new Map<string, Item>();
   #toastTimer: ReturnType<typeof setTimeout> | undefined;
+  #receiptTimer: ReturnType<typeof setTimeout> | undefined;
+
+  showAiReceipt(receipt: AiReceipt, ms = 7500) {
+    this.aiReceipt = receipt;
+    clearTimeout(this.#receiptTimer);
+    this.#receiptTimer = setTimeout(() => {
+      if (this.aiReceipt?.itemId === receipt.itemId) this.aiReceipt = null;
+    }, ms);
+  }
+
+  holdAiReceipt() {
+    clearTimeout(this.#receiptTimer);
+  }
+
+  releaseAiReceipt(ms = 3500) {
+    const id = this.aiReceipt?.itemId;
+    if (!id) return;
+    clearTimeout(this.#receiptTimer);
+    this.#receiptTimer = setTimeout(() => {
+      if (this.aiReceipt?.itemId === id) this.aiReceipt = null;
+    }, ms);
+  }
+
+  dismissAiReceipt() {
+    clearTimeout(this.#receiptTimer);
+    this.aiReceipt = null;
+  }
 
   // --- derived views ------------------------------------------------------------------------
 

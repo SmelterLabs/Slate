@@ -371,6 +371,10 @@ export class BoardStream extends BoardLoad {
       if (this.prefs.lead_days !== leadDays) this.refreshLater();
       return;
     }
+    if (ev.type === 'settings.changed' && ev.field === 'inbox_list_id' && this.me) {
+      const next = typeof ev.after === 'string' ? ev.after : null;
+      this.me.inbox_list_id = next && this.levelOn(next) === 'edit' ? next : null;
+    }
     // A share, role or privacy change about this account: what the board may show changed.
     if (affectsMyAccess(ev, this.me)) {
       if (this.token === COOKIE_SESSION && !ev.type.endsWith('.created')) {

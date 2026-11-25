@@ -263,16 +263,23 @@ see `integrations/push/README.md`.
 
 ## AI add (optional)
 
-`POST /items/ai` asks an Ollama server to fill in a task described in plain words. With
-Ollama on the same host, set `SLATE_AI_URL=http://host.docker.internal:11434` (and
-`SLATE_AI_MODEL` to a model you pulled) in `/opt/slate/.env` and restart. The container
-reaches the host through `extra_hosts: host-gateway`. If the host has a firewall, allow the
-Ollama port from the slate compose network only: find its subnet with
-`docker network inspect slate_default --format '{{(index .IPAM.Config 0).Subnet}}'`, then for
-example `sudo ufw allow from <subnet> to any port 11434 proto tcp comment 'slate -> ollama'`.
-Check: `docker exec slate python -c "import urllib.request;print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags').read()[:80])"`.
-Ollama down = AI add leaves cards as typed; nothing else in Slate depends on it. Off: blank
-`SLATE_AI_URL` and restart.
+`POST /items/ai` asks Anthropic Claude or an Ollama server to turn plain words into a task
+(routing to the right list using list descriptions, setting dates, recurrences, owners,
+priorities and tags).
+
+- **Anthropic Claude:** set `SLATE_AI_API_KEY=<key>` (and optionally `SLATE_AI_MODEL`, default
+  `claude-sonnet-5-5`) in `/opt/slate/.env` and restart.
+- **Local Ollama:** set `SLATE_AI_URL=http://host.docker.internal:11434` (and `SLATE_AI_MODEL`
+  to a model you pulled, plus `SLATE_AI_PROVIDER=ollama` if `SLATE_AI_API_KEY` is also set) and
+  restart. The container reaches the host through `extra_hosts: host-gateway`. If the host has
+  a firewall, allow the Ollama port from the slate compose network only: find its subnet with
+  `docker network inspect slate_default --format '{{(index .IPAM.Config 0).Subnet}}'`, then for
+  example `sudo ufw allow from <subnet> to any port 11434 proto tcp comment 'slate -> ollama'`.
+  Check: `docker exec slate python -c "import urllib.request;print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags').read()[:80])"`.
+
+If the AI provider is down or times out, AI add falls back to local deterministic parsing in
+the default list (`X-Slate-AI-Fallback: 1`); nothing else in Slate depends on it. Off: blank
+`SLATE_AI_API_KEY` and `SLATE_AI_URL`, and restart.
 
 ## Gotchas
 
