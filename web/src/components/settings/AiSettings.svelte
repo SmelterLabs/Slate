@@ -1,7 +1,8 @@
 <script lang="ts">
   // Workspace AI Task Creation settings (GET/PUT /settings/ai, /models, /test, /oauth/*).
-  // Supports subscriptions (Claude CLI, ChatGPT Sign-in OAuth, Codex CLI), cloud API keys
-  // (Anthropic, OpenAI, Google Gemini), and local/custom servers (Ollama, OpenAI-compatible).
+  // Supports primary + optional backup provider across subscriptions (Claude CLI, ChatGPT Sign-in
+  // OAuth, Codex CLI), cloud API keys (Anthropic, OpenAI, Google Gemini), and local/custom servers
+  // (Ollama, OpenAI-compatible).
   import { onDestroy } from 'svelte';
   import { get, post, put } from '../../lib/api';
   import { board } from '../../lib/store.svelte';
@@ -9,8 +10,8 @@
 
   type ProviderId =
     | 'claude-cli'
-    | 'chatgpt-oauth'
     | 'codex-cli'
+    | 'chatgpt-oauth'
     | 'anthropic'
     | 'openai'
     | 'gemini'
@@ -20,6 +21,15 @@
   interface ModelChoice {
     id: string;
     label: string;
+  }
+
+  interface AiBackupView {
+    enabled: boolean;
+    active: boolean;
+    provider: ProviderId | null;
+    model: string;
+    url: string;
+    has_api_key: boolean;
   }
 
   interface AiSettingsView {
@@ -35,6 +45,14 @@
     secret_key_ready: boolean;
     cli_detected: { claude: boolean; codex: boolean };
     defaults: Record<string, string>;
+    backup: AiBackupView;
+  }
+
+  interface TestResult {
+    ok: boolean;
+    latency_ms?: number;
+    model?: string;
+    detail?: string;
   }
 
   const PROVIDER_GROUPS: { label: string; items: { id: ProviderId; label: string }[] }[] = [
@@ -63,37 +81,64 @@
     },
   ];
 
+  function urlBucket(p: ProviderId | ''): string {
+    if (p === 'claude-cli' || p === 'codex-cli') return 'cli';
+    if (p === 'ollama') return 'ollama';
+    if (p === 'openai-compatible') return 'compat';
+    return 'none';
+  }
+
+  function defaultUrlFor(p: ProviderId | ''): string {
+    if (p === 'ollama') return 'http://localhost:11434';
+    return '';
+  }
+
   let view = $state<AiSettingsView | null>(null);
   let enabled = $state(false);
+
+  // Primary slot state
   let provider = $state<ProviderId>('anthropic');
   let model = $state('');
   let url = $state('');
   let apiKey = $state('');
   let clearApiKey = $state(false);
-
+  let urlCache = $state<Record<string, string>>({});
   let models = $state<ModelChoice[]>([]);
   let modelsBusy = $state(false);
   let modelsError = $state<string | null>(null);
   let customModel = $state(false);
+  let testing = $state(false);
+  let testResult = $state<TestResult | null>(null);
+
+  // Backup slot state
+  let backupProvider = $state<ProviderId | ''>('');
+  let backupModel = $state('');
+  let backupUrl = $state('');
+  let backupApiKey = $state('');
+  let backupClearApiKey = $state(false);
+  let backupUrlCache = $state<Record<string, string>>({});
+  let backupModels = $state<ModelChoice[]>([]);
+  let backupModelsBusy = $state(false);
+  let backupModelsError = $state<string | null>(null);
+  let backupCustomModel = $state(false);
+  let backupTesting = $state(false);
+  let backupTestResult = $state<TestResult | null>(null);
 
   let busy = $state(false);
-  let testing = $state(false);
-  let testResult = $state<{ ok: boolean; latency_ms?: number; model?: string; error?: string } | null>(null);
 
   // Sign in with ChatGPT PKCE flow state
   let oauthPending = $state<{ authorize_url: string; state: string; redirect_uri: string } | null>(null);
   let oauthCallback = $state('');
   let oauthBusy = $state(false);
 
-  const needsApiKey = $derived(provider === 'anthropic' || provider === 'openai' || provider === 'gemini');
-  const optionalApiKey = $derived(provider === 'openai-compatible');
-  const isCli = $derived(provider === 'claude-cli' || provider === 'codex-cli');
-  const isUrlServer = $derived(provider === 'ollama' || provider === 'openai-compatible');
-  const isOauth = $derived(provider === 'chatgpt-oauth');
-  const cliName = $derived(provider === 'claude-cli' ? 'claude' : 'codex');
-  const cliFound = $derived(
-    provider === 'claude-cli' ? !!view?.cli_detected.claude : provider === 'codex-cli' ? !!view?.cli_detected.codex : false,
-  );
+  const needsKey = (p: ProviderId | '') => p === 'anthropic' || p === 'openai' || p === 'gemini';
+  const optionalKey = (p: ProviderId | '') => p === 'openai-compatible';
+  const isCli = (p: ProviderId | '') => p === 'claude-cli' || p === 'codex-cli';
+  const isUrlServer = (p: ProviderId | '') => p === 'ollama' || p === 'openai-compatible';
+  const isOauth = (p: ProviderId | '') => p === 'chatgpt-oauth';
+  const cliFound = (p: ProviderId | '') =>
+    p === 'claude-cli' ? !!view?.cli_detected.claude : p === 'codex-cli' ? !!view?.cli_detected.codex : false;
+
   const statusLabel = $derived(!view ? '' : view.active ? 'Active' : view.enabled ? 'Needs setup' : 'Off');
 
   function applyView(v: AiSettingsView) {
@@ -102,15 +147,29 @@
     provider = v.provider ?? 'anthropic';
     model = v.model || v.defaults[provider] || '';
     url = v.url || '';
+    const pb = urlBucket(provider);
+    if (pb !== 'none' && url) urlCache[pb] = url;
     apiKey = '';
     clearApiKey = false;
+
+    const b = v.backup;
+    backupProvider = b?.enabled && b.provider ? b.provider : '';
+    backupModel = b?.model || (backupProvider ? v.defaults[backupProvider] || '' : '');
+    backupUrl = b?.url || '';
+    const bb = urlBucket(backupProvider);
+    if (bb !== 'none' && backupUrl) backupUrlCache[bb] = backupUrl;
+    backupApiKey = '';
+    backupClearApiKey = false;
   }
 
   async function load(fetchModels = false) {
     try {
       const v = await get<AiSettingsView>('/settings/ai');
       applyView(v);
-      if (fetchModels) void refreshModels();
+      if (fetchModels) {
+        void refreshModels('primary');
+        if (backupProvider) void refreshModels('backup');
+      }
     } catch (e) {
       board.flash(e instanceof Error ? e.message : String(e));
     }
@@ -126,47 +185,99 @@
   onDestroy(off);
 
   function onProviderChange(next: ProviderId) {
+    const prevBucket = urlBucket(provider);
+    if (prevBucket !== 'none') urlCache[prevBucket] = url;
     provider = next;
+    const nextBucket = urlBucket(next);
+    url = nextBucket === 'none' ? '' : (urlCache[nextBucket] ?? defaultUrlFor(next));
     model = view?.defaults[next] ?? '';
     models = [];
     modelsError = null;
     customModel = false;
     testResult = null;
     oauthPending = null;
-    if (next === 'ollama' && !url) url = 'http://localhost:11434';
-    void refreshModels();
+    void refreshModels('primary');
   }
 
-  async function refreshModels() {
-    modelsBusy = true;
-    modelsError = null;
+  function onBackupProviderChange(next: ProviderId | '') {
+    const prevBucket = urlBucket(backupProvider);
+    if (prevBucket !== 'none') backupUrlCache[prevBucket] = backupUrl;
+    backupProvider = next;
+    const nextBucket = urlBucket(next);
+    backupUrl = nextBucket === 'none' ? '' : (backupUrlCache[nextBucket] ?? defaultUrlFor(next));
+    backupModel = next ? (view?.defaults[next] ?? '') : '';
+    backupModels = [];
+    backupModelsError = null;
+    backupCustomModel = false;
+    backupTestResult = null;
+    if (next) void refreshModels('backup');
+  }
+
+  async function refreshModels(slot: 'primary' | 'backup') {
+    const isBackup = slot === 'backup';
+    const prov = isBackup ? backupProvider : provider;
+    if (!prov) return;
+    if (isBackup) {
+      backupModelsBusy = true;
+      backupModelsError = null;
+    } else {
+      modelsBusy = true;
+      modelsError = null;
+    }
     try {
       const res = await post<{ models: ModelChoice[]; error?: string }>('/settings/ai/models', {
-        provider,
-        url: url.trim() || undefined,
-        api_key: apiKey.trim() || undefined,
+        provider: prov,
+        url: (isBackup ? backupUrl : url).trim() || undefined,
+        api_key: (isBackup ? backupApiKey : apiKey).trim() || undefined,
+        slot,
       });
-      models = res.models ?? [];
-      modelsError = res.error ?? null;
-      if (models.length && model && !models.some((m) => m.id === model)) {
-        customModel = true;
+      const list = res.models ?? [];
+      if (isBackup) {
+        backupModels = list;
+        backupModelsError = res.error ?? null;
+        if (list.length && (!backupModel || !list.some((m) => m.id === backupModel))) {
+          if (!backupModel) backupModel = list[0].id;
+        }
+        backupCustomModel = false;
+      } else {
+        models = list;
+        modelsError = res.error ?? null;
+        if (list.length && (!model || !list.some((m) => m.id === model))) {
+          if (!model) model = list[0].id;
+        }
+        customModel = false;
       }
     } catch (e) {
-      modelsError = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (isBackup) backupModelsError = msg;
+      else modelsError = msg;
     } finally {
-      modelsBusy = false;
+      if (isBackup) backupModelsBusy = false;
+      else modelsBusy = false;
     }
   }
 
   async function save() {
     busy = true;
     testResult = null;
+    backupTestResult = null;
     try {
+      const backupPayload: Record<string, unknown> = backupProvider
+        ? {
+            enabled: true,
+            provider: backupProvider,
+            model: backupModel.trim(),
+            url: backupUrl.trim(),
+            ...(backupClearApiKey ? { clear_api_key: true } : backupApiKey.trim() ? { api_key: backupApiKey.trim() } : {}),
+          }
+        : { enabled: false, provider: null, model: '', url: '', clear_api_key: backupClearApiKey || undefined };
+
       const payload: Record<string, unknown> = {
         enabled,
         provider,
         model: model.trim(),
         url: url.trim(),
+        backup: backupPayload,
       };
       if (clearApiKey) payload.clear_api_key = true;
       else if (apiKey.trim()) payload.api_key = apiKey.trim();
@@ -180,23 +291,34 @@
     }
   }
 
-  async function testConnection() {
-    testing = true;
-    testResult = null;
+  async function testConnection(slot: 'primary' | 'backup') {
+    const isBackup = slot === 'backup';
+    const prov = isBackup ? backupProvider : provider;
+    if (!prov) return;
+    if (isBackup) {
+      backupTesting = true;
+      backupTestResult = null;
+    } else {
+      testing = true;
+      testResult = null;
+    }
     try {
-      testResult = await post<{ ok: boolean; latency_ms?: number; model?: string; error?: string }>(
-        '/settings/ai/test',
-        {
-          provider,
-          model: model.trim() || undefined,
-          url: url.trim() || undefined,
-          api_key: apiKey.trim() || undefined,
-        },
-      );
+      const res = await post<TestResult>('/settings/ai/test', {
+        provider: prov,
+        model: (isBackup ? backupModel : model).trim() || undefined,
+        url: (isBackup ? backupUrl : url).trim() || undefined,
+        api_key: (isBackup ? backupApiKey : apiKey).trim() || undefined,
+        slot,
+      });
+      if (isBackup) backupTestResult = res;
+      else testResult = res;
     } catch (e) {
-      testResult = { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const fail: TestResult = { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      if (isBackup) backupTestResult = fail;
+      else testResult = fail;
     } finally {
-      testing = false;
+      if (isBackup) backupTesting = false;
+      else testing = false;
     }
   }
 
@@ -228,7 +350,7 @@
       oauthCallback = '';
       applyView(v);
       board.flash('Signed in with ChatGPT');
-      void refreshModels();
+      void refreshModels('primary');
     } catch (e) {
       board.flash(e instanceof Error ? e.message : String(e));
     } finally {
@@ -271,9 +393,9 @@
 
     <div class="ai-grid">
       <label class="ai-field">
-        <span class="ai-label">Provider</span>
+        <span class="ai-label">Primary provider</span>
         <select
-          aria-label="AI provider"
+          aria-label="Primary AI provider"
           value={provider}
           disabled={busy}
           onchange={(e) => onProviderChange(e.currentTarget.value as ProviderId)}
@@ -288,7 +410,7 @@
         </select>
       </label>
 
-      {#if isOauth}
+      {#if isOauth(provider)}
         <div class="ai-field">
           <span class="ai-label">ChatGPT account</span>
           {#if view.oauth_connected}
@@ -343,14 +465,14 @@
         </div>
       {/if}
 
-      {#if isCli}
+      {#if isCli(provider)}
         <div class="ai-field">
           <span class="ai-label">Host CLI / Bridge URL</span>
           <div class="ai-cli-status small">
-            {#if cliFound}
-              <span class="ai-connected"><Icon name="check" size={14} /> <code>{cliName}</code> detected on server</span>
+            {#if cliFound(provider)}
+              <span class="ai-connected"><Icon name="check" size={14} /> <code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code> detected on server</span>
             {:else}
-              <span class="muted"><code>{cliName}</code> not on server PATH — if running in Docker, run <code>python3 scripts/ai_cli_bridge.py</code> on the host and enter its URL below.</span>
+              <span class="muted"><code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code> not on server PATH — if running in Docker, run <code>python3 scripts/ai_cli_bridge.py</code> on the host and enter its URL below.</span>
             {/if}
           </div>
           <input
@@ -362,7 +484,7 @@
         </div>
       {/if}
 
-      {#if isUrlServer}
+      {#if isUrlServer(provider)}
         <label class="ai-field">
           <span class="ai-label">Server URL</span>
           <input
@@ -374,9 +496,9 @@
         </label>
       {/if}
 
-      {#if needsApiKey || optionalApiKey}
+      {#if needsKey(provider) || optionalKey(provider)}
         <div class="ai-field">
-          <span class="ai-label">{optionalApiKey ? 'API key (optional)' : 'API key'}</span>
+          <span class="ai-label">{optionalKey(provider) ? 'API key (optional)' : 'API key'}</span>
           <div class="ai-inline">
             <input
               type="password"
@@ -401,11 +523,11 @@
       {/if}
 
       <div class="ai-field">
-        <span class="ai-label">Model</span>
+        <span class="ai-label">Primary model</span>
         <div class="ai-inline">
           {#if models.length && !customModel}
             <select
-              aria-label="AI model"
+              aria-label="Primary AI model"
               value={model}
               disabled={busy}
               onchange={(e) => {
@@ -413,6 +535,9 @@
                 else model = e.currentTarget.value;
               }}
             >
+              {#if model && !models.some((m) => m.id === model)}
+                <option value={model}>{model} (saved)</option>
+              {/if}
               {#each models as m (m.id)}
                 <option value={m.id}>{m.label}</option>
               {/each}
@@ -421,7 +546,7 @@
           {:else}
             <input
               type="text"
-              aria-label="AI model"
+              aria-label="Primary AI model"
               bind:value={model}
               placeholder={view.defaults[provider] || 'Model id'}
               disabled={busy}
@@ -430,7 +555,7 @@
               <button type="button" class="ghost" onclick={() => (customModel = false)}>List</button>
             {/if}
           {/if}
-          <button type="button" class="ghost" disabled={modelsBusy} onclick={() => void refreshModels()}>
+          <button type="button" class="ghost" disabled={modelsBusy} onclick={() => void refreshModels('primary')}>
             <Icon name="refresh" size={14} />
             <span>{modelsBusy ? 'Loading…' : 'Refresh'}</span>
           </button>
@@ -439,24 +564,176 @@
           <span class="muted small">{modelsError}</span>
         {/if}
       </div>
+
+      <div class="ai-slot-test">
+        <button type="button" class="ghost" disabled={testing || busy} onclick={() => void testConnection('primary')}>
+          {testing ? 'Testing…' : 'Test primary'}
+        </button>
+        {#if testResult}
+          <span class="ai-test" class:ok={testResult.ok} class:err={!testResult.ok}>
+            {#if testResult.ok}
+              Connected{testResult.model ? ` (${testResult.model})` : ''}{testResult.latency_ms ? ` · ${testResult.latency_ms}ms` : ''}
+            {:else}
+              {testResult.detail || 'Connection failed'}
+            {/if}
+          </span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="ai-backup">
+      <div class="ai-backup-head">
+        <strong>Backup provider (optional)</strong>
+        <span class="muted small">
+          Used automatically if the primary provider fails or times out, before falling back to local parsing.
+        </span>
+      </div>
+
+      <div class="ai-grid">
+        <label class="ai-field">
+          <span class="ai-label">Backup provider</span>
+          <select
+            aria-label="Backup AI provider"
+            value={backupProvider}
+            disabled={busy}
+            onchange={(e) => onBackupProviderChange(e.currentTarget.value as ProviderId | '')}
+          >
+            <option value="">None (local parser fallback only)</option>
+            {#each PROVIDER_GROUPS as g (g.label)}
+              <optgroup label={g.label}>
+                {#each g.items as item (item.id)}
+                  <option value={item.id}>{item.label}</option>
+                {/each}
+              </optgroup>
+            {/each}
+          </select>
+        </label>
+
+        {#if backupProvider}
+          {#if isOauth(backupProvider)}
+            <div class="ai-field">
+              <span class="ai-label">ChatGPT account</span>
+              {#if view.oauth_connected}
+                <span class="ai-connected">
+                  <Icon name="check" size={14} />
+                  <span>{view.oauth_account ? `Using ${view.oauth_account}` : 'Using connected ChatGPT account'}</span>
+                </span>
+              {:else}
+                <span class="muted small">Connect ChatGPT above (or select Sign in with ChatGPT) to use it as a backup.</span>
+              {/if}
+            </div>
+          {/if}
+
+          {#if isCli(backupProvider)}
+            <div class="ai-field">
+              <span class="ai-label">Backup CLI / Bridge URL</span>
+              <input
+                type="url"
+                bind:value={backupUrl}
+                placeholder="http://host.docker.internal:11435 (optional for local install)"
+                disabled={busy}
+              />
+            </div>
+          {/if}
+
+          {#if isUrlServer(backupProvider)}
+            <label class="ai-field">
+              <span class="ai-label">Backup server URL</span>
+              <input
+                type="url"
+                bind:value={backupUrl}
+                placeholder={backupProvider === 'ollama' ? 'http://localhost:11434' : 'https://openrouter.ai/api'}
+                disabled={busy}
+              />
+            </label>
+          {/if}
+
+          {#if needsKey(backupProvider) || optionalKey(backupProvider)}
+            <div class="ai-field">
+              <span class="ai-label">{optionalKey(backupProvider) ? 'Backup API key (optional)' : 'Backup API key'}</span>
+              <div class="ai-inline">
+                <input
+                  type="password"
+                  autocomplete="off"
+                  bind:value={backupApiKey}
+                  placeholder={view.backup.has_api_key && !backupClearApiKey ? 'Saved (enter a new key to replace)' : 'Paste API key'}
+                  disabled={busy || !view.secret_key_ready}
+                  oninput={() => { if (backupApiKey) backupClearApiKey = false; }}
+                />
+                {#if view.backup.has_api_key && !backupClearApiKey}
+                  <button type="button" class="ghost" disabled={busy} onclick={() => { backupClearApiKey = true; backupApiKey = ''; }}>
+                    Clear
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          <div class="ai-field">
+            <span class="ai-label">Backup model</span>
+            <div class="ai-inline">
+              {#if backupModels.length && !backupCustomModel}
+                <select
+                  aria-label="Backup AI model"
+                  value={backupModel}
+                  disabled={busy}
+                  onchange={(e) => {
+                    if (e.currentTarget.value === '__custom__') backupCustomModel = true;
+                    else backupModel = e.currentTarget.value;
+                  }}
+                >
+                  {#if backupModel && !backupModels.some((m) => m.id === backupModel)}
+                    <option value={backupModel}>{backupModel} (saved)</option>
+                  {/if}
+                  {#each backupModels as m (m.id)}
+                    <option value={m.id}>{m.label}</option>
+                  {/each}
+                  <option value="__custom__">Custom model…</option>
+                </select>
+              {:else}
+                <input
+                  type="text"
+                  aria-label="Backup AI model"
+                  bind:value={backupModel}
+                  placeholder={view.defaults[backupProvider] || 'Model id'}
+                  disabled={busy}
+                />
+                {#if backupModels.length}
+                  <button type="button" class="ghost" onclick={() => (backupCustomModel = false)}>List</button>
+                {/if}
+              {/if}
+              <button type="button" class="ghost" disabled={backupModelsBusy} onclick={() => void refreshModels('backup')}>
+                <Icon name="refresh" size={14} />
+                <span>{backupModelsBusy ? 'Loading…' : 'Refresh'}</span>
+              </button>
+            </div>
+            {#if backupModelsError}
+              <span class="muted small">{backupModelsError}</span>
+            {/if}
+          </div>
+
+          <div class="ai-slot-test">
+            <button type="button" class="ghost" disabled={backupTesting || busy} onclick={() => void testConnection('backup')}>
+              {backupTesting ? 'Testing…' : 'Test backup'}
+            </button>
+            {#if backupTestResult}
+              <span class="ai-test" class:ok={backupTestResult.ok} class:err={!backupTestResult.ok}>
+                {#if backupTestResult.ok}
+                  Connected{backupTestResult.model ? ` (${backupTestResult.model})` : ''}{backupTestResult.latency_ms ? ` · ${backupTestResult.latency_ms}ms` : ''}
+                {:else}
+                  {backupTestResult.detail || 'Connection failed'}
+                {/if}
+              </span>
+            {/if}
+          </div>
+        {/if}
+      </div>
     </div>
 
     <div class="ai-actions">
       <button type="button" class="primary" disabled={busy} onclick={() => void save()}>
         {busy ? 'Saving…' : 'Save'}
       </button>
-      <button type="button" class="ghost" disabled={testing || busy} onclick={() => void testConnection()}>
-        {testing ? 'Testing…' : 'Test connection'}
-      </button>
-      {#if testResult}
-        <span class="ai-test" class:ok={testResult.ok} class:err={!testResult.ok}>
-          {#if testResult.ok}
-            Connected{testResult.model ? ` (${testResult.model})` : ''}{testResult.latency_ms ? ` · ${testResult.latency_ms}ms` : ''}
-          {:else}
-            {testResult.error || 'Connection failed'}
-          {/if}
-        </span>
-      {/if}
     </div>
   </section>
 {/if}
@@ -528,7 +805,8 @@
     flex: 1;
     min-width: 0;
   }
-  .ai-inline {
+  .ai-inline,
+  .ai-slot-test {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -558,6 +836,18 @@
   }
   .ai-cli-status {
     margin-bottom: 2px;
+  }
+  .ai-backup {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ai-backup-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .ai-actions {
     display: flex;

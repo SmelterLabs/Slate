@@ -366,3 +366,85 @@ def test_ai_add_dispatches_openai_gemini_and_cli_bridge(
     assert r.status_code == 201
     assert r.headers.get("X-Slate-AI-Fallback") is None
     assert r.json()["title"] == "Renew passport"
+
+
+def test_backup_provider_failover_and_claude_picker_models(
+    client, alex, todo, db, tmp_path, monkeypatch, secret_key
+):
+    list_id = todo["id"]
+
+    # 1. Claude CLI picker reads real versioned model IDs + additionalModelOptionsCache
+    fake_claude = tmp_path / ".claude.json"
+    fake_claude.write_text(
+        json.dumps(
+            {
+                "models": ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"],
+                "additionalModelOptionsCache": [
+                    {
+                        "value": "claude-fable-5-2[1m]",
+                        "label": "Fable",
+                        "description": "Fable 5.2 · Extended",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ai_settings.Path, "home", classmethod(lambda cls: tmp_path))
+    models = ai_settings._read_claude_cli_models()
+    ids = [m["id"] for m in models]
+    assert ids[:3] == ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"]
+    assert "claude-fable-5-2[1m]" in ids
+
+    # 2. Primary fails -> automatic failover to backup provider without X-Slate-AI-Fallback
+    calls: list[str] = []
+
+    def failover_handler(req: httpx.Request) -> httpx.Response:
+        url = str(req.url)
+        calls.append(url)
+        if "api.anthropic.com" in url:
+            return httpx.Response(503, json={"error": {"message": "overloaded"}})
+        if "11434/api/chat" in url:
+            return httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "content": json.dumps({"title": "Backup parsed task", "list_id": list_id})
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    monkeypatch.setattr(aiadd, "transport", httpx.MockTransport(failover_handler))
+    res = client.put(
+        f"{API}/settings/ai",
+        json={
+            "enabled": True,
+            "provider": "anthropic",
+            "model": "claude-sonnet-5-5",
+            "api_key": "sk-ant-primary",
+            "backup": {
+                "enabled": True,
+                "provider": "ollama",
+                "model": "gemma4:latest",
+                "url": "http://localhost:11434",
+            },
+        },
+        headers=alex,
+    )
+    assert res.status_code == 200
+    assert res.json()["backup"]["active"] is True
+    assert res.json()["backup"]["provider"] == "ollama"
+
+    r = client.post(f"{API}/items/ai", json={"text": "test backup failover"}, headers=alex)
+    assert r.status_code == 201
+    assert r.headers.get("X-Slate-AI-Fallback") is None
+    assert r.json()["title"] == "Backup parsed task"
+    assert any("api.anthropic.com" in u for u in calls)
+    assert any("11434/api/chat" in u for u in calls)
+
+    # Test backup connection explicitly with slot="backup"
+    t = client.post(f"{API}/settings/ai/test", json={"slot": "backup"}, headers=alex)
+    assert t.status_code == 200
+    assert t.json()["ok"] is True
+    assert t.json()["provider"] == "ollama"

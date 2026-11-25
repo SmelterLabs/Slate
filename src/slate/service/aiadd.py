@@ -751,9 +751,11 @@ def test_connection(
     model: str | None = None,
     url: str | None = None,
     api_key: str | None = None,
+    slot: Literal["primary", "backup"] = "primary",
 ) -> dict[str, Any]:
     """Run a tiny live round-trip against the configured or draft AI provider."""
-    saved = ai_settings.resolve(session)
+    root = ai_settings.resolve(session)
+    saved = root.backup if slot == "backup" and root.backup is not None else root
     prov = (provider_name or saved.provider or "").strip()
     if prov not in ai_settings.PROVIDERS:
         return {
@@ -770,9 +772,9 @@ def test_connection(
         or ai_settings.DEFAULT_MODELS.get(prov, ""),
         url=(url if url is not None else saved.url).strip(),
         api_key=(api_key or "").strip() or (saved.api_key if prov == saved.provider else ""),
-        oauth=saved.oauth if prov == "chatgpt-oauth" else None,
-        source=saved.source,
-        host_id=saved.host_id,
+        oauth=root.oauth if prov == "chatgpt-oauth" else None,
+        source=root.source,
+        host_id=root.host_id,
     )
     t0 = time.monotonic()
     try:
@@ -1245,18 +1247,34 @@ _ORIG_CALL_MODEL = call_model
 
 
 def _run_model(a: Ask) -> tuple[dict[str, Any], bool]:
-    try:
-        sys_prompt = prompt(a)
-        if call_model is not _ORIG_CALL_MODEL or a.ai_config is None:
+    sys_prompt = prompt(a)
+    if call_model is not _ORIG_CALL_MODEL or a.ai_config is None:
+        try:
             raw = call_model(sys_prompt, a.text)
-        else:
-            raw = _dispatch(sys_prompt, a.text, a.ai_config)
-        parsed = clean(a, raw)
-        if parsed.get("title"):
-            return parsed, False
-        log.warning("ai add: model returned no title, falling back to local parser")
-    except Exception:  # noqa: BLE001
-        log.warning("ai add: model parse failed, falling back to local parser", exc_info=True)
+            parsed = clean(a, raw)
+            if parsed.get("title"):
+                return parsed, False
+            log.warning("ai add: model returned no title, falling back to local parser")
+        except Exception:  # noqa: BLE001
+            log.warning("ai add: model parse failed, falling back to local parser", exc_info=True)
+        return fallback_parse(a), True
+
+    slots = [s for s in (a.ai_config, a.ai_config.backup) if ai_settings.slot_active(s)]
+    for idx, slot_cfg in enumerate(slots):
+        try:
+            raw = _dispatch(sys_prompt, a.text, slot_cfg)
+            parsed = clean(a, raw)
+            if parsed.get("title"):
+                return parsed, False
+            log.warning("ai add: %s model returned no title", "primary" if idx == 0 else "backup")
+        except Exception:  # noqa: BLE001
+            log.warning(
+                "ai add: %s provider (%s) failed%s",
+                "primary" if idx == 0 else "backup",
+                slot_cfg.provider,
+                ", trying backup" if idx + 1 < len(slots) else ", falling back to local parser",
+                exc_info=True,
+            )
     return fallback_parse(a), True
 
 

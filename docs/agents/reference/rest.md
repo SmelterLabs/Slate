@@ -2029,7 +2029,7 @@ Scope: `admin`
 
 Save workspace AI provider, model, URL, and encrypted API key (admin people only).
 
-- Body: `AiSettingsIn`: `enabled`, `provider`, `model`, `url`, `api_key`, `clear_api_key`
+- Body: `AiSettingsIn`: `enabled`, `provider`, `model`, `url`, `api_key`, `clear_api_key`, `backup`
 - Returns: `200` [AiSettingsOut](#aisettingsout)
 
 ### `POST /settings/ai/models`
@@ -2038,7 +2038,7 @@ Scope: `admin`
 
 Probe the selected AI provider and return its live available models.
 
-- Body: `AiModelsIn`: `provider`, `url`, `api_key`
+- Body: `AiModelsIn`: `provider`, `url`, `api_key`, `slot`
 - Returns: `200` [AiModelsOut](#aimodelsout)
 
 ### `POST /settings/ai/test`
@@ -2047,7 +2047,7 @@ Scope: `admin`
 
 Run a quick live round-trip against the configured or draft AI provider.
 
-- Body: `AiTestIn`: `provider`, `model`, `url`, `api_key`
+- Body: `AiTestIn`: `provider`, `model`, `url`, `api_key`, `slot`
 - Returns: `200` [AiTestOut](#aitestout)
 
 ### `POST /settings/ai/oauth/start`
@@ -2533,7 +2533,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### AiSettingsOut
 
-`enabled`: boolean, `active`: boolean, `provider`: `claude-cli` \| `codex-cli` \| `chatgpt-oauth` \| `anthropic` \| `openai` \| `gemini` \| `ollama` \| `openai-compatible`?, `model`: string, `url`: string, `has_api_key`: boolean, `oauth_connected`: boolean, `oauth_account`: string?, `source`: `db` \| `env` \| `none`, `cli_detected`: object, `secret_key_ready`: boolean, `defaults`: object
+`enabled`: boolean, `active`: boolean, `provider`: `claude-cli` \| `codex-cli` \| `chatgpt-oauth` \| `anthropic` \| `openai` \| `gemini` \| `ollama` \| `openai-compatible`?, `model`: string, `url`: string, `has_api_key`: boolean, `oauth_connected`: boolean, `oauth_account`: string?, `source`: `db` \| `env` \| `none`, `cli_detected`: object, `secret_key_ready`: boolean, `defaults`: object, `backup`: AiBackupOut
 
 ### AiModelsOut
 
