@@ -263,23 +263,26 @@ see `integrations/push/README.md`.
 
 ## AI add (optional)
 
-`POST /items/ai` asks Anthropic Claude or an Ollama server to turn plain words into a task
-(routing to the right list using list descriptions, setting dates, recurrences, owners,
-priorities and tags).
+`POST /items/ai` turns plain words into a task (routing to the right list using list descriptions,
+setting dates, recurrences, owners, priorities and tags).
 
-- **Anthropic Claude:** set `SLATE_AI_API_KEY=<key>` (and optionally `SLATE_AI_MODEL`, default
-  `claude-sonnet-5-5`) in `/opt/slate/.env` and restart.
-- **Local Ollama:** set `SLATE_AI_URL=http://host.docker.internal:11434` (and `SLATE_AI_MODEL`
-  to a model you pulled, plus `SLATE_AI_PROVIDER=ollama` if `SLATE_AI_API_KEY` is also set) and
-  restart. The container reaches the host through `extra_hosts: host-gateway`. If the host has
-  a firewall, allow the Ollama port from the slate compose network only: find its subnet with
-  `docker network inspect slate_default --format '{{(index .IPAM.Config 0).Subnet}}'`, then for
-  example `sudo ufw allow from <subnet> to any port 11434 proto tcp comment 'slate -> ollama'`.
-  Check: `docker exec slate python -c "import urllib.request;print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags').read()[:80])"`.
+Admins can configure it directly in the board under **More → Settings** (`#/settings`): choose
+a provider (Claude or Codex CLI subscription, Sign in with ChatGPT OAuth, Anthropic / OpenAI /
+Google Gemini API key, Ollama, or any OpenAI-compatible server), pick a model from live discovery,
+and click **Test connection**. Saved API keys and OAuth tokens are encrypted at rest under
+`SLATE_SECRET_KEY`.
+
+- **Host CLI bridge for Docker (Claude / Codex subscriptions):** when Slate runs in Docker, run
+  `python3 /opt/slate/repo/scripts/ai_cli_bridge.py` on the host (listening on port `11435`),
+  allow port `11435` from the `slate_default` Docker subnet if a host firewall is active, and set
+  the Bridge URL in **Settings** to `http://host.docker.internal:11435`.
+- **Environment-variable defaults (`.env`):** you can still seed AI add via `SLATE_AI_API_KEY`
+  (Anthropic Claude, default `claude-sonnet-5-5`) or `SLATE_AI_URL` (e.g.
+  `http://host.docker.internal:11434` for local Ollama). For host Ollama behind a firewall, allow
+  port `11434` from `docker network inspect slate_default --format '{{(index .IPAM.Config 0).Subnet}}'`.
 
 If the AI provider is down or times out, AI add falls back to local deterministic parsing in
-the default list (`X-Slate-AI-Fallback: 1`); nothing else in Slate depends on it. Off: blank
-`SLATE_AI_API_KEY` and `SLATE_AI_URL`, and restart.
+the default list (`X-Slate-AI-Fallback: 1`); nothing else in Slate depends on it.
 
 ## Gotchas
 

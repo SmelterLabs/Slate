@@ -370,7 +370,7 @@
       <header class="topbar">
         <button class="icon menu" aria-label="Menu" onclick={() => (navOpen = !navOpen)}><Icon name="menu" size={18} /></button>
         <span class="brand">Slate</span>
-        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : where}</span>
+        <span class="where">{page === 'home' ? 'My Work' : page === 'inbox' ? 'Inbox' : page === 'agents' ? 'Agents' : page === 'docs' ? 'Docs' : page === 'archive' ? 'Archive' : page === 'chat' ? 'Chat' : page === 'members' ? 'Members' : page === 'audit' ? 'Audit log' : page === 'health' ? 'Health' : page === 'settings' ? 'Settings' : where}</span>
         <button class="icon top-search" aria-label="Search" onclick={() => (palette = true)}><Icon name="search" size={18} /></button>
         <NeedsBadge mode="top" />
         <AgentChatButton cls="top-agent" />
@@ -422,6 +422,15 @@
       {:else if page === 'health' && !kiosk}
         {@const HealthPage = pages.health.component}
         {#if HealthPage}<HealthPage />{:else}<PageLoad page={pages.health} />{/if}
+      {:else if page === 'settings' && !kiosk}
+        {@const SettingsPage = pages.settings.component}
+        {#if !board.canManage}
+          <EmptyState icon="lock" title="Owners and admins only" hint="Ask an owner or admin to change workspace settings." />
+        {:else if SettingsPage}
+          <SettingsPage />
+        {:else}
+          <PageLoad page={pages.settings} />
+        {/if}
       {:else if page === 'chat' && !kiosk}
         {@const ChatPage = pages.chat.component}
         {#if ChatPage}<ChatPage channelKey={chatChannel} threadId={chatThread} />{:else}<PageLoad page={pages.chat} />{/if}

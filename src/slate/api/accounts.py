@@ -347,7 +347,7 @@ def me_view(session, principal: accounts.Principal) -> MeOut:
         token_id=principal.token_id,
         prefs=accounts.get_prefs(principal.account),
         access=my_access(session, principal.account),
-        ai_add=aiadd.enabled(),
+        ai_add=aiadd.enabled(session),
         inbox_list_id=visible_inbox,
         email=mailer.enabled(),
         link_schemes=safe_link_schemes(settings.link_schemes),

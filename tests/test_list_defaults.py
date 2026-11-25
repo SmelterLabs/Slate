@@ -169,7 +169,7 @@ def test_ai_and_recurrence_creation_use_defaults(client, alex, todo, make_accoun
 
     agent, _ = make_account("my-agent")
     configure(client, alex, todo, default_assignee_id=agent["id"], default_tags=["draft"])
-    monkeypatch.setattr(aiadd, "enabled", lambda: True)
+    monkeypatch.setattr(aiadd, "enabled", lambda *_a, **_kw: True)
     monkeypatch.setattr(
         aiadd, "call_model", lambda s, t: {"title": "Check the draft", "body_md": ""}
     )

@@ -242,7 +242,7 @@ Every change in Slate is one event. The same shape comes from `GET /events`, the
 
 | Type | Meaning |
 |---|---|
-| `settings.changed` | A workspace setting changed. `field` is its key (`agents.denied` or `inbox_list_id`), and `before`/`after` are its values. |
+| `settings.changed` | A workspace setting changed. `field` is its key (`agents.denied`, `inbox_list_id`, or `ai.config`), and `before`/`after` are its values. |
 
 ## share
 

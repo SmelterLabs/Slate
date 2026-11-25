@@ -315,7 +315,7 @@ EVENT_DOCS: dict[str, str] = {
     "push.unsubscribed": "A device unsubscribed from push.",
     "push.expired": "A push subscription was dropped after the push service refused it.",
     "settings.changed": "A workspace setting changed. `field` is its key "
-    "(`agents.denied` or `inbox_list_id`), and `before`/`after` are its values.",
+    "(`agents.denied`, `inbox_list_id`, or `ai.config`), and `before`/`after` are its values.",
 }
 
 _EVENT_RE = re.compile(r"^[a-z]+(_[a-z]+)*\.[a-z]+(_[a-z]+)*$")
@@ -329,6 +329,8 @@ _NOT_EVENTS = {
     "index.html",
     "build.json",
     "agents.denied",  # agent_rules.KEY, a workspace_settings key
+    "ai.config",  # ai_settings.KEY, a workspace_settings key
+    "models_cache.json",  # local CLI model cache filename
 }
 
 

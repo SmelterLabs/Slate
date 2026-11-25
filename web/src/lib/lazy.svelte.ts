@@ -52,6 +52,7 @@ export const pages = {
   members: new LazyPage(() => import('../components/members/MembersPage.svelte')),
   audit: new LazyPage(() => import('../components/audit/AuditPage.svelte')),
   health: new LazyPage(() => import('../components/health/HealthPage.svelte')),
+  settings: new LazyPage(() => import('../components/settings/SettingsPage.svelte')),
   chat: new LazyPage(() => import('../components/chat/ChatPage.svelte')),
   tags: new LazyPage(() => import('../components/TagManager.svelte')),
   notifications: new LazyPage(() => import('../components/NotificationSettings.svelte')),

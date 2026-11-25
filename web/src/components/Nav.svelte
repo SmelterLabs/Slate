@@ -428,6 +428,9 @@
     <a class="nav-item" href="#/health" onclick={onpick} class:active={page === 'health'}>
       <span class="nav-label"><Icon name="pulse" size={15} /><span>Health</span></span>
     </a>
+    <a class="nav-item" href="#/settings" onclick={onpick} class:active={page === 'settings'}>
+      <span class="nav-label"><Icon name="gear" size={15} /><span>Settings</span></span>
+    </a>
   {/if}
   </div>
   {#each board.sections as section, si (section.id)}

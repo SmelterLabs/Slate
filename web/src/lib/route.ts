@@ -44,7 +44,8 @@ export type Page =
   | 'chat'
   | 'members'
   | 'audit'
-  | 'health';
+  | 'health'
+  | 'settings';
 
 export function pageOf(hash: string): Page | null {
   const path = hash.replace(/^#/, '').split('?')[0];
@@ -57,6 +58,7 @@ export function pageOf(hash: string): Page | null {
   if (/^\/members\/?$/.test(path)) return 'members';
   if (/^\/audit\/?$/.test(path)) return 'audit';
   if (/^\/health\/?$/.test(path)) return 'health';
+  if (/^\/settings\/?$/.test(path)) return 'settings';
   return null;
 }
 
