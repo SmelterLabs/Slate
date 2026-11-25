@@ -65,6 +65,7 @@
       { kind: 'action', id: 'go-members', label: 'Go to Members', keywords: 'people roles guests admins invite share permissions', run: () => go('#/members') },
       { kind: 'action', id: 'go-audit', label: 'Go to Audit log', keywords: 'history who changed log events', run: () => go('#/audit') },
       { kind: 'action', id: 'go-health', label: 'Go to Health', keywords: 'status errors slow broken pollers latency uptime disk monitor', run: () => go('#/health') },
+      { kind: 'action', id: 'go-settings', label: 'Go to Settings', keywords: 'settings general ai model provider claude openai chatgpt gemini ollama inbox default list', run: () => go('#/settings') },
       { kind: 'action', id: 'undo', label: 'Undo last change', hint: 'Ctrl Z', keywords: 'revert back', run: () => void board.undoLast() },
       { kind: 'action', id: 'tags', label: 'Manage tags', keywords: 'rename merge colour color', run: () => board.openTagManager() },
       {
@@ -85,8 +86,8 @@
       },
       { kind: 'action', id: 'monitor', label: 'Open monitor mode', keywords: 'kiosk tv wall', run: () => window.open(`${location.pathname}?kiosk=1${location.hash}`, '_blank') },
     ];
-    // The same pages as the side nav: members and health need an owner or admin.
-    const hidden = new Set(board.canManage ? [] : ['go-members', 'go-health']);
+    // The same pages as the side nav: members, health and settings need an owner or admin.
+    const hidden = new Set(board.canManage ? [] : ['go-members', 'go-health', 'go-settings']);
     for (let i = out.length - 1; i >= 0; i--) if (hidden.has(out[i].id)) out.splice(i, 1);
     if (openId && board.items[openId]) {
       const it = board.items[openId];

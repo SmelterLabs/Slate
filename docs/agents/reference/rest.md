@@ -2,7 +2,7 @@
 
 # REST reference
 
-237 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
+244 routes under `/api/v1`. Auth: `Authorization: Bearer slate_<id>_<secret>` on every call except `POST /bootstrap`. **Scope** is the least a token needs (`admin` > `write` > `read`). **ETag** routes answer `If-None-Match` with a body-less `304`. **MCP** names the tool action that makes the same call. `*` marks a required body field. Conventions (errors, paging, cursors, rate limits) are in [../rest.md](../rest.md); the live schema is `/openapi.json` and `/docs` on a running Slate.
 
 ## Contents
 
@@ -34,7 +34,7 @@
 - [data](#data) (3)
 - [health](#health) (1)
 - [search](#search) (1)
-- [settings](#settings) (4)
+- [settings](#settings) (11)
 - [events](#events) (3)
 - [recurrences](#recurrences) (10)
 
@@ -2015,6 +2015,66 @@ Replace what agent accounts may never do (`denied`, a list of action keys). Owne
 - Body: `AgentRulesIn`: `denied`\*
 - Returns: `200` [AgentRulesOut](#agentrulesout)
 
+### `GET /settings/ai`
+
+Scope: `admin`
+
+Read workspace AI task creation settings (credentials are never returned).
+
+- Returns: `200` [AiSettingsOut](#aisettingsout)
+
+### `PUT /settings/ai`
+
+Scope: `admin`
+
+Save workspace AI provider, model, URL, and encrypted API key (admin people only).
+
+- Body: `AiSettingsIn`: `enabled`, `provider`, `model`, `url`, `api_key`, `clear_api_key`
+- Returns: `200` [AiSettingsOut](#aisettingsout)
+
+### `POST /settings/ai/models`
+
+Scope: `admin`
+
+Probe the selected AI provider and return its live available models.
+
+- Body: `AiModelsIn`: `provider`, `url`, `api_key`
+- Returns: `200` [AiModelsOut](#aimodelsout)
+
+### `POST /settings/ai/test`
+
+Scope: `admin`
+
+Run a quick live round-trip against the configured or draft AI provider.
+
+- Body: `AiTestIn`: `provider`, `model`, `url`, `api_key`
+- Returns: `200` [AiTestOut](#aitestout)
+
+### `POST /settings/ai/oauth/start`
+
+Scope: `admin`
+
+Start Sign in with ChatGPT (OpenAI OAuth 2.0 + PKCE) and return the authorize URL.
+
+- Returns: `200` [OAuthStartOut](#oauthstartout)
+
+### `POST /settings/ai/oauth/complete`
+
+Scope: `admin`
+
+Complete Sign in with ChatGPT by exchanging the pasted callback URL or code.
+
+- Body: `OAuthCompleteIn`: `callback`\*, `state`
+- Returns: `200` [AiSettingsOut](#aisettingsout)
+
+### `POST /settings/ai/oauth/disconnect`
+
+Scope: `admin`
+
+Disconnect and delete stored ChatGPT OAuth credentials.
+
+- Returns: `200` [AiSettingsOut](#aisettingsout)
+
 ## events
 
 ### `GET /events`
@@ -2470,6 +2530,22 @@ The fields of each response above (see `/openapi.json` for types).
 ### AgentRulesOut
 
 `denied`: [`delete` \| `trash` \| `archive_structure` \| `share` \| `tokens` \| `automations` \| `export`], `default`: boolean, `actions`: [AgentAction]
+
+### AiSettingsOut
+
+`enabled`: boolean, `active`: boolean, `provider`: `claude-cli` \| `codex-cli` \| `chatgpt-oauth` \| `anthropic` \| `openai` \| `gemini` \| `ollama` \| `openai-compatible`?, `model`: string, `url`: string, `has_api_key`: boolean, `oauth_connected`: boolean, `oauth_account`: string?, `source`: `db` \| `env` \| `none`, `cli_detected`: object, `secret_key_ready`: boolean, `defaults`: object
+
+### AiModelsOut
+
+`models`: [AiModelOption], `error`: string?
+
+### AiTestOut
+
+`ok`: boolean, `provider`: string?, `model`: string, `latency_ms`: integer, `detail`: string
+
+### OAuthStartOut
+
+`authorize_url`: string, `state`: string, `redirect_uri`: string
 
 ### EventPage
 

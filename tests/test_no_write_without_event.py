@@ -23,6 +23,7 @@ from slate.models import Event, Source
 from slate.service import (
     accounts,
     agent_rules,
+    ai_settings,
     aiadd,
     attachments,
     automations,
@@ -67,6 +68,17 @@ READS = {
         "prompt",
         "provider",
         "queued",
+        "test_connection",
+    },
+    "slate.service.ai_settings": {
+        "cli_detected",
+        "discover_models",
+        "is_active",
+        "oauth_start",
+        "refresh_chatgpt_token",
+        "resolve",
+        "secret_key_ready",
+        "view",
     },
     "slate.service.connections": {"view", "list_connections"},
     "slate.service.collaboration": {"whiteboard_url", "project"},
@@ -1066,6 +1078,15 @@ MUTATIONS: dict[str, dict[str, Callable]] = {
             db, a, (i := _item(db, a)).id, watchers.watch(db, a, i.id)[0].id
         ),
         "set_watchers": lambda db, a, p: watchers.set_watchers(db, a, _item(db, a).id, ["alex"]),
+    },
+    "slate.service.ai_settings": {
+        "save": lambda db, a, p: ai_settings.save(
+            db, a, {"enabled": True, "provider": "ollama", "url": "http://localhost:11434"}
+        ),
+        # Requires an interactive PKCE callback + mocked OpenAI token exchange; covered in
+        # tests/test_ai_settings.py.
+        "oauth_complete": None,
+        "oauth_disconnect": lambda db, a, p: ai_settings.oauth_disconnect(db, a),
     },
     "slate.service.recurrences": {
         "create_recurrence": lambda db, a, p: _rule(db, a),

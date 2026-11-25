@@ -24,8 +24,10 @@ STRICT_RUNTIMES = re.compile(
 AI_ADD_FILES = frozenset(
     {
         "src/slate/service/aiadd.py",
+        "src/slate/service/ai_settings.py",
         "src/slate/settings.py",
         "src/slate/api/items.py",
+        "src/slate/api/settings.py",
     }
 )
 

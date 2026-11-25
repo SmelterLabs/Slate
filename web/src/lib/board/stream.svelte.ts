@@ -375,6 +375,10 @@ export class BoardStream extends BoardLoad {
       const next = typeof ev.after === 'string' ? ev.after : null;
       this.me.inbox_list_id = next && this.levelOn(next) === 'edit' ? next : null;
     }
+    if (ev.type === 'settings.changed' && ev.field === 'ai.config' && this.me) {
+      const next = (ev.after as { active?: boolean } | null)?.active;
+      if (typeof next === 'boolean') this.me.ai_add = next;
+    }
     // A share, role or privacy change about this account: what the board may show changed.
     if (affectsMyAccess(ev, this.me)) {
       if (this.token === COOKIE_SESSION && !ev.type.endsWith('.created')) {

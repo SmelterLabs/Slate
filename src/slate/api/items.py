@@ -220,7 +220,7 @@ async def create_item_ai(
     recurrence, priority, status and tags — and file it once. Falls back to local parsing in the
     default list if the model is unreachable or times out (`X-Slate-AI-Fallback: 1`). 409 when AI
     add is off (`GET /me` `ai_add`)."""
-    if not aiadd.enabled():
+    if not aiadd.enabled(session):
         raise HTTPException(status.HTTP_409_CONFLICT, "AI add is not set up on this server")
     extra = {k: v for k, v in body.defaults.items() if k not in AI_RESERVED}
     try:

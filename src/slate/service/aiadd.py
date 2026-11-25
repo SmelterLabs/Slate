@@ -24,7 +24,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 import threading
+import time
 import weakref
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -39,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from slate import dates
 from slate.models import SYSTEM_HANDLE, Account, Item, List, Section, Status, utcnow
-from slate.service import access, guests, items, recurrences
+from slate.service import access, ai_settings, guests, items, recurrences
 from slate.service import lists as lists_svc
 from slate.service import tags as tags_svc
 from slate.service.core import Actor
@@ -194,28 +196,23 @@ PROMPT = (
 )
 
 
-def provider() -> Literal["anthropic", "ollama"] | None:
-    """Active AI provider from settings, or None when AI add is off."""
-    explicit = settings.ai_provider.strip().lower()
-    if explicit == "anthropic":
-        return "anthropic" if settings.ai_api_key.strip() else None
-    if explicit == "ollama":
-        return "ollama" if settings.ai_url.strip() else None
-    if settings.ai_api_key.strip():
-        return "anthropic"
-    if settings.ai_url.strip():
-        return "ollama"
-    return None
+def provider(session: Session | None = None) -> ai_settings.ProviderName | None:
+    """Active AI provider from workspace settings or environment, or None when off."""
+    cfg = ai_settings.resolve(session)
+    return cfg.provider if ai_settings.is_active(cfg) else None
 
 
-def enabled() -> bool:
-    return provider() is not None
+def enabled(session: Session | None = None) -> bool:
+    return ai_settings.is_active(ai_settings.resolve(session))
 
 
-def model_name() -> str:
-    if settings.ai_model.strip():
-        return settings.ai_model.strip()
-    return DEFAULT_ANTHROPIC_MODEL if provider() == "anthropic" else DEFAULT_OLLAMA_MODEL
+def model_name(session: Session | None = None) -> str:
+    cfg = ai_settings.resolve(session)
+    if cfg.model:
+        return cfg.model
+    if cfg.provider:
+        return ai_settings.DEFAULT_MODELS.get(cfg.provider, "")
+    return DEFAULT_OLLAMA_MODEL
 
 
 def first_sentence(text: str) -> str:
@@ -254,6 +251,7 @@ class Ask:
     known_tags: list[str] = field(default_factory=list)
     defaults: dict[str, Any] = field(default_factory=dict)
     now: datetime = field(default_factory=utcnow)
+    ai_config: ai_settings.ResolvedAI | None = None
 
     def list_by_id(self, list_id: str | None) -> ListOption | None:
         if not list_id:
@@ -423,6 +421,7 @@ def prepare(
         known_tags=known_tags,
         defaults=dict(defaults or {}),
         now=now or utcnow(),
+        ai_config=ai_settings.resolve(session),
     )
 
 
@@ -503,10 +502,26 @@ def _read_bounded(r: httpx.Response) -> bytes:
     return bytes(raw)
 
 
-def _call_anthropic(system: str, text: str) -> dict[str, Any]:
-    url = (settings.ai_url.strip() or ANTHROPIC_URL).rstrip("/") + "/v1/messages"
+def _extract_json(raw: str) -> dict[str, Any]:
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.I).strip()
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except ValueError:
+        pass
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", cleaned) or re.search(r"(\{[\s\S]*\})", cleaned)
+    if m:
+        parsed = json.loads(m.group(1))
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("model answer did not contain a JSON object")
+
+
+def _call_anthropic(system: str, text: str, cfg: ai_settings.ResolvedAI) -> dict[str, Any]:
+    url = (cfg.url or ANTHROPIC_URL).rstrip("/") + "/v1/messages"
     body = {
-        "model": model_name(),
+        "model": cfg.model or DEFAULT_ANTHROPIC_MODEL,
         "max_tokens": 1024,
         "temperature": 0,
         "system": system,
@@ -515,7 +530,7 @@ def _call_anthropic(system: str, text: str) -> dict[str, Any]:
         "messages": [{"role": "user", "content": text}],
     }
     headers = {
-        "x-api-key": settings.ai_api_key.strip(),
+        "x-api-key": cfg.api_key,
         "anthropic-version": ANTHROPIC_VERSION,
         "content-type": "application/json",
     }
@@ -535,9 +550,95 @@ def _call_anthropic(system: str, text: str) -> dict[str, Any]:
     raise ValueError("anthropic response contained no create_task tool call")
 
 
-def _call_ollama(system: str, text: str) -> dict[str, Any]:
+def _call_openai_chat(
+    system: str, text: str, *, base_url: str, api_key: str, model: str
+) -> dict[str, Any]:
+    endpoint = base_url.rstrip("/")
+    if not endpoint.endswith("/v1"):
+        endpoint += "/v1"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     body = {
-        "model": model_name(),
+        "model": model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system + "\n\nRespond with a single JSON object only."},
+            {"role": "user", "content": text},
+        ],
+    }
+    with (
+        httpx.Client(
+            transport=transport, timeout=settings.ai_timeout, follow_redirects=False
+        ) as client,
+        client.stream("POST", endpoint + "/chat/completions", headers=headers, json=body) as r,
+    ):
+        r.raise_for_status()
+        data = json.loads(_read_bounded(r))
+    content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    return _extract_json(str(content))
+
+
+def _call_chatgpt_oauth(system: str, text: str, cfg: ai_settings.ResolvedAI) -> dict[str, Any]:
+    if not cfg.oauth:
+        raise ValueError("ChatGPT subscription is not connected")
+    oauth = ai_settings.refresh_chatgpt_token(cfg.oauth)
+    token = str(oauth.get("access_token") or "")
+    if not token:
+        raise ValueError("ChatGPT access token is missing")
+    url = (cfg.url or ai_settings.OPENAI_URL).rstrip("/") + "/v1/responses"
+    body = {
+        "model": cfg.model or ai_settings.DEFAULT_MODELS["chatgpt-oauth"],
+        "instructions": system + "\n\nRespond with a single JSON object only.",
+        "input": text,
+        "text": {"format": {"type": "json_object"}},
+    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    with (
+        httpx.Client(
+            transport=transport, timeout=settings.ai_timeout, follow_redirects=False
+        ) as client,
+        client.stream("POST", url, headers=headers, json=body) as r,
+    ):
+        r.raise_for_status()
+        data = json.loads(_read_bounded(r))
+    if isinstance(data.get("output_text"), str) and data["output_text"].strip():
+        return _extract_json(data["output_text"])
+    for item in data.get("output") or []:
+        for part in item.get("content") or []:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                return _extract_json(part["text"])
+    raise ValueError("ChatGPT response contained no JSON text")
+
+
+def _call_gemini(system: str, text: str, cfg: ai_settings.ResolvedAI) -> dict[str, Any]:
+    model = cfg.model or ai_settings.DEFAULT_MODELS["gemini"]
+    base = (cfg.url or ai_settings.GEMINI_URL).rstrip("/")
+    url = f"{base}/v1beta/models/{model}:generateContent"
+    body = {
+        "systemInstruction": {
+            "parts": [{"text": system + "\n\nRespond with a single JSON object only."}]
+        },
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+    }
+    with (
+        httpx.Client(
+            transport=transport, timeout=settings.ai_timeout, follow_redirects=False
+        ) as client,
+        client.stream("POST", url, params={"key": cfg.api_key}, json=body) as r,
+    ):
+        r.raise_for_status()
+        data = json.loads(_read_bounded(r))
+    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+    raw_text = "".join(str(p.get("text") or "") for p in parts if isinstance(p, dict))
+    return _extract_json(raw_text)
+
+
+def _call_ollama(system: str, text: str, cfg: ai_settings.ResolvedAI) -> dict[str, Any]:
+    body = {
+        "model": cfg.model or DEFAULT_OLLAMA_MODEL,
         "stream": False,
         "format": SCHEMA,
         "keep_alive": settings.ai_keep_alive,
@@ -548,7 +649,7 @@ def _call_ollama(system: str, text: str) -> dict[str, Any]:
         httpx.Client(
             transport=transport, timeout=settings.ai_timeout, follow_redirects=False
         ) as client,
-        client.stream("POST", settings.ai_url.rstrip("/") + "/api/chat", json=body) as r,
+        client.stream("POST", cfg.url.rstrip("/") + "/api/chat", json=body) as r,
     ):
         r.raise_for_status()
         data = json.loads(_read_bounded(r))
@@ -558,14 +659,146 @@ def _call_ollama(system: str, text: str) -> dict[str, Any]:
     return out
 
 
+def _call_cli(
+    cli: Literal["claude", "codex"], system: str, text: str, cfg: ai_settings.ResolvedAI
+) -> dict[str, Any]:
+    sys_json = system + "\n\nRespond with a single valid JSON object only. No prose or fences."
+    if cfg.url:
+        headers = {"Content-Type": "application/json"}
+        if cfg.api_key:
+            headers["Authorization"] = f"Bearer {cfg.api_key}"
+        payload = {
+            "cli": cli,
+            "model": cfg.model,
+            "system": sys_json,
+            "prompt": text,
+            "timeout": settings.ai_timeout,
+        }
+        with (
+            httpx.Client(
+                transport=transport, timeout=settings.ai_timeout + 5, follow_redirects=False
+            ) as client,
+            client.stream(
+                "POST", cfg.url.rstrip("/") + "/complete", headers=headers, json=payload
+            ) as r,
+        ):
+            r.raise_for_status()
+            data = json.loads(_read_bounded(r))
+        return _extract_json(str(data.get("text") or ""))
+
+    full = f"{sys_json}\n\n---\n\n{text}"
+    if cli == "claude":
+        cmd = ["claude", "-p", "-"]
+        if cfg.model and cfg.model != "default":
+            cmd += ["--model", cfg.model]
+    else:
+        cmd = ["codex", "exec", "-"]
+        if cfg.model and cfg.model != "default":
+            cmd += ["--model", cfg.model]
+    proc = subprocess.run(
+        cmd,
+        input=full,
+        capture_output=True,
+        text=True,
+        timeout=settings.ai_timeout,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()[:300]
+        raise RuntimeError(f"{cli} CLI exited {proc.returncode}: {detail}")
+    return _extract_json(proc.stdout)
+
+
+def _dispatch(system: str, text: str, cfg: ai_settings.ResolvedAI) -> dict[str, Any]:
+    if not ai_settings.is_active(cfg) or cfg.provider is None:
+        raise ValueError("AI add is not configured")
+    if cfg.provider == "anthropic":
+        return _call_anthropic(system, text, cfg)
+    if cfg.provider == "openai":
+        return _call_openai_chat(
+            system,
+            text,
+            base_url=cfg.url or ai_settings.OPENAI_URL,
+            api_key=cfg.api_key,
+            model=cfg.model or ai_settings.DEFAULT_MODELS["openai"],
+        )
+    if cfg.provider == "chatgpt-oauth":
+        return _call_chatgpt_oauth(system, text, cfg)
+    if cfg.provider == "gemini":
+        return _call_gemini(system, text, cfg)
+    if cfg.provider == "ollama":
+        return _call_ollama(system, text, cfg)
+    if cfg.provider == "openai-compatible":
+        return _call_openai_chat(
+            system, text, base_url=cfg.url, api_key=cfg.api_key, model=cfg.model
+        )
+    if cfg.provider == "claude-cli":
+        return _call_cli("claude", system, text, cfg)
+    if cfg.provider == "codex-cli":
+        return _call_cli("codex", system, text, cfg)
+    raise ValueError(f"unsupported AI provider: {cfg.provider}")
+
+
 def call_model(system: str, text: str) -> dict[str, Any]:
-    """One structured call to the configured AI provider (Anthropic Claude or Ollama)."""
-    kind = provider()
-    if kind == "anthropic":
-        return _call_anthropic(system, text)
-    if kind == "ollama":
-        return _call_ollama(system, text)
-    raise ValueError("AI add is not configured")
+    """One structured call to the environment-configured AI provider (or test stand-in)."""
+    return _dispatch(system, text, ai_settings.resolve(None))
+
+
+def test_connection(
+    session: Session,
+    *,
+    provider_name: str | None = None,
+    model: str | None = None,
+    url: str | None = None,
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    """Run a tiny live round-trip against the configured or draft AI provider."""
+    saved = ai_settings.resolve(session)
+    prov = (provider_name or saved.provider or "").strip()
+    if prov not in ai_settings.PROVIDERS:
+        return {
+            "ok": False,
+            "provider": prov or None,
+            "model": "",
+            "latency_ms": 0,
+            "detail": "Select a provider first.",
+        }
+    cfg = ai_settings.ResolvedAI(
+        enabled=True,
+        provider=prov,  # type: ignore[arg-type]
+        model=(model if model is not None else saved.model).strip()
+        or ai_settings.DEFAULT_MODELS.get(prov, ""),
+        url=(url if url is not None else saved.url).strip(),
+        api_key=(api_key or "").strip() or (saved.api_key if prov == saved.provider else ""),
+        oauth=saved.oauth if prov == "chatgpt-oauth" else None,
+        source=saved.source,
+        host_id=saved.host_id,
+    )
+    t0 = time.monotonic()
+    try:
+        out = _dispatch(
+            'Return JSON: {"title": "Test ok", "body_md": ""}',
+            "Test connection",
+            cfg,
+        )
+        ms = int((time.monotonic() - t0) * 1000)
+        ok = isinstance(out, dict) and bool(out.get("title"))
+        return {
+            "ok": ok,
+            "provider": cfg.provider,
+            "model": cfg.model,
+            "latency_ms": ms,
+            "detail": f"Connected in {ms} ms" if ok else "Model returned empty JSON",
+        }
+    except Exception as exc:  # noqa: BLE001
+        ms = int((time.monotonic() - t0) * 1000)
+        return {
+            "ok": False,
+            "provider": cfg.provider,
+            "model": cfg.model,
+            "latency_ms": ms,
+            "detail": str(exc)[:300],
+        }
 
 
 # --- Deterministic fallback & RRULE salvage -------------------------------------------------
@@ -1008,9 +1241,16 @@ def _worker() -> anyio.CapacityLimiter:
     return _workers[loop]
 
 
+_ORIG_CALL_MODEL = call_model
+
+
 def _run_model(a: Ask) -> tuple[dict[str, Any], bool]:
     try:
-        raw = call_model(prompt(a), a.text)
+        sys_prompt = prompt(a)
+        if call_model is not _ORIG_CALL_MODEL or a.ai_config is None:
+            raw = call_model(sys_prompt, a.text)
+        else:
+            raw = _dispatch(sys_prompt, a.text, a.ai_config)
         parsed = clean(a, raw)
         if parsed.get("title"):
             return parsed, False
