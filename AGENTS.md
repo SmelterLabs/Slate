@@ -40,7 +40,7 @@ The bar for every change: better for the person using the board, the agent using
 - The scheduler and the automation, push and email engines run as asyncio tasks inside the same process.
 - MCP server (`slate-mcp`) in the same package, Python `mcp` SDK, sharing the service layer with REST. A connection lists a five-tool core unless it asks for more.
 - Frontend: Svelte 5 + Vite under `web/`, built in CI into the Docker image and served by FastAPI at `/`. The server is not assumed to have Node; never require a Node build on the host. The board hand-rolls its interactions; adding a UI library is a maintainer decision.
-- The built-in AI add talks to an Ollama server named in settings; with none configured the card stays as typed.
+- The built-in AI add talks to the configured model (`SLATE_AI_API_KEY` for Anthropic Claude, or `SLATE_AI_URL` for an Ollama server); with none configured the switch is hidden.
 - Tests: `pytest` + `httpx` for the API, `hypothesis` for recurrence, Vitest and Playwright for the board.
 
 ## Code ownership

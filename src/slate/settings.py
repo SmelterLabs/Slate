@@ -74,12 +74,16 @@ class Settings(BaseSettings):
     # only not indexed (`has_text` false). Generous, so a real spreadsheet never trips it:
     # the cap exists for a 1 MB file that inflates to 300 MB.
     doc_extract_max_bytes: int = 64 * 1024 * 1024
-    # AI add (service/aiadd.py): an Ollama server Slate asks to fill in a task described in
-    # plain words. Empty = off (the board hides the switch). Typically the host's own local
-    # model, so nothing leaves the host and nothing is billed.
+    # AI add (service/aiadd.py): Claude (Anthropic Messages API) or an Ollama server Slate asks
+    # to turn plain words into a task (list, title, details, owner, dates, recurrence, priority,
+    # tags). Off unless ai_api_key (Anthropic) or ai_url (Ollama) is set; GET /me says `ai_add`
+    # so the board shows the switch only when configured.
+    ai_provider: str = ""  # "anthropic", "ollama", or "" (auto from ai_api_key / ai_url)
+    ai_api_key: str = ""
     ai_url: str = ""
-    ai_model: str = "gemma4:latest"
-    ai_timeout: float = 120.0
+    ai_model: str = ""  # empty = provider default (claude-sonnet-5-5 / gemma4:latest)
+    ai_timeout: float = 60.0
+    ai_keep_alive: str = "60m"
     # Email notifications (service/email.py): any SMTP server. Port 465 is
     # implicit TLS, anything else uses STARTTLS when the server offers it. Empty host = off
     # (the board hides the Email column). `public_url` is the board's address, so a link in

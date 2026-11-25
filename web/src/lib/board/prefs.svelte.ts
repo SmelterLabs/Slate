@@ -143,16 +143,41 @@ export abstract class BoardPrefs extends BoardState {
     for (const key of stale) withStorage((storage) => storage.removeItem(key), undefined);
   }
 
-  /** The list quick add files into in a wide scope: remembered per view. */
+  /** The workspace's default filing list (inbox_list_id when editable, else first non-reference
+   * editable task list in section order). */
+  workspaceInboxList(): string | null {
+    const editable = this.sortedLists.filter((l) => this.levelOn(l.id) === 'edit');
+    const inbox = this.me?.inbox_list_id;
+    if (inbox && editable.some((l) => l.id === inbox)) return inbox;
+    const ordered = this.sections.flatMap((s) => editable.filter((l) => l.section_id === s.id));
+    return ordered.find((l) => !l.reference)?.id ?? ordered[0]?.id ?? editable[0]?.id ?? null;
+  }
+
+  /** Default destination within a scope: inbox list when inside scope, else first work list. */
+  defaultInboxList(scope: Scope): string | null {
+    if (scope.kind === 'list') return scope.id;
+    const candidates = this.sortedLists.filter(
+      (l) =>
+        (scope.kind === 'everything' || l.section_id === scope.id) &&
+        this.levelOn(l.id) === 'edit',
+    );
+    const inbox = this.me?.inbox_list_id;
+    if (inbox && candidates.some((l) => l.id === inbox)) return inbox;
+    const ordered = this.sections.flatMap((s) => candidates.filter((l) => l.section_id === s.id));
+    return ordered.find((l) => !l.reference)?.id ?? ordered[0]?.id ?? candidates[0]?.id ?? null;
+  }
+
+  /** The list quick add files into in a wide scope: remembered per view, else the default list. */
   quickAddList(viewKey: string, scope: Scope): string | null {
     if (scope.kind === 'list') return scope.id;
     const remembered = withStorage((storage) => storage.getItem(QA_KEY + viewKey), null);
     const candidates = this.sortedLists.filter(
-      (l) => scope.kind === 'everything' || l.section_id === scope.id,
+      (l) =>
+        (scope.kind === 'everything' || l.section_id === scope.id) &&
+        this.levelOn(l.id) === 'edit',
     );
     if (remembered && candidates.some((l) => l.id === remembered)) return remembered;
-    const ordered = this.sections.flatMap((s) => candidates.filter((l) => l.section_id === s.id));
-    return ordered[0]?.id ?? candidates[0]?.id ?? null;
+    return this.defaultInboxList(scope);
   }
 
   rememberQuickAddList(viewKey: string, listId: string) {

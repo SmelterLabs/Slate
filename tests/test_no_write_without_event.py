@@ -54,14 +54,18 @@ from slate.service.core import Actor
 
 READS = {
     "slate.service.item_reads": {"comment_dots"},
-    # AI add: context, prompt and the model call read only; `fill` is in INFRASTRUCTURE.
+    # AI add: context, prompt, parsing and provider checks read only; `commit` is in MUTATIONS.
     "slate.service.aiadd": {
-        "ask",
         "call_model",
         "clean",
         "enabled",
+        "fallback_parse",
         "first_sentence",
+        "model_name",
+        "parse_async",
+        "prepare",
         "prompt",
+        "provider",
         "queued",
     },
     "slate.service.connections": {"view", "list_connections"},
@@ -393,9 +397,6 @@ READS = {
 
 # The change path itself and its helpers: not mutations of Slate data on their own.
 INFRASTRUCTURE = {
-    # Writes through items.update_item as Slate's own account (source system, session_ref
-    # ai-add) after the request; tests/test_ai_add.py checks those events.
-    "slate.service.aiadd": {"fill", "fill_later"},
     # Mention hooks run inside the original post or page change. Heartbeat moves only a lease.
     "slate.service.chatwake": {"on_posted", "on_mentioned"},
     "slate.service.turns": {"on_doc_mentioned", "heartbeat", "end", "fold"},
@@ -674,7 +675,12 @@ def _reissue_invitation(db, actor, principal):
 
 MUTATIONS: dict[str, dict[str, Callable]] = {
     "slate.service.aiadd": {
-        "file": lambda db, a, p: aiadd.file(db, a, _list(db, a).id, "Water the plants.", {}),
+        "commit": lambda db, a, p: aiadd.commit(
+            db,
+            a,
+            aiadd.prepare(db, a, _list(db, a).id, "Water the plants.", {}),
+            {"title": "Water the plants", "body_md": ""},
+        ),
     },
     "slate.service.connections": {
         # Issuer at exchange, exact agent at heartbeat/revoke, no supplied session_ref:

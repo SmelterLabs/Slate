@@ -13,6 +13,7 @@
   import EmptyState from '../EmptyState.svelte';
   import Icon from '../Icon.svelte';
   import AgentRules from './AgentRules.svelte';
+  import InboxSetting from './InboxSetting.svelte';
   import MemberAccess from './MemberAccess.svelte';
 
   const HANDLE_PATTERN = '[a-z][a-z0-9_\\-]{1,31}';
@@ -248,6 +249,7 @@
     </form>
   {/if}
 
+  <InboxSetting />
   <AgentRules />
 
   <div class="inbox-tabs" role="tablist">

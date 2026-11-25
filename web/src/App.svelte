@@ -8,6 +8,7 @@
   import { chatChannelOf, chatHref, threadOf } from './lib/chat';
   import { chatPanel } from './lib/chatpanel.svelte';
   import { chatPanelOf, FLASH_MS, flashTitle, windowBadge } from './lib/chatpanel';
+  import AiReceipt from './components/AiReceipt.svelte';
   import ChatPanel from './components/chat/ChatPanel.svelte';
   import { board, scopeKey } from './lib/store.svelte';
   import { checkForNewBuild } from './lib/freshness';
@@ -469,6 +470,7 @@
       {@const NotificationSettings = pages.notifications.component}
       {#if NotificationSettings}<NotificationSettings />{:else}<PageLoad page={pages.notifications} dialog />{/if}
     {/if}
+    {#if !kiosk}<AiReceipt />{/if}
     {#if board.toast}
       <div class="toast" class:soft={!!board.toastAction} role="alert">
         <span class="toast-icon"><Icon name={board.toastAction ? 'info' : 'alert'} size={16} /></span>

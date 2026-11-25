@@ -16,6 +16,18 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 # Agent runtimes and agent apps Slate must never know by name.
 RUNTIMES = re.compile(r"\b(hermes|claude|codex|openclaw|gemini|langchain|crewai)\b", re.I)
+# Never allowed anywhere in src/, even inside built-in AI add provider code.
+STRICT_RUNTIMES = re.compile(
+    r"\b(hermes|openclaw|langchain|crewai|claude\s+code|codex\s+cli)\b", re.I
+)
+# Built-in AI add may name model providers (Anthropic Claude, OpenAI, Gemini, Ollama).
+AI_ADD_FILES = frozenset(
+    {
+        "src/slate/service/aiadd.py",
+        "src/slate/settings.py",
+        "src/slate/api/items.py",
+    }
+)
 
 
 def _files(folder: str, *suffixes: str) -> list[Path]:
@@ -23,12 +35,13 @@ def _files(folder: str, *suffixes: str) -> list[Path]:
 
 
 def test_src_names_no_agent_runtime():
-    hits = [
-        f"{p.relative_to(ROOT)}:{n}: {line.strip()}"
-        for p in _files("src", ".py", ".html", ".js")
-        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
-        if RUNTIMES.search(line)
-    ]
+    hits = []
+    for p in _files("src", ".py", ".html", ".js"):
+        rel = p.relative_to(ROOT).as_posix()
+        pattern = STRICT_RUNTIMES if rel in AI_ADD_FILES else RUNTIMES
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                hits.append(f"{rel}:{n}: {line.strip()}")
     assert not hits, "\n".join(hits)
 
 

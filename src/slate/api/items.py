@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from slate.api.auth import DbSession, ReadAuth, WriteAuth
 from slate.api.events import CURSOR_PATTERN
@@ -26,6 +27,7 @@ from slate.api.schemas import (
     WatchIn,
     When,
 )
+from slate.db import release
 from slate.models import BodyVersion
 from slate.service import (
     activity,
@@ -38,7 +40,7 @@ from slate.service import (
     work,
 )
 from slate.service import brief as brief_svc
-from slate.service.core import event_payload
+from slate.service.core import Actor, event_payload
 
 router = APIRouter(tags=["items"])
 JSON = "application/json"
@@ -184,35 +186,64 @@ def create_item(body: ItemIn, auth: WriteAuth, session: DbSession) -> dict:
 class AiItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    list_id: str
+    list_id: str | None = Field(
+        default=None,
+        description="Starting list id. Omit (or null) to default to the workspace inbox list and "
+        "let AI route to the best matching list.",
+    )
     text: str = Field(min_length=1, max_length=20000, description="The task in plain words")
     defaults: dict[str, Any] = Field(
         default_factory=dict,
         description="Fields the place implies (a column's status, due day, priority, assignee "
         "or tag): any POST /items field but title, body_md, list_id and parent_id",
     )
+    route: bool | None = Field(
+        default=None,
+        description="Whether AI may choose the destination list from the caller's editable lists. "
+        "Defaults to true when list_id is omitted and false when list_id is given.",
+    )
+
+
+def _commit_ai_item(
+    session: DbSession, actor: Actor, ask: aiadd.Ask, parsed: dict[str, Any]
+) -> dict:
+    item = aiadd.commit(session, actor, ask, parsed)
+    return items.views(session, [item])[0]
 
 
 @router.post("/items/ai", status_code=status.HTTP_201_CREATED, response_model=ItemOut)
-def create_item_ai(
-    body: AiItemIn, auth: WriteAuth, session: DbSession, tasks: BackgroundTasks
+async def create_item_ai(
+    body: AiItemIn, auth: WriteAuth, session: DbSession, response: Response
 ) -> dict:
-    """AI add: file exactly one item from plain words (title = the first sentence, description
-    = all of it, plus `defaults`) and return it at once; then the configured Ollama model
-    (`SLATE_AI_URL`, `SLATE_AI_MODEL`) fills in the title, description, assignees, dates,
-    priority, status and tags the words decide, written as Slate's own account (`session_ref`
-    `ai-add`) and seen through the stream. Fields changed before the model answers are left
-    alone. 409 when AI add is off (`GET /me` `ai_add`)."""
+    """AI add: parse plain words with the configured AI model (Anthropic Claude or Ollama) into
+    one task — choosing the list (when routing is enabled), title, description, assignees, dates,
+    recurrence, priority, status and tags — and file it once. Falls back to local parsing in the
+    default list if the model is unreachable or times out (`X-Slate-AI-Fallback: 1`). 409 when AI
+    add is off (`GET /me` `ai_add`)."""
     if not aiadd.enabled():
         raise HTTPException(status.HTTP_409_CONFLICT, "AI add is not set up on this server")
     extra = {k: v for k, v in body.defaults.items() if k not in AI_RESERVED}
     try:
-        ItemIn.model_validate({"title": "x", "list_id": body.list_id, **extra})
+        ItemIn.model_validate({"title": "x", "list_id": body.list_id or "placeholder", **extra})
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
-    item = aiadd.file(session, auth.actor, body.list_id, body.text, extra)
-    tasks.add_task(aiadd.fill_later, aiadd.ask(session, auth.actor, item, body.text))
-    return items.views(session, [item])[0]
+
+    def _prepare() -> aiadd.Ask:
+        ask = aiadd.prepare(session, auth.actor, body.list_id, body.text, extra, route=body.route)
+        release(session)
+        return ask
+
+    ask = await run_in_threadpool(_prepare)
+    parsed, used_fallback = await aiadd.parse_async(ask)
+    actor = (
+        auth.actor
+        if auth.actor.session_ref
+        else Actor(auth.actor.account_id, auth.actor.source, aiadd.SESSION_REF)
+    )
+    view = await run_in_threadpool(_commit_ai_item, session, actor, ask, parsed)
+    if used_fallback:
+        response.headers["X-Slate-AI-Fallback"] = "1"
+    return view
 
 
 AI_RESERVED = frozenset({"title", "body_md", "list_id", "parent_id", "body_note"})

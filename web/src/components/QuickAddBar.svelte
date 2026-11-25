@@ -9,22 +9,27 @@
   import type { Scope } from '../lib/views';
   import AiToggle from './AiToggle.svelte';
 
-  // In a list the target is that list; in wider scopes a picker sits next to the input and
-  // remembers its choice per view.
+  // When AI add is on, the top bar always defaults to Auto (Claude routes across all editable
+  // lists, defaulting to the workspace inbox list) unless you pick a specific list to lock it.
+  // When AI add is off, plain quick add targets the current list or the view's remembered list.
   let { scope, viewKey }: { scope: Scope; viewKey: string } = $props();
 
   const draft = persisted(() => draftKey.quickAdd());
   let busy = $state(false);
   let picked = $state<string | null>(null);
-  // AI add (POST /items/ai): the words go to the model, so no quick-add tokens are read.
+  let aiLocked = $state<string>('');
   const ai = $derived(board.aiAddOn && board.aiReady);
   const parsed = $derived(parseQuickAdd(ai ? '' : draft.value));
-  // "~bills" sends the item to that list, whatever the picker says.
+  // "~bills" sends the item to that list in plain quick add, whatever the picker says.
   const named = $derived(parsed.list ? matchList(parsed.list, Object.values(board.lists)) : null);
   const listId = $derived(named?.id ?? picked ?? board.quickAddList(viewKey, scope));
+  const defaultInboxId = $derived(board.workspaceInboxList());
+  const defaultInboxName = $derived(defaultInboxId ? board.lists[defaultInboxId]?.name ?? 'Todo' : 'Auto');
   // A list with a note says what belongs in it, right where a card is filed.
-  const help = $derived(listId ? noteHelp(board.lists[listId]?.note_md) : null);
-  const choices = $derived(
+  const activeListForHelp = $derived(ai ? (aiLocked || null) : listId);
+  const help = $derived(activeListForHelp ? noteHelp(board.lists[activeListForHelp]?.note_md) : null);
+
+  const plainChoices = $derived(
     scope.kind === 'list'
       ? []
       : board.sections
@@ -32,10 +37,16 @@
           .map((s) => ({ section: s, lists: board.listsOf(s.id).filter((l) => board.levelOn(l.id) === 'edit') }))
           .filter((c) => c.lists.length),
   );
+  const allChoices = $derived(
+    board.sections
+      .map((s) => ({ section: s, lists: board.listsOf(s.id).filter((l) => board.levelOn(l.id) === 'edit') }))
+      .filter((c) => c.lists.length),
+  );
 
   $effect(() => {
     void viewKey;
     picked = null;
+    aiLocked = '';
   });
 
   // A share from the phone's share sheet: the title lands in the box once, the link (and any
@@ -62,9 +73,10 @@
     e.preventDefault();
     if (ai) {
       const text = [draft.value.trim(), share.body ?? ''].filter(Boolean).join('\n\n');
-      if (!text || busy || !listId) return;
+      if (!text || busy) return;
+      const target = aiLocked || null;
       busy = true;
-      if (await board.aiAdd(listId, text)) {
+      if (await board.aiAdd(target, text, {}, { route: !target })) {
         draft.value = '';
         share.body = null;
       }
@@ -82,9 +94,25 @@
   }
 </script>
 
-<form class="quick-add" class:wide={scope.kind !== 'list'} onsubmit={submit}>
+<form class="quick-add" class:wide={ai || scope.kind !== 'list'} onsubmit={submit}>
   <div class="qa-row">
-    {#if scope.kind !== 'list'}
+    {#if ai}
+      <select
+        aria-label="Add to list"
+        value={aiLocked}
+        disabled={busy}
+        onchange={(e) => {
+          aiLocked = e.currentTarget.value;
+        }}
+      >
+        <option value="">Auto ({defaultInboxName})</option>
+        {#each allChoices as c (c.section.id)}
+          <optgroup label={c.section.name}>
+            {#each c.lists as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+          </optgroup>
+        {/each}
+      </select>
+    {:else if scope.kind !== 'list'}
       <select
         aria-label="Add to list"
         value={listId ?? ''}
@@ -93,7 +121,7 @@
           board.rememberQuickAddList(viewKey, picked);
         }}
       >
-        {#each choices as c (c.section.id)}
+        {#each plainChoices as c (c.section.id)}
           <optgroup label={c.section.name}>
             {#each c.lists as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
           </optgroup>
@@ -104,7 +132,7 @@
       id="quick-add"
       aria-label="Quick add"
       placeholder={help ?? (ai
-        ? 'Describe the task: what, who owns it, when… AI fills in the rest   (c)'
+        ? 'Describe the task — AI picks the list, dates, repeats & details   (c)'
         : 'Add an item…  tomorrow 4pm  #tag  !high  @my-agent  ~list  every monday   (c)')}
       bind:value={draft.value}
       bind:this={input}
@@ -112,14 +140,22 @@
     />
     <AiToggle />
   </div>
-  {#if draft.value.trim() || share.body}
+  {#if draft.value.trim() || share.body || busy}
     <div class="qa-preview" aria-live="polite">
       {#if share.body}
         <span class="chip" title={share.body}>+ note: {shareNote}</span>
         <button type="button" class="link small" onclick={() => (share.body = null)}>drop the note</button>
       {/if}
       {#if ai}
-        <span class="chip">✨ AI will set the title, owner, dates and details</span>
+        <span class="chip">
+          {#if busy}
+            ✨ Filing with AI…
+          {:else if aiLocked}
+            ✨ AI will fill in title, owner, dates & repeats in {board.lists[aiLocked]?.name ?? 'list'}
+          {:else}
+            ✨ AI will route to the right list (default {defaultInboxName}) & fill in dates, repeats and details
+          {/if}
+        </span>
       {/if}
       {#if parsed.priority}<span class="chip prio-{parsed.priority}">{priorityLabel(parsed.priority)}</span>{/if}
       {#each parsed.tags as t (t)}<span class="chip">#{t}</span>{/each}

@@ -21,7 +21,7 @@ from slate.api import collaboration
 from slate.api.auth import AdminAuth, DbSession, ReadAuth, WriteAuth
 from slate.models import Account, Token
 from slate.ratelimit import limiter
-from slate.service import access, accounts, aiadd
+from slate.service import access, accounts, aiadd, lists
 from slate.settings import safe_link_schemes, settings
 
 router = APIRouter(tags=["accounts"])
@@ -134,6 +134,10 @@ class MeOut(BaseModel):
     access: MyAccess | None = None
     ai_add: bool = Field(
         default=False, description="AI add is set up (POST /items/ai); the board shows its switch"
+    )
+    inbox_list_id: str | None = Field(
+        default=None,
+        description="Workspace default filing list when the caller can file in it, else null",
     )
     email: bool = Field(
         default=False,
@@ -335,6 +339,8 @@ def my_access(session, account: Account) -> MyAccess:
 def me_view(session, principal: accounts.Principal) -> MeOut:
     """One self-metadata contract for REST and local MCP."""
     token = session.get(Token, principal.token_id)
+    inbox = lists.inbox_list_id(session)
+    visible_inbox = inbox if (inbox and lists.can_file_inbox(session, inbox)) else None
     return MeOut(
         account=AccountOut.model_validate(principal.account),
         scopes=_ordered(principal.scopes),
@@ -342,6 +348,7 @@ def me_view(session, principal: accounts.Principal) -> MeOut:
         prefs=accounts.get_prefs(principal.account),
         access=my_access(session, principal.account),
         ai_add=aiadd.enabled(),
+        inbox_list_id=visible_inbox,
         email=mailer.enabled(),
         link_schemes=safe_link_schemes(settings.link_schemes),
         timezone=settings.timezone,

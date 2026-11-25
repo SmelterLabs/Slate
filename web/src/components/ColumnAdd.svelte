@@ -23,17 +23,22 @@
   const draft = persisted(() => draftKey.newCard(viewKey, group.key));
   let busy = $state(false);
   let picked = $state<string | null>(null);
+  let aiLocked = $state<string>('');
+  const ai = $derived(board.aiAddOn && board.aiReady);
 
   const fixedList = $derived(
     group.drop?.kind === 'list' ? group.drop.listId : scope.kind === 'list' ? scope.id : null,
   );
   const listId = $derived(fixedList ?? picked ?? board.quickAddList(viewKey, scope));
+  const defaultInboxId = $derived(board.workspaceInboxList());
+  const defaultInboxName = $derived(defaultInboxId ? board.lists[defaultInboxId]?.name ?? 'Todo' : 'Auto');
   const choices = $derived(
     fixedList
       ? []
       : board.sections
-          .filter((s) => scope.kind === 'everything' || (scope.kind === 'section' && s.id === scope.id))
-          .map((s) => ({ section: s, lists: board.listsOf(s.id) })),
+          .filter((s) => ai || scope.kind === 'everything' || (scope.kind === 'section' && s.id === scope.id))
+          .map((s) => ({ section: s, lists: board.listsOf(s.id).filter((l) => board.levelOn(l.id) === 'edit') }))
+          .filter((c) => c.lists.length),
   );
 
   function focus(el: HTMLElement) {
@@ -43,25 +48,25 @@
 
   async function submit(e?: Event) {
     e?.preventDefault();
-    if (busy || !listId) return;
-    const defaults = board.columnDefaults(group.drop, listId);
+    if (busy) return;
     if (ai) {
-      // AI add (POST /items/ai): the column's meaning is the starting point; the model's
-      // reading of the words wins where they say otherwise.
       if (!draft.value.trim()) return;
+      const target = fixedList ?? (aiLocked || null);
+      const defaultsList = target ?? defaultInboxId ?? listId;
+      const defaults = defaultsList ? board.columnDefaults(group.drop, defaultsList) : {};
       busy = true;
-      if (await board.aiAdd(listId, draft.value, defaults)) draft.value = '';
+      if (await board.aiAdd(target, draft.value, defaults, { route: !target })) draft.value = '';
       busy = false;
       return;
     }
+    if (!listId) return;
+    const defaults = board.columnDefaults(group.drop, listId);
     const parsed = parseQuickAdd(draft.value);
     if (!parsed.title) return;
     busy = true;
     if (await board.quickAdd(listId, parsed, defaults)) draft.value = '';
     busy = false;
   }
-
-  const ai = $derived(board.aiAddOn && board.aiReady);
 </script>
 
 {#if open}
@@ -70,7 +75,7 @@
       rows={ai ? 3 : 2}
       aria-label="New task in {group.title}"
       placeholder={ai
-        ? 'Describe it: what, who, when. AI fills in the details.'
+        ? 'Describe it: what, who, when, repeats. AI fills in the details.'
         : 'Task name, or type #tag !high @who'}
       bind:value={draft.value}
       readonly={busy}
@@ -87,20 +92,38 @@
     <div class="col-add-foot">
       <AiToggle />
       {#if choices.length}
-        <select
-          aria-label="Add to list"
-          value={listId ?? ''}
-          onchange={(e) => {
-            picked = e.currentTarget.value;
-            board.rememberQuickAddList(viewKey, picked);
-          }}
-        >
-          {#each choices as c (c.section.id)}
-            <optgroup label={c.section.name}>
-              {#each c.lists as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
-            </optgroup>
-          {/each}
-        </select>
+        {#if ai}
+          <select
+            aria-label="Add to list"
+            value={aiLocked}
+            disabled={busy}
+            onchange={(e) => {
+              aiLocked = e.currentTarget.value;
+            }}
+          >
+            <option value="">Auto ({defaultInboxName})</option>
+            {#each choices as c (c.section.id)}
+              <optgroup label={c.section.name}>
+                {#each c.lists as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+              </optgroup>
+            {/each}
+          </select>
+        {:else}
+          <select
+            aria-label="Add to list"
+            value={listId ?? ''}
+            onchange={(e) => {
+              picked = e.currentTarget.value;
+              board.rememberQuickAddList(viewKey, picked);
+            }}
+          >
+            {#each choices as c (c.section.id)}
+              <optgroup label={c.section.name}>
+                {#each c.lists as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+              </optgroup>
+            {/each}
+          </select>
+        {/if}
       {/if}
       <button
         type="button"
@@ -110,7 +133,7 @@
           onclose();
         }}>Cancel</button
       >
-      <button type="submit" class="primary small" disabled={!draft.value.trim() || busy}>Save</button>
+      <button type="submit" class="primary small" disabled={!draft.value.trim() || busy}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   </form>
 {:else}
