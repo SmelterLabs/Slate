@@ -194,8 +194,21 @@ button.ghost:hover {
 .list-head-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+}
+.list-head-left h2 {
+  flex: 0 1 auto;
+}
+.list-count {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 .list-head-center {
   display: flex;
@@ -206,6 +219,7 @@ button.ghost:hover {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  justify-self: end;
   gap: 10px;
   min-width: 0;
 }

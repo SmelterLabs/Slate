@@ -102,6 +102,7 @@
         {title}
         {#if kiosk}<span class="muted view-name">· {active.name}</span>{/if}
       </h2>
+      {#if !inChat}<span class="list-count" title="Tasks currently visible in this view">{shown}</span>{/if}
       {#if scope.kind === 'list' && !isDrawer && board.lists[scope.id]?.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
       {#if isPrivate}<span class="private-chip" title="Private: only owners, admins and people it is shared with"
           ><Icon name="lock" size={12} /> Private</span
@@ -113,7 +114,6 @@
       </div>
     {/if}
     <div class="list-head-right">
-      {#if !inChat}<span class="muted small">{shown} shown</span>{/if}
       {#if scope.kind !== 'everything' && board.canManage && !kiosk}
         {@const target = scope}
         <button class="share-btn" onclick={() => board.openShare(target.kind, target.id)} title="Who can see and change this {target.kind}"
