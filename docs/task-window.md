@@ -369,33 +369,36 @@ selection").
 
 ## One search
 
-`GET /search?q=&limit=` (read scope; `api/search.py`, `service/search.py`; MCP `slate_search`, one
-`search` action, read-only) answers with typed hits: `kind` task | doc | message, `id`, `title`
-(task title, doc title, channel name), `snippet` (plain text around the first match,
-`docs.snippet`), `where` (the task's list; the doc's list, drawer, section or `Workspace`; the
-message's channel as `chat.place` names it, `#Todo`), `at`, plus `list_id` on task and doc hits and
-`channel`/`thread_id` on message hits so the board can open the channel at that thread.
+`GET /search?q=&limit=&kind=&assignee=&list_id=&section_id=&include_closed=&include_archived=`
+(read scope; `api/search.py`, `service/search.py`; MCP `slate_search`, one `search` action,
+read-only) answers with typed hits: `kind` task | doc | message, `id`, `title` (task title, doc
+title, channel name), `snippet` (plain text around the first match, `docs.snippet`), `where` (the
+task's list; the doc's list, drawer, section or `Workspace`; the message's channel as `chat.place`
+names it, `#Todo`), `section` (section name when in one), `at`, `list_id` on task and doc hits,
+`channel`/`thread_id` on message hits, and on task hits `status_name`, `status_kind`,
+`status_color`, `archived`, `assignees` and `matched_in` (`id`, `title`, `body` or `comment`).
 
-- **Three queries, no search index.** Tasks reuse `items.query_items(q=)` (title and body), docs
-  reuse `docs.list_docs(q=)` + `summaries` (title, page text, the text inside files), chat is the
-  one query of its own: a `LIKE` over `messages.body_md` (deleted messages skipped). All three go
-  through the session's read criteria (`access.read_criteria`), so a guest only finds what its
-  shares reach;
-  `tests/test_search.py` checks it.
+- **Three queries, no search index.** Tasks match exact card IDs (with or without `#`, including
+  closed and archived cards), titles, descriptions and comments (hiding workspace-agent comments
+  from guests); docs match exact doc IDs, titles, page text and extracted file text
+  (`docs.list_docs(q=)` + `summaries`); chat is a `LIKE` over `messages.body_md` (deleted messages
+  skipped). All three go through the session's read criteria (`access.read_criteria`), so a guest
+  only finds what its shares reach; `tests/test_search.py` checks it.
 - **Every group matches the same way** (`db.contains`): `ulower(column) LIKE pattern` with a backslash escape.
   `ulower` is Python's `str.lower` registered on each connection (`db._configure_sqlite`), because
   SQLite's `lower()` changes only A-Z; `%` and `_` typed by the caller are literal
   (`db.like_pattern`).
-- **Order and cap.** Tasks first, then docs, then messages (newest first). `limit` (default 30, max
-  200) is shared: each group gets `limit // 3`, and what a short group leaves goes to the next
-  groups in order (`search._share`), so the answer never exceeds `limit` and a flood of chat hits
-  cannot hide the tasks.
-- **Board.** `lib/search.ts` (`shouldSearch`: two or more characters, not a `>`/`#`/`@` search;
-  `searchAll`; `groupHits`, which drops tasks and docs the palette's local index already lists;
-  `hitHref`). The command palette asks the server 150 ms after typing stops, drops a stale answer
-  (the query moved on), and renders the groups Tasks / Docs / Chat under the local matches, on the
-  same keyboard cursor; a task opens in the window, a doc at `#/docs/<id>`, a message at
-  `#/chat/<channel>?thread=<id>`. Scrolling the chat to the exact message is not done.
+- **Order and cap.** Tasks first (exact ID, then open, then closed, then archived; newest updated
+  first within each tier), then docs, then messages (newest first). `limit` (default 30, max 200)
+  is shared across the requested groups: each group gets `limit // len(groups)`, and what a short
+  group leaves goes to the next groups in order (`search._share`).
+- **Board.** A prominent Universal Search pill sits centered in the top bar (`FavoritesBar.svelte`,
+  `#palette-open`, `Ctrl/Cmd+K`); the per-view text filter (`#view-search`, `/`) lives inside the
+  list toolbar's Filter menu. `lib/search.ts` (`shouldSearch`: two or more plain characters or a
+  `#`-prefixed 12-char ID; `buildSearchQuery`; `searchAll`; `groupHits`; `hitHref`). The Universal
+  Search dialog (`CommandPalette.svelte`) offers inline filter chips (`All`/`Tasks`/`Docs`/`Chat`,
+  `Mine`, `Agent`, `Board / List`, `Closed`, `Archived`) and renders distinct closed (check) and
+  archived (box) pills, list/section breadcrumbs, assignees, updated dates and match snippets.
 
 ## Revert from the log
 

@@ -1974,9 +1974,9 @@ Slate's health, for owners and admins: `status` (ok, warn or fail: the worst of 
 
 Scope: `read` · MCP: `slate_search search`
 
-Find `q` in task titles and descriptions, doc titles, page text and the text inside files, and chat messages, in one call. Tasks come first, then docs, then messages, each group sharing `limit` (default 30). Only what you can read; `%` and `_` are literal.
+Find `q` across task IDs, titles, descriptions and comments, doc IDs, titles, page text and file text, and chat messages, in one call. Tasks come first (exact ID, open, closed, then archived), then docs, then messages, each group sharing `limit` (default 30). Only what you can read; `%` and `_` are literal.
 
-- Query: `q`\*, `limit`
+- Query: `q`\*, `limit`, `kind`, `assignee`, `list_id`, `section_id`, `include_closed`, `include_archived`
 - Returns: `200` [SearchOut](#searchout)
 
 ## settings

@@ -148,9 +148,34 @@
     </div>
   </Dropdown>
 
-  <Dropdown title="Filter" id="filter-btn" bind:open={filterOpen} cls="chip-btn {rules ? 'active' : ''}" align="right">
-    {#snippet label()}<Icon name="filter" /> Filter{#if rules}&nbsp;<span class="pill">{rules}</span>{/if}{/snippet}
+  <Dropdown title="Filter" id="filter-btn" bind:open={filterOpen} cls="chip-btn {rules + (board.q.trim() ? 1 : 0) ? 'active' : ''}" align="right">
+    {#snippet label()}<Icon name="filter" /> Filter{#if rules + (board.q.trim() ? 1 : 0)}&nbsp;<span class="pill">{rules + (board.q.trim() ? 1 : 0)}</span>{/if}{/snippet}
     <div class="tb-panel wide">
+      <label class="tb-view-search">
+        <Icon name="search" size={14} />
+        <input
+          id="view-search"
+          type="search"
+          placeholder="Filter cards in this view…  /"
+          aria-label="Filter this view"
+          bind:value={board.q}
+          onkeydown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              filterOpen = false;
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        {#if board.q}
+          <button
+            type="button"
+            class="icon small"
+            aria-label="Clear text filter"
+            onclick={() => (board.q = '')}><Icon name="x" size={12} /></button
+          >
+        {/if}
+      </label>
       <FilterBuilder node={config.filter} onchange={(n) => board.setConfig({ filter: n })} />
     </div>
   </Dropdown>
@@ -165,11 +190,6 @@
   <button class="chip-btn" class:active={meOn} aria-pressed={meOn} title="Only tasks assigned to me" onclick={toggleMe}
     ><Icon name="me" /> Me</button
   >
-
-  <label class="search-box">
-    <Icon name="search" />
-    <input id="view-search" class="search" type="search" placeholder="Search  /" aria-label="Search" bind:value={board.q} />
-  </label>
 
   <!-- float: the panel is taller than most windows; anchored inside the page it stretched the
        scroll height, and closing it made the content jump out from under the next click. -->

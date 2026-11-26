@@ -363,4 +363,4 @@ Find text in tasks, pages and chat.
 
 | Action | Scope | Params | REST | What |
 |---|---|---|---|---|
-| `search` | `read` | `q`\*, `limit` | `GET /search` | find q in tasks (title, description), docs (title, page text, file text) and chat messages at once: typed hits, tasks first, then docs, then messages (newest first); only what you can read; `%` and `_` are literal |
+| `search` | `read` | `q`\*, `limit`, `kind`, `assignee`, `list_id`, `section_id`, `include_closed`, `include_archived` | `GET /search` | find q in tasks (title, description), docs (title, page text, file text) and chat messages at once: typed hits, tasks first, then docs, then messages (newest first); only what you can read; `%` and `_` are literal |
