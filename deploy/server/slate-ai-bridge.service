@@ -1,0 +1,12 @@
+[Unit]
+Description=Slate AI CLI Bridge (host claude / codex subscription bridge for Docker)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/slate/repo/scripts/ai_cli_bridge.py --host 0.0.0.0 --port 11435
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

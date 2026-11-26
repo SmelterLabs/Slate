@@ -28,6 +28,25 @@ MAX_BODY = 256 * 1024
 TOKEN = os.environ.get("SLATE_BRIDGE_TOKEN", "").strip()
 
 
+def _ensure_cli_path() -> None:
+    """Include common user-local CLI install directories (e.g. ~/.local/bin) in PATH."""
+    home = Path.home()
+    extra = [
+        str(home / ".local" / "bin"),
+        str(home / ".npm-global" / "bin"),
+        "/usr/local/bin",
+    ]
+    current = os.environ.get("PATH", "")
+    parts = [p for p in current.split(os.pathsep) if p]
+    for d in extra:
+        if d not in parts and Path(d).is_dir():
+            parts.insert(0, d)
+    os.environ["PATH"] = os.pathsep.join(parts)
+
+
+_ensure_cli_path()
+
+
 def _claude_models() -> list[dict[str, str]]:
     cfg = Path.home() / ".claude.json"
     if not cfg.is_file():
@@ -39,9 +58,9 @@ def _claude_models() -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     seen: set[str] = set()
     found: dict[str, tuple[int, int, int, str]] = {}
-    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2}
+    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2, "fable": 3}
     for m in re.finditer(
-        r"\b(claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
+        r"\b(claude-(sonnet|opus|haiku|fable)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
     ):
         mid = m.group(1).lower()
         if re.search(r"-\d{8}$", mid):
@@ -74,10 +93,10 @@ def _claude_models() -> list[dict[str, str]]:
 def _codex_models() -> list[dict[str, str]]:
     cache = Path.home() / ".codex" / "models_cache.json"
     if not cache.is_file():
-        return [{"id": "", "label": "Default (codex)"}]
+        return []
     try:
         data = json.loads(cache.read_text(encoding="utf-8"))
-        out = [{"id": "", "label": "Default (codex)"}]
+        out: list[dict[str, str]] = []
         seen: set[str] = set()
         for m in data.get("models") or []:
             slug = str(m.get("slug") or "").strip()
@@ -87,7 +106,7 @@ def _codex_models() -> list[dict[str, str]]:
             out.append({"id": slug, "label": str(m.get("display_name") or slug).strip()})
         return out
     except Exception:  # noqa: BLE001
-        return [{"id": "", "label": "Default (codex)"}]
+        return []
 
 
 def _run_cli(cli: str, model: str, system: str, prompt: str, timeout: float) -> str:

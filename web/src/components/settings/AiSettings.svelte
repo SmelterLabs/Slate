@@ -44,6 +44,8 @@
     oauth_account: string | null;
     secret_key_ready: boolean;
     cli_detected: { claude: boolean; codex: boolean };
+    bridge_url?: string | null;
+    status_reason?: string;
     defaults: Record<string, string>;
     backup: AiBackupView;
   }
@@ -382,7 +384,7 @@
           <span class="ai-pill" class:ok={view.active} class:warn={view.enabled && !view.active}>{statusLabel}</span>
         </div>
         <span class="muted small">
-          Turn natural-language quick add into structured tasks with list routing, due dates, and recurrence.
+          {view.status_reason || 'Turn natural-language quick add into structured tasks with list routing, due dates, and recurrence.'}
         </span>
       </div>
       <label class="ai-toggle">
@@ -470,9 +472,13 @@
           <span class="ai-label">Host CLI / Bridge URL</span>
           <div class="ai-cli-status small">
             {#if cliFound(provider)}
-              <span class="ai-connected"><Icon name="check" size={14} /> <code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code> detected on server</span>
+              <span class="ai-connected">
+                <Icon name="check" size={14} />
+                <code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code>
+                {view.bridge_url ? `detected via host bridge (${view.bridge_url})` : 'detected on server'}
+              </span>
             {:else}
-              <span class="muted"><code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code> not on server PATH — if running in Docker, run <code>python3 scripts/ai_cli_bridge.py</code> on the host and enter its URL below.</span>
+              <span class="muted"><code>{provider === 'claude-cli' ? 'claude' : 'codex'}</code> not detected on server or host bridge — run <code>python3 scripts/ai_cli_bridge.py</code> on the host, or enter its Bridge URL below.</span>
             {/if}
           </div>
           <input

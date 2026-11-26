@@ -448,3 +448,10 @@ def test_backup_provider_failover_and_claude_picker_models(
     assert t.status_code == 200
     assert t.json()["ok"] is True
     assert t.json()["provider"] == "ollama"
+
+    # status_reason describes active primary + backup
+    v = client.get(f"{API}/settings/ai", headers=alex).json()
+    assert "anthropic" in v["status_reason"]
+    assert "ollama" in v["status_reason"]
+    # _read_codex_cli_models never returns a fake "Default (codex)" entry when missing
+    assert ai_settings._read_codex_cli_models() == []
