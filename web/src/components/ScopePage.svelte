@@ -13,6 +13,7 @@
   import ViewTabs from './ViewTabs.svelte';
   import EmptyState from './EmptyState.svelte';
   import Icon from './Icon.svelte';
+  import SearchBar from './SearchBar.svelte';
   import ProjectHome from './ProjectHome.svelte';
   import DrawerPage from './docs/DrawerPage.svelte';
   import ChannelView from './chat/ChannelView.svelte';
@@ -24,7 +25,8 @@
     kiosk = false,
     chat = false,
     threadId = null,
-  }: { scope: Scope; kiosk?: boolean; chat?: boolean; threadId?: string | null } = $props();
+    onsearch = () => {},
+  }: { scope: Scope; kiosk?: boolean; chat?: boolean; threadId?: string | null; onsearch?: () => void } = $props();
   /** The Chat tab: this list's or section's chat in place of a view. */
   const inChat = $derived(chat && scope.kind !== 'everything');
 
@@ -94,28 +96,37 @@
   data-scope={scope.kind}
 >
   <div class="list-head">
-    <h2>
-      {#if crumb}<span class="muted crumb">{crumb} /</span>{/if}
-      {title}
-      {#if kiosk}<span class="muted view-name">· {active.name}</span>{/if}
-    </h2>
-    {#if scope.kind === 'list' && !isDrawer && board.lists[scope.id]?.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
-    {#if isPrivate}<span class="private-chip" title="Private: only owners, admins and people it is shared with"
-        ><Icon name="lock" size={12} /> Private</span
-      >{/if}
-    {#if !inChat}<span class="muted small">{shown} shown</span>{/if}
-    {#if scope.kind !== 'everything' && board.canManage && !kiosk}
-      {@const target = scope}
-      <button class="share-btn" onclick={() => board.openShare(target.kind, target.id)} title="Who can see and change this {target.kind}"
-        ><Icon name="share" size={14} /> Share</button
-      >
+    <div class="list-head-left">
+      <h2>
+        {#if crumb}<span class="muted crumb">{crumb} /</span>{/if}
+        {title}
+        {#if kiosk}<span class="muted view-name">· {active.name}</span>{/if}
+      </h2>
+      {#if scope.kind === 'list' && !isDrawer && board.lists[scope.id]?.reference}<span class="ref-mark" data-reference>Reference</span>{/if}
+      {#if isPrivate}<span class="private-chip" title="Private: only owners, admins and people it is shared with"
+          ><Icon name="lock" size={12} /> Private</span
+        >{/if}
+    </div>
+    {#if !kiosk}
+      <div class="list-head-center">
+        <SearchBar {onsearch} />
+      </div>
     {/if}
-    {#if scope.kind === 'list' && openSettings && !kiosk}
-      {@const id = scope.id}
-      <button class="icon" aria-label="List settings" title="List settings" onclick={() => openSettings.call(board, id)}
-        ><Icon name="gear" size={16} /></button
-      >
-    {/if}
+    <div class="list-head-right">
+      {#if !inChat}<span class="muted small">{shown} shown</span>{/if}
+      {#if scope.kind !== 'everything' && board.canManage && !kiosk}
+        {@const target = scope}
+        <button class="share-btn" onclick={() => board.openShare(target.kind, target.id)} title="Who can see and change this {target.kind}"
+          ><Icon name="share" size={14} /> Share</button
+        >
+      {/if}
+      {#if scope.kind === 'list' && openSettings && !kiosk}
+        {@const id = scope.id}
+        <button class="icon" aria-label="List settings" title="List settings" onclick={() => openSettings.call(board, id)}
+          ><Icon name="gear" size={16} /></button
+        >
+      {/if}
+    </div>
   </div>
   <!-- A private section is a project with its own membership: it gets the project home. Open
        sections keep their board at the top. -->

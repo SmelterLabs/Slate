@@ -392,13 +392,15 @@ names it, `#Todo`), `section` (section name when in one), `at`, `list_id` on tas
   first within each tier), then docs, then messages (newest first). `limit` (default 30, max 200)
   is shared across the requested groups: each group gets `limit // len(groups)`, and what a short
   group leaves goes to the next groups in order (`search._share`).
-- **Board.** A prominent Universal Search pill sits centered in the top bar (`FavoritesBar.svelte`,
-  `#palette-open`, `Ctrl/Cmd+K`); the per-view text filter (`#view-search`, `/`) lives inside the
-  list toolbar's Filter menu. `lib/search.ts` (`shouldSearch`: two or more plain characters or a
-  `#`-prefixed 12-char ID; `buildSearchQuery`; `searchAll`; `groupHits`; `hitHref`). The Universal
-  Search dialog (`CommandPalette.svelte`) offers inline filter chips (`All`/`Tasks`/`Docs`/`Chat`,
-  `Mine`, `Agent`, `Board / List`, `Closed`, `Archived`) and renders distinct closed (check) and
-  archived (box) pills, list/section breadcrumbs, assignees, updated dates and match snippets.
+- **Board.** A prominent Universal Search pill (`SearchBar.svelte`, `#palette-open`, `Ctrl/Cmd+K`)
+  sits centered in the page header right below the favorites bar (`ScopePage.svelte` `.list-head`,
+  and `.page-search-row` on non-scope pages); the per-view text filter (`#view-search`, `/`) lives
+  inside the list toolbar's Filter menu. `lib/search.ts` (`shouldSearch`: two or more plain
+  characters or a `#`-prefixed 12-char ID; `buildSearchQuery`; `searchAll`; `groupHits`;
+  `hitHref`). The Universal Search dialog (`CommandPalette.svelte`) offers inline filter chips
+  (`All`/`Tasks`/`Docs`/`Chat`, `Mine`, `Agent`, `Board / List`, `Closed`, `Archived`) and renders
+  distinct closed (check) and archived (box) pills, list/section breadcrumbs, assignees, updated
+  dates and match snippets.
 
 ## Revert from the log
 

@@ -20,6 +20,7 @@
   import Nav from './components/Nav.svelte';
   import NeedsBadge from './components/NeedsBadge.svelte';
   import FavoritesBar from './components/FavoritesBar.svelte';
+  import SearchBar from './components/SearchBar.svelte';
   import AgentChatButton from './components/AgentChatButton.svelte';
   import ScopePage from './components/ScopePage.svelte';
   import ShareDialog from './components/ShareDialog.svelte';
@@ -385,7 +386,7 @@
           ><Icon name="bell" size={18} />{#if inbox.unread}<span class="badge">{inbox.unread > 99 ? '99+' : inbox.unread}</span>{/if}</a
         >
       </header>
-      <FavoritesBar onsearch={() => (palette = true)} />
+      <FavoritesBar />
       <Nav onpick={() => (navOpen = false)} {page} {docId} />
       <button class="scrim" aria-label="Close menu" tabindex="-1" onclick={() => (navOpen = false)}
       ></button>
@@ -401,6 +402,11 @@
       {:else if board.conn === 'reconnecting'}
         <div class="banner" role="status">
           <Icon name="wifiOff" />Reconnecting… other people's changes will catch up when the line is back.
+        </div>
+      {/if}
+      {#if board.ready && !kiosk && page !== null}
+        <div class="page-search-row">
+          <SearchBar onsearch={() => (palette = true)} />
         </div>
       {/if}
       {#if !board.ready}
@@ -454,7 +460,7 @@
       {:else if page === 'inbox' && !kiosk}
         <InboxPage />
       {:else}
-        <ScopePage scope={board.selection} {kiosk} chat={scopeChat && !kiosk} threadId={chatThread} />
+        <ScopePage scope={board.selection} {kiosk} chat={scopeChat && !kiosk} threadId={chatThread} onsearch={() => (palette = true)} />
       {/if}
     </main>
     {#if board.ready && !kiosk && chatPanel.open && page !== 'chat' && !scopeChat}

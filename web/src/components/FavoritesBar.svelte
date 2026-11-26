@@ -9,9 +9,6 @@
   import WaitingBell from './WaitingBell.svelte';
   import Icon from './Icon.svelte';
 
-  let { onsearch = () => {} }: { onsearch?: () => void } = $props();
-  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
-
   const LIST_DRAG = 'application/x-slate-list';
   const FAV_DRAG = 'application/x-slate-favorite';
 
@@ -88,81 +85,66 @@
   }}
   ondrop={dropHere}
 >
-  <div class="favbar-left">
-    <span class="favbar-lead" aria-hidden="true" title="Favorites"><Icon name="star" fill size={13} /></span>
-    {#each chips as chip (chip.fav.id)}
-      <span
-        class="fav-chip"
-        class:active={chip.active}
-        class:dragging={dragging === chip.fav.id}
-        class:drop-before={dropBefore === chip.fav.id && dragging !== chip.fav.id}
-        class:armed={armed === chip.fav.id}
-        data-fav={chip.fav.kind}
-        role="listitem"
-        draggable="true"
-        ondragstart={(e) => {
-          dragging = chip.fav.id;
-          e.dataTransfer?.setData(FAV_DRAG, chip.fav.id);
-          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-        }}
-        ondragend={() => {
-          dragging = null;
-          dropBefore = undefined;
-        }}
-        ondragover={(e) => {
-          // Drop on a chip's right half to land after it.
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const i = chips.findIndex((c) => c.fav.id === chip.fav.id);
-          const after = e.clientX > r.left + r.width / 2;
-          over(e, after ? (chips[i + 1]?.fav.id ?? null) : chip.fav.id);
-        }}
-        ondrop={dropHere}
-        oncontextmenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          armed = armed === chip.fav.id ? null : chip.fav.id;
-        }}
-      >
-        <a
-          class="fav-link"
-          href={chip.href ?? '#'}
-          title={chip.hint}
-          draggable="false"
-          aria-current={chip.active ? 'page' : undefined}
-          onclick={(e) => openChip(e, chip)}
-        >
-          <span class="fav-icon" aria-hidden="true">{chip.icon}</span>
-          <span class="fav-label">{chip.label}</span>
-        </a>
-        <button
-          class="fav-remove"
-          aria-label="Remove {chip.label} from favorites"
-          title="Remove from favorites"
-          onclick={(e) => {
-            e.stopPropagation();
-            armed = null;
-            void board.removeFavorite(chip.fav.id);
-          }}><Icon name="x" size={12} /></button
-        >
-      </span>
-    {:else}
-      <span class="favbar-empty">Star to pin</span>
-    {/each}
-    {#if chips.length && dropBefore === null}<span class="fav-drop-end" aria-hidden="true"></span>{/if}
-  </div>
-  <div class="favbar-center">
-    <button
-      class="universal-search"
-      id="palette-open"
-      type="button"
-      aria-label="Search everything"
-      onclick={onsearch}
+  <span class="favbar-lead" aria-hidden="true" title="Favorites"><Icon name="star" fill size={13} /></span>
+  {#each chips as chip (chip.fav.id)}
+    <span
+      class="fav-chip"
+      class:active={chip.active}
+      class:dragging={dragging === chip.fav.id}
+      class:drop-before={dropBefore === chip.fav.id && dragging !== chip.fav.id}
+      class:armed={armed === chip.fav.id}
+      data-fav={chip.fav.kind}
+      role="listitem"
+      draggable="true"
+      ondragstart={(e) => {
+        dragging = chip.fav.id;
+        e.dataTransfer?.setData(FAV_DRAG, chip.fav.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      }}
+      ondragend={() => {
+        dragging = null;
+        dropBefore = undefined;
+      }}
+      ondragover={(e) => {
+        // Drop on a chip's right half to land after it.
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const i = chips.findIndex((c) => c.fav.id === chip.fav.id);
+        const after = e.clientX > r.left + r.width / 2;
+        over(e, after ? (chips[i + 1]?.fav.id ?? null) : chip.fav.id);
+      }}
+      ondrop={dropHere}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        armed = armed === chip.fav.id ? null : chip.fav.id;
+      }}
     >
-      <Icon name="search" size={15} />
-      <span class="universal-search-text">Search tasks, docs, chat, or #ID…</span>
-      <kbd>{mod} K</kbd>
-    </button>
-  </div>
+      <a
+        class="fav-link"
+        href={chip.href ?? '#'}
+        title={chip.hint}
+        draggable="false"
+        aria-current={chip.active ? 'page' : undefined}
+        onclick={(e) => openChip(e, chip)}
+      >
+        <span class="fav-icon" aria-hidden="true">{chip.icon}</span>
+        <span class="fav-label">{chip.label}</span>
+      </a>
+      <button
+        class="fav-remove"
+        aria-label="Remove {chip.label} from favorites"
+        title="Remove from favorites"
+        onclick={(e) => {
+          e.stopPropagation();
+          armed = null;
+          void board.removeFavorite(chip.fav.id);
+        }}><Icon name="x" size={12} /></button
+      >
+    </span>
+  {:else}
+    <span class="favbar-empty">Star a list, view or task to pin it here, or drag a list in from the left.</span>
+  {/each}
+  {#if chips.length && dropBefore === null}<span class="fav-drop-end" aria-hidden="true"></span>{/if}
   <!-- Desktop: the agents' chat button at the bar's right end (a phone has it in the top bar). -->
   <span class="favbar-end"><WaitingBell /><AgentChatButton /></span>
 </div>
