@@ -72,6 +72,7 @@ READS = {
     },
     "slate.service.ai_settings": {
         "cli_detected",
+        "detected_bridge_url",
         "discover_models",
         "is_active",
         "oauth_start",
@@ -79,6 +80,7 @@ READS = {
         "resolve",
         "secret_key_ready",
         "slot_active",
+        "status_reason",
         "view",
     },
     "slate.service.connections": {"view", "list_connections"},

@@ -64,6 +64,8 @@ class AiSettingsOut(BaseModel):
     oauth_account: str | None
     source: Literal["db", "env", "none"]
     cli_detected: dict[str, bool]
+    bridge_url: str | None = None
+    status_reason: str = ""
     secret_key_ready: bool
     defaults: dict[str, str]
     backup: AiBackupOut

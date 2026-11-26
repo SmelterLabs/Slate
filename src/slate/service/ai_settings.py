@@ -80,6 +80,45 @@ OPENAI_OAUTH_SCOPE = "openid profile email offline_access resource.invoke chatgp
 # Tests swap in an `httpx.MockTransport`; None means real network.
 transport: httpx.BaseTransport | None = None
 
+BRIDGE_CANDIDATES = ("http://host.docker.internal:11435", "http://127.0.0.1:11435")
+_BRIDGE_LOCK = threading.Lock()
+_BRIDGE_CACHE: tuple[float, dict[str, Any]] = (0.0, {"url": None, "claude": False, "codex": False})
+_BRIDGE_TTL = 15.0
+
+
+def _probe_bridge(*, force: bool = False) -> dict[str, Any]:
+    """Check if the optional host CLI bridge (`scripts/ai_cli_bridge.py`) is reachable."""
+    now = time.monotonic()
+    with _BRIDGE_LOCK:
+        ts, cached = _BRIDGE_CACHE
+        if not force and now - ts < _BRIDGE_TTL:
+            return cached
+    found: dict[str, Any] = {"url": None, "claude": False, "codex": False}
+    for base in BRIDGE_CANDIDATES:
+        try:
+            with httpx.Client(transport=transport, timeout=0.8, follow_redirects=False) as client:
+                r = client.get(base + "/health")
+                if r.status_code == 200:
+                    data = r.json()
+                    if isinstance(data, dict) and data.get("ok"):
+                        found = {
+                            "url": base,
+                            "claude": bool(data.get("claude")),
+                            "codex": bool(data.get("codex")),
+                        }
+                        break
+        except Exception:  # noqa: BLE001
+            continue
+    with _BRIDGE_LOCK:
+        globals()["_BRIDGE_CACHE"] = (now, found)
+    return found
+
+
+def detected_bridge_url() -> str | None:
+    """Return the auto-detected host CLI bridge URL, if one is running."""
+    url = _probe_bridge().get("url")
+    return str(url) if url else None
+
 
 @dataclass(frozen=True)
 class ResolvedAI:
@@ -103,9 +142,14 @@ def secret_key_ready() -> bool:
 
 
 def cli_detected() -> dict[str, bool]:
+    local_claude = shutil.which("claude") is not None
+    local_codex = shutil.which("codex") is not None
+    if local_claude and local_codex:
+        return {"claude": True, "codex": True}
+    bridge = _probe_bridge()
     return {
-        "claude": shutil.which("claude") is not None,
-        "codex": shutil.which("codex") is not None,
+        "claude": local_claude or bool(bridge.get("claude")),
+        "codex": local_codex or bool(bridge.get("codex")),
     }
 
 
@@ -230,10 +274,60 @@ def slot_active(cfg: ResolvedAI | None) -> bool:
     if cfg.provider == "chatgpt-oauth":
         return bool(cfg.oauth and (cfg.oauth.get("access_token") or cfg.oauth.get("refresh_token")))
     if cfg.provider == "claude-cli":
-        return bool(cfg.url) or shutil.which("claude") is not None
+        return (
+            bool(cfg.url)
+            or shutil.which("claude") is not None
+            or bool(_probe_bridge().get("claude"))
+        )
     if cfg.provider == "codex-cli":
-        return bool(cfg.url) or shutil.which("codex") is not None
+        return (
+            bool(cfg.url) or shutil.which("codex") is not None or bool(_probe_bridge().get("codex"))
+        )
     return False
+
+
+def _slot_reason(cfg: ResolvedAI | None, label: str) -> str | None:
+    if cfg is None or not cfg.enabled or cfg.provider is None:
+        return f"{label}: select a provider."
+    if cfg.provider in ("anthropic", "openai", "gemini") and not cfg.api_key:
+        return f"{label}: enter an API key and click Save."
+    if cfg.provider in ("ollama", "openai-compatible") and not cfg.url:
+        return f"{label}: enter the server URL and click Save."
+    if cfg.provider == "chatgpt-oauth" and not (
+        cfg.oauth and (cfg.oauth.get("access_token") or cfg.oauth.get("refresh_token"))
+    ):
+        return f"{label}: click Sign in with ChatGPT to connect your account."
+    if cfg.provider == "claude-cli" and not slot_active(cfg):
+        return (
+            f"{label}: claude CLI not detected on server or host bridge — run "
+            "scripts/ai_cli_bridge.py on the host or enter its Bridge URL."
+        )
+    if cfg.provider == "codex-cli" and not slot_active(cfg):
+        return (
+            f"{label}: codex binary not detected on server or host bridge — use Sign in with "
+            "ChatGPT instead, or install codex on the host."
+        )
+    return None
+
+
+def status_reason(cfg: ResolvedAI) -> str:
+    """Plain-English explanation of why AI add is active, off, or needs setup."""
+    if not cfg.enabled:
+        return "AI task creation is turned off."
+    if slot_active(cfg):
+        primary_txt = f"{cfg.provider} ({cfg.model})" if cfg.model else str(cfg.provider)
+        if cfg.backup and cfg.backup.enabled and slot_active(cfg.backup):
+            b_txt = (
+                f"{cfg.backup.provider} ({cfg.backup.model})"
+                if cfg.backup.model
+                else str(cfg.backup.provider)
+            )
+            return f"Primary: {primary_txt} · Backup: {b_txt}"
+        return f"Primary: {primary_txt}"
+    if cfg.backup and slot_active(cfg.backup):
+        p_err = _slot_reason(cfg, "Primary")
+        return f"{p_err} (Using backup: {cfg.backup.provider})"
+    return _slot_reason(cfg, "Primary") or "Select a provider and click Save."
 
 
 def is_active(cfg: ResolvedAI) -> bool:
@@ -285,6 +379,8 @@ def view(session: Session) -> dict[str, Any]:
         **_redacted(cfg),
         "source": cfg.source,
         "cli_detected": cli_detected(),
+        "bridge_url": detected_bridge_url(),
+        "status_reason": status_reason(cfg),
         "secret_key_ready": secret_key_ready(),
         "defaults": dict(DEFAULT_MODELS),
     }
@@ -612,9 +708,9 @@ def _read_claude_cli_models() -> list[dict[str, str]]:
 
     # 1. Exact versioned models referenced in ~/.claude.json (newest first per family).
     found: dict[str, tuple[int, int, int, str]] = {}
-    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2}
+    fam_rank = {"sonnet": 0, "opus": 1, "haiku": 2, "fable": 3}
     for m in re.finditer(
-        r"\b(claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
+        r"\b(claude-(sonnet|opus|haiku|fable)-(\d+)(?:-(\d+))?(?:-\d{8})?)\b", raw, re.I
     ):
         mid = m.group(1).lower()
         # Skip dated snapshots when the clean alias exists; keep clean versioned IDs first.
@@ -653,10 +749,10 @@ def _read_claude_cli_models() -> list[dict[str, str]]:
 def _read_codex_cli_models() -> list[dict[str, str]]:
     cache = Path.home() / ".codex" / "models_cache.json"
     if not cache.is_file():
-        return [{"id": "", "label": "Default (codex)"}]
+        return []
     try:
         data = json.loads(cache.read_text(encoding="utf-8"))
-        out = [{"id": "", "label": "Default (codex)"}]
+        out: list[dict[str, str]] = []
         seen: set[str] = set()
         for m in data.get("models") or []:
             slug = str(m.get("slug") or "").strip()
@@ -666,7 +762,7 @@ def _read_codex_cli_models() -> list[dict[str, str]]:
             out.append({"id": slug, "label": str(m.get("display_name") or slug).strip()})
         return out
     except Exception:  # noqa: BLE001
-        return [{"id": "", "label": "Default (codex)"}]
+        return []
 
 
 def discover_models(
@@ -689,28 +785,45 @@ def discover_models(
 
     try:
         if prov == "claude-cli":
-            if base:
+            bridge = base or (None if shutil.which("claude") else detected_bridge_url())
+            if bridge:
                 with httpx.Client(transport=transport, timeout=8.0) as client:
-                    r = client.get(base.rstrip("/") + "/models", params={"cli": "claude"})
+                    r = client.get(bridge.rstrip("/") + "/models", params={"cli": "claude"})
                     r.raise_for_status()
                     return {"models": r.json().get("models") or _read_claude_cli_models()}
             if shutil.which("claude") is None:
                 return {
                     "models": _read_claude_cli_models(),
-                    "error": "claude CLI not found on server PATH (set Bridge URL for Docker).",
+                    "error": (
+                        "claude CLI not detected on server or host bridge "
+                        "(run scripts/ai_cli_bridge.py on the host)."
+                    ),
                 }
             return {"models": _read_claude_cli_models()}
 
         if prov == "codex-cli":
-            if base:
+            bridge = base or (None if shutil.which("codex") else detected_bridge_url())
+            if bridge:
                 with httpx.Client(transport=transport, timeout=8.0) as client:
-                    r = client.get(base.rstrip("/") + "/models", params={"cli": "codex"})
+                    r = client.get(bridge.rstrip("/") + "/models", params={"cli": "codex"})
                     r.raise_for_status()
-                    return {"models": r.json().get("models") or _read_codex_cli_models()}
+                    models = r.json().get("models") or _read_codex_cli_models()
+                    if not models:
+                        return {
+                            "models": [],
+                            "error": (
+                                "codex is not installed on the host bridge — "
+                                "use Sign in with ChatGPT instead, or install codex on the host."
+                            ),
+                        }
+                    return {"models": models}
             if shutil.which("codex") is None:
                 return {
                     "models": _read_codex_cli_models(),
-                    "error": "codex binary not found on server PATH (set Bridge URL for Docker).",
+                    "error": (
+                        "codex binary not detected on server or host bridge — "
+                        "use Sign in with ChatGPT instead, or install codex on the host."
+                    ),
                 }
             return {"models": _read_codex_cli_models()}
 
@@ -752,7 +865,7 @@ def discover_models(
                 for m in items
                 if isinstance(m, dict)
                 and isinstance(m.get("id"), str)
-                and re.match(r"^(gpt-|o[1345]-|o[1345]$|chatgpt-)", m["id"], re.I)
+                and re.match(r"^(gpt-|o[1-9]|codex-|chatgpt-)", m["id"], re.I)
                 and not re.search(
                     r"audio|realtime|transcribe|tts|image|search|embed", m["id"], re.I
                 )

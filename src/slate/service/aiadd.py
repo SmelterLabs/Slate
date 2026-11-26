@@ -663,7 +663,8 @@ def _call_cli(
     cli: Literal["claude", "codex"], system: str, text: str, cfg: ai_settings.ResolvedAI
 ) -> dict[str, Any]:
     sys_json = system + "\n\nRespond with a single valid JSON object only. No prose or fences."
-    if cfg.url:
+    bridge_url = cfg.url or ai_settings.detected_bridge_url()
+    if bridge_url:
         headers = {"Content-Type": "application/json"}
         if cfg.api_key:
             headers["Authorization"] = f"Bearer {cfg.api_key}"
@@ -679,7 +680,7 @@ def _call_cli(
                 transport=transport, timeout=settings.ai_timeout + 5, follow_redirects=False
             ) as client,
             client.stream(
-                "POST", cfg.url.rstrip("/") + "/complete", headers=headers, json=payload
+                "POST", bridge_url.rstrip("/") + "/complete", headers=headers, json=payload
             ) as r,
         ):
             r.raise_for_status()

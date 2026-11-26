@@ -2533,7 +2533,7 @@ The fields of each response above (see `/openapi.json` for types).
 
 ### AiSettingsOut
 
-`enabled`: boolean, `active`: boolean, `provider`: `claude-cli` \| `codex-cli` \| `chatgpt-oauth` \| `anthropic` \| `openai` \| `gemini` \| `ollama` \| `openai-compatible`?, `model`: string, `url`: string, `has_api_key`: boolean, `oauth_connected`: boolean, `oauth_account`: string?, `source`: `db` \| `env` \| `none`, `cli_detected`: object, `secret_key_ready`: boolean, `defaults`: object, `backup`: AiBackupOut
+`enabled`: boolean, `active`: boolean, `provider`: `claude-cli` \| `codex-cli` \| `chatgpt-oauth` \| `anthropic` \| `openai` \| `gemini` \| `ollama` \| `openai-compatible`?, `model`: string, `url`: string, `has_api_key`: boolean, `oauth_connected`: boolean, `oauth_account`: string?, `source`: `db` \| `env` \| `none`, `cli_detected`: object, `bridge_url`: string?, `status_reason`: string, `secret_key_ready`: boolean, `defaults`: object, `backup`: AiBackupOut
 
 ### AiModelsOut
 
