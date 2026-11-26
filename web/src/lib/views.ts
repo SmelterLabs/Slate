@@ -837,7 +837,13 @@ export function runView(all: Iterable<Item>, scope: Scope, config: ViewConfig, c
     if (!inScope(item, scope, ctx.lists) &&
         !(sourceLists?.has(item.list_id) && alsoShowMatches(item, everyone, ctx.me))) continue;
     if (!config.show_closed && isClosed(item) && finishedBefore(item, today)) continue;
-    if (q && !item.title.toLowerCase().includes(q) && !item.body_md.toLowerCase().includes(q)) continue;
+    const qId = q.startsWith('#') ? q.slice(1) : q;
+    if (
+      q &&
+      !item.title.toLowerCase().includes(q) &&
+      !item.body_md.toLowerCase().includes(q) &&
+      (!qId || !item.id.toLowerCase().includes(qId))
+    ) continue;
     if (!matchFilter(item, config.filter, ctx, today)) continue;
     shown.push(item);
   }

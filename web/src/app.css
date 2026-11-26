@@ -2624,17 +2624,91 @@ a.nav-heading,
 .favbar {
   grid-column: 2;
   grid-row: 2;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 440px) minmax(0, 1fr);
   align-items: center;
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   white-space: nowrap;
-  scrollbar-width: thin;
   min-height: 52px;
   padding: 6px 16px;
-  gap: 4px;
+  gap: 12px;
   background: var(--bg);
+  font-size: var(--fs-sm);
+}
+.favbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.favbar-left::-webkit-scrollbar {
+  display: none;
+}
+.favbar-center {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+.universal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 440px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong, var(--line));
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease, color 120ms ease;
+}
+.universal-search:hover,
+.universal-search:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+.universal-search-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.universal-search kbd {
+  flex: none;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.tb-view-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+}
+.tb-view-search:focus-within {
+  border-color: var(--accent);
+}
+.tb-view-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
   font-size: var(--fs-sm);
 }
 .favbar-lead {

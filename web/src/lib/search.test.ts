@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHits, hitHref, shouldSearch, type SearchHit } from './search';
+import { buildSearchQuery, groupHits, hitHref, shouldSearch, type SearchHit } from './search';
 
 const hit = (kind: SearchHit['kind'], id: string, extra: Partial<SearchHit> = {}): SearchHit => ({
   kind,
@@ -12,13 +12,27 @@ const hit = (kind: SearchHit['kind'], id: string, extra: Partial<SearchHit> = {}
 });
 
 describe('shouldSearch', () => {
-  it('asks the server for two or more plain characters only', () => {
+  it('asks the server for two or more plain characters or a #-prefixed 12-char id', () => {
     expect(shouldSearch('a')).toBe(false);
     expect(shouldSearch(' ab ')).toBe(true);
     expect(shouldSearch('>inbox')).toBe(false);
     expect(shouldSearch('#tag')).toBe(false);
+    expect(shouldSearch('#Ab12Cd34Ef56')).toBe(true);
     expect(shouldSearch('@alex')).toBe(false);
     expect(shouldSearch('')).toBe(false);
+  });
+});
+
+describe('buildSearchQuery', () => {
+  it('serializes filters for /search', () => {
+    expect(buildSearchQuery('hello', {}, 30)).toBe('q=hello&limit=30');
+    expect(
+      buildSearchQuery(
+        'beacon',
+        { kind: 'task', assignee: 'my-agent', list_id: 'L1', include_closed: false, include_archived: true },
+        20,
+      ),
+    ).toBe('q=beacon&limit=20&kind=task&assignee=my-agent&list_id=L1&include_closed=false&include_archived=true');
   });
 });
 

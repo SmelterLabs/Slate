@@ -328,7 +328,14 @@
         if (board.openId ?? board.focusId) void board.toggleComplete((board.openId ?? board.focusId)!);
         return;
       case '/':
-        return focus('view-search');
+        e.preventDefault();
+        if (document.getElementById('view-search')) {
+          document.getElementById('view-search')?.focus();
+        } else {
+          document.getElementById('filter-btn')?.click();
+          setTimeout(() => document.getElementById('view-search')?.focus(), 20);
+        }
+        return;
       case 'c':
         return focus('quick-add');
       case 'b':
@@ -378,8 +385,8 @@
           ><Icon name="bell" size={18} />{#if inbox.unread}<span class="badge">{inbox.unread > 99 ? '99+' : inbox.unread}</span>{/if}</a
         >
       </header>
-      <FavoritesBar />
-      <Nav onpick={() => (navOpen = false)} onsearch={() => (palette = true)} {page} {docId} />
+      <FavoritesBar onsearch={() => (palette = true)} />
+      <Nav onpick={() => (navOpen = false)} {page} {docId} />
       <button class="scrim" aria-label="Close menu" tabindex="-1" onclick={() => (navOpen = false)}
       ></button>
     {/if}

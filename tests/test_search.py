@@ -173,3 +173,91 @@ def test_percent_and_underscore_are_literal_for_tasks_and_docs_too(client, alex,
         assert got == {hit["id"], doc["id"]}, q
         items = client.get(f"{API}/items", params={"q": q}, headers=alex).json()
         assert [i["id"] for i in items] == [hit["id"]], q
+
+
+def test_search_finds_card_by_id_including_closed_and_archived(client, alex, todo):
+    item = _item(client, alex, todo["id"], "Silent failure")
+    done_status = next(s for s in todo["statuses"] if s["kind"] == "done")
+    client.patch(f"{API}/items/{item['id']}", json={"status": done_status["id"]}, headers=alex)
+    for q in (item["id"], f"#{item['id']}", item["id"].lower()):
+        hits = _search(client, alex, q)
+        assert len(hits) == 1 and hits[0]["id"] == item["id"], q
+        assert hits[0]["matched_in"] == "id"
+        assert hits[0]["status_kind"] == "done"
+        assert hits[0]["status_name"] == done_status["name"]
+        assert hits[0]["archived"] is False
+
+    # Even after archiving, an exact ID search still finds it and marks archived=True.
+    client.post(f"{API}/items/{item['id']}/archive", headers=alex)
+    hits = _search(client, alex, f"#{item['id']}")
+    assert len(hits) == 1 and hits[0]["id"] == item["id"]
+    assert hits[0]["archived"] is True
+
+
+def test_search_finds_task_comments_and_respects_guest_agent_boundary(
+    client, alex, todo, make_account
+):
+    item = _item(client, alex, todo["id"], "Server maintenance")
+    client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "Rotated the setup-token on host"},
+        headers=alex,
+    )
+    hits = _search(client, alex, "setup-token")
+    assert len(hits) == 1
+    assert hits[0]["id"] == item["id"]
+    assert hits[0]["matched_in"] == "comment"
+    assert "setup-token" in (hits[0]["snippet"] or "")
+
+    # A workspace agent's comment must not leak to a guest through comment search.
+    _, agent_h = make_account("my-agent")
+    client.post(
+        f"{API}/items/{item['id']}/comments",
+        json={"body_md": "Internal agent diagnostic xyzzy"},
+        headers=agent_h,
+    )
+    guest = client.post(
+        f"{API}/accounts",
+        json={"handle": "guest", "display_name": "Guest", "kind": "person", "role": "guest"},
+        headers=alex,
+    ).json()
+    tok = client.post(
+        f"{API}/accounts/{guest['id']}/tokens", json={"scopes": ["read"]}, headers=alex
+    ).json()
+    gh = {"Authorization": f"Bearer {tok['token']}"}
+    share(client, alex, guest["id"], "list", todo["id"], "view")
+    assert _search(client, gh, "setup-token")[0]["id"] == item["id"]
+    assert _search(client, gh, "xyzzy") == []
+
+
+def test_search_filters_and_ranks_open_before_closed_before_archived(
+    client, alex, todo, make_account
+):
+    agent, _ = make_account("my-agent")
+    done_status = next(s for s in todo["statuses"] if s["kind"] == "done")
+    archived_item = _item(client, alex, todo["id"], "Beacon archived")
+    client.post(f"{API}/items/{archived_item['id']}/archive", headers=alex)
+    closed_item = _item(client, alex, todo["id"], "Beacon closed", assignees=["my-agent"])
+    client.patch(
+        f"{API}/items/{closed_item['id']}", json={"status": done_status["id"]}, headers=alex
+    )
+    open_item = _item(client, alex, todo["id"], "Beacon open", assignees=["alex"])
+    _doc(client, alex, title="Beacon doc", list_id=todo["id"])
+    _say(client, alex, f"list:{todo['id']}", "Beacon chat message")
+
+    # With include_archived=true, open comes before closed, which comes before archived.
+    task_hits = _search(client, alex, "Beacon", kind="task", include_archived=True)
+    assert [h["id"] for h in task_hits] == [open_item["id"], closed_item["id"], archived_item["id"]]
+    assert [h["archived"] for h in task_hits] == [False, False, True]
+    assert task_hits[0]["section"] == "Personal"
+    assert task_hits[1]["assignees"] == [agent["id"]]
+
+    # Filter by assignee, kind, and include_closed=false.
+    by_agent = _search(client, alex, "Beacon", assignee="my-agent", include_archived=True)
+    assert [h["id"] for h in by_agent] == [closed_item["id"]]
+    open_only = _search(client, alex, "Beacon", kind="task", include_closed=False)
+    assert [h["id"] for h in open_only] == [open_item["id"]]
+    docs_only = _search(client, alex, "Beacon", kind="doc")
+    assert [h["kind"] for h in docs_only] == ["doc"]
+    chat_only = _search(client, alex, "Beacon", kind="message")
+    assert [h["kind"] for h in chat_only] == ["message"]

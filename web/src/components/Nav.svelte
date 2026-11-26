@@ -31,11 +31,9 @@
   /** Called when a link is picked: the phone nav closes even if the list did not change. */
   let {
     onpick = () => {},
-    onsearch = () => {},
     page = null,
     docId = null,
-  }: { onpick?: () => void; onsearch?: () => void; page?: Page | null; docId?: string | null } = $props();
-  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+  }: { onpick?: () => void; page?: Page | null; docId?: string | null } = $props();
 
   import { COOKIE_SESSION, moreDestination } from '../lib/collaboration';
   import { shortDate } from '../lib/format';
@@ -361,16 +359,6 @@
     {/if}
     <span class="conn-dot conn-{board.conn}" title={board.conn === 'live' ? 'Live' : 'Reconnecting'}></span>
   </div>
-  <button
-    class="nav-search"
-    id="palette-open"
-    onclick={() => {
-      onpick();
-      onsearch();
-    }}
-  >
-    <Icon name="search" size={15} /><span class="grow">Search</span><kbd>{mod} K</kbd>
-  </button>
   <a class="nav-item" href="#/home" onclick={onpick} class:active={page === 'home'}>
     <span class="nav-label"><Icon name="target" size={15} /><span>My Work</span></span>
     <!-- Needs you: the same number as the pill, the window title and the app icon. -->
