@@ -420,6 +420,23 @@ def add_comment(
             _answered(session, cx, item, actor.account_id)
         elif target is not None:
             _assign(cx, comment, target, ask=ask is not None)
+            if (
+                ask is None
+                and item.waiting_on_account_id == actor.account_id
+                and session.scalar(
+                    select(Comment.id)
+                    .where(
+                        Comment.item_id == item.id,
+                        Comment.author_id == target.id,
+                        Comment.assignee_id == actor.account_id,
+                        Comment.ask_json.is_not(None),
+                        Comment.resolved_at.is_(None),
+                    )
+                    .limit(1)
+                )
+                is not None
+            ):
+                _answered(session, cx, item, actor.account_id)
     return comment
 
 
