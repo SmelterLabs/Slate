@@ -413,7 +413,7 @@ def report(
                 work._holding(session, actor, item, run_id)
             if not _finishing:
                 finished = None  # only the fenced finish may settle this execution
-        if claim:
+        if state == "working":
             session.refresh(item)  # under the write lock: see a racing claim's commit
             _check_claim(session, item, actor.account_id)
         before = flag_of(item)

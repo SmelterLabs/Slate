@@ -223,6 +223,37 @@ describe('pendingAgent', () => {
     expect(pendingAgent({ agent: null }, asks, isAgent)).toEqual({ id: 'agent2', picked: false, since: '2026-10-26T20:03:00Z' });
     expect(pendingAgent({ agent: null }, asks.slice(0, 1), isAgent)).toBeNull();
   });
+
+  it('prefers a newer open Ask for another agent over a lease-less working badge', () => {
+    const working = { state: 'working', by: 'agent', at: '2026-10-26T20:01:00Z' } as AgentFlag;
+    const asks = [
+      { id: 'a2', assignee_id: 'agent2', resolved_at: null, created_at: '2026-10-26T20:03:00Z' },
+    ];
+    // No active work_started for agent -> show agent2 as pending, not agent as typing.
+    expect(pendingAgent({ agent: working }, asks, isAgent, [])).toEqual({
+      id: 'agent2',
+      picked: false,
+      since: '2026-10-26T20:03:00Z',
+    });
+    // With an active leased run for agent, keep agent picked so Stop remains available.
+    const running = [
+      { id: '01', type: 'item.work_started', actor_id: 'agent', after: {} },
+    ] as unknown as import('./types').SlateEvent[];
+    expect(pendingAgent({ agent: working }, asks, isAgent, running)).toEqual({
+      id: 'agent',
+      picked: true,
+    });
+    // Once that earlier run finished, a leftover working badge yields to the newer Ask.
+    const finished = [
+      { id: '01', type: 'item.work_started', actor_id: 'agent', after: {} },
+      { id: '02', type: 'item.work_finished', actor_id: 'agent', after: {} },
+    ] as unknown as import('./types').SlateEvent[];
+    expect(pendingAgent({ agent: working }, asks, isAgent, finished)).toEqual({
+      id: 'agent2',
+      picked: false,
+      since: '2026-10-26T20:03:00Z',
+    });
+  });
 });
 
 describe('unpickedAsk', () => {

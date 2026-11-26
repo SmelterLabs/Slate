@@ -167,16 +167,23 @@ export function pendingAgent(
   isAgent: (id: string) => boolean,
   events: SlateEvent[] = [],
 ): { id: string; picked: boolean; since?: string } | null {
-  if (item.agent?.state === 'working') return { id: item.agent.by, picked: true };
   const assignments = new Map<string, string>();
   const settled = new Map<string, string>();
+  const started = new Map<string, string>();
+  const finished = new Map<string, string>();
   for (const event of events) {
     if (event.type === 'comment.assigned' && event.subject_id && event.id > (assignments.get(event.subject_id) ?? '')) {
       assignments.set(event.subject_id, event.id);
     }
-    const through = (event.after as { through?: string } | null)?.through;
-    if (event.type === 'item.work_finished' && typeof through === 'string' && through > (settled.get(event.actor_id) ?? '')) {
-      settled.set(event.actor_id, through);
+    if (event.type === 'item.work_started' && event.actor_id && event.id > (started.get(event.actor_id) ?? '')) {
+      started.set(event.actor_id, event.id);
+    }
+    if (event.type === 'item.work_finished' && event.actor_id) {
+      if (event.id > (finished.get(event.actor_id) ?? '')) finished.set(event.actor_id, event.id);
+      const through = (event.after as { through?: string } | null)?.through;
+      if (typeof through === 'string' && through > (settled.get(event.actor_id) ?? '')) {
+        settled.set(event.actor_id, through);
+      }
     }
   }
   const open = comments
@@ -184,6 +191,14 @@ export function pendingAgent(
     .filter((c) => !c.id || !assignments.has(c.id) || !settled.has(c.assignee_id!) || assignments.get(c.id)! > settled.get(c.assignee_id!)!)
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
     .at(-1);
+  if (item.agent?.state === 'working') {
+    const by = item.agent.by;
+    const activeRun = (started.get(by) ?? '') > (finished.get(by) ?? '');
+    if (open && open.assignee_id !== by && !activeRun && (!item.agent.at || open.created_at > item.agent.at)) {
+      return { id: open.assignee_id!, picked: false, since: open.created_at };
+    }
+    return { id: by, picked: true };
+  }
   return open ? { id: open.assignee_id!, picked: false, since: open.created_at } : null;
 }
 

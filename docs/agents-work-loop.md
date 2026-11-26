@@ -90,9 +90,12 @@ clients, the skill), `docs/chat.md` (chat), `docs/notifications.md` (push).
   are event-backed.
 - **Interactive claim** (`report(..., claim=True)`, REST or MCP `slate_item report` with
   `state: working` and `claim: true`): an atomic
-  take. Inside `apply_change()` (so under the write lock) it refreshes the item and raises
-  `Conflict` (409) when another account's flag is younger than `reports.CLAIM_FRESH` (6 h, the age
-  the board dims a badge); it implies `assign_me`. Two agents racing for one item cannot both win.
+  take. Inside `apply_change()` (so under the write lock) every `state: working` report refreshes
+  the item and raises `Conflict` (409) when another account's flag is younger than
+  `reports.CLAIM_FRESH` (6 h, the age the board dims a badge), unless the caller has an open Ask
+  over a parked `blocked`/`review` flag; `claim: true` also implies `assign_me`. Two agents racing
+  for one item cannot both win, and an unassigned agent cannot overwrite another agent's fresh badge
+  by reporting `working`.
 - **Check-in queue cap:** `queue_limit` (default 50, 0 = news only) and `fields` (as on `/items`);
   `queue_total` says how many there are. `checkin.queue()` sorts on `(id, priority, due_at)` rows
   and loads only the returned items, and the route serialises with `api.checkin.dump()` (trims the
